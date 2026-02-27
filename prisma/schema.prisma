@@ -1,0 +1,171 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────
+
+enum OrgType {
+  FOUNDER
+  BUSINESS
+  AGENCY
+}
+
+enum OrgRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum AppStatus {
+  PENDING
+  FILLING
+  REVIEW_REQUIRED
+  APPROVED
+  SUBMITTED
+  FAILED
+}
+
+enum Plan {
+  FREE_TRIAL
+  PRO
+  BUSINESS
+}
+
+// ─── Core Models ──────────────────────────────────────────
+
+model User {
+  id              String               @id @default(cuid())
+  supabaseId      String               @unique
+  email           String               @unique
+  phoneNumber     String?
+  whatsappOptIn   Boolean              @default(false)
+  whatsappOptInAt DateTime?
+  memberships     OrganisationMember[]
+  notifications   NotificationLog[]
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+}
+
+model Organisation {
+  id           String               @id @default(cuid())
+  name         String
+  type         OrgType              @default(FOUNDER)
+  plan         Plan                 @default(FREE_TRIAL)
+  stripeId     String?
+  members      OrganisationMember[]
+  profiles     BusinessProfile[]
+  applications Application[]
+  usage        Usage[]
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+}
+
+model OrganisationMember {
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  role           OrgRole      @default(MEMBER)
+  createdAt      DateTime     @default(now())
+
+  @@unique([userId, organisationId])
+  @@index([organisationId])
+}
+
+// ─── Business Data ────────────────────────────────────────
+
+model BusinessProfile {
+  id                 String        @id @default(cuid())
+  organisationId     String
+  organisation       Organisation  @relation(fields: [organisationId], references: [id])
+  businessName       String
+  registrationNumber String?
+  sector             String
+  missionStatement   String        @db.Text
+  description        String        @db.Text
+  location           String
+  employeeCount      Int?
+  annualRevenue      Float?
+  fundingMin         Float         @default(0)
+  fundingMax         Float         @default(0)
+  fundingPurposes    String[]
+  fundingDetails     String?       @db.Text
+  previousGrants     String?       @db.Text
+  documents          Document[]
+  applications       Application[]
+  completionScore    Int           @default(0)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+}
+
+model Document {
+  id        String          @id @default(cuid())
+  profileId String
+  profile   BusinessProfile @relation(fields: [profileId], references: [id])
+  name      String
+  url       String
+  type      String
+  size      Int
+  createdAt DateTime        @default(now())
+}
+
+model Grant {
+  id             String        @id @default(cuid())
+  name           String
+  funder         String
+  amount         Float?
+  deadline       DateTime?
+  applicationUrl String
+  eligibility    String        @db.Text
+  sectors        String[]
+  regions        String[]
+  applications   Application[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+}
+
+model Application {
+  id             String          @id @default(cuid())
+  organisationId String
+  organisation   Organisation    @relation(fields: [organisationId], references: [id])
+  createdById    String
+  grantId        String
+  grant          Grant           @relation(fields: [grantId], references: [id])
+  profileId      String
+  profile        BusinessProfile @relation(fields: [profileId], references: [id])
+  status         AppStatus       @default(PENDING)
+  submittedAt    DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([organisationId])
+}
+
+model Usage {
+  id             String       @id @default(cuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  type           String
+  units          Int
+  createdAt      DateTime     @default(now())
+
+  @@index([organisationId])
+}
+
+model NotificationLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  channel   String
+  type      String
+  status    String
+  error     String?
+  createdAt DateTime @default(now())
+}
