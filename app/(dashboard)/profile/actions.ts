@@ -57,15 +57,23 @@ async function getOrCreateProfile(organisationId: string) {
     .maybeSingle();
 
   if (existing) {
+    const rawDocs =
+      (existing as Record<string, unknown>).Document ??
+      (existing as Record<string, unknown>).document ??
+      (existing as Record<string, unknown>).documents ??
+      [];
+    const documents = Array.isArray(rawDocs) ? rawDocs : [];
     return {
       ...existing,
-      documents: existing.Document ?? [],
+      documents,
     };
   }
 
+  const id = crypto.randomUUID();
   const { data: created, error } = await supabase
     .from("BusinessProfile")
     .insert({
+      id,
       organisationId,
       businessName: "",
       sector: "",
@@ -84,9 +92,15 @@ async function getOrCreateProfile(organisationId: string) {
     throw new Error(error?.message ?? "Failed to create profile");
   }
 
+  const rawDocs =
+    (created as Record<string, unknown>).Document ??
+    (created as Record<string, unknown>).document ??
+    (created as Record<string, unknown>).documents ??
+    [];
+  const documents = Array.isArray(rawDocs) ? rawDocs : [];
   return {
     ...created,
-    documents: created.Document ?? [],
+    documents,
   };
 }
 

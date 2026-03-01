@@ -21,33 +21,34 @@ export async function getCurrentUser() {
     .single();
 
   if (!userError && userRow) {
-    const memberships = (userRow.OrganisationMember ?? []) as Array<{
+    const rawMemberships =
+      (userRow as Record<string, unknown>).OrganisationMember ??
+      (userRow as Record<string, unknown>).organisation_member ??
+      [];
+    const memberships = (Array.isArray(rawMemberships) ? rawMemberships : []) as Array<{
       id: string;
       userId: string;
       organisationId: string;
       role: string;
       createdAt: string;
-      Organisation: {
-        id: string;
-        name: string;
-        type: string;
-        plan: string;
-        stripeId: string | null;
-        createdAt: string;
-        updatedAt: string;
-        BusinessProfile: unknown[];
-      };
+      Organisation?: { id: string; name: string; type: string; plan: string; stripeId: string | null; createdAt: string; updatedAt: string; BusinessProfile?: unknown[] };
+      organisation?: { id: string; name: string; type: string; plan: string; stripeId: string | null; createdAt: string; updatedAt: string; business_profile?: unknown[] };
     }>;
     return {
       ...userRow,
       memberships: memberships
-        .map((m) => ({
-          ...m,
-          organisation: {
-            ...m.Organisation,
-            profiles: m.Organisation?.BusinessProfile ?? [],
-          },
-        }))
+        .map((m) => {
+          const org = m.Organisation ?? m.organisation;
+          const orgAny = org as { BusinessProfile?: unknown[]; business_profile?: unknown[] } | undefined;
+          const profiles = orgAny?.BusinessProfile ?? orgAny?.business_profile ?? [];
+          return {
+            ...m,
+            organisation: {
+              ...org,
+              profiles: Array.isArray(profiles) ? profiles : [],
+            },
+          };
+        })
         .sort(
           (a, b) =>
             new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
@@ -106,34 +107,35 @@ export async function getCurrentUser() {
     return null;
   }
 
-  const memberships = (fullUser.OrganisationMember ?? []) as Array<{
+  const rawMemberships =
+    (fullUser as Record<string, unknown>).OrganisationMember ??
+    (fullUser as Record<string, unknown>).organisation_member ??
+    [];
+  const memberships = (Array.isArray(rawMemberships) ? rawMemberships : []) as Array<{
     id: string;
     userId: string;
     organisationId: string;
     role: string;
     createdAt: string;
-    Organisation: {
-      id: string;
-      name: string;
-      type: string;
-      plan: string;
-      stripeId: string | null;
-      createdAt: string;
-      updatedAt: string;
-      BusinessProfile: unknown[];
-    };
+    Organisation?: { id: string; name: string; type: string; plan: string; stripeId: string | null; createdAt: string; updatedAt: string; BusinessProfile?: unknown[] };
+    organisation?: { id: string; name: string; type: string; plan: string; stripeId: string | null; createdAt: string; updatedAt: string; business_profile?: unknown[] };
   }>;
 
   return {
     ...fullUser,
     memberships: memberships
-      .map((m) => ({
-        ...m,
-        organisation: {
-          ...m.Organisation,
-          profiles: m.Organisation?.BusinessProfile ?? [],
-        },
-      }))
+      .map((m) => {
+        const org = m.Organisation ?? m.organisation;
+        const orgAny = org as { BusinessProfile?: unknown[]; business_profile?: unknown[] } | undefined;
+        const profiles = orgAny?.BusinessProfile ?? orgAny?.business_profile ?? [];
+        return {
+          ...m,
+          organisation: {
+            ...org,
+            profiles: Array.isArray(profiles) ? profiles : [],
+          },
+        };
+      })
       .sort(
         (a, b) =>
           new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
