@@ -66,18 +66,20 @@ export default async function DashboardPage() {
   let suggestedGrants: { grantId: string; grantName: string; score: number }[] = [];
   let withinReachGrants: { grantId: string; grantName: string; score: number; summary?: string }[] = [];
   if (profile && completionScore >= 50) {
-    const { data: assessments = [] } = await supabase
+    const { data: assessmentsData } = await supabase
       .from("EligibilityAssessment")
       .select("grant_id, score, summary")
       .eq("organisation_id", orgId)
       .eq("profile_id", profile.id)
       .order("score", { ascending: false });
+    const assessments = assessmentsData ?? [];
     const grantIds = (assessments as { grant_id: string; score: number; summary: string | null }[]).map((a) => a.grant_id);
     if (grantIds.length > 0) {
-      const { data: grantsList = [] } = await supabase
+      const { data: grantsListData } = await supabase
         .from("Grant")
         .select("id, name")
         .in("id", grantIds);
+      const grantsList = grantsListData ?? [];
       const nameById = new Map((grantsList as { id: string; name: string }[]).map((g) => [g.id, g.name]));
       for (const a of assessments as { grant_id: string; score: number; summary: string | null }[]) {
         const name = nameById.get(a.grant_id) ?? "Grant";

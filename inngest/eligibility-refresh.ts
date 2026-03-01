@@ -29,13 +29,15 @@ export const eligibilityRefresh = inngest.createFunction(
   { cron: "0 3 * * *" },
   async () => {
     const supabase = getSupabaseAdmin();
-    const { data: grants = [] } = await supabase.from("Grant").select("id, name, funder, amount, eligibility, sectors, regions");
+    const { data: grantsData } = await supabase.from("Grant").select("id, name, funder, amount, eligibility, sectors, regions");
+    const grants = grantsData ?? [];
     if (grants.length === 0) return { refreshed: 0, notified: 0 };
 
-    const { data: profiles = [] } = await supabase
+    const { data: profilesData } = await supabase
       .from("BusinessProfile")
       .select("*")
       .gte("completionScore", 50);
+    const profiles = profilesData ?? [];
 
     const byOrg = new Map<string, (typeof profiles)[number]>();
     for (const p of profiles) {
