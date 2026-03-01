@@ -1,5 +1,4 @@
 import { inngest } from "./client";
-import { prisma } from "@/lib/prisma";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { notifyOrgMembers } from "@/lib/notify";
 
@@ -30,25 +29,30 @@ export const monitorSession = inngest.createFunction(
 
       if (session.status === "completed" || session.status === "failed") {
         const application = await step.run("update-application", async () => {
-          return prisma.application.update({
-            where: { id: applicationId },
-            data: {
-              status: session.status === "completed" ? "REVIEW_REQUIRED" : "FAILED",
-            },
-            include: { grant: true },
-          });
+          const status = session.status === "completed" ? "REVIEW_REQUIRED" : "FAILED";
+          await supabase
+            .from("Application")
+            .update({ status })
+            .eq("id", applicationId);
+          const { data } = await supabase
+            .from("Application")
+            .select("id, organisationId, Grant(name)")
+            .eq("id", applicationId)
+            .single();
+          return data as unknown as { id: string; organisationId: string; Grant: { name: string } };
         });
 
         const notificationType =
           session.status === "completed" ? "review_required" : "application_failed";
+        const grantName = application?.Grant?.name ?? "Grant";
 
         await step.run("send-notification", async () => {
           await notifyOrgMembers(
-            application.organisationId,
+            application!.organisationId,
             notificationType as "review_required" | "application_failed",
             {
-              grantName: application.grant.name,
-              applicationId: application.id,
+              grantName,
+              applicationId: application!.id,
             }
           );
         });
@@ -66,16 +70,25 @@ export const monitorSession = inngest.createFunction(
             .update({ status: "failed", error_log: "Session timed out (no activity for 30 minutes)" })
             .eq("public_id", sessionPublicId);
 
-          const app = await prisma.application.update({
-            where: { id: applicationId },
-            data: { status: "FAILED" },
-            include: { grant: true },
-          });
+          await supabase
+            .from("Application")
+            .update({ status: "FAILED" })
+            .eq("id", applicationId);
 
-          await notifyOrgMembers(app.organisationId, "application_failed", {
-            grantName: app.grant.name,
-            applicationId: app.id,
-          });
+          const { data: app } = await supabase
+            .from("Application")
+            .select("id, organisationId, Grant(name)")
+            .eq("id", applicationId)
+            .single();
+
+          const grantObj = (app as { Grant?: { name: string } | { name: string }[] })?.Grant;
+          const grantName = (Array.isArray(grantObj) ? grantObj[0]?.name : grantObj?.name) ?? "Grant";
+          if (app) {
+            await notifyOrgMembers(app.organisationId, "application_failed", {
+              grantName,
+              applicationId: app.id,
+            });
+          }
         });
 
         return { status: "timed_out", attempts: attempt + 1 };

@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -21,18 +21,27 @@ export default async function GrantDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const supabase = getSupabaseAdmin();
 
-  const grant = await prisma.grant.findUnique({ where: { id } });
-  if (!grant) notFound();
+  const { data: grant, error: grantError } = await supabase
+    .from("Grant")
+    .select("*")
+    .eq("id", id)
+    .single();
+
+  if (grantError || !grant) notFound();
 
   const { org, orgId } = await getActiveOrg();
-  const profile = org.profiles[0];
-  const hasProfile = !!profile && profile.completionScore >= 50;
+  const profile = org.profiles?.[0];
+  const hasProfile = !!profile && (profile.completionScore ?? 0) >= 50;
   const profileId = profile?.id ?? null;
 
-  const existingApplication = await prisma.application.findFirst({
-    where: { organisationId: orgId, grantId: grant.id },
-  });
+  const { data: existingApplication } = await supabase
+    .from("Application")
+    .select("id")
+    .eq("organisationId", orgId)
+    .eq("grantId", grant.id)
+    .maybeSingle();
 
   return (
     <div className="mx-auto max-w-4xl p-6">
@@ -56,7 +65,7 @@ export default async function GrantDetailPage({
             </div>
             {grant.amount && (
               <Badge variant="secondary" className="text-lg">
-                {grant.amount.toLocaleString("en-GB", {
+                {Number(grant.amount).toLocaleString("en-GB", {
                   style: "currency",
                   currency: "GBP",
                   maximumFractionDigits: 0,
@@ -71,15 +80,15 @@ export default async function GrantDetailPage({
             {grant.deadline && (
               <Badge variant="outline" className="gap-1">
                 <Calendar className="h-3 w-3" />
-                Deadline: {grant.deadline.toLocaleDateString("en-GB")}
+                Deadline: {new Date(grant.deadline).toLocaleDateString("en-GB")}
               </Badge>
             )}
-            {grant.sectors.map((s) => (
+            {(grant.sectors ?? []).map((s: string) => (
               <Badge key={s} variant="outline">
                 {s}
               </Badge>
             ))}
-            {grant.regions.map((r) => (
+            {(grant.regions ?? []).map((r: string) => (
               <Badge key={r} variant="outline" className="gap-1">
                 <MapPin className="h-3 w-3" />
                 {r}

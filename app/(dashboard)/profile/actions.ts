@@ -1,6 +1,6 @@
 "use server";
 
-import { prisma } from "@/lib/prisma";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg } from "@/lib/auth";
 import {
   step1Schema,
@@ -47,30 +47,47 @@ function calculateCompletionScore(profile: {
 }
 
 async function getOrCreateProfile(organisationId: string) {
-  let profile = await prisma.businessProfile.findFirst({
-    where: { organisationId },
-    include: { documents: true },
-  });
+  const supabase = getSupabaseAdmin();
 
-  if (!profile) {
-    profile = await prisma.businessProfile.create({
-      data: {
-        organisationId,
-        businessName: "",
-        sector: "",
-        missionStatement: "",
-        description: "",
-        location: "",
-        fundingMin: 0,
-        fundingMax: 0,
-        fundingPurposes: [],
-        fundingDetails: null,
-      },
-      include: { documents: true },
-    });
+  const { data: existing } = await supabase
+    .from("BusinessProfile")
+    .select("*, Document(*)")
+    .eq("organisationId", organisationId)
+    .limit(1)
+    .maybeSingle();
+
+  if (existing) {
+    return {
+      ...existing,
+      documents: existing.Document ?? [],
+    };
   }
 
-  return profile;
+  const { data: created, error } = await supabase
+    .from("BusinessProfile")
+    .insert({
+      organisationId,
+      businessName: "",
+      sector: "",
+      missionStatement: "",
+      description: "",
+      location: "",
+      fundingMin: 0,
+      fundingMax: 0,
+      fundingPurposes: [],
+      fundingDetails: null,
+    })
+    .select("*, Document(*)")
+    .single();
+
+  if (error || !created) {
+    throw new Error(error?.message ?? "Failed to create profile");
+  }
+
+  return {
+    ...created,
+    documents: created.Document ?? [],
+  };
 }
 
 export async function getProfile() {
@@ -85,19 +102,24 @@ export async function saveStep1(data: Step1Data) {
   const orgId = await getOrgId();
   const profile = await getOrCreateProfile(orgId);
 
-  const updated = await prisma.businessProfile.update({
-    where: { id: profile.id },
-    data: {
+  const supabase = getSupabaseAdmin();
+  const { data: updated, error: updateError } = await supabase
+    .from("BusinessProfile")
+    .update({
       businessName: parsed.data.businessName,
       registrationNumber: parsed.data.registrationNumber ?? null,
       location: parsed.data.location,
-    },
-  });
+    })
+    .eq("id", profile.id)
+    .select()
+    .single();
 
-  await prisma.businessProfile.update({
-    where: { id: profile.id },
-    data: { completionScore: calculateCompletionScore(updated) },
-  });
+  if (updateError || !updated) return { error: updateError?.message ?? "Update failed" };
+
+  await supabase
+    .from("BusinessProfile")
+    .update({ completionScore: calculateCompletionScore(updated) })
+    .eq("id", profile.id);
 
   return { success: true };
 }
@@ -109,19 +131,24 @@ export async function saveStep2(data: Step2Data) {
   const orgId = await getOrgId();
   const profile = await getOrCreateProfile(orgId);
 
-  const updated = await prisma.businessProfile.update({
-    where: { id: profile.id },
-    data: {
+  const supabase = getSupabaseAdmin();
+  const { data: updated, error: updateError } = await supabase
+    .from("BusinessProfile")
+    .update({
       sector: parsed.data.sector,
       missionStatement: parsed.data.missionStatement,
       description: parsed.data.description,
-    },
-  });
+    })
+    .eq("id", profile.id)
+    .select()
+    .single();
 
-  await prisma.businessProfile.update({
-    where: { id: profile.id },
-    data: { completionScore: calculateCompletionScore(updated) },
-  });
+  if (updateError || !updated) return { error: updateError?.message ?? "Update failed" };
+
+  await supabase
+    .from("BusinessProfile")
+    .update({ completionScore: calculateCompletionScore(updated) })
+    .eq("id", profile.id);
 
   return { success: true };
 }
@@ -133,19 +160,24 @@ export async function saveStep3(data: Step3Data) {
   const orgId = await getOrgId();
   const profile = await getOrCreateProfile(orgId);
 
-  const updated = await prisma.businessProfile.update({
-    where: { id: profile.id },
-    data: {
+  const supabase = getSupabaseAdmin();
+  const { data: updated, error: updateError } = await supabase
+    .from("BusinessProfile")
+    .update({
       employeeCount: parsed.data.employeeCount ?? null,
       annualRevenue: parsed.data.annualRevenue ?? null,
       previousGrants: parsed.data.previousGrants ?? null,
-    },
-  });
+    })
+    .eq("id", profile.id)
+    .select()
+    .single();
 
-  await prisma.businessProfile.update({
-    where: { id: profile.id },
-    data: { completionScore: calculateCompletionScore(updated) },
-  });
+  if (updateError || !updated) return { error: updateError?.message ?? "Update failed" };
+
+  await supabase
+    .from("BusinessProfile")
+    .update({ completionScore: calculateCompletionScore(updated) })
+    .eq("id", profile.id);
 
   return { success: true };
 }
@@ -157,20 +189,25 @@ export async function saveStep4(data: Step4Data) {
   const orgId = await getOrgId();
   const profile = await getOrCreateProfile(orgId);
 
-  const updated = await prisma.businessProfile.update({
-    where: { id: profile.id },
-    data: {
+  const supabase = getSupabaseAdmin();
+  const { data: updated, error: updateError } = await supabase
+    .from("BusinessProfile")
+    .update({
       fundingMin: parsed.data.fundingMin,
       fundingMax: parsed.data.fundingMax,
       fundingPurposes: parsed.data.fundingPurposes,
       fundingDetails: parsed.data.fundingDetails ?? null,
-    },
-  });
+    })
+    .eq("id", profile.id)
+    .select()
+    .single();
 
-  await prisma.businessProfile.update({
-    where: { id: profile.id },
-    data: { completionScore: calculateCompletionScore(updated) },
-  });
+  if (updateError || !updated) return { error: updateError?.message ?? "Update failed" };
+
+  await supabase
+    .from("BusinessProfile")
+    .update({ completionScore: calculateCompletionScore(updated) })
+    .eq("id", profile.id);
 
   return { success: true };
 }
@@ -184,16 +221,16 @@ export async function saveDocument(doc: {
   const orgId = await getOrgId();
   const profile = await getOrCreateProfile(orgId);
 
-  await prisma.document.create({
-    data: {
-      profileId: profile.id,
-      name: doc.name,
-      url: doc.url,
-      type: doc.type,
-      size: doc.size,
-    },
+  const supabase = getSupabaseAdmin();
+  const { error } = await supabase.from("Document").insert({
+    profileId: profile.id,
+    name: doc.name,
+    url: doc.url,
+    type: doc.type,
+    size: doc.size,
   });
 
+  if (error) return { error: error.message };
   return { success: true };
 }
 
@@ -201,12 +238,12 @@ export async function removeDocument(documentId: string) {
   const orgId = await getOrgId();
   const profile = await getOrCreateProfile(orgId);
 
-  await prisma.document.deleteMany({
-    where: {
-      id: documentId,
-      profileId: profile.id,
-    },
-  });
+  const supabase = getSupabaseAdmin();
+  await supabase
+    .from("Document")
+    .delete()
+    .eq("id", documentId)
+    .eq("profileId", profile.id);
 
   return { success: true };
 }

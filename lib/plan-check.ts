@@ -1,11 +1,16 @@
-import { prisma } from "./prisma";
+import { getSupabaseAdmin } from "./supabase";
 import { PLAN_LIMITS, type PlanKey } from "./stripe";
 
 export async function checkUsageLimit(
   organisationId: string,
   type: "autofill" | "match"
 ): Promise<{ allowed: boolean; remaining: number }> {
-  const org = await prisma.organisation.findUnique({ where: { id: organisationId } });
+  const supabase = getSupabaseAdmin();
+  const { data: org } = await supabase
+    .from("Organisation")
+    .select("plan")
+    .eq("id", organisationId)
+    .single();
   if (!org) return { allowed: false, remaining: 0 };
 
   const plan = org.plan as PlanKey;
@@ -21,21 +26,21 @@ export async function checkUsageLimit(
   const currentMonth = new Date();
   currentMonth.setDate(1);
   currentMonth.setHours(0, 0, 0, 0);
+  const fromDate = currentMonth.toISOString();
 
-  const usageCount = await prisma.usage.count({
-    where: {
-      organisationId,
-      type,
-      createdAt: { gte: currentMonth },
-    },
-  });
+  const { count: usageCount } = await supabase
+    .from("Usage")
+    .select("id", { count: "exact", head: true })
+    .eq("organisationId", organisationId)
+    .eq("type", type)
+    .gte("createdAt", fromDate);
 
-  const remaining = monthlyLimit - usageCount;
+  const count = usageCount ?? 0;
+  const remaining = monthlyLimit - count;
   return { allowed: remaining > 0, remaining: Math.max(0, remaining) };
 }
 
 export async function recordUsage(organisationId: string, type: string): Promise<void> {
-  await prisma.usage.create({
-    data: { organisationId, type, units: 1 },
-  });
+  const supabase = getSupabaseAdmin();
+  await supabase.from("Usage").insert({ organisationId, type, units: 1 });
 }

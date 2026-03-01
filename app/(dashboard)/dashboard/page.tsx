@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -24,23 +24,36 @@ const STATUS_COLORS: Record<string, string> = {
 
 export default async function DashboardPage() {
   const { org, orgId } = await getActiveOrg();
+  const supabase = getSupabaseAdmin();
 
-  const profile = org.profiles[0];
+  const profile = org.profiles?.[0];
   const completionScore = profile?.completionScore ?? 0;
 
-  const recentApplications = await prisma.application.findMany({
-    where: { organisationId: orgId },
-    include: { grant: true },
-    orderBy: { createdAt: "desc" },
-    take: 5,
-  });
+  const { data: recentApplications = [] } = await supabase
+    .from("Application")
+    .select("*, Grant(*)")
+    .eq("organisationId", orgId)
+    .order("createdAt", { ascending: false })
+    .limit(5);
 
-  const totalApplications = await prisma.application.count({
-    where: { organisationId: orgId },
-  });
-  const activeApplications = await prisma.application.count({
-    where: { organisationId: orgId, status: { in: ["FILLING", "REVIEW_REQUIRED"] } },
-  });
+  const { count: totalApplications } = await supabase
+    .from("Application")
+    .select("id", { count: "exact", head: true })
+    .eq("organisationId", orgId);
+
+  const { count: activeApplications } = await supabase
+    .from("Application")
+    .select("id", { count: "exact", head: true })
+    .eq("organisationId", orgId)
+    .in("status", ["FILLING", "REVIEW_REQUIRED"]);
+
+  const appsWithGrant = (recentApplications ?? []).map(
+    (app: { Grant?: { name: string; funder: string }; createdAt: string; id: string; status: string }) => ({
+      ...app,
+      grant: app.Grant ?? { name: "", funder: "" },
+      createdAt: app.createdAt,
+    })
+  );
 
   return (
     <div className="mx-auto max-w-7xl p-6">
@@ -80,9 +93,9 @@ export default async function DashboardPage() {
             <FileText className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totalApplications}</div>
+            <div className="text-2xl font-bold">{totalApplications ?? 0}</div>
             <p className="mt-1 text-xs text-muted-foreground">
-              {activeApplications} active
+              {activeApplications ?? 0} active
             </p>
           </CardContent>
         </Card>
@@ -112,7 +125,7 @@ export default async function DashboardPage() {
       <div className="mt-8">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">Recent Applications</h2>
-          {totalApplications > 0 && (
+          {(totalApplications ?? 0) > 0 && (
             <Link href="/applications">
               <Button variant="ghost" size="sm">
                 View All
@@ -121,7 +134,7 @@ export default async function DashboardPage() {
           )}
         </div>
 
-        {recentApplications.length === 0 ? (
+        {appsWithGrant.length === 0 ? (
           <Card>
             <CardContent className="flex flex-col items-center justify-center py-12 text-center">
               <FileText className="h-10 w-10 text-muted-foreground" />
@@ -136,7 +149,7 @@ export default async function DashboardPage() {
           </Card>
         ) : (
           <div className="space-y-3">
-            {recentApplications.map((app) => (
+            {appsWithGrant.map((app) => (
               <Link key={app.id} href={`/applications/${app.id}`}>
                 <Card className="transition-colors hover:bg-muted/50">
                   <CardContent className="flex items-center justify-between p-4">
@@ -157,7 +170,7 @@ export default async function DashboardPage() {
                       </Badge>
                       <div className="flex items-center gap-1 text-xs text-muted-foreground">
                         <Clock className="h-3 w-3" />
-                        {app.createdAt.toLocaleDateString("en-GB")}
+                        {new Date(app.createdAt).toLocaleDateString("en-GB")}
                       </div>
                     </div>
                   </CardContent>

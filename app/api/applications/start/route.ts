@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { notifyOrgMembers } from "@/lib/notify";
@@ -32,14 +31,23 @@ export async function POST(req: Request): Promise<NextResponse> {
 
     const { grantId, profileId } = parsed.data;
 
-    const profile = await prisma.businessProfile.findFirst({
-      where: { id: profileId, organisationId: orgId },
-    });
+    const supabase = getSupabaseAdmin();
+
+    const { data: profile } = await supabase
+      .from("BusinessProfile")
+      .select("id")
+      .eq("id", profileId)
+      .eq("organisationId", orgId)
+      .maybeSingle();
     if (!profile) {
       return NextResponse.json({ error: "Profile not found" }, { status: 404 });
     }
 
-    const grant = await prisma.grant.findUnique({ where: { id: grantId } });
+    const { data: grant } = await supabase
+      .from("Grant")
+      .select("id, name, applicationUrl")
+      .eq("id", grantId)
+      .single();
     if (!grant) {
       return NextResponse.json({ error: "Grant not found" }, { status: 404 });
     }
@@ -52,9 +60,12 @@ export async function POST(req: Request): Promise<NextResponse> {
       );
     }
 
-    const existing = await prisma.application.findFirst({
-      where: { organisationId: orgId, grantId },
-    });
+    const { data: existing } = await supabase
+      .from("Application")
+      .select("id")
+      .eq("organisationId", orgId)
+      .eq("grantId", grantId)
+      .maybeSingle();
     if (existing) {
       return NextResponse.json(
         { error: "Application already exists for this grant", applicationId: existing.id },
@@ -62,17 +73,22 @@ export async function POST(req: Request): Promise<NextResponse> {
       );
     }
 
-    const application = await prisma.application.create({
-      data: {
+    const { data: application, error: appError } = await supabase
+      .from("Application")
+      .insert({
         organisationId: orgId,
         createdById: user.id,
         grantId,
         profileId,
         status: "FILLING",
-      },
-    });
+      })
+      .select("id")
+      .single();
 
-    const supabase = getSupabaseAdmin();
+    if (appError || !application) {
+      console.error("[APPLICATION_START] create application failed", appError);
+      return NextResponse.json({ error: "Failed to create application" }, { status: 500 });
+    }
 
     const publicId = `grantapp_${application.id}`;
 
@@ -91,10 +107,10 @@ export async function POST(req: Request): Promise<NextResponse> {
       .single();
 
     if (sessionError || !session) {
-      await prisma.application.update({
-        where: { id: application.id },
-        data: { status: "FAILED" },
-      });
+      await supabase
+        .from("Application")
+        .update({ status: "FAILED" })
+        .eq("id", application.id);
       console.error("[APPLICATION_START] session creation failed", sessionError);
       return NextResponse.json(
         { error: "Failed to create execution session" },

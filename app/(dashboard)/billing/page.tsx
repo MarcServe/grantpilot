@@ -1,30 +1,30 @@
-import { prisma } from "@/lib/prisma";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg } from "@/lib/auth";
 import { PLAN_LIMITS } from "@/lib/stripe";
 import { BillingClient } from "@/components/billing/billing-client";
 
 export default async function BillingPage() {
   const { org, orgId } = await getActiveOrg();
+  const supabase = getSupabaseAdmin();
 
   const currentMonth = new Date();
   currentMonth.setDate(1);
   currentMonth.setHours(0, 0, 0, 0);
+  const fromDate = currentMonth.toISOString();
 
-  const autoFillCount = await prisma.usage.count({
-    where: {
-      organisationId: orgId,
-      type: "autofill",
-      createdAt: { gte: currentMonth },
-    },
-  });
+  const { count: autoFillCount } = await supabase
+    .from("Usage")
+    .select("id", { count: "exact", head: true })
+    .eq("organisationId", orgId)
+    .eq("type", "autofill")
+    .gte("createdAt", fromDate);
 
-  const matchCount = await prisma.usage.count({
-    where: {
-      organisationId: orgId,
-      type: "match",
-      createdAt: { gte: currentMonth },
-    },
-  });
+  const { count: matchCount } = await supabase
+    .from("Usage")
+    .select("id", { count: "exact", head: true })
+    .eq("organisationId", orgId)
+    .eq("type", "match")
+    .gte("createdAt", fromDate);
 
   const plan = org.plan as keyof typeof PLAN_LIMITS;
   const limits = PLAN_LIMITS[plan];
@@ -40,8 +40,8 @@ export default async function BillingPage() {
 
       <BillingClient
         currentPlan={org.plan}
-        autoFillCount={autoFillCount}
-        matchCount={matchCount}
+        autoFillCount={autoFillCount ?? 0}
+        matchCount={matchCount ?? 0}
         limits={{
           autoFillsPerMonth: limits.autoFillsPerMonth,
           matchesPerMonth: limits.matchesPerMonth,

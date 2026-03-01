@@ -1,8 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
-import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { getActiveOrg } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -34,15 +33,24 @@ export default async function ApplicationDetailPage({
 }) {
   const { id } = await params;
   const { orgId } = await getActiveOrg();
+  const supabase = getSupabaseAdmin();
 
-  const application = await prisma.application.findFirst({
-    where: { id, organisationId: orgId },
-    include: { grant: true, profile: true },
-  });
+  const { data: applicationRow } = await supabase
+    .from("Application")
+    .select("*, Grant(*), BusinessProfile(*)")
+    .eq("id", id)
+    .eq("organisationId", orgId)
+    .maybeSingle();
+
+  const application = applicationRow
+    ? {
+        ...applicationRow,
+        grant: Array.isArray(applicationRow.Grant) ? applicationRow.Grant[0] : applicationRow.Grant,
+        profile: Array.isArray(applicationRow.BusinessProfile) ? applicationRow.BusinessProfile[0] : applicationRow.BusinessProfile,
+      }
+    : null;
 
   if (!application) notFound();
-
-  const supabase = getSupabaseAdmin();
   const publicId = `grantapp_${application.id}`;
 
   const { data: session } = await supabase
@@ -224,7 +232,7 @@ export default async function ApplicationDetailPage({
               </p>
               <p className="text-sm text-green-600">
                 Submitted on{" "}
-                {application.submittedAt?.toLocaleDateString("en-GB")}
+                {application.submittedAt ? new Date(application.submittedAt).toLocaleDateString("en-GB") : ""}
               </p>
             </div>
           </CardContent>

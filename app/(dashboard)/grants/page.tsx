@@ -1,15 +1,17 @@
-import { prisma } from "@/lib/prisma";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg } from "@/lib/auth";
 import { GrantsListClient } from "@/components/grants/grants-list-client";
 
 export default async function GrantsPage() {
   const { org } = await getActiveOrg();
+  const supabase = getSupabaseAdmin();
 
-  const grants = await prisma.grant.findMany({
-    orderBy: { deadline: "asc" },
-  });
+  const { data: grants = [] } = await supabase
+    .from("Grant")
+    .select("*")
+    .order("deadline", { ascending: true });
 
-  const profile = org.profiles[0];
+  const profile = org.profiles?.[0];
   const hasProfile = !!profile;
   const profileComplete = (profile?.completionScore ?? 0) >= 50;
 
@@ -23,10 +25,16 @@ export default async function GrantsPage() {
       </div>
 
       <GrantsListClient
-        grants={grants.map((g) => ({
-          ...g,
-          amount: g.amount,
-          deadline: g.deadline?.toISOString() ?? null,
+        grants={(grants ?? []).map((g) => ({
+          id: g.id,
+          name: g.name,
+          funder: g.funder,
+          amount: g.amount ?? null,
+          deadline: g.deadline ?? null,
+          sectors: g.sectors ?? [],
+          regions: g.regions ?? [],
+          eligibility: g.eligibility ?? "",
+          applicationUrl: g.applicationUrl ?? "",
         }))}
         hasProfile={hasProfile}
         profileComplete={profileComplete}

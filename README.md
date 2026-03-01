@@ -29,8 +29,15 @@ To learn more about Next.js, take a look at the following resources:
 
 You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
+## Production
+
+- **Build**: `npm run build` (runs `prisma generate` then `next build`).
+- **Run**: `npm start`.
+- **Health**: `GET /api/health` returns `{ "status": "ok" }`.
+- **Deploy**: See [DEPLOYMENT.md](./DEPLOYMENT.md) for env vars, database migrations, Inngest (Anthropic-backed jobs), and hosting (Vercel recommended).
+
 ## Deploy on Vercel
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js. For GrantPilot, add the [Inngest Vercel integration](https://inngest.com/docs/deploy/vercel) so background jobs (grant scanner, reminders) sync and run in production.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Check out [DEPLOYMENT.md](./DEPLOYMENT.md) and the [Next.js deployment docs](https://nextjs.org/docs/app/building-your-application/deploying).

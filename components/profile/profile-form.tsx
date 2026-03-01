@@ -14,10 +14,8 @@ import {
   saveStep2,
   saveStep3,
   saveStep4,
-  saveDocument,
   removeDocument,
 } from "@/app/(dashboard)/profile/actions";
-import { createClient as getSupabaseClient } from "@/lib/supabase/client";
 import type {
   Step1Data,
   Step2Data,
@@ -127,42 +125,38 @@ export function ProfileForm({ profile }: { profile: ProfileData }) {
 
   async function handleUpload(file: File) {
     try {
-      const supabase = getSupabaseClient();
-      const fileExt = file.name.split(".").pop();
-      const filePath = `profiles/${profile.id}/${Date.now()}.${fileExt}`;
+      const formData = new FormData();
+      formData.set("file", file);
 
-      const { error: uploadError } = await supabase.storage
-        .from("documents")
-        .upload(filePath, file);
-
-      if (uploadError) throw uploadError;
-
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from("documents").getPublicUrl(filePath);
-
-      const result = await saveDocument({
-        name: file.name,
-        url: publicUrl,
-        type: file.type,
-        size: file.size,
+      const res = await fetch("/api/profile/documents/upload", {
+        method: "POST",
+        body: formData,
       });
 
-      if (result.success) {
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        const msg = data?.error ?? `Upload failed (${res.status})`;
+        toast.error(msg);
+        return;
+      }
+
+      if (data.document) {
         setDocs((prev) => [
           ...prev,
           {
-            id: `temp-${Date.now()}`,
-            name: file.name,
-            url: publicUrl,
-            type: file.type,
-            size: file.size,
+            id: data.document.id,
+            name: data.document.name,
+            url: data.document.url,
+            type: data.document.type,
+            size: data.document.size,
           },
         ]);
         toast.success("Document uploaded");
       }
-    } catch {
-      toast.error("Failed to upload document");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to upload document";
+      toast.error(msg);
     }
   }
 

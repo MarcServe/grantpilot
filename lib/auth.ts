@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { prisma } from "@/lib/prisma";
+import { getSupabaseAdmin } from "@/lib/supabase";
 
 export async function getCurrentUser() {
   const supabase = await createClient();
@@ -9,55 +9,136 @@ export async function getCurrentUser() {
 
   if (!authUser) return null;
 
-  let user = await prisma.user.findUnique({
-    where: { supabaseId: authUser.id },
-    include: {
-      memberships: {
-        include: {
-          organisation: { include: { profiles: true } },
-        },
-        orderBy: { createdAt: "asc" },
-      },
-    },
-  });
+  const admin = getSupabaseAdmin();
+  const email = authUser.email ?? "";
 
-  if (!user) {
-    const email = authUser.email ?? "";
-    user = await prisma.$transaction(async (tx) => {
-      const newUser = await tx.user.create({
-        data: { supabaseId: authUser!.id, email },
-      });
+  const { data: userRow, error: userError } = await admin
+    .from("User")
+    .select(
+      "*, OrganisationMember(Organisation(*, BusinessProfile(*)))"
+    )
+    .eq("supabaseId", authUser.id)
+    .single();
 
-      const org = await tx.organisation.create({
-        data: {
-          name: email.split("@")[0] || "My Organisation",
-          type: "FOUNDER",
-        },
-      });
-
-      await tx.organisationMember.create({
-        data: {
-          userId: newUser.id,
-          organisationId: org.id,
-          role: "OWNER",
-        },
-      });
-
-      return tx.user.findUniqueOrThrow({
-        where: { id: newUser.id },
-        include: {
-          memberships: {
-            include: {
-              organisation: { include: { profiles: true } },
-            },
-            orderBy: { createdAt: "asc" },
+  if (!userError && userRow) {
+    const memberships = (userRow.OrganisationMember ?? []) as Array<{
+      id: string;
+      userId: string;
+      organisationId: string;
+      role: string;
+      createdAt: string;
+      Organisation: {
+        id: string;
+        name: string;
+        type: string;
+        plan: string;
+        stripeId: string | null;
+        createdAt: string;
+        updatedAt: string;
+        BusinessProfile: unknown[];
+      };
+    }>;
+    return {
+      ...userRow,
+      memberships: memberships
+        .map((m) => ({
+          ...m,
+          organisation: {
+            ...m.Organisation,
+            profiles: m.Organisation?.BusinessProfile ?? [],
           },
-        },
-      });
-    });
+        }))
+        .sort(
+          (a, b) =>
+            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        ),
+    };
   }
 
-  return user;
+  const { data: newUser, error: createUserError } = await admin
+    .from("User")
+    .insert({ supabaseId: authUser.id, email })
+    .select("id")
+    .single();
+
+  if (createUserError || !newUser) {
+    console.error("Create user failed:", createUserError);
+    return null;
+  }
+
+  const { data: org, error: createOrgError } = await admin
+    .from("Organisation")
+    .insert({
+      name: email.split("@")[0] || "My Organisation",
+      type: "FOUNDER",
+    })
+    .select("id")
+    .single();
+
+  if (createOrgError || !org) {
+    console.error("Create org failed:", createOrgError);
+    return null;
+  }
+
+  const { error: createMemberError } = await admin
+    .from("OrganisationMember")
+    .insert({
+      userId: newUser.id,
+      organisationId: org.id,
+      role: "OWNER",
+    });
+
+  if (createMemberError) {
+    console.error("Create member failed:", createMemberError);
+    return null;
+  }
+
+  const { data: fullUser, error: fetchError } = await admin
+    .from("User")
+    .select(
+      "*, OrganisationMember(Organisation(*, BusinessProfile(*)))"
+    )
+    .eq("id", newUser.id)
+    .single();
+
+  if (fetchError || !fullUser) {
+    console.error("Fetch user after create failed:", fetchError);
+    return null;
+  }
+
+  const memberships = (fullUser.OrganisationMember ?? []) as Array<{
+    id: string;
+    userId: string;
+    organisationId: string;
+    role: string;
+    createdAt: string;
+    Organisation: {
+      id: string;
+      name: string;
+      type: string;
+      plan: string;
+      stripeId: string | null;
+      createdAt: string;
+      updatedAt: string;
+      BusinessProfile: unknown[];
+    };
+  }>;
+
+  return {
+    ...fullUser,
+    memberships: memberships
+      .map((m) => ({
+        ...m,
+        organisation: {
+          ...m.Organisation,
+          profiles: m.Organisation?.BusinessProfile ?? [],
+        },
+      }))
+      .sort(
+        (a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      ),
+  };
 }
 
 export async function requireUser() {

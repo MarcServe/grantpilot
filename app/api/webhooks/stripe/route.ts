@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getStripe } from "@/lib/stripe";
-import { prisma } from "@/lib/prisma";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import type Stripe from "stripe";
 
 export async function POST(req: Request): Promise<NextResponse> {
@@ -36,10 +36,11 @@ export async function POST(req: Request): Promise<NextResponse> {
         const plan = getPlanFromPriceId(priceId ?? "");
 
         if (customerId) {
-          await prisma.organisation.updateMany({
-            where: { stripeId: customerId },
-            data: { plan },
-          });
+          const supabase = getSupabaseAdmin();
+          await supabase
+            .from("Organisation")
+            .update({ plan })
+            .eq("stripeId", customerId);
         }
         break;
       }
@@ -51,10 +52,11 @@ export async function POST(req: Request): Promise<NextResponse> {
         const plan = getPlanFromPriceId(priceId);
 
         if (subscription.status === "active") {
-          await prisma.organisation.updateMany({
-            where: { stripeId: customerId },
-            data: { plan },
-          });
+          const supabase = getSupabaseAdmin();
+          await supabase
+            .from("Organisation")
+            .update({ plan })
+            .eq("stripeId", customerId);
         }
         break;
       }
@@ -63,10 +65,11 @@ export async function POST(req: Request): Promise<NextResponse> {
         const subscription = event.data.object as Stripe.Subscription;
         const customerId = subscription.customer as string;
 
-        await prisma.organisation.updateMany({
-          where: { stripeId: customerId },
-          data: { plan: "FREE_TRIAL" },
-        });
+        const supabase = getSupabaseAdmin();
+        await supabase
+          .from("Organisation")
+          .update({ plan: "FREE_TRIAL" })
+          .eq("stripeId", customerId);
         break;
       }
     }

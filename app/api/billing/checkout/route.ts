@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg } from "@/lib/auth";
 import { getStripe } from "@/lib/stripe";
 
@@ -34,10 +34,11 @@ export async function POST(req: Request): Promise<NextResponse> {
         metadata: { organisationId: orgId },
       });
       customerId = customer.id;
-      await prisma.organisation.update({
-        where: { id: orgId },
-        data: { stripeId: customerId },
-      });
+      const supabase = getSupabaseAdmin();
+      await supabase
+        .from("Organisation")
+        .update({ stripeId: customerId })
+        .eq("id", orgId);
     }
 
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";

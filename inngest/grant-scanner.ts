@@ -1,5 +1,5 @@
 import { inngest } from "./client";
-import { prisma } from "@/lib/prisma";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import { matchGrantsToProfile } from "@/lib/claude";
 import { notifyOrgMembers } from "@/lib/notify";
 
@@ -7,16 +7,24 @@ export const grantScanner = inngest.createFunction(
   { id: "grant-scanner", name: "Nightly Grant Scanner" },
   { cron: "0 2 * * *" },
   async () => {
-    const grants = await prisma.grant.findMany();
-    if (grants.length === 0) return { scanned: 0 };
+    const supabase = getSupabaseAdmin();
+    const { data: grants = [] } = await supabase.from("Grant").select("*");
+    if ((grants ?? []).length === 0) return { scanned: 0 };
 
-    const orgs = await prisma.organisation.findMany({
-      include: {
-        profiles: {
-          where: { completionScore: { gte: 50 } },
-        },
-      },
-    });
+    const { data: profiles = [] } = await supabase
+      .from("BusinessProfile")
+      .select("*")
+      .gte("completionScore", 50);
+
+    const list = profiles ?? [];
+    const byOrg = new Map<string, (typeof list)[number]>();
+    for (const p of list) {
+      if (!byOrg.has(p.organisationId)) byOrg.set(p.organisationId, p);
+    }
+    const orgs = Array.from(byOrg.entries()).map(([id, profile]) => ({
+      id,
+      profiles: [profile],
+    }));
 
     let matchCount = 0;
 
@@ -39,11 +47,11 @@ export const grantScanner = inngest.createFunction(
             fundingPurposes: profile.fundingPurposes,
             fundingDetails: profile.fundingDetails,
           },
-          grants.map((g) => ({
+          (grants ?? []).map((g: { id: string; name: string; funder: string; amount?: number; eligibility: string; sectors: string[]; regions: string[] }) => ({
             id: g.id,
             name: g.name,
             funder: g.funder,
-            amount: g.amount,
+            amount: g.amount ?? null,
             eligibility: g.eligibility,
             sectors: g.sectors,
             regions: g.regions,

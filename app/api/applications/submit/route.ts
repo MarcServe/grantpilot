@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { notifyOrgMembers } from "@/lib/notify";
@@ -25,9 +24,14 @@ export async function POST(req: Request): Promise<NextResponse> {
 
     const { applicationId } = parsed.data;
 
-    const application = await prisma.application.findFirst({
-      where: { id: applicationId, organisationId: orgId },
-    });
+    const supabase = getSupabaseAdmin();
+
+    const { data: application } = await supabase
+      .from("Application")
+      .select("id, status")
+      .eq("id", applicationId)
+      .eq("organisationId", orgId)
+      .maybeSingle();
 
     if (!application) {
       return NextResponse.json(
@@ -42,8 +46,6 @@ export async function POST(req: Request): Promise<NextResponse> {
         { status: 400 }
       );
     }
-
-    const supabase = getSupabaseAdmin();
     const publicId = `grantapp_${applicationId}`;
 
     const { data: session } = await supabase
@@ -73,15 +75,24 @@ export async function POST(req: Request): Promise<NextResponse> {
         .eq("id", session.id);
     }
 
-    const updatedApp = await prisma.application.update({
-      where: { id: applicationId },
-      data: { status: "APPROVED" },
-      include: { grant: true },
-    });
+    await supabase
+      .from("Application")
+      .update({ status: "APPROVED" })
+      .eq("id", applicationId);
+
+    const { data: updatedApp } = await supabase
+      .from("Application")
+      .select("id, Grant(name)")
+      .eq("id", applicationId)
+      .single();
+
+    const grantObj = updatedApp?.Grant as { name?: string } | { name?: string }[] | undefined;
+    const grantName =
+      (Array.isArray(grantObj) ? grantObj[0]?.name : grantObj?.name) ?? "Grant";
 
     notifyOrgMembers(orgId, "application_submitted", {
-      grantName: updatedApp.grant.name,
-      applicationId: updatedApp.id,
+      grantName,
+      applicationId: applicationId,
     }).catch(console.error);
 
     return NextResponse.json({ success: true });

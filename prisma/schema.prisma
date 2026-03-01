@@ -118,6 +118,7 @@ model Document {
 
 model Grant {
   id             String        @id @default(cuid())
+  externalId     String?       @unique
   name           String
   funder         String
   amount         Float?

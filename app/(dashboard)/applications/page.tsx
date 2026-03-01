@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg } from "@/lib/auth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -17,12 +17,19 @@ const STATUS_COLORS: Record<string, string> = {
 
 export default async function ApplicationsPage() {
   const { orgId } = await getActiveOrg();
+  const supabase = getSupabaseAdmin();
 
-  const applications = await prisma.application.findMany({
-    where: { organisationId: orgId },
-    include: { grant: true },
-    orderBy: { createdAt: "desc" },
-  });
+  const { data: rows = [] } = await supabase
+    .from("Application")
+    .select("*, Grant(*)")
+    .eq("organisationId", orgId)
+    .order("createdAt", { ascending: false });
+
+  const applications = (rows ?? []).map((app: { id: string; status: string; Grant?: { name: string; funder: string; amount?: number }; createdAt: string }) => ({
+    ...app,
+    grant: app.Grant ?? { name: "", funder: "", amount: null },
+    createdAt: app.createdAt,
+  }));
 
   return (
     <div className="mx-auto max-w-7xl p-6">
@@ -56,8 +63,8 @@ export default async function ApplicationsPage() {
                     <p className="font-medium">{app.grant.name}</p>
                     <p className="text-sm text-muted-foreground">
                       {app.grant.funder}
-                      {app.grant.amount &&
-                        ` — ${app.grant.amount.toLocaleString("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 })}`}
+                      {app.grant.amount != null &&
+                        ` — ${Number(app.grant.amount).toLocaleString("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 })}`}
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
@@ -69,7 +76,7 @@ export default async function ApplicationsPage() {
                     </Badge>
                     <div className="flex items-center gap-1 text-xs text-muted-foreground">
                       <Clock className="h-3 w-3" />
-                      {app.createdAt.toLocaleDateString("en-GB")}
+                      {new Date(app.createdAt).toLocaleDateString("en-GB")}
                     </div>
                     <ArrowRight className="h-4 w-4 text-muted-foreground" />
                   </div>

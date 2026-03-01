@@ -1,6 +1,6 @@
 import { sendEmail } from "./email";
 import { sendWhatsApp } from "./whatsapp";
-import { prisma } from "./prisma";
+import { getSupabaseAdmin } from "./supabase";
 import { buildEmailHtml, buildWhatsAppMessage } from "./notification-templates";
 
 interface NotifyUser {
@@ -33,31 +33,29 @@ export async function notifyUser(
 ): Promise<void> {
   const appUrl = payload.appUrl ?? process.env.NEXT_PUBLIC_APP_URL ?? "https://grantpilot.co.uk";
 
+  const supabase = getSupabaseAdmin();
+
   if (user.email) {
     const { subject, html } = buildEmailHtml(type, payload, appUrl);
     const result = await sendEmail(user.email, subject, html);
-    await prisma.notificationLog.create({
-      data: {
-        userId: user.id,
-        channel: "email",
-        type,
-        status: result.success ? "sent" : "failed",
-        error: result.error ?? null,
-      },
+    await supabase.from("NotificationLog").insert({
+      userId: user.id,
+      channel: "email",
+      type,
+      status: result.success ? "sent" : "failed",
+      error: result.error ?? null,
     });
   }
 
   if (user.whatsappOptIn && user.phoneNumber) {
     const message = buildWhatsAppMessage(type, payload, appUrl);
     const result = await sendWhatsApp(user.phoneNumber, message);
-    await prisma.notificationLog.create({
-      data: {
-        userId: user.id,
-        channel: "whatsapp",
-        type,
-        status: result.success ? "sent" : "failed",
-        error: result.error ?? null,
-      },
+    await supabase.from("NotificationLog").insert({
+      userId: user.id,
+      channel: "whatsapp",
+      type,
+      status: result.success ? "sent" : "failed",
+      error: result.error ?? null,
     });
   }
 }
@@ -70,15 +68,15 @@ export async function notifyOrgMembers(
   type: NotificationType,
   payload: NotificationPayload
 ): Promise<void> {
-  const members = await prisma.organisationMember.findMany({
-    where: {
-      organisationId,
-      role: { not: "VIEWER" },
-    },
-    include: { user: true },
-  });
+  const supabase = getSupabaseAdmin();
+  const { data: members = [] } = await supabase
+    .from("OrganisationMember")
+    .select("*, User(*)")
+    .eq("organisationId", organisationId)
+    .neq("role", "VIEWER");
 
+  const withUser = (members as { User?: NotifyUser }[]).filter((m) => m.User);
   await Promise.allSettled(
-    members.map((m) => notifyUser(m.user, type, payload))
+    withUser.map((m) => notifyUser(m.User!, type, payload))
   );
 }

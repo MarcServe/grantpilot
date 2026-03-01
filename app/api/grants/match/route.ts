@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg } from "@/lib/auth";
 import { matchGrantsToProfile } from "@/lib/claude";
 
@@ -7,15 +7,16 @@ export async function POST(): Promise<NextResponse> {
   try {
     const { org } = await getActiveOrg();
 
-    const profile = org.profiles[0];
-    if (!profile || profile.completionScore < 50) {
+    const profile = org.profiles?.[0];
+    if (!profile || (profile.completionScore ?? 0) < 50) {
       return NextResponse.json(
         { error: "Please complete at least 50% of your business profile before matching grants." },
         { status: 400 }
       );
     }
 
-    const grants = await prisma.grant.findMany();
+    const supabase = getSupabaseAdmin();
+    const { data: grants = [] } = await supabase.from("Grant").select("*");
 
     const matches = await matchGrantsToProfile(
       {
@@ -31,11 +32,11 @@ export async function POST(): Promise<NextResponse> {
         fundingPurposes: profile.fundingPurposes,
         fundingDetails: profile.fundingDetails,
       },
-      grants.map((g) => ({
+      (grants ?? []).map((g: { id: string; name: string; funder: string; amount?: number; eligibility: string; sectors: string[]; regions: string[] }) => ({
         id: g.id,
         name: g.name,
         funder: g.funder,
-        amount: g.amount,
+        amount: g.amount ?? null,
         eligibility: g.eligibility,
         sectors: g.sectors,
         regions: g.regions,
