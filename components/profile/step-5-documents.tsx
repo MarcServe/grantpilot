@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Loader2, Upload, FileText, Trash2, CheckCircle, Video } from "lucide-react";
-import { DOCUMENT_CATEGORIES } from "@/lib/grant-requirements";
+import { DOCUMENT_CATEGORIES } from "@/lib/document-categories";
 
 interface DocumentItem {
   id: string;

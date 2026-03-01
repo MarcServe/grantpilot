@@ -92,16 +92,7 @@ If no clear requirements found, return []. Do not invent requirements.`,
   }
 }
 
-/** Standard document categories we suggest to users and match in the worker. */
-export const DOCUMENT_CATEGORIES = [
-  { value: "pitch_video", label: "Pitch / explainer video" },
-  { value: "financial_statement", label: "Financial statement / accounts" },
-  { value: "business_plan", label: "Business plan" },
-  { value: "company_profile", label: "Company profile" },
-  { value: "other", label: "Other" },
-] as const;
-
-export type DocumentCategory = (typeof DOCUMENT_CATEGORIES)[number]["value"];
+export { DOCUMENT_CATEGORIES, type DocumentCategory } from "./document-categories";
 
 /**
  * Compare grant required_attachments to user documents (by category and type).
