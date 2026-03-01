@@ -25,34 +25,31 @@ export async function getCurrentUser() {
       (userRow as Record<string, unknown>).OrganisationMember ??
       (userRow as Record<string, unknown>).organisation_member ??
       [];
-    const memberships = (Array.isArray(rawMemberships) ? rawMemberships : []) as Array<{
-      id: string;
-      userId: string;
-      organisationId: string;
-      role: string;
-      createdAt: string;
-      Organisation?: { id: string; name: string; type: string; plan: string; stripeId: string | null; createdAt: string; updatedAt: string; BusinessProfile?: unknown[] };
-      organisation?: { id: string; name: string; type: string; plan: string; stripeId: string | null; createdAt: string; updatedAt: string; business_profile?: unknown[] };
-    }>;
+    const rawList = Array.isArray(rawMemberships) ? rawMemberships : [];
+    const memberships = rawList.map((m: Record<string, unknown>) => {
+      const org = (m.Organisation ?? m.organisation) as Record<string, unknown> | undefined;
+      const orgAny = org as { BusinessProfile?: unknown[]; business_profile?: unknown[] } | undefined;
+      const profiles = orgAny?.BusinessProfile ?? orgAny?.business_profile ?? [];
+      const createdAt = (m.createdAt ?? m.created_at) as string | undefined;
+      const orgId = (m.organisationId ?? m.organisation_id ?? org?.id) as string | undefined;
+      return {
+        ...m,
+        userId: (m.userId ?? m.user_id ?? (m as Record<string, unknown>).user_id) as string,
+        organisationId: orgId ?? "",
+        role: (m.role as string) ?? "MEMBER",
+        createdAt: createdAt ?? new Date().toISOString(),
+        organisation: {
+          ...org,
+          profiles: Array.isArray(profiles) ? profiles : [],
+        },
+      };
+    });
     return {
       ...userRow,
-      memberships: memberships
-        .map((m) => {
-          const org = m.Organisation ?? m.organisation;
-          const orgAny = org as { BusinessProfile?: unknown[]; business_profile?: unknown[] } | undefined;
-          const profiles = orgAny?.BusinessProfile ?? orgAny?.business_profile ?? [];
-          return {
-            ...m,
-            organisation: {
-              ...org,
-              profiles: Array.isArray(profiles) ? profiles : [],
-            },
-          };
-        })
-        .sort(
-          (a, b) =>
-            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-        ),
+      memberships: memberships.sort(
+        (a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      ),
     };
   }
 
@@ -111,35 +108,32 @@ export async function getCurrentUser() {
     (fullUser as Record<string, unknown>).OrganisationMember ??
     (fullUser as Record<string, unknown>).organisation_member ??
     [];
-  const memberships = (Array.isArray(rawMemberships) ? rawMemberships : []) as Array<{
-    id: string;
-    userId: string;
-    organisationId: string;
-    role: string;
-    createdAt: string;
-    Organisation?: { id: string; name: string; type: string; plan: string; stripeId: string | null; createdAt: string; updatedAt: string; BusinessProfile?: unknown[] };
-    organisation?: { id: string; name: string; type: string; plan: string; stripeId: string | null; createdAt: string; updatedAt: string; business_profile?: unknown[] };
-  }>;
+  const rawList = Array.isArray(rawMemberships) ? rawMemberships : [];
+  const memberships = rawList.map((m: Record<string, unknown>) => {
+    const org = (m.Organisation ?? m.organisation) as Record<string, unknown> | undefined;
+    const orgAny = org as { BusinessProfile?: unknown[]; business_profile?: unknown[] } | undefined;
+    const profiles = orgAny?.BusinessProfile ?? orgAny?.business_profile ?? [];
+    const createdAt = (m.createdAt ?? m.created_at) as string | undefined;
+    const orgId = (m.organisationId ?? m.organisation_id ?? org?.id) as string | undefined;
+    return {
+      ...m,
+      userId: (m.userId ?? m.user_id ?? (m as Record<string, unknown>).user_id) as string,
+      organisationId: orgId ?? "",
+      role: (m.role as string) ?? "MEMBER",
+      createdAt: createdAt ?? new Date().toISOString(),
+      organisation: {
+        ...org,
+        profiles: Array.isArray(profiles) ? profiles : [],
+      },
+    };
+  });
 
   return {
     ...fullUser,
-    memberships: memberships
-      .map((m) => {
-        const org = m.Organisation ?? m.organisation;
-        const orgAny = org as { BusinessProfile?: unknown[]; business_profile?: unknown[] } | undefined;
-        const profiles = orgAny?.BusinessProfile ?? orgAny?.business_profile ?? [];
-        return {
-          ...m,
-          organisation: {
-            ...org,
-            profiles: Array.isArray(profiles) ? profiles : [],
-          },
-        };
-      })
-      .sort(
-        (a, b) =>
-          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-      ),
+    memberships: memberships.sort(
+      (a, b) =>
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    ),
   };
 }
 
@@ -161,10 +155,15 @@ export async function getActiveOrg() {
   if (!membership) {
     throw new Error("No organisation found");
   }
+  const m = membership as { organisationId?: string; organisation_id?: string; organisation?: { id?: string } };
+  const orgId = (m.organisationId?.trim() && m.organisationId) || (m.organisation_id?.trim() && m.organisation_id) || m.organisation?.id;
+  if (!orgId) {
+    throw new Error("Organisation ID missing on membership");
+  }
   return {
     user,
     org: membership.organisation,
     role: membership.role,
-    orgId: membership.organisationId,
+    orgId,
   };
 }

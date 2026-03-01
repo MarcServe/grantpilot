@@ -47,6 +47,9 @@ function calculateCompletionScore(profile: {
 }
 
 async function getOrCreateProfile(organisationId: string) {
+  if (!organisationId?.trim()) {
+    throw new Error("Organisation ID is required to load or create profile.");
+  }
   const supabase = getSupabaseAdmin();
 
   const { data: existing } = await supabase
