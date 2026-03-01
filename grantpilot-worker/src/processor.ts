@@ -184,7 +184,8 @@ async function processGrantApplicationSession(
         }
 
         const result = lastResult!;
-        await markItemStatus(item.id, result.success ? "done" : "failed", {
+        const itemStatus = result.skipped ? "skipped" : result.success ? "done" : "failed";
+        await markItemStatus(item.id, itemStatus, {
           extra_data: { notes: result.notes, retries: attempt },
           processed_at: new Date().toISOString(),
         });
@@ -317,18 +318,27 @@ export async function processSession(session: CuSession): Promise<void> {
   }
 }
 
-export async function runLoop(): Promise<void> {
-  console.log("[worker] Starting poll loop...");
+const IDLE_LOG_EVERY_POLLS = 12; // log every ~60s when no work
 
+export async function runLoop(): Promise<void> {
+  console.log("[worker] Starting poll loop... (polling every 5s; start an application from the app to see activity)");
+
+  let idlePolls = 0;
   while (true) {
     try {
       const session = await getNextRunnableSession();
 
       if (!session) {
+        idlePolls += 1;
+        if (idlePolls === IDLE_LOG_EVERY_POLLS) {
+          console.log("[worker] Idle, no pending sessions. Keep running — start an application from the app to process.");
+          idlePolls = 0;
+        }
         await sleep(POLL_INTERVAL_MS);
         continue;
       }
 
+      idlePolls = 0;
       await processSession(session);
     } catch (err) {
       console.error("[worker] Loop error:", err);

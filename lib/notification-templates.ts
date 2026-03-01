@@ -118,6 +118,21 @@ export function buildEmailHtml(
         ),
       };
 
+    case "grant_match_high": {
+      const grantName = payload.grantName ?? "A grant";
+      const score = payload.score ?? 85;
+      const grantUrl = payload.grantId ? `${appUrl}/grants/${payload.grantId}` : `${appUrl}/grants`;
+      return {
+        subject: `You're ${score}% eligible: ${grantName}`,
+        html: baseLayout(
+          `High match: ${grantName}`,
+          `<p>You're <strong>${score}% eligible</strong> for <strong>${grantName}</strong> based on your profile.</p><p>View the grant and apply with AI when you're ready.</p>`,
+          grantUrl,
+          "View Grant"
+        ),
+      };
+    }
+
     default:
       return {
         subject: "Update from GrantPilot",
@@ -155,6 +170,12 @@ export function buildWhatsAppMessage(
 
     case "deadline_reminder":
       return `Reminder: The deadline for ${grant} is ${payload.deadline ?? "approaching soon"}. Don't miss out!\n\n${appUrl}/grants`;
+
+    case "grant_match_high": {
+      const score = payload.score ?? 85;
+      const grantUrl = payload.grantId ? `${appUrl}/grants/${payload.grantId}` : appUrl;
+      return `You're ${score}% eligible for ${grant}. View grant and apply with AI:\n\n${grantUrl}`;
+    }
 
     default:
       return `You have an update on GrantPilot.\n\n${appUrl}`;

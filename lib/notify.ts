@@ -17,13 +17,17 @@ export type NotificationType =
   | "application_failed"
   | "deadline_reminder"
   | "welcome"
-  | "grant_match";
+  | "grant_match"
+  | "grant_match_high";
 
 export interface NotificationPayload {
   grantName?: string;
+  grantId?: string;
   applicationId?: string;
   deadline?: string;
   appUrl?: string;
+  /** Eligibility score 0-100 for grant_match_high */
+  score?: number;
   /** One-time token for approve-by-link (e.g. from WhatsApp/email) */
   approveToken?: string;
 }

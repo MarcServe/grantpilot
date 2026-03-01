@@ -13,6 +13,7 @@ const STATUS_COLORS: Record<string, string> = {
   APPROVED: "bg-green-100 text-green-800",
   SUBMITTED: "bg-green-100 text-green-800",
   FAILED: "bg-red-100 text-red-800",
+  STOPPED: "bg-slate-100 text-slate-700",
 };
 
 export default async function ApplicationsPage() {
@@ -25,11 +26,16 @@ export default async function ApplicationsPage() {
     .eq("organisationId", orgId)
     .order("createdAt", { ascending: false });
 
-  const applications = (rows ?? []).map((app: { id: string; status: string; Grant?: { name: string; funder: string; amount?: number }; createdAt: string }) => ({
-    ...app,
-    grant: app.Grant ?? { name: "", funder: "", amount: null },
-    createdAt: app.createdAt,
-  }));
+  const applications = (rows ?? []).map((app: { id: string; status: string; stopped_at?: string; stoppedAt?: string; Grant?: { name: string; funder: string; amount?: number }; createdAt: string }) => {
+    const stoppedAt = app.stopped_at ?? app.stoppedAt;
+    const displayStatus = app.status === "FAILED" && stoppedAt ? "STOPPED" : app.status;
+    return {
+      ...app,
+      grant: app.Grant ?? { name: "", funder: "", amount: null },
+      createdAt: app.createdAt,
+      displayStatus,
+    };
+  });
 
   return (
     <div className="mx-auto max-w-7xl p-6">
@@ -70,9 +76,9 @@ export default async function ApplicationsPage() {
                   <div className="flex items-center gap-3">
                     <Badge
                       variant="secondary"
-                      className={STATUS_COLORS[app.status] ?? ""}
+                      className={STATUS_COLORS[app.displayStatus ?? app.status] ?? ""}
                     >
-                      {app.status.replace(/_/g, " ")}
+                      {(app.displayStatus ?? app.status).replace(/_/g, " ")}
                     </Badge>
                     <div className="flex items-center gap-1 text-xs text-muted-foreground">
                       <Clock className="h-3 w-3" />

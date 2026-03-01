@@ -13,7 +13,9 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Loader2, FileCheck, AlertTriangle } from "lucide-react";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Loader2, FileCheck, AlertTriangle, Zap } from "lucide-react";
 import { toast } from "sonner";
 
 interface RequiredAttachment {
@@ -24,17 +26,23 @@ interface RequiredAttachment {
   categoryHint?: string;
 }
 
+const AUTOPILOT_ELIGIBILITY_THRESHOLD = 85;
+
 interface ApplyButtonProps {
   grantId: string;
   profileId: string;
+  /** Cached eligibility score (0–100). When >= 85, autopilot is suggested and pre-checked. */
+  eligibilityScore?: number;
 }
 
-export function ApplyButton({ grantId, profileId }: ApplyButtonProps) {
+export function ApplyButton({ grantId, profileId, eligibilityScore }: ApplyButtonProps) {
+  const suggestAutopilot = eligibilityScore != null && eligibilityScore >= AUTOPILOT_ELIGIBILITY_THRESHOLD;
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [checkLoading, setCheckLoading] = useState(false);
   const [missing, setMissing] = useState<RequiredAttachment[]>([]);
   const [required, setRequired] = useState<RequiredAttachment[]>([]);
+  const [autopilot, setAutopilot] = useState(suggestAutopilot);
   const router = useRouter();
 
   useEffect(() => {
@@ -61,17 +69,18 @@ export function ApplyButton({ grantId, profileId }: ApplyButtonProps) {
       const res = await fetch("/api/applications/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ grantId, profileId }),
+        body: JSON.stringify({ grantId, profileId, autopilot: autopilot || undefined }),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
-        toast.error(data.error ?? "Failed to start application");
+        const msg = data.detail ? `${data.error}: ${data.detail}` : (data.error ?? "Failed to start application");
+        toast.error(msg);
         return;
       }
 
-      toast.success("Application started! AI is processing your application.");
+      toast.success(autopilot ? "Application started! AI will fill and submit." : "Application started! AI is processing your application.");
       setOpen(false);
       router.push(`/applications/${data.applicationId}`);
     } catch {
@@ -104,8 +113,8 @@ export function ApplyButton({ grantId, profileId }: ApplyButtonProps) {
           <DialogTitle>Start AI Application</DialogTitle>
           <DialogDescription>
             GrantPilot will use your business profile to fill in the grant
-            application. The AI will prepare everything and pause for your
-            review before any submission.
+            application. By default the AI pauses for your review before
+            submission; turn on Autopilot to submit without approval.
           </DialogDescription>
         </DialogHeader>
         <div className="rounded-lg bg-muted p-4 text-sm">
@@ -114,8 +123,24 @@ export function ApplyButton({ grantId, profileId }: ApplyButtonProps) {
             <li>2. Fills in company details from your profile</li>
             <li>3. Prepares financial information</li>
             <li>4. Uploads supporting documents and videos</li>
-            <li>5. Pauses for your review before submission</li>
+            <li>5. {autopilot ? "Submits the application (Autopilot)" : "Pauses for your review before submission"}</li>
           </ul>
+        </div>
+        {suggestAutopilot && (
+          <p className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-800 dark:bg-green-950/40 dark:text-green-200">
+            You&apos;re {eligibilityScore}% eligible — autopilot suggested for this grant (submit without approval).
+          </p>
+        )}
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="autopilot-catalog"
+            checked={autopilot}
+            onCheckedChange={(c) => setAutopilot(c === true)}
+          />
+          <Label htmlFor="autopilot-catalog" className="flex items-center gap-1.5 cursor-pointer font-normal text-sm">
+            <Zap className="h-4 w-4 text-amber-500" />
+            Autopilot: submit without asking for approval
+          </Label>
         </div>
         {checkLoading ? (
           <p className="text-sm text-muted-foreground">Checking grant requirements…</p>

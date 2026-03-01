@@ -44,6 +44,18 @@ export default async function GrantDetailPage({
     .eq("grantId", grant.id)
     .maybeSingle();
 
+  let eligibilityScore: number | null = null;
+  if (profileId) {
+    const { data: assessment } = await supabase
+      .from("EligibilityAssessment")
+      .select("score")
+      .eq("organisation_id", orgId)
+      .eq("profile_id", profileId)
+      .eq("grant_id", grant.id)
+      .maybeSingle();
+    eligibilityScore = (assessment as { score?: number } | null)?.score ?? null;
+  }
+
   const { data: allGrants = [] } = await supabase
     .from("Grant")
     .select("id, name, funder, amount, applicationUrl, sectors")
@@ -138,8 +150,10 @@ export default async function GrantDetailPage({
               </Link>
             ) : hasProfile && profileId ? (
               <ApplyButton
+                key={grant.id}
                 grantId={grant.id}
                 profileId={profileId}
+                eligibilityScore={eligibilityScore ?? undefined}
               />
             ) : (
               <div className="text-sm text-muted-foreground">

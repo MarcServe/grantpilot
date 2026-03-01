@@ -4,7 +4,7 @@ import { getActiveOrg } from "@/lib/auth";
 import { GrantsListClient } from "@/components/grants/grants-list-client";
 
 export default async function GrantsPage() {
-  const { org } = await getActiveOrg();
+  const { org, orgId } = await getActiveOrg();
   const supabase = getSupabaseAdmin();
 
   const { data: grants = [] } = await supabase
@@ -15,6 +15,18 @@ export default async function GrantsPage() {
   const profile = org.profiles?.[0];
   const hasProfile = !!profile;
   const profileComplete = (profile?.completionScore ?? 0) >= 50;
+
+  let cachedScores: Record<string, { score: number; summary?: string }> = {};
+  if (profileComplete && profile) {
+    const { data: rows = [] } = await supabase
+      .from("EligibilityAssessment")
+      .select("grant_id, score, summary")
+      .eq("organisation_id", orgId)
+      .eq("profile_id", profile.id);
+    for (const row of rows as { grant_id: string; score: number; summary: string | null }[]) {
+      cachedScores[row.grant_id] = { score: row.score, summary: row.summary ?? undefined };
+    }
+  }
 
   return (
     <div className="mx-auto max-w-7xl p-6">
@@ -47,6 +59,7 @@ export default async function GrantsPage() {
         }))}
         hasProfile={hasProfile}
         profileComplete={profileComplete}
+        cachedScores={cachedScores}
       />
     </div>
   );

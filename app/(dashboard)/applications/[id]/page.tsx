@@ -6,8 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
-import { ArrowLeft, CheckCircle, XCircle, Clock, Loader2, ExternalLink, FileEdit, FileText } from "lucide-react";
+import { ArrowLeft, CheckCircle, XCircle, Clock, Loader2, SkipForward, ExternalLink, FileEdit, FileText } from "lucide-react";
 import { SubmitSection } from "@/components/applications/submit-section";
+import { StopApplicationButton } from "@/components/applications/stop-application-button";
 
 const ITEM_STATUS_ICON: Record<string, React.ReactNode> = {
   done: <CheckCircle className="h-4 w-4 text-green-600" />,
@@ -24,6 +25,7 @@ const STATUS_COLORS: Record<string, string> = {
   APPROVED: "bg-green-100 text-green-800",
   SUBMITTED: "bg-green-100 text-green-800",
   FAILED: "bg-red-100 text-red-800",
+  STOPPED: "bg-slate-100 text-slate-700",
 };
 
 export default async function ApplicationDetailPage({
@@ -61,6 +63,8 @@ export default async function ApplicationDetailPage({
     : null;
 
   if (!application) notFound();
+  const stoppedAt = (application as { stopped_at?: string; stoppedAt?: string }).stopped_at ?? (application as { stoppedAt?: string }).stoppedAt;
+  const displayStatus = application.status === "FAILED" && stoppedAt ? "STOPPED" : application.status;
   const publicId = `grantapp_${application.id}`;
 
   const { data: session } = await supabase
@@ -106,17 +110,22 @@ export default async function ApplicationDetailPage({
         Back to Applications
       </Link>
 
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">{application.grant.name}</h1>
           <p className="text-muted-foreground">{application.grant.funder}</p>
         </div>
-        <Badge
-          variant="secondary"
-          className={STATUS_COLORS[application.status] ?? ""}
-        >
-          {application.status.replace(/_/g, " ")}
-        </Badge>
+        <div className="flex items-center gap-2">
+          {["PENDING", "FILLING", "REVIEW_REQUIRED"].includes(application.status) && (
+            <StopApplicationButton applicationId={application.id} />
+          )}
+          <Badge
+            variant="secondary"
+            className={STATUS_COLORS[displayStatus] ?? ""}
+          >
+            {displayStatus.replace(/_/g, " ")}
+          </Badge>
+        </div>
       </div>
 
       <Card className="mb-6">
@@ -169,8 +178,11 @@ export default async function ApplicationDetailPage({
                           .replace(/\b\w/g, (l: string) => l.toUpperCase())}
                       </span>
                     </div>
-                    <Badge variant="outline" className="text-xs">
-                      {item.status}
+                    <Badge
+                      variant="outline"
+                      className={`text-xs ${item.status === "skipped" ? "border-amber-200 bg-amber-50 text-amber-800" : ""}`}
+                    >
+                      {item.status === "skipped" ? "Skipped" : item.status}
                     </Badge>
                   </div>
                 )
@@ -239,6 +251,15 @@ export default async function ApplicationDetailPage({
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="rounded-md border border-blue-200 bg-blue-50/50 p-3 text-sm dark:border-blue-800 dark:bg-blue-950/30">
+              <p className="font-medium text-blue-900 dark:text-blue-100">How to review and approve</p>
+              <ol className="mt-1 list-inside list-decimal space-y-0.5 text-blue-800 dark:text-blue-200">
+                <li>Review the prefilled fields and uploaded files below.</li>
+                <li>Optionally open the funder&apos;s form (link further down) to re-enter or edit on their site.</li>
+                <li>When ready, tick the confirmation and click &quot;Submit Application&quot; at the bottom to approve and submit.
+                </li>
+              </ol>
+            </div>
             <p className="text-sm text-muted-foreground">
               Data the AI has filled in on the grant form. Review below or open the form to edit.
             </p>
@@ -284,7 +305,7 @@ export default async function ApplicationDetailPage({
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Open the funder&apos;s form to review what the AI has filled in, or edit answers manually. When you&apos;re happy, return here and submit below.
+              The AI fills the form in our system; use the &quot;Filled data summary&quot; above to review. The link below opens the funder&apos;s form in your browser (it will load empty — the prefilled data is only in our snapshot). You can re-enter or edit there, then return here to submit.
             </p>
             <a
               href={(application.grant as { applicationUrl: string }).applicationUrl}
@@ -293,7 +314,7 @@ export default async function ApplicationDetailPage({
               className="inline-flex items-center gap-2 rounded-md border bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
             >
               <ExternalLink className="h-4 w-4" />
-              Open grant application form
+              Open funder&apos;s form in new tab
             </a>
           </CardContent>
         </Card>

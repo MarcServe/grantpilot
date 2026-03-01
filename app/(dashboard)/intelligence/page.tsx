@@ -107,8 +107,7 @@ export default async function IntelligencePage() {
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Per-grant eligibility assessment: likely eligible, review, or unlikely — with
-              reasoning so you know why. Powered by your profile and grant criteria.
+              Per-grant eligibility score (e.g. 90% eligible), reasons why, and for partial fits an AI improvement plan. Scores are cached and shown on the grants list; we notify you for high-fit grants.
             </p>
             <Link href="/grants">
               <Button variant="outline" size="sm" className="gap-1">

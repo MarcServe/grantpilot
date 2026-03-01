@@ -91,15 +91,31 @@ Include all grants, sorted by score descending.`,
 
 export type EligibilityDecision = "likely_eligible" | "review" | "unlikely";
 
+export interface ImprovementPlan {
+  gaps?: string[];
+  actions?: string[];
+  timeline?: string;
+}
+
 export interface EligibilityResult {
   decision: EligibilityDecision;
   reason: string;
   confidence: number;
+  /** 0-100 match score (same as confidence for backward compat) */
+  score?: number;
+  /** Short overall summary */
+  summary?: string;
+  /** Bullet reasons: why eligible (high score) or why only X% (low/medium) */
+  reasons?: string[];
+  /** How grant aligns with business (for high score) */
+  alignment?: string[];
+  /** For score < 75: gaps + actionable steps to improve fit */
+  improvementPlan?: ImprovementPlan;
 }
 
 /**
- * Eligibility decision engine: one grant vs profile → decision + reasoning.
- * Powers "Why this grant?" and surfaces vertical depth.
+ * Eligibility decision engine: one grant vs profile → score, decision, reasons, improvement plan.
+ * Powers "Why this grant?" and proactive suggestions + notifications.
  */
 export async function getEligibilityDecision(
   profile: ProfileForMatching,
@@ -107,20 +123,33 @@ export async function getEligibilityDecision(
 ): Promise<EligibilityResult> {
   const response = await anthropic.messages.create({
     model: "claude-sonnet-4-20250514",
-    max_tokens: 600,
+    max_tokens: 1200,
     messages: [
       {
         role: "user",
-        content: `You are a UK grant eligibility expert. Given this business and this grant, give an eligibility decision.
+        content: `You are a UK grant eligibility expert. Given this business and this grant, give an eligibility assessment.
 
-Business: ${profile.businessName} (${profile.sector}). Location: ${profile.location}. Employees: ${profile.employeeCount ?? "N/A"}. Revenue: ${profile.annualRevenue ? `£${profile.annualRevenue.toLocaleString("en-GB")}` : "N/A"}. Funding sought: £${profile.fundingMin.toLocaleString("en-GB")}–£${profile.fundingMax.toLocaleString("en-GB")}. Purposes: ${profile.fundingPurposes.join(", ")}.
+Business: ${profile.businessName} (${profile.sector}). Location: ${profile.location}. Employees: ${profile.employeeCount ?? "N/A"}. Revenue: ${profile.annualRevenue ? `£${profile.annualRevenue.toLocaleString("en-GB")}` : "N/A"}. Funding sought: £${profile.fundingMin.toLocaleString("en-GB")}–£${profile.fundingMax.toLocaleString("en-GB")}. Purposes: ${profile.fundingPurposes.join(", ")}. ${profile.missionStatement ? `Mission: ${profile.missionStatement}.` : ""} ${profile.description ? `Description: ${profile.description}` : ""}
 
 Grant: ${grant.name} (${grant.funder}). Amount: ${grant.amount != null ? `£${grant.amount.toLocaleString("en-GB")}` : "Varies"}. Eligibility: ${grant.eligibility}. Sectors: ${(grant.sectors ?? []).join(", ")}. Regions: ${(grant.regions ?? []).join(", ")}.
 
-Return ONLY valid JSON. No markdown. Format:
-{"decision": "likely_eligible" | "review" | "unlikely", "reason": "2-3 sentence explanation for the applicant.", "confidence": 0-100}
+Return ONLY valid JSON. No markdown. Use this exact shape:
+{
+  "decision": "likely_eligible" | "review" | "unlikely",
+  "reason": "2-3 sentence explanation for the applicant.",
+  "confidence": 0-100,
+  "score": 0-100,
+  "summary": "One sentence overall take.",
+  "reasons": ["Reason 1", "Reason 2", "Reason 3"],
+  "alignment": ["How grant aligns with business - only if score >= 70, else []"],
+  "improvementPlan": { "gaps": ["Gap 1"], "actions": ["Action 1"], "timeline": "Short term" } or null
+}
 
-Use likely_eligible when the business clearly fits. Use review when borderline or more info needed. Use unlikely when clear misfit.`,
+Rules:
+- score and confidence should match (0-100). likely_eligible => score >= 75, review => 40-74, unlikely => < 40.
+- reasons: 3-5 short bullets. For high score explain why they're eligible; for low/medium explain what doesn't match or is missing.
+- alignment: only when score >= 70, 2-4 bullets on how this grant fits their business.
+- improvementPlan: only when score < 75. gaps = what's missing or misaligned; actions = concrete steps to improve fit; timeline optional (e.g. "0-3 months"). Use null when score >= 75.`,
       },
     ],
   });
@@ -130,13 +159,22 @@ Use likely_eligible when the business clearly fits. Use review when borderline o
     const parsed = JSON.parse(text) as EligibilityResult;
     const d = parsed.decision;
     if (d !== "likely_eligible" && d !== "review" && d !== "unlikely") parsed.decision = "review";
-    parsed.confidence = Math.min(100, Math.max(0, Number(parsed.confidence) || 50));
+    const conf = Math.min(100, Math.max(0, Number(parsed.confidence) ?? Number(parsed.score) ?? 50));
+    parsed.confidence = conf;
+    parsed.score = Math.min(100, Math.max(0, Number(parsed.score) ?? conf));
+    parsed.reason = parsed.reason ?? parsed.summary ?? "";
+    parsed.summary = parsed.summary ?? parsed.reason;
+    if (!Array.isArray(parsed.reasons)) parsed.reasons = [];
+    if (parsed.score >= 75 && parsed.improvementPlan) parsed.improvementPlan = undefined;
     return parsed;
   } catch {
     return {
       decision: "review",
       reason: "We couldn't automatically assess eligibility. Please read the grant criteria and decide.",
-      confidence: 0,
+      confidence: 50,
+      score: 50,
+      summary: "We couldn't automatically assess eligibility. Please read the grant criteria and decide.",
+      reasons: [],
     };
   }
 }

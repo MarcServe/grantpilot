@@ -22,6 +22,8 @@ import {
 export interface StepResult {
   success: boolean;
   notes: string;
+  /** When true, step was skipped (e.g. no relevant fields on form). UI can show "Skipped". */
+  skipped?: boolean;
   /** Filled form snapshot for in-app review (e.g. from prepare_review step). */
   snapshot?: FilledFormSnapshot;
 }
@@ -68,6 +70,9 @@ export async function runGrantStep(
     case "fill_company_details": {
       const fields = await getFormFields(page);
       const actions = await getFormFillActions(fields, profile, "company");
+      if (actions.length === 0) {
+        return { success: true, skipped: true, notes: "No company fields on form; skipped" };
+      }
       const { applied, errors } = await applyFillActions(page, actions);
       const note =
         errors.length > 0
@@ -79,6 +84,9 @@ export async function runGrantStep(
     case "fill_financials": {
       const fields = await getFormFields(page);
       const actions = await getFormFillActions(fields, profile, "financial");
+      if (actions.length === 0) {
+        return { success: true, skipped: true, notes: "No financial fields on form; skipped" };
+      }
       const { applied, errors } = await applyFillActions(page, actions);
       const note =
         errors.length > 0
@@ -90,10 +98,10 @@ export async function runGrantStep(
     case "upload_documents": {
       const selectors = await getFileInputSelectors(page);
       if (selectors.length === 0) {
-        return { success: true, notes: "No file inputs on form; skipping upload" };
+        return { success: true, skipped: true, notes: "No file inputs on form; skipped" };
       }
       if (documents.length === 0) {
-        return { success: true, notes: "No documents to upload" };
+        return { success: true, skipped: true, notes: "No documents in profile; skipped" };
       }
       const tempPaths: string[] = [];
       try {

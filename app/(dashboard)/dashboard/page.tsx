@@ -11,6 +11,8 @@ import {
   FileText,
   ArrowRight,
   Clock,
+  Sparkles,
+  Target,
 } from "lucide-react";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -20,6 +22,7 @@ const STATUS_COLORS: Record<string, string> = {
   APPROVED: "bg-green-100 text-green-800",
   SUBMITTED: "bg-green-100 text-green-800",
   FAILED: "bg-red-100 text-red-800",
+  STOPPED: "bg-slate-100 text-slate-700",
 };
 
 export default async function DashboardPage() {
@@ -48,12 +51,41 @@ export default async function DashboardPage() {
     .in("status", ["FILLING", "REVIEW_REQUIRED"]);
 
   const appsWithGrant = (recentApplications ?? []).map(
-    (app: { Grant?: { name: string; funder: string }; createdAt: string; id: string; status: string }) => ({
-      ...app,
-      grant: app.Grant ?? { name: "", funder: "" },
-      createdAt: app.createdAt,
-    })
+    (app: { Grant?: { name: string; funder: string }; createdAt: string; id: string; status: string; stopped_at?: string; stoppedAt?: string }) => {
+      const stoppedAt = app.stopped_at ?? app.stoppedAt;
+      const displayStatus = app.status === "FAILED" && stoppedAt ? "STOPPED" : app.status;
+      return {
+        ...app,
+        grant: app.Grant ?? { name: "", funder: "" },
+        createdAt: app.createdAt,
+        displayStatus,
+      };
+    }
   );
+
+  let suggestedGrants: { grantId: string; grantName: string; score: number }[] = [];
+  let withinReachGrants: { grantId: string; grantName: string; score: number; summary?: string }[] = [];
+  if (profile && completionScore >= 50) {
+    const { data: assessments = [] } = await supabase
+      .from("EligibilityAssessment")
+      .select("grant_id, score, summary")
+      .eq("organisation_id", orgId)
+      .eq("profile_id", profile.id)
+      .order("score", { ascending: false });
+    const grantIds = (assessments as { grant_id: string; score: number; summary: string | null }[]).map((a) => a.grant_id);
+    if (grantIds.length > 0) {
+      const { data: grantsList = [] } = await supabase
+        .from("Grant")
+        .select("id, name")
+        .in("id", grantIds);
+      const nameById = new Map((grantsList as { id: string; name: string }[]).map((g) => [g.id, g.name]));
+      for (const a of assessments as { grant_id: string; score: number; summary: string | null }[]) {
+        const name = nameById.get(a.grant_id) ?? "Grant";
+        if (a.score >= 80) suggestedGrants.push({ grantId: a.grant_id, grantName: name, score: a.score });
+        else if (a.score >= 50) withinReachGrants.push({ grantId: a.grant_id, grantName: name, score: a.score, summary: a.summary ?? undefined });
+      }
+    }
+  }
 
   return (
     <div className="mx-auto max-w-7xl p-6">
@@ -122,6 +154,73 @@ export default async function DashboardPage() {
         </Card>
       </div>
 
+      {(suggestedGrants.length > 0 || withinReachGrants.length > 0) && (
+        <div className="mt-8 grid gap-6 md:grid-cols-2">
+          {suggestedGrants.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Sparkles className="h-4 w-4 text-primary" />
+                  Suggested for you
+                </CardTitle>
+                <p className="text-sm font-normal text-muted-foreground">
+                  High eligibility based on your profile. We&apos;ve notified you about these.
+                </p>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-2">
+                  {suggestedGrants.slice(0, 5).map((g) => (
+                    <li key={g.grantId}>
+                      <Link
+                        href={`/grants/${g.grantId}`}
+                        className="flex items-center justify-between rounded-md p-2 hover:bg-muted"
+                      >
+                        <span className="font-medium">{g.grantName}</span>
+                        <Badge variant="default">{g.score}%</Badge>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+                <Link href="/grants" className="mt-3 inline-block text-sm text-primary hover:underline">
+                  View all grants <ArrowRight className="inline h-3 w-3" />
+                </Link>
+              </CardContent>
+            </Card>
+          )}
+          {withinReachGrants.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Target className="h-4 w-4 text-amber-600" />
+                  Within reach
+                </CardTitle>
+                <p className="text-sm font-normal text-muted-foreground">
+                  Partial fit. Open a grant to see how to improve your eligibility.
+                </p>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-2">
+                  {withinReachGrants.slice(0, 5).map((g) => (
+                    <li key={g.grantId}>
+                      <Link
+                        href={`/grants/${g.grantId}`}
+                        className="flex items-center justify-between rounded-md p-2 hover:bg-muted"
+                      >
+                        <span className="font-medium">{g.grantName}</span>
+                        <Badge variant="secondary">{g.score}%</Badge>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+                <Link href="/grants" className="mt-3 inline-block text-sm text-primary hover:underline">
+                  View all grants <ArrowRight className="inline h-3 w-3" />
+                </Link>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
       <div className="mt-8">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">Recent Applications</h2>
@@ -164,9 +263,9 @@ export default async function DashboardPage() {
                     <div className="flex items-center gap-3">
                       <Badge
                         variant="secondary"
-                        className={STATUS_COLORS[app.status] ?? ""}
+                        className={STATUS_COLORS[app.displayStatus] ?? ""}
                       >
-                        {app.status.replace(/_/g, " ")}
+                        {app.displayStatus.replace(/_/g, " ")}
                       </Badge>
                       <div className="flex items-center gap-1 text-xs text-muted-foreground">
                         <Clock className="h-3 w-3" />

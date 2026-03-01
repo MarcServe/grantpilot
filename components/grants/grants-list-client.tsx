@@ -17,16 +17,23 @@ interface GrantData {
   applicationUrl: string;
 }
 
+interface CachedScore {
+  score: number;
+  summary?: string;
+}
+
 interface GrantsListClientProps {
   grants: GrantData[];
   hasProfile: boolean;
   profileComplete: boolean;
+  cachedScores?: Record<string, CachedScore>;
 }
 
 export function GrantsListClient({
   grants,
   hasProfile,
   profileComplete,
+  cachedScores = {},
 }: GrantsListClientProps) {
   const [matches, setMatches] = useState<Map<string, GrantMatch>>(new Map());
   const [sorted, setSorted] = useState(false);
@@ -48,8 +55,8 @@ export function GrantsListClient({
     : grants;
   displayGrants = sorted
     ? [...displayGrants].sort((a, b) => {
-        const scoreA = matches.get(a.id)?.score ?? 0;
-        const scoreB = matches.get(b.id)?.score ?? 0;
+        const scoreA = matches.get(a.id)?.score ?? cachedScores[a.id]?.score ?? 0;
+        const scoreB = matches.get(b.id)?.score ?? cachedScores[b.id]?.score ?? 0;
         return scoreB - scoreA;
       })
     : displayGrants;
@@ -92,6 +99,7 @@ export function GrantsListClient({
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         {displayGrants.map((grant) => {
           const match = matches.get(grant.id);
+          const cached = cachedScores[grant.id];
           return (
             <GrantCard
               key={grant.id}
@@ -102,8 +110,8 @@ export function GrantsListClient({
               deadline={grant.deadline}
               sectors={grant.sectors}
               regions={grant.regions}
-              matchScore={match?.score}
-              matchReason={match?.reason}
+              matchScore={match?.score ?? cached?.score}
+              matchReason={match?.reason ?? cached?.summary}
             />
           );
         })}

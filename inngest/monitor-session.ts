@@ -30,28 +30,54 @@ export const monitorSession = inngest.createFunction(
 
       if (session.status === "completed" || session.status === "failed") {
         const application = await step.run("update-application", async () => {
-          const status = session.status === "completed" ? "REVIEW_REQUIRED" : "FAILED";
-          await supabase
+          const { data: current } = await supabase
             .from("Application")
-            .update({ status })
-            .eq("id", applicationId);
+            .select("status, organisationId")
+            .eq("id", applicationId)
+            .single();
+          const currentStatus = (current as { status: string } | null)?.status;
+          if (session.status === "completed" && currentStatus === "SUBMITTED") {
+            return { ...current, status: "SUBMITTED", alreadySubmitted: true } as unknown as {
+              id: string;
+              organisationId: string;
+              Grant: { name: string };
+              status: string;
+              alreadySubmitted?: boolean;
+            };
+          }
+          const status = session.status === "completed" ? "REVIEW_REQUIRED" : "FAILED";
+          await supabase.from("Application").update({ status }).eq("id", applicationId);
           const { data } = await supabase
             .from("Application")
             .select("id, organisationId, Grant(name)")
             .eq("id", applicationId)
             .single();
-          return data as unknown as { id: string; organisationId: string; Grant: { name: string } };
+          return { ...data, status, alreadySubmitted: false } as unknown as {
+            id: string;
+            organisationId: string;
+            Grant: { name: string };
+            status: string;
+            alreadySubmitted?: boolean;
+          };
         });
 
+        const grantName = (application?.Grant as { name: string } | undefined)?.name ?? "Grant";
+        const alreadySubmitted = (application as { alreadySubmitted?: boolean })?.alreadySubmitted;
         const notificationType =
-          session.status === "completed" ? "review_required" : "application_failed";
-        const grantName = application?.Grant?.name ?? "Grant";
-        const approveToken = session.status === "completed" ? createApproveToken(application!.id) : undefined;
+          session.status === "completed"
+            ? alreadySubmitted
+              ? "application_submitted"
+              : "review_required"
+            : "application_failed";
+        const approveToken =
+          session.status === "completed" && !alreadySubmitted
+            ? createApproveToken(application!.id)
+            : undefined;
 
         await step.run("send-notification", async () => {
           await notifyOrgMembers(
             application!.organisationId,
-            notificationType as "review_required" | "application_failed",
+            notificationType as "review_required" | "application_failed" | "application_submitted",
             {
               grantName,
               applicationId: application!.id,

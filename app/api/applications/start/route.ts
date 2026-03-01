@@ -9,15 +9,20 @@ import { checkUsageLimit, recordUsage } from "@/lib/plan-check";
 const startSchema = z.object({
   grantId: z.string().min(1),
   profileId: z.string().min(1),
+  autopilot: z.boolean().optional(),
 });
 
-const SESSION_ITEMS = [
+const SESSION_ITEMS_BASE = [
   { action: "open_grant_url", task_type: "grant_application" },
   { action: "fill_company_details", task_type: "grant_application" },
   { action: "fill_financials", task_type: "grant_application" },
   { action: "upload_documents", task_type: "grant_application" },
   { action: "prepare_review", task_type: "grant_application" },
 ];
+const SUBMIT_ITEM = { action: "submit_application", task_type: "grant_application" };
+function getSessionItems(autopilot: boolean) {
+  return autopilot ? [...SESSION_ITEMS_BASE, SUBMIT_ITEM] : SESSION_ITEMS_BASE;
+}
 
 export async function POST(req: Request): Promise<NextResponse> {
   try {
@@ -29,7 +34,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
     }
 
-    const { grantId, profileId } = parsed.data;
+    const { grantId, profileId, autopilot = false } = parsed.data;
 
     const supabase = getSupabaseAdmin();
 
@@ -73,25 +78,35 @@ export async function POST(req: Request): Promise<NextResponse> {
       );
     }
 
+    const applicationId = crypto.randomUUID();
+    const now = new Date().toISOString();
     const { data: application, error: appError } = await supabase
       .from("Application")
       .insert({
+        id: applicationId,
         organisationId: orgId,
         createdById: user.id,
         grantId,
         profileId,
         status: "FILLING",
+        createdAt: now,
+        updatedAt: now,
       })
       .select("id")
       .single();
 
     if (appError || !application) {
       console.error("[APPLICATION_START] create application failed", appError);
-      return NextResponse.json({ error: "Failed to create application" }, { status: 500 });
+      const detail = appError?.message ?? appError?.details ?? null;
+      return NextResponse.json(
+        { error: "Failed to create application", ...(detail && { detail }) },
+        { status: 500 }
+      );
     }
 
     const publicId = `grantapp_${application.id}`;
 
+    const SESSION_ITEMS = getSessionItems(autopilot);
     const { data: session, error: sessionError } = await supabase
       .from("cu_sessions")
       .insert({
