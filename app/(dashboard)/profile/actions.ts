@@ -234,18 +234,23 @@ export async function saveDocument(doc: {
   url: string;
   type: string;
   size: number;
+  category?: string | null;
 }) {
   const orgId = await getOrgId();
   const profile = await getOrCreateProfile(orgId);
 
   const supabase = getSupabaseAdmin();
-  const { error } = await supabase.from("Document").insert({
+  const insert: Record<string, unknown> = {
     profileId: profile.id,
     name: doc.name,
     url: doc.url,
     type: doc.type,
     size: doc.size,
-  });
+  };
+  if (doc.category != null && doc.category !== "") {
+    insert.category = doc.category;
+  }
+  const { error } = await supabase.from("Document").insert(insert);
 
   if (error) return { error: error.message };
   return { success: true };

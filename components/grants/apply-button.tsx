@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,8 +13,16 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Loader2, FileCheck } from "lucide-react";
+import { Loader2, FileCheck, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
+
+interface RequiredAttachment {
+  kind: string;
+  label: string;
+  maxDurationMinutes?: number;
+  maxSizeMB?: number;
+  categoryHint?: string;
+}
 
 interface ApplyButtonProps {
   grantId: string;
@@ -23,7 +32,28 @@ interface ApplyButtonProps {
 export function ApplyButton({ grantId, profileId }: ApplyButtonProps) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [checkLoading, setCheckLoading] = useState(false);
+  const [missing, setMissing] = useState<RequiredAttachment[]>([]);
+  const [required, setRequired] = useState<RequiredAttachment[]>([]);
   const router = useRouter();
+
+  useEffect(() => {
+    if (!open || !grantId || !profileId) return;
+    setCheckLoading(true);
+    fetch(
+      `/api/applications/start-check?grantId=${encodeURIComponent(grantId)}&profileId=${encodeURIComponent(profileId)}`
+    )
+      .then((r) => r.json())
+      .then((data) => {
+        setRequired(data.requiredAttachments ?? []);
+        setMissing(data.missing ?? []);
+      })
+      .catch(() => {
+        setRequired([]);
+        setMissing([]);
+      })
+      .finally(() => setCheckLoading(false));
+  }, [open, grantId, profileId]);
 
   async function handleApply() {
     setLoading(true);
@@ -51,6 +81,16 @@ export function ApplyButton({ grantId, profileId }: ApplyButtonProps) {
     }
   }
 
+  const missingSummary = missing.length > 0
+    ? missing
+        .map((m) =>
+          m.maxDurationMinutes || m.maxSizeMB
+            ? `${m.label}${m.maxDurationMinutes ? ` (max ${m.maxDurationMinutes} min)` : ""}${m.maxSizeMB ? `, ${m.maxSizeMB}MB` : ""}`
+            : m.label
+        )
+        .join(", ")
+    : "";
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -73,10 +113,33 @@ export function ApplyButton({ grantId, profileId }: ApplyButtonProps) {
             <li>1. AI opens the grant application form</li>
             <li>2. Fills in company details from your profile</li>
             <li>3. Prepares financial information</li>
-            <li>4. Uploads supporting documents</li>
+            <li>4. Uploads supporting documents and videos</li>
             <li>5. Pauses for your review before submission</li>
           </ul>
         </div>
+        {checkLoading ? (
+          <p className="text-sm text-muted-foreground">Checking grant requirements…</p>
+        ) : missing.length > 0 && required.length > 0 ? (
+          <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/40">
+            <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-500" />
+            <div>
+              <p className="font-medium text-amber-800 dark:text-amber-200">
+                This grant may require:
+              </p>
+              <p className="mt-1 text-amber-700 dark:text-amber-300">{missingSummary}</p>
+              <p className="mt-2">
+                <Link
+                  href="/profile"
+                  className="underline hover:no-underline"
+                  onClick={() => setOpen(false)}
+                >
+                  Add these in Profile → Documents
+                </Link>{" "}
+                or continue and upload manually on the grant form.
+              </p>
+            </div>
+          </div>
+        ) : null}
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>
             Cancel

@@ -88,3 +88,55 @@ Include all grants, sorted by score descending.`,
     }));
   }
 }
+
+export type EligibilityDecision = "likely_eligible" | "review" | "unlikely";
+
+export interface EligibilityResult {
+  decision: EligibilityDecision;
+  reason: string;
+  confidence: number;
+}
+
+/**
+ * Eligibility decision engine: one grant vs profile → decision + reasoning.
+ * Powers "Why this grant?" and surfaces vertical depth.
+ */
+export async function getEligibilityDecision(
+  profile: ProfileForMatching,
+  grant: GrantForMatching
+): Promise<EligibilityResult> {
+  const response = await anthropic.messages.create({
+    model: "claude-sonnet-4-20250514",
+    max_tokens: 600,
+    messages: [
+      {
+        role: "user",
+        content: `You are a UK grant eligibility expert. Given this business and this grant, give an eligibility decision.
+
+Business: ${profile.businessName} (${profile.sector}). Location: ${profile.location}. Employees: ${profile.employeeCount ?? "N/A"}. Revenue: ${profile.annualRevenue ? `£${profile.annualRevenue.toLocaleString("en-GB")}` : "N/A"}. Funding sought: £${profile.fundingMin.toLocaleString("en-GB")}–£${profile.fundingMax.toLocaleString("en-GB")}. Purposes: ${profile.fundingPurposes.join(", ")}.
+
+Grant: ${grant.name} (${grant.funder}). Amount: ${grant.amount != null ? `£${grant.amount.toLocaleString("en-GB")}` : "Varies"}. Eligibility: ${grant.eligibility}. Sectors: ${(grant.sectors ?? []).join(", ")}. Regions: ${(grant.regions ?? []).join(", ")}.
+
+Return ONLY valid JSON. No markdown. Format:
+{"decision": "likely_eligible" | "review" | "unlikely", "reason": "2-3 sentence explanation for the applicant.", "confidence": 0-100}
+
+Use likely_eligible when the business clearly fits. Use review when borderline or more info needed. Use unlikely when clear misfit.`,
+      },
+    ],
+  });
+
+  const text = response.content[0].type === "text" ? response.content[0].text : "";
+  try {
+    const parsed = JSON.parse(text) as EligibilityResult;
+    const d = parsed.decision;
+    if (d !== "likely_eligible" && d !== "review" && d !== "unlikely") parsed.decision = "review";
+    parsed.confidence = Math.min(100, Math.max(0, Number(parsed.confidence) || 50));
+    return parsed;
+  } catch {
+    return {
+      decision: "review",
+      reason: "We couldn't automatically assess eligibility. Please read the grant criteria and decide.",
+      confidence: 0,
+    };
+  }
+}

@@ -41,13 +41,3 @@ Rules:
   }
 }
 
-export async function processGrantApplicationStep(
-  action: string,
-  grantName: string,
-  _grantUrl: string
-): Promise<{ success: boolean; notes: string }> {
-  return {
-    success: true,
-    notes: `Stubbed step "${action}" for grant "${grantName}". Computer Use integration pending.`,
-  };
-}

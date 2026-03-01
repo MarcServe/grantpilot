@@ -3,7 +3,9 @@
 import { useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Loader2, Upload, FileText, Trash2, CheckCircle } from "lucide-react";
+import { Label } from "@/components/ui/label";
+import { Loader2, Upload, FileText, Trash2, CheckCircle, Video } from "lucide-react";
+import { DOCUMENT_CATEGORIES } from "@/lib/grant-requirements";
 
 interface DocumentItem {
   id: string;
@@ -11,11 +13,12 @@ interface DocumentItem {
   url: string;
   type: string;
   size: number;
+  category?: string | null;
 }
 
 interface Step5Props {
   documents: DocumentItem[];
-  onUpload: (file: File) => Promise<void>;
+  onUpload: (file: File, category?: string | null) => Promise<void>;
   onRemove: (id: string) => Promise<void>;
   onBack: () => void;
   onComplete: () => void;
@@ -28,6 +31,12 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function getCategoryLabel(value: string | null | undefined): string {
+  if (!value) return "Document";
+  const c = DOCUMENT_CATEGORIES.find((x) => x.value === value);
+  return c?.label ?? value;
+}
+
 export function Step5Documents({
   documents,
   onUpload,
@@ -37,61 +46,81 @@ export function Step5Documents({
   isPending,
 }: Step5Props) {
   const [uploading, setUploading] = useState(false);
+  const [uploadCategory, setUploadCategory] = useState<string>("");
 
   const handleFileChange = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file) return;
 
-      const maxSize = 10 * 1024 * 1024;
+      const isVideo = (file.type || "").startsWith("video/");
+      const maxSize = isVideo ? 100 * 1024 * 1024 : 10 * 1024 * 1024;
       if (file.size > maxSize) {
-        alert("File must be under 10MB");
+        alert(isVideo ? "Video must be under 100MB" : "File must be under 10MB");
         return;
       }
 
       setUploading(true);
       try {
-        await onUpload(file);
+        await onUpload(file, uploadCategory || undefined);
       } finally {
         setUploading(false);
         e.target.value = "";
       }
     },
-    [onUpload]
+    [onUpload, uploadCategory]
   );
 
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-sm font-medium">Supporting Documents</h3>
+        <h3 className="text-sm font-medium">Supporting Documents & Videos</h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          Upload your pitch deck, business plan, financial accounts, or any
-          other supporting documents. PDF and DOCX accepted, max 10MB each.
+          Upload pitch deck, business plan, financial accounts, or a pitch
+          video. Many grants require a short video (e.g. 5 min, 50MB). Tag
+          each file so we can match it to grant requirements.
         </p>
       </div>
 
-      <div className="rounded-lg border border-dashed p-8 text-center">
-        <Upload className="mx-auto h-8 w-8 text-muted-foreground" />
-        <p className="mt-2 text-sm text-muted-foreground">
-          Click to upload or drag and drop
-        </p>
-        <label className="mt-4 inline-block cursor-pointer">
-          <Button variant="outline" disabled={uploading} asChild>
-            <span>
-              {uploading && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              )}
-              Choose File
-            </span>
-          </Button>
-          <input
-            type="file"
-            className="hidden"
-            accept=".pdf,.docx,.doc,.xlsx,.xls"
-            onChange={handleFileChange}
-            disabled={uploading}
-          />
-        </label>
+      <div className="rounded-lg border border-dashed p-6">
+        <div className="mb-4 flex flex-col gap-2">
+          <Label className="text-xs text-muted-foreground">Type (for grant matching)</Label>
+          <select
+            className="w-full max-w-xs rounded-md border border-input bg-background px-3 py-2 text-sm"
+            value={uploadCategory}
+            onChange={(e) => setUploadCategory(e.target.value)}
+          >
+            <option value="">— Select type —</option>
+            {DOCUMENT_CATEGORIES.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="text-center">
+          <Upload className="mx-auto h-8 w-8 text-muted-foreground" />
+          <p className="mt-2 text-sm text-muted-foreground">
+            Click to upload (documents max 10MB, videos max 100MB)
+          </p>
+          <label className="mt-4 inline-block cursor-pointer">
+            <Button variant="outline" disabled={uploading} asChild>
+              <span>
+                {uploading && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
+                Choose File
+              </span>
+            </Button>
+            <input
+              type="file"
+              className="hidden"
+              accept=".pdf,.docx,.doc,.xlsx,.xls,video/*,.mp4,.webm,.mov"
+              onChange={handleFileChange}
+              disabled={uploading}
+            />
+          </label>
+        </div>
       </div>
 
       {documents.length > 0 && (
@@ -100,11 +129,16 @@ export function Step5Documents({
             <Card key={doc.id}>
               <CardContent className="flex items-center justify-between p-4">
                 <div className="flex items-center gap-3">
-                  <FileText className="h-5 w-5 text-muted-foreground" />
+                  {(doc.type || "").startsWith("video/") ? (
+                    <Video className="h-5 w-5 text-muted-foreground" />
+                  ) : (
+                    <FileText className="h-5 w-5 text-muted-foreground" />
+                  )}
                   <div>
                     <p className="text-sm font-medium">{doc.name}</p>
                     <p className="text-xs text-muted-foreground">
                       {formatFileSize(doc.size)}
+                      {doc.category ? ` · ${getCategoryLabel(doc.category)}` : ""}
                     </p>
                   </div>
                 </div>

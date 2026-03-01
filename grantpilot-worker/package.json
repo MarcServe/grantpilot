@@ -11,7 +11,8 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
     "@supabase/supabase-js": "^2.98.0",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "playwright": "^1.49.0"
   },
   "devDependencies": {
     "tsx": "^4.16.2",

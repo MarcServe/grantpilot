@@ -26,12 +26,22 @@ export async function POST(req: Request): Promise<NextResponse> {
 
     const supabase = getSupabaseAdmin();
 
-    const { data: application } = await supabase
+    let { data: application } = await supabase
       .from("Application")
       .select("id, status")
       .eq("id", applicationId)
       .eq("organisationId", orgId)
       .maybeSingle();
+
+    if (!application) {
+      const alt = await supabase
+        .from("Application")
+        .select("id, status")
+        .eq("id", applicationId)
+        .eq("organisation_id", orgId)
+        .maybeSingle();
+      application = alt.data ?? null;
+    }
 
     if (!application) {
       return NextResponse.json(
@@ -61,11 +71,24 @@ export async function POST(req: Request): Promise<NextResponse> {
       );
     }
 
+    const { data: appWithGrant } = await supabase
+      .from("Application")
+      .select("id, Grant(applicationUrl, name)")
+      .eq("id", applicationId)
+      .single();
+
+    const grant = (appWithGrant as { Grant?: { applicationUrl?: string; name?: string } | { applicationUrl?: string; name?: string }[] } | null)?.Grant;
+    const grantObj = Array.isArray(grant) ? grant[0] : grant;
+    const grantUrl = grantObj?.applicationUrl ?? "";
+    const grantName = grantObj?.name ?? "Grant";
+
     await supabase.from("cu_session_items").insert({
       session_id: session.id,
       task_type: "grant_application",
       action: "submit_application",
       status: "pending",
+      grant_url: grantUrl || null,
+      grant_name: grantName || null,
     });
 
     if (session.status === "completed") {
@@ -80,18 +103,8 @@ export async function POST(req: Request): Promise<NextResponse> {
       .update({ status: "APPROVED" })
       .eq("id", applicationId);
 
-    const { data: updatedApp } = await supabase
-      .from("Application")
-      .select("id, Grant(name)")
-      .eq("id", applicationId)
-      .single();
-
-    const grantObj = updatedApp?.Grant as { name?: string } | { name?: string }[] | undefined;
-    const grantName =
-      (Array.isArray(grantObj) ? grantObj[0]?.name : grantObj?.name) ?? "Grant";
-
     notifyOrgMembers(orgId, "application_submitted", {
-      grantName,
+      grantName: grantName ?? "Grant",
       applicationId: applicationId,
     }).catch(console.error);
 

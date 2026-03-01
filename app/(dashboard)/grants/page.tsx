@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg } from "@/lib/auth";
 import { GrantsListClient } from "@/components/grants/grants-list-client";
@@ -17,11 +18,19 @@ export default async function GrantsPage() {
 
   return (
     <div className="mx-auto max-w-7xl p-6">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold">Available Grants</h1>
-        <p className="mt-1 text-muted-foreground">
-          Browse grants or use AI matching to find the best fit for your business.
-        </p>
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Available Grants</h1>
+          <p className="mt-1 text-muted-foreground">
+            Browse grants or use AI matching to find the best fit for your business.
+          </p>
+        </div>
+        <Link
+          href="/grants/apply-by-link"
+          className="shrink-0 rounded-md border bg-background px-4 py-2 text-sm font-medium hover:bg-muted"
+        >
+          Have a grant link? Apply here
+        </Link>
       </div>
 
       <GrantsListClient

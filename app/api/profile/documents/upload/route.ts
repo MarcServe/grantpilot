@@ -3,7 +3,8 @@ import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 const BUCKET = "documents";
-const MAX_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_SIZE_DOC = 10 * 1024 * 1024; // 10MB
+const MAX_SIZE_VIDEO = 100 * 1024 * 1024; // 100MB for video
 
 export async function POST(request: Request) {
   try {
@@ -25,6 +26,7 @@ export async function POST(request: Request) {
 
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
+    const category = (formData.get("category") as string) || null;
     if (!file || !(file instanceof File)) {
       return NextResponse.json(
         { error: "No file provided" },
@@ -32,9 +34,11 @@ export async function POST(request: Request) {
       );
     }
 
-    if (file.size > MAX_SIZE) {
+    const isVideo = (file.type || "").startsWith("video/");
+    const maxSize = isVideo ? MAX_SIZE_VIDEO : MAX_SIZE_DOC;
+    if (file.size > maxSize) {
       return NextResponse.json(
-        { error: "File must be under 10MB" },
+        { error: isVideo ? "Video must be under 100MB" : "File must be under 10MB" },
         { status: 400 }
       );
     }
@@ -61,16 +65,18 @@ export async function POST(request: Request) {
       data: { publicUrl },
     } = supabase.storage.from(BUCKET).getPublicUrl(filePath);
 
+    const docInsert: Record<string, unknown> = {
+      profileId: profile.id,
+      name: file.name,
+      url: publicUrl,
+      type: file.type,
+      size: file.size,
+    };
+    if (category && category.trim()) docInsert.category = category.trim();
     const { data: document, error: docError } = await supabase
       .from("Document")
-      .insert({
-        profileId: profile.id,
-        name: file.name,
-        url: publicUrl,
-        type: file.type,
-        size: file.size,
-      })
-      .select("id, name, url, type, size")
+      .insert(docInsert)
+      .select("id, name, url, type, size, category")
       .single();
 
     if (docError || !document) {
@@ -86,6 +92,7 @@ export async function POST(request: Request) {
         url: document.url,
         type: document.type,
         size: document.size,
+        category: (document as { category?: string }).category ?? null,
       },
     });
   } catch (err) {

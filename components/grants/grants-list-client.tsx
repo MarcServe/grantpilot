@@ -30,6 +30,9 @@ export function GrantsListClient({
 }: GrantsListClientProps) {
   const [matches, setMatches] = useState<Map<string, GrantMatch>>(new Map());
   const [sorted, setSorted] = useState(false);
+  const [funderFilter, setFunderFilter] = useState<string>("");
+
+  const funders = Array.from(new Set(grants.map((g) => g.funder).filter(Boolean))).sort();
 
   function handleMatches(matchResults: GrantMatch[]) {
     const map = new Map<string, GrantMatch>();
@@ -40,21 +43,38 @@ export function GrantsListClient({
     setSorted(true);
   }
 
-  const displayGrants = sorted
-    ? [...grants].sort((a, b) => {
+  let displayGrants = funderFilter
+    ? grants.filter((g) => g.funder === funderFilter)
+    : grants;
+  displayGrants = sorted
+    ? [...displayGrants].sort((a, b) => {
         const scoreA = matches.get(a.id)?.score ?? 0;
         const scoreB = matches.get(b.id)?.score ?? 0;
         return scoreB - scoreA;
       })
-    : grants;
+    : displayGrants;
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-wrap items-center gap-3">
         <p className="text-sm text-muted-foreground">
-          {grants.length} grants available
+          {displayGrants.length} of {grants.length} grants
           {sorted && " (sorted by match score)"}
         </p>
+        {funders.length > 0 && (
+          <select
+            value={funderFilter}
+            onChange={(e) => setFunderFilter(e.target.value)}
+            className="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+          >
+            <option value="">All funders</option>
+            {funders.map((f) => (
+              <option key={f} value={f}>
+                {f}
+              </option>
+            ))}
+          </select>
+        )}
         {hasProfile && (
           <MatchButton
             onMatches={handleMatches}

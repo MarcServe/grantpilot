@@ -14,6 +14,7 @@ import {
   ArrowLeft,
 } from "lucide-react";
 import { ApplyButton } from "@/components/grants/apply-button";
+import { EligibilityCard } from "@/components/grants/eligibility-card";
 
 export default async function GrantDetailPage({
   params,
@@ -42,6 +43,20 @@ export default async function GrantDetailPage({
     .eq("organisationId", orgId)
     .eq("grantId", grant.id)
     .maybeSingle();
+
+  const { data: allGrants = [] } = await supabase
+    .from("Grant")
+    .select("id, name, funder, amount, applicationUrl, sectors")
+    .neq("id", grant.id);
+  const sectors = (grant.sectors ?? []) as string[];
+  const funderName = (grant.funder ?? "") as string;
+  const similarGrants = (allGrants as { id: string; name: string; funder: string; sectors?: string[] }[])
+    .filter(
+      (g) =>
+        g.funder === funderName ||
+        (sectors.length > 0 && (g.sectors ?? []).some((s: string) => sectors.includes(s)))
+    )
+    .slice(0, 5);
 
   return (
     <div className="mx-auto max-w-4xl p-6">
@@ -104,6 +119,13 @@ export default async function GrantDetailPage({
               {grant.eligibility}
             </p>
           </div>
+
+          {hasProfile && profileId && (
+            <>
+              <Separator />
+              <EligibilityCard grantId={grant.id} />
+            </>
+          )}
 
           <Separator />
 

@@ -6,6 +6,7 @@ import {
   Search,
   FileText,
   CreditCard,
+  Brain,
 } from "lucide-react";
 import { UserNav } from "@/components/layout/user-nav";
 
@@ -16,6 +17,7 @@ const navItems = [
   { href: "/profile", label: "Profile", icon: Building2 },
   { href: "/grants", label: "Grants", icon: Search },
   { href: "/applications", label: "Applications", icon: FileText },
+  { href: "/intelligence", label: "Intelligence", icon: Brain },
   { href: "/billing", label: "Billing", icon: CreditCard },
 ];
 

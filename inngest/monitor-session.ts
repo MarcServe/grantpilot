@@ -1,6 +1,7 @@
 import { inngest } from "./client";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { notifyOrgMembers } from "@/lib/notify";
+import { createApproveToken } from "@/lib/approve-token";
 
 export const monitorSession = inngest.createFunction(
   { id: "monitor-session", name: "Monitor Execution Session" },
@@ -45,6 +46,7 @@ export const monitorSession = inngest.createFunction(
         const notificationType =
           session.status === "completed" ? "review_required" : "application_failed";
         const grantName = application?.Grant?.name ?? "Grant";
+        const approveToken = session.status === "completed" ? createApproveToken(application!.id) : undefined;
 
         await step.run("send-notification", async () => {
           await notifyOrgMembers(
@@ -53,6 +55,7 @@ export const monitorSession = inngest.createFunction(
             {
               grantName,
               applicationId: application!.id,
+              approveToken,
             }
           );
         });

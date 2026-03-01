@@ -1,9 +1,14 @@
 import { supabase } from "./supabase.js";
 import type { CuSession, CuSessionItem } from "./types.js";
-import { extractEmailFromUrl, processGrantApplicationStep } from "./claude.js";
+import { extractEmailFromUrl } from "./claude.js";
+import { fetchProfileAndDocuments } from "./profile-data.js";
+import { launchGrantBrowser, newGrantPage } from "./browser.js";
+import { runGrantStep } from "./grant-steps.js";
 
 const POLL_INTERVAL_MS = 5000;
 const PROGRESS_UPDATE_EVERY = 5;
+const MAX_STEP_RETRIES = 2;
+const RETRY_DELAY_MS = 3000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -94,6 +99,134 @@ async function failSession(sessionId: number, errorLog: string): Promise<void> {
   if (error) throw error;
 }
 
+/** Fetch grant required_attachments for smart document/video matching. */
+async function fetchGrantRequiredAttachments(grantId: string | null): Promise<unknown[]> {
+  if (!grantId) return [];
+  const { data } = await supabase
+    .from("Grant")
+    .select("required_attachments")
+    .eq("id", grantId)
+    .maybeSingle();
+  const raw = (data as { required_attachments?: unknown } | null)?.required_attachments;
+  return Array.isArray(raw) ? raw : [];
+}
+
+/**
+ * Process all pending grant_application items with one browser session.
+ * Opens grant URL once, then runs fill/upload/prepare/submit steps in order.
+ */
+async function processGrantApplicationSession(
+  session: CuSession,
+  pending: CuSessionItem[]
+): Promise<number> {
+  const profileId = session.business_profile_id ?? "";
+  const grantId = pending[0]?.grant_id ?? null;
+  const requiredAttachmentsRaw = await fetchGrantRequiredAttachments(grantId);
+  const requiredAttachments = requiredAttachmentsRaw.filter(
+    (r): r is { kind: string; label: string; categoryHint?: string; maxDurationMinutes?: number; maxSizeMB?: number; accept?: string } =>
+      r != null &&
+      typeof r === "object" &&
+      (r as { kind?: string }).kind != null &&
+      typeof (r as { label?: string }).label === "string"
+  ) as { kind: "video" | "document"; label: string; categoryHint?: string; maxDurationMinutes?: number; maxSizeMB?: number; accept?: string }[];
+
+  const { profile, documents } = (await fetchProfileAndDocuments(profileId)) ?? {
+    profile: {
+      businessName: "",
+      registrationNumber: null,
+      location: "",
+      sector: "",
+      missionStatement: "",
+      description: "",
+      employeeCount: null,
+      annualRevenue: null,
+      previousGrants: null,
+      fundingMin: 0,
+      fundingMax: 0,
+      fundingPurposes: [],
+      fundingDetails: null,
+    },
+    documents: [],
+  };
+
+  const browser = await launchGrantBrowser();
+  const page = await newGrantPage(browser);
+  let processed = 0;
+
+  const applicationId = session.public_id.replace(/^grantapp_/, "");
+
+  try {
+    for (const item of pending) {
+      await markItemStatus(item.id, "processing");
+      await appendLog(session.id, "item_processing", "update", `Item ${item.id} -> processing`);
+
+      let lastResult: Awaited<ReturnType<typeof runGrantStep>> | null = null;
+      let attempt = 0;
+      const maxAttempts = MAX_STEP_RETRIES + 1;
+
+      try {
+        while (attempt < maxAttempts) {
+          lastResult = await runGrantStep(page, item, profile, documents, {
+            requiredAttachments: requiredAttachments.length > 0 ? requiredAttachments : undefined,
+          });
+          if (lastResult.success) break;
+          attempt += 1;
+          if (attempt < maxAttempts) {
+            await appendLog(
+              session.id,
+              "grant_application",
+              "retry",
+              `Attempt ${attempt} failed, retrying in ${RETRY_DELAY_MS / 1000}s…`,
+              false
+            );
+            await sleep(RETRY_DELAY_MS);
+          }
+        }
+
+        const result = lastResult!;
+        await markItemStatus(item.id, result.success ? "done" : "failed", {
+          extra_data: { notes: result.notes, retries: attempt },
+          processed_at: new Date().toISOString(),
+        });
+        await appendLog(
+          session.id,
+          "grant_application",
+          item.action ?? "step",
+          result.notes,
+          result.success
+        );
+
+        if (result.success && result.snapshot && applicationId) {
+          await supabase
+            .from("Application")
+            .update({ filled_snapshot: result.snapshot })
+            .eq("id", applicationId);
+        }
+        if (result.success && (item.action ?? "").toLowerCase() === "submit_application") {
+          if (applicationId) {
+            await supabase
+              .from("Application")
+              .update({ status: "SUBMITTED" })
+              .eq("id", applicationId);
+          }
+        }
+        processed += 1;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        await appendLog(session.id, "item_failed", "error", `Item ${item.id}: ${msg}`, false);
+        await markItemStatus(item.id, "failed", {
+          error_message: msg,
+          processed_at: new Date().toISOString(),
+        });
+      }
+    }
+  } finally {
+    await browser.close();
+  }
+
+  return processed;
+}
+
 export async function processSession(session: CuSession): Promise<void> {
   console.log(`[worker] Processing session ${session.public_id} (${session.task_type})`);
 
@@ -111,6 +244,15 @@ export async function processSession(session: CuSession): Promise<void> {
     while (true) {
       const pending = await getPendingItems(session.id, 25);
       if (pending.length === 0) break;
+
+      if (session.task_type === "grant_application") {
+        const n = await processGrantApplicationSession(session, pending);
+        processed += n;
+        if (processed % PROGRESS_UPDATE_EVERY === 0) {
+          await updateSessionProgress(session.id, processed, `processed_${processed}`);
+        }
+        continue;
+      }
 
       for (const item of pending) {
         try {
@@ -135,25 +277,6 @@ export async function processSession(session: CuSession): Promise<void> {
               "extract_email",
               "result",
               JSON.stringify({ url, email: result.email ?? null })
-            );
-          } else if (session.task_type === "grant_application") {
-            const result = await processGrantApplicationStep(
-              item.action ?? "unknown",
-              item.grant_name ?? "Unknown Grant",
-              item.grant_url ?? ""
-            );
-
-            await markItemStatus(item.id, result.success ? "done" : "failed", {
-              extra_data: { notes: result.notes },
-              processed_at: new Date().toISOString(),
-            });
-
-            await appendLog(
-              session.id,
-              "grant_application",
-              item.action ?? "step",
-              result.notes,
-              result.success
             );
           } else {
             await appendLog(session.id, "unsupported_task", "skip", `Unsupported: ${session.task_type}`, false);

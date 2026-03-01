@@ -24,6 +24,8 @@ export interface NotificationPayload {
   applicationId?: string;
   deadline?: string;
   appUrl?: string;
+  /** One-time token for approve-by-link (e.g. from WhatsApp/email) */
+  approveToken?: string;
 }
 
 export async function notifyUser(
@@ -60,6 +62,21 @@ export async function notifyUser(
   }
 }
 
+function toNotifyUser(raw: Record<string, unknown> | null | undefined): NotifyUser | null {
+  if (!raw) return null;
+  const id = (raw.id ?? raw.user_id) as string | undefined;
+  const email = (raw.email as string) ?? "";
+  const phoneNumber = (raw.phoneNumber ?? raw.phone_number) as string | null | undefined;
+  const whatsappOptIn = Boolean(raw.whatsappOptIn ?? raw.whatsapp_opt_in);
+  if (!id || !email) return null;
+  return {
+    id,
+    email,
+    phoneNumber: phoneNumber ?? null,
+    whatsappOptIn,
+  };
+}
+
 /**
  * Notify all members of an organisation (excluding viewers).
  */
@@ -69,14 +86,27 @@ export async function notifyOrgMembers(
   payload: NotificationPayload
 ): Promise<void> {
   const supabase = getSupabaseAdmin();
-  const { data: members = [] } = await supabase
+  let { data: members = [] } = await supabase
     .from("OrganisationMember")
     .select("*, User(*)")
     .eq("organisationId", organisationId)
     .neq("role", "VIEWER");
 
-  const withUser = (members as { User?: NotifyUser }[]).filter((m) => m.User);
+  if (!members?.length) {
+    const alt = await supabase
+      .from("OrganisationMember")
+      .select("*, User(*)")
+      .eq("organisation_id", organisationId)
+      .neq("role", "VIEWER");
+    members = alt.data ?? [];
+  }
+
+  const list = Array.isArray(members) ? members : [];
+  const withUser = list
+    .map((m: Record<string, unknown>) => toNotifyUser((m.User ?? m.user) as Record<string, unknown> | null))
+    .filter((u): u is NotifyUser => u != null);
+
   await Promise.allSettled(
-    withUser.map((m) => notifyUser(m.User!, type, payload))
+    withUser.map((u) => notifyUser(u, type, payload))
   );
 }

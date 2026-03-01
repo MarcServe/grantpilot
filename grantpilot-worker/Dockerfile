@@ -1,14 +1,15 @@
-FROM node:20-slim
+# Playwright image includes Node and Chromium for browser automation
+FROM mcr.microsoft.com/playwright/node:v1.49.0-noble
 
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
-RUN npm install --omit=dev
+RUN npm ci
 
 COPY tsconfig.json ./
 COPY src ./src
 
-RUN npm install --include=dev && npm run build && npm prune --omit=dev
+RUN npm run build && npm prune --omit=dev
 
 ENV NODE_ENV=production
 CMD ["node", "dist/index.js"]

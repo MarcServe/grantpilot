@@ -54,16 +54,25 @@ export function buildEmailHtml(
         ),
       };
 
-    case "review_required":
+    case "review_required": {
+      const reviewUrl = payload.applicationId ? `${appUrl}/applications/${payload.applicationId}` : undefined;
+      const approveUrl = payload.approveToken
+        ? `${appUrl}/approve?token=${encodeURIComponent(payload.approveToken)}`
+        : undefined;
+      const ctaUrl = reviewUrl;
+      const extra = approveUrl
+        ? `<p style="margin-top:16px"><a href="${approveUrl}" style="color:#1B3A6B;font-weight:600">Approve &amp; submit from this link</a> (no login needed on your phone)</p>`
+        : "";
       return {
         subject: `Review required: ${grant}`,
         html: baseLayout(
           "Your application is ready for review",
-          `<p>Your application for <strong>${grant}</strong> has been filled in by our AI and is ready for your review.</p><p>Please review all the information carefully before approving the submission.</p>`,
-          payload.applicationId ? `${appUrl}/applications/${payload.applicationId}` : undefined,
+          `<p>Your application for <strong>${grant}</strong> has been filled in by our AI and is ready for your review.</p><p>Please review all the information carefully before approving the submission.</p>${extra}`,
+          ctaUrl,
           "Review Application"
         ),
       };
+    }
 
     case "application_submitted":
       return {
@@ -128,8 +137,15 @@ export function buildWhatsAppMessage(
     case "application_started":
       return `Your application for ${grant} has started processing. We'll let you know when it's ready for review.\n\n${appUrl}/applications/${payload.applicationId ?? ""}`;
 
-    case "review_required":
-      return `Your application for ${grant} is ready for review. Please check and approve before submission.\n\n${appUrl}/applications/${payload.applicationId ?? ""}`;
+    case "review_required": {
+      const reviewLink = payload.applicationId ? `${appUrl}/applications/${payload.applicationId}` : appUrl;
+      const approveLink = payload.approveToken
+        ? `${appUrl}/approve?token=${encodeURIComponent(payload.approveToken)}`
+        : null;
+      let msg = `Your application for ${grant} is ready for review.\n\n📋 Review: ${reviewLink}`;
+      if (approveLink) msg += `\n✅ Approve (one tap): ${approveLink}`;
+      return msg;
+    }
 
     case "application_submitted":
       return `Your application for ${grant} has been submitted successfully.\n\n${appUrl}/applications/${payload.applicationId ?? ""}`;

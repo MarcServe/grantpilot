@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
-import { ArrowLeft, CheckCircle, XCircle, Clock, Loader2 } from "lucide-react";
+import { ArrowLeft, CheckCircle, XCircle, Clock, Loader2, ExternalLink, FileEdit, FileText } from "lucide-react";
 import { SubmitSection } from "@/components/applications/submit-section";
 
 const ITEM_STATUS_ICON: Record<string, React.ReactNode> = {
@@ -35,12 +35,22 @@ export default async function ApplicationDetailPage({
   const { orgId } = await getActiveOrg();
   const supabase = getSupabaseAdmin();
 
-  const { data: applicationRow } = await supabase
+  let { data: applicationRow } = await supabase
     .from("Application")
     .select("*, Grant(*), BusinessProfile(*)")
     .eq("id", id)
     .eq("organisationId", orgId)
     .maybeSingle();
+
+  if (!applicationRow) {
+    const alt = await supabase
+      .from("Application")
+      .select("*, Grant(*), BusinessProfile(*)")
+      .eq("id", id)
+      .eq("organisation_id", orgId)
+      .maybeSingle();
+    applicationRow = alt.data ?? null;
+  }
 
   const application = applicationRow
     ? {
@@ -80,6 +90,11 @@ export default async function ApplicationDetailPage({
   const canSubmit =
     isComplete &&
     (application.status === "FILLING" || application.status === "REVIEW_REQUIRED");
+
+  const filledSnapshot = (application as { filled_snapshot?: { fields?: { label: string; name: string; value: string }[]; fileNames?: string[]; capturedAt?: string } }).filled_snapshot;
+  const showFilledSummary =
+    filledSnapshot &&
+    (application.status === "FILLING" || application.status === "REVIEW_REQUIRED" || application.status === "APPROVED");
 
   return (
     <div className="mx-auto max-w-4xl p-6">
@@ -211,6 +226,75 @@ export default async function ApplicationDetailPage({
                 )
               )}
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {showFilledSummary && filledSnapshot && (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-sm font-medium">
+              <FileText className="h-4 w-4" />
+              Filled data summary
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Data the AI has filled in on the grant form. Review below or open the form to edit.
+            </p>
+            {filledSnapshot.fields && filledSnapshot.fields.length > 0 ? (
+              <div className="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-2">
+                {filledSnapshot.fields.filter((f) => f.value !== "").map((f, i) => (
+                  <div key={i} className="rounded border bg-muted/30 px-3 py-2">
+                    <p className="truncate text-xs font-medium text-muted-foreground">{f.label || f.name}</p>
+                    <p className="mt-0.5 truncate font-medium">{f.value}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No form fields captured yet.</p>
+            )}
+            {filledSnapshot.fileNames && filledSnapshot.fileNames.length > 0 && (
+              <div>
+                <p className="mb-1 text-xs font-medium text-muted-foreground">Uploaded files</p>
+                <ul className="list-inside list-disc text-sm">
+                  {filledSnapshot.fileNames.map((name, i) => (
+                    <li key={i}>{name}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {filledSnapshot.capturedAt && (
+              <p className="text-xs text-muted-foreground">
+                Captured {new Date(filledSnapshot.capturedAt).toLocaleString("en-GB")}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {["FILLING", "REVIEW_REQUIRED", "APPROVED"].includes(application.status) &&
+        (application.grant as { applicationUrl?: string })?.applicationUrl && (
+        <Card className="mb-6 border-primary/20 bg-primary/5">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-sm font-medium">
+              <FileEdit className="h-4 w-4" />
+              Review & edit your application
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Open the funder&apos;s form to review what the AI has filled in, or edit answers manually. When you&apos;re happy, return here and submit below.
+            </p>
+            <a
+              href={(application.grant as { applicationUrl: string }).applicationUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 rounded-md border bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
+            >
+              <ExternalLink className="h-4 w-4" />
+              Open grant application form
+            </a>
           </CardContent>
         </Card>
       )}

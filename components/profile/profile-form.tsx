@@ -45,6 +45,7 @@ interface ProfileData {
     url: string;
     type: string;
     size: number;
+    category?: string | null;
   }[];
 }
 
@@ -123,10 +124,11 @@ export function ProfileForm({ profile }: { profile: ProfileData }) {
     });
   }
 
-  async function handleUpload(file: File) {
+  async function handleUpload(file: File, category?: string | null) {
     try {
       const formData = new FormData();
       formData.set("file", file);
+      if (category) formData.set("category", category);
 
       const res = await fetch("/api/profile/documents/upload", {
         method: "POST",
@@ -150,6 +152,7 @@ export function ProfileForm({ profile }: { profile: ProfileData }) {
             url: data.document.url,
             type: data.document.type,
             size: data.document.size,
+            category: data.document.category ?? null,
           },
         ]);
         toast.success("Document uploaded");
