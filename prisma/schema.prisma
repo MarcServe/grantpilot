@@ -127,9 +127,13 @@ model Grant {
   deadline         DateTime?
   applicationUrl  String
   eligibility      String        @db.Text
+  description      String?       @db.Text    // Full programme description / synopsis
+  objectives       String?       @db.Text    // What the grant aims to fund
+  applicantTypes   String[]      @default([]) // e.g. SME, Non-profit, Public Sector
   sectors          String[]
   regions          String[]
   funderLocations  String[]      @default([]) // US, UK, EU, Global – which regions this funder serves
+  source           String?                    // default, claude, openai, gemini
   applications    Application[]
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt

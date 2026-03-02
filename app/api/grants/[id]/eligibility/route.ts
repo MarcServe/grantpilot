@@ -41,7 +41,7 @@ export async function GET(
 
     const { data: grant, error: grantError } = await supabase
       .from("Grant")
-      .select("id, name, funder, amount, eligibility, sectors, regions")
+      .select("id, name, funder, amount, eligibility, description, objectives, applicantTypes, sectors, regions")
       .eq("id", grantId)
       .single();
 
@@ -55,6 +55,9 @@ export async function GET(
       funder: string;
       amount: number | null;
       eligibility: string;
+      description?: string;
+      objectives?: string;
+      applicantTypes?: string[];
       sectors: string[];
       regions: string[];
     };
@@ -90,6 +93,9 @@ export async function GET(
         funder: g.funder,
         amount: g.amount,
         eligibility: g.eligibility,
+        description: g.description ?? null,
+        objectives: g.objectives ?? null,
+        applicantTypes: g.applicantTypes ?? [],
         sectors: g.sectors ?? [],
         regions: g.regions ?? [],
       }

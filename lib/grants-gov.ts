@@ -47,6 +47,22 @@ export function mapGrantsGovHitToGrant(hit: GrantsGovOppHit): GrantInput | null 
   const id = String(hit.id ?? "");
   const applicationUrl = id ? `${GRANTS_GOV_DETAIL_BASE}/${id}` : "";
 
+  const cfdaCodes = hit.cfdaList ?? [];
+  const oppNumber = hit.number ?? "";
+  const docType = hit.docType ?? "";
+
+  const descParts: string[] = [];
+  descParts.push(`Federal opportunity from ${agency}.`);
+  if (oppNumber) descParts.push(`Opportunity number: ${oppNumber}.`);
+  if (docType) descParts.push(`Type: ${docType}.`);
+  if (cfdaCodes.length > 0) descParts.push(`CFDA: ${cfdaCodes.join(", ")}.`);
+  if (hit.openDate) descParts.push(`Posted: ${hit.openDate}.`);
+
+  const eligParts: string[] = [];
+  eligParts.push(`US federal grant opportunity from ${agency}.`);
+  if (cfdaCodes.length > 0) eligParts.push(`CFDA program${cfdaCodes.length > 1 ? "s" : ""}: ${cfdaCodes.join(", ")}.`);
+  eligParts.push("See Grants.gov for full eligibility criteria and application instructions.");
+
   return {
     externalId: `grants-gov-${id}`,
     name: title,
@@ -54,7 +70,8 @@ export function mapGrantsGovHitToGrant(hit: GrantsGovOppHit): GrantInput | null 
     amount: null,
     deadline: parseUSDate(hit.closeDate),
     applicationUrl,
-    eligibility: "See Grants.gov for full eligibility and application details.",
+    eligibility: eligParts.join(" "),
+    description: descParts.join(" "),
     sectors: [],
     regions: [],
     funderLocations: ["US"],

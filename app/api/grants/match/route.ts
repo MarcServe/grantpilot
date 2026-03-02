@@ -38,12 +38,15 @@ export async function POST(): Promise<NextResponse> {
         fundingPurposes: profile.fundingPurposes,
         fundingDetails: profile.fundingDetails,
       },
-      grants.map((g: { id: string; name: string; funder: string; amount?: number; eligibility: string; sectors: string[]; regions: string[] }) => ({
+      grants.map((g: { id: string; name: string; funder: string; amount?: number; eligibility: string; description?: string; objectives?: string; applicantTypes?: string[]; sectors: string[]; regions: string[] }) => ({
         id: g.id,
         name: g.name,
         funder: g.funder,
         amount: g.amount ?? null,
         eligibility: g.eligibility,
+        description: g.description ?? null,
+        objectives: g.objectives ?? null,
+        applicantTypes: g.applicantTypes ?? [],
         sectors: g.sectors,
         regions: g.regions,
       }))

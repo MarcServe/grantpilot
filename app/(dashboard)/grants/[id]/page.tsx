@@ -143,11 +143,38 @@ export default async function GrantDetailPage({
 
           <Separator />
 
+          {grant.description && (
+            <div>
+              <h3 className="mb-2 font-semibold">Description</h3>
+              <p className="whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
+                {grant.description}
+              </p>
+            </div>
+          )}
+
+          {grant.objectives && (
+            <div>
+              <h3 className="mb-2 font-semibold">Objectives & Conditions</h3>
+              <p className="whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
+                {String(grant.objectives).slice(0, 1500)}
+              </p>
+            </div>
+          )}
+
           <div>
             <h3 className="mb-2 font-semibold">Eligibility</h3>
             <p className="text-sm leading-relaxed text-muted-foreground">
               {grant.eligibility}
             </p>
+            {(grant.applicantTypes as string[] | undefined)?.length ? (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {(grant.applicantTypes as string[]).map((t: string) => (
+                  <Badge key={t} variant="outline" className="text-xs">
+                    {t}
+                  </Badge>
+                ))}
+              </div>
+            ) : null}
           </div>
 
           {hasProfile && profileId && (

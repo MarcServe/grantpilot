@@ -64,6 +64,45 @@ function extractMaxAmount(meta: Record<string, string[]>): number | null {
   }
 }
 
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]+>/g, " ").replace(/&[^;]+;/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function buildDescription(meta: Record<string, string[]>): string | null {
+  const parts: string[] = [];
+
+  const rawDesc = meta.description?.[0];
+  if (rawDesc) parts.push(stripHtml(rawDesc).slice(0, 1000));
+
+  const keywords = (meta.keywords ?? []).filter((k) => !k.startsWith("HORIZON") && !k.startsWith("DIGITAL") && !k.startsWith("CERV") && !k.startsWith("ERC") && k.length > 3);
+  if (keywords.length > 0) parts.push(`Keywords: ${keywords.join(", ")}.`);
+
+  const priorities = meta.crossCuttingPriorities ?? [];
+  if (priorities.length > 0) parts.push(`Priorities: ${priorities.join(", ")}.`);
+
+  const callTitle = meta.callTitle?.[0];
+  if (callTitle && callTitle !== meta.title?.[0]) parts.push(`Call: ${callTitle}.`);
+
+  return parts.length > 0 ? parts.join("\n\n") : null;
+}
+
+function buildObjectives(meta: Record<string, string[]>): string | null {
+  const conditions = meta.topicConditions?.[0];
+  if (!conditions) return null;
+  const clean = stripHtml(conditions).slice(0, 2000);
+  return clean || null;
+}
+
+function extractSectors(meta: Record<string, string[]>): string[] {
+  const keywords = meta.keywords ?? [];
+  const sectors: string[] = [];
+  for (const k of keywords) {
+    if (k.includes(",") || k.length > 60 || k.startsWith("HORIZON") || k.startsWith("DIGITAL") || k.startsWith("CERV")) continue;
+    sectors.push(k);
+  }
+  return sectors.slice(0, 10);
+}
+
 function mapSEDIAResultToGrant(r: SEDIAResult): GrantInput | null {
   const meta = r.metadata;
   if (!meta) return null;
@@ -76,6 +115,10 @@ function mapSEDIAResultToGrant(r: SEDIAResult): GrantInput | null {
     : r.url ?? "https://ec.europa.eu/info/funding-tenders/opportunities/portal/";
   const deadline = extractDeadline(meta);
 
+  const actionType = meta.typesOfAction?.[0] ?? "";
+  const callTitle = meta.callTitle?.[0] ?? "";
+  const eligibilityParts = [actionType, callTitle].filter(Boolean);
+
   return {
     externalId: `eu-sedia-${identifier || title.replace(/\s+/g, "-").toLowerCase().slice(0, 50)}`,
     name: title,
@@ -83,8 +126,10 @@ function mapSEDIAResultToGrant(r: SEDIAResult): GrantInput | null {
     amount: extractMaxAmount(meta),
     deadline,
     applicationUrl: portalUrl,
-    eligibility: meta.typesOfAction?.[0] ?? "See EU Funding & Tenders Portal for eligibility.",
-    sectors: [],
+    eligibility: eligibilityParts.join(" — ") || "See EU Funding & Tenders Portal for eligibility.",
+    description: buildDescription(meta),
+    objectives: buildObjectives(meta),
+    sectors: extractSectors(meta),
     regions: ["European Union"],
     funderLocations: ["EU"],
     source: "default",

@@ -13,6 +13,9 @@ export interface GrantInput {
   deadline?: string | null; // ISO date
   applicationUrl: string;
   eligibility: string;
+  description?: string | null;
+  objectives?: string | null;
+  applicantTypes?: string[];
   sectors?: string[];
   regions?: string[];
   /** Which regions this funder serves: US, UK, EU, Global. Used to match user preference. */
@@ -82,6 +85,7 @@ export async function upsertGrant(input: GrantInput): Promise<{ id: string; crea
   const funderLocations = input.funderLocations?.length ? input.funderLocations : [];
 
   const source = input.source ?? "default";
+  const applicantTypes = input.applicantTypes?.length ? input.applicantTypes : [];
   const data = {
     name: input.name,
     funder: input.funder,
@@ -89,6 +93,9 @@ export async function upsertGrant(input: GrantInput): Promise<{ id: string; crea
     deadline: deadline?.toISOString() ?? null,
     applicationUrl: input.applicationUrl,
     eligibility: input.eligibility,
+    description: input.description ?? null,
+    objectives: input.objectives ?? null,
+    applicantTypes,
     sectors,
     regions,
     funderLocations,

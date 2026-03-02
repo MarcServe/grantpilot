@@ -32,7 +32,7 @@ export const eligibilityRefresh = inngest.createFunction(
   { cron: "0 3 * * *" },
   async () => {
     const supabase = getSupabaseAdmin();
-    const { data: grantsData } = await supabase.from("Grant").select("id, name, funder, amount, eligibility, sectors, regions, funderLocations");
+    const { data: grantsData } = await supabase.from("Grant").select("id, name, funder, amount, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations");
     const allGrants = grantsData ?? [];
     if (allGrants.length === 0) return { refreshed: 0, notified: 0 };
 
@@ -50,7 +50,7 @@ export const eligibilityRefresh = inngest.createFunction(
 
     let notifiedCount = 0;
 
-    type GrantRow = { id: string; name: string; funder: string; amount?: number; eligibility: string; sectors: string[]; regions: string[]; funderLocations?: string[] };
+    type GrantRow = { id: string; name: string; funder: string; amount?: number; eligibility: string; description?: string; objectives?: string; applicantTypes?: string[]; sectors: string[]; regions: string[]; funderLocations?: string[] };
     const grantsList = allGrants as GrantRow[];
 
     for (const [orgId, profile] of byOrg) {
@@ -65,6 +65,9 @@ export const eligibilityRefresh = inngest.createFunction(
             funder: g.funder,
             amount: g.amount ?? null,
             eligibility: g.eligibility,
+            description: g.description ?? null,
+            objectives: g.objectives ?? null,
+            applicantTypes: g.applicantTypes ?? [],
             sectors: g.sectors ?? [],
             regions: g.regions ?? [],
           }))
@@ -89,6 +92,9 @@ export const eligibilityRefresh = inngest.createFunction(
                 funder: grant.funder,
                 amount: grant.amount ?? null,
                 eligibility: grant.eligibility,
+                description: grant.description ?? null,
+                objectives: grant.objectives ?? null,
+                applicantTypes: grant.applicantTypes ?? [],
                 sectors: grant.sectors ?? [],
                 regions: grant.regions ?? [],
               }

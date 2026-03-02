@@ -38,13 +38,23 @@ function mapToGrantInput(entry: FindAGrantEntry): GrantInput | null {
   }
 
   const amount = entry.grantMaximumAward ?? null;
+  const applicantTypes = entry.grantApplicantType ?? [];
+  const description = entry.grantShortDescription ?? null;
 
   const eligibilityParts: string[] = [];
-  if (entry.grantApplicantType?.length) {
-    eligibilityParts.push(`Applicant types: ${entry.grantApplicantType.join(", ")}.`);
+  if (applicantTypes.length) {
+    eligibilityParts.push(`Applicant types: ${applicantTypes.join(", ")}.`);
   }
-  if (entry.grantShortDescription) {
-    eligibilityParts.push(entry.grantShortDescription.slice(0, 500));
+  if (description) {
+    eligibilityParts.push(description);
+  }
+
+  const objectiveParts: string[] = [];
+  if (entry.grantMinimumAward != null && amount != null) {
+    objectiveParts.push(`Award range: £${entry.grantMinimumAward.toLocaleString("en-GB")} – £${amount.toLocaleString("en-GB")}.`);
+  }
+  if (entry.grantApplicationOpenDate) {
+    objectiveParts.push(`Open since: ${new Date(entry.grantApplicationOpenDate).toLocaleDateString("en-GB")}.`);
   }
 
   return {
@@ -55,6 +65,9 @@ function mapToGrantInput(entry: FindAGrantEntry): GrantInput | null {
     deadline,
     applicationUrl,
     eligibility: eligibilityParts.join(" ") || "See Find a Grant for eligibility and how to apply.",
+    description,
+    objectives: objectiveParts.length > 0 ? objectiveParts.join(" ") : null,
+    applicantTypes,
     sectors: [],
     regions: entry.grantLocation?.length ? entry.grantLocation : ["England"],
     funderLocations: ["UK"],

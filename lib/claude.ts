@@ -24,6 +24,9 @@ interface GrantForMatching {
   funder: string;
   amount: number | null;
   eligibility: string;
+  description?: string | null;
+  objectives?: string | null;
+  applicantTypes?: string[];
   sectors: string[];
   regions: string[];
 }
@@ -44,7 +47,7 @@ export async function matchGrantsToProfile(
     messages: [
       {
         role: "user",
-        content: `You are a UK grant matching expert. Given this business profile and available grants, return a JSON array ranking grants by match quality.
+        content: `You are a grant matching expert. Given this business profile and available grants, return a JSON array ranking grants by match quality. Use ALL available information about each grant (name, funder, eligibility criteria, description, objectives, sectors, applicant types) to make an informed assessment.
 
 Business Profile:
 - Name: ${profile.businessName}
@@ -58,13 +61,25 @@ Business Profile:
 - Funding Purposes: ${profile.fundingPurposes.join(", ")}${profile.fundingDetails ? `\n- Additional Details: ${profile.fundingDetails}` : ""}
 
 Available Grants:
-${JSON.stringify(grants, null, 2)}
+${JSON.stringify(grants.map(g => ({
+  id: g.id,
+  name: g.name,
+  funder: g.funder,
+  amount: g.amount,
+  eligibility: g.eligibility,
+  ...(g.description ? { description: g.description.slice(0, 500) } : {}),
+  ...(g.objectives ? { objectives: g.objectives.slice(0, 300) } : {}),
+  ...(g.applicantTypes?.length ? { applicantTypes: g.applicantTypes } : {}),
+  sectors: g.sectors,
+  regions: g.regions,
+})), null, 2)}
 
 Score each grant 0-100 based on:
-- Sector alignment (30%)
-- Eligibility match (30%)
-- Funding amount fit (20%)
-- Regional availability (20%)
+- Sector & mission alignment (25%) — does the grant's purpose match the business sector and mission?
+- Eligibility match (25%) — does the business meet the grant's eligibility criteria and applicant types?
+- Description & objectives fit (20%) — do the grant's description and objectives align with the business?
+- Funding amount fit (15%) — is the grant amount within the business's funding range?
+- Regional availability (15%) — does the business location match the grant's regions?
 
 Return ONLY valid JSON. No markdown, no explanation. Format:
 [{"grantId": "...", "score": 85, "reason": "Short 1-2 sentence explanation"}]
@@ -131,7 +146,7 @@ export async function getEligibilityDecision(
 
 Business: ${profile.businessName} (${profile.sector}). Location: ${profile.location}. Employees: ${profile.employeeCount ?? "N/A"}. Revenue: ${profile.annualRevenue ? `£${profile.annualRevenue.toLocaleString("en-GB")}` : "N/A"}. Funding sought: £${profile.fundingMin.toLocaleString("en-GB")}–£${profile.fundingMax.toLocaleString("en-GB")}. Purposes: ${profile.fundingPurposes.join(", ")}. ${profile.missionStatement ? `Mission: ${profile.missionStatement}.` : ""} ${profile.description ? `Description: ${profile.description}` : ""}
 
-Grant: ${grant.name} (${grant.funder}). Amount: ${grant.amount != null ? `£${grant.amount.toLocaleString("en-GB")}` : "Varies"}. Eligibility: ${grant.eligibility}. Sectors: ${(grant.sectors ?? []).join(", ")}. Regions: ${(grant.regions ?? []).join(", ")}.
+Grant: ${grant.name} (${grant.funder}). Amount: ${grant.amount != null ? `£${grant.amount.toLocaleString("en-GB")}` : "Varies"}. Eligibility: ${grant.eligibility}.${grant.description ? ` Description: ${grant.description.slice(0, 800)}.` : ""}${grant.objectives ? ` Objectives: ${grant.objectives.slice(0, 400)}.` : ""}${grant.applicantTypes?.length ? ` Applicant types: ${grant.applicantTypes.join(", ")}.` : ""} Sectors: ${(grant.sectors ?? []).join(", ")}. Regions: ${(grant.regions ?? []).join(", ")}.
 
 Return ONLY valid JSON. No markdown. Use this exact shape:
 {
