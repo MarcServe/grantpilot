@@ -2,6 +2,7 @@
 
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { step1Schema, type Step1Data } from "@/lib/validations/profile";
 import { FUNDER_LOCATION_LABELS } from "@/lib/constants";
 import {
@@ -22,13 +23,13 @@ const FUNDER_LOCATION_OPTIONS = (Object.keys(FUNDER_LOCATION_LABELS) as (keyof t
 );
 
 interface Step1Props {
-  defaultValues: Partial<Step1Data>;
+  defaultValues: Partial<z.input<typeof step1Schema>>;
   onSubmit: (data: Step1Data) => Promise<void>;
   isPending: boolean;
 }
 
 export function Step1Basics({ defaultValues, onSubmit, isPending }: Step1Props) {
-  const form = useForm<Step1Data>({
+  const form = useForm<z.input<typeof step1Schema>, unknown, Step1Data>({
     resolver: zodResolver(step1Schema),
     defaultValues: {
       businessName: defaultValues.businessName ?? "",
