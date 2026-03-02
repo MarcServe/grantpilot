@@ -4,14 +4,9 @@
  */
 
 import { randomBytes } from "crypto";
-import { randomBytes } from "crypto";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
-function cuid(): string {
-  return "c" + randomBytes(12).toString("base64url").replace(/[^a-zA-Z0-9]/g, "").slice(0, 24);
-}
-
-function cuid(): string {
+function generateId(): string {
   return "c" + randomBytes(12).toString("base64url").replace(/[^a-zA-Z0-9]/g, "").slice(0, 24);
 }
 
@@ -92,6 +87,7 @@ export async function upsertGrant(input: GrantInput): Promise<{ id: string; crea
   const funderLocations = input.funderLocations?.length ? input.funderLocations : [];
 
   const source = input.source ?? "default";
+  const now = new Date().toISOString();
   const data = {
     name: input.name,
     funder: input.funder,
@@ -103,6 +99,7 @@ export async function upsertGrant(input: GrantInput): Promise<{ id: string; crea
     regions,
     funderLocations,
     source,
+    updatedAt: now,
   };
 
   if (input.externalId) {
@@ -121,8 +118,9 @@ export async function upsertGrant(input: GrantInput): Promise<{ id: string; crea
   const { data: grant, error } = await supabase
     .from("Grant")
     .insert({
-      id: cuid(),
+      id: generateId(),
       ...data,
+      createdAt: now,
       externalId: input.externalId ?? null,
     })
     .select("id")
