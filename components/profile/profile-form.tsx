@@ -202,7 +202,7 @@ export function ProfileForm({ profile }: { profile: ProfileData }) {
                 businessName: profile.businessName,
                 registrationNumber: profile.registrationNumber ?? undefined,
                 location: profile.location,
-                funderLocations: profile.funderLocations ?? [],
+                funderLocations: (profile.funderLocations ?? []) as Step1Data["funderLocations"],
               }}
               onSubmit={handleStep1}
               isPending={isPending}
