@@ -5,7 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { updateOrganisationTimezone, VALID_TIMEZONES } from "@/app/(dashboard)/settings/actions";
+import { updateOrganisationTimezone } from "@/app/(dashboard)/settings/actions";
+import { VALID_TIMEZONES } from "@/lib/timezone";
 
 const TZ_LABELS: Record<string, string> = {
   UTC: "UTC",

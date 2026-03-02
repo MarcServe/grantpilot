@@ -1,3 +1,16 @@
+export const VALID_TIMEZONES = [
+  "UTC",
+  "Europe/London",
+  "Europe/Paris",
+  "Europe/Berlin",
+  "America/New_York",
+  "America/Los_Angeles",
+  "America/Chicago",
+  "Asia/Dubai",
+  "Asia/Kolkata",
+  "Australia/Sydney",
+] as const;
+
 /**
  * Return the current hour (0-23) in the given IANA timezone.
  * Uses Intl; invalid tz falls back to UTC.

@@ -2,19 +2,7 @@
 
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg } from "@/lib/auth";
-
-const VALID_TIMEZONES = [
-  "UTC",
-  "Europe/London",
-  "Europe/Paris",
-  "Europe/Berlin",
-  "America/New_York",
-  "America/Los_Angeles",
-  "America/Chicago",
-  "Asia/Dubai",
-  "Asia/Kolkata",
-  "Australia/Sydney",
-] as const;
+import { VALID_TIMEZONES } from "@/lib/timezone";
 
 export async function updateOrganisationTimezone(
   timezone: string | null
@@ -32,5 +20,3 @@ export async function updateOrganisationTimezone(
   if (error) return { error: error.message };
   return {};
 }
-
-export { VALID_TIMEZONES };
