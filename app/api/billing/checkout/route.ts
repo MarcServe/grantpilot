@@ -12,9 +12,11 @@ export async function POST(req: Request): Promise<NextResponse> {
   try {
     const { user, org, orgId, role } = await getActiveOrg();
 
+    console.log("[BILLING_CHECKOUT] role:", JSON.stringify(role), "orgId:", orgId, "memberships:", JSON.stringify(user.memberships.map((m: { role: string; organisationId: string }) => ({ role: m.role, orgId: m.organisationId }))));
+
     if (role !== "OWNER" && role !== "ADMIN") {
       return NextResponse.json(
-        { error: "Only organisation owners or admins can manage billing." },
+        { error: `Only organisation owners or admins can manage billing. Current role: ${role}` },
         { status: 403 }
       );
     }

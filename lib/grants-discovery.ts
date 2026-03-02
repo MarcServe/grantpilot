@@ -31,10 +31,16 @@ export async function runDiscoveryAndUpsert(profile: DiscoveryProfile): Promise<
   created: number;
   updated: number;
 }> {
+  const safe = <T>(fn: () => Promise<T[]>, label: string): Promise<T[]> =>
+    fn().catch((err) => {
+      console.warn(`[grants-discovery] ${label} failed:`, err);
+      return [] as T[];
+    });
+
   const [claudeGrants, openaiGrants, geminiGrants] = await Promise.all([
-    discoverGrantsWithClaude(profile),
-    discoverGrantsWithOpenAI(profile),
-    discoverGrantsWithGemini(profile),
+    safe(() => discoverGrantsWithClaude(profile), "claude"),
+    safe(() => discoverGrantsWithOpenAI(profile), "openai"),
+    safe(() => discoverGrantsWithGemini(profile), "gemini"),
   ]);
 
   const byKey = new Map<string, GrantInput>();
