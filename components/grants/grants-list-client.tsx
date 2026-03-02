@@ -54,6 +54,18 @@ function matchesFunderLocations(
   return grantFL.some((r) => userFL.includes(r));
 }
 
+function generatePageNumbers(current: number, total: number): (number | "...")[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const pages: (number | "...")[] = [1];
+  const start = Math.max(2, current - 1);
+  const end = Math.min(total - 1, current + 1);
+  if (start > 2) pages.push("...");
+  for (let i = start; i <= end; i++) pages.push(i);
+  if (end < total - 1) pages.push("...");
+  pages.push(total);
+  return pages;
+}
+
 export function GrantsListClient({
   grants,
   userFunderLocations,
@@ -68,7 +80,7 @@ export function GrantsListClient({
     userFunderLocations.length > 0 ? "recommended" : ""
   );
   const [hideExpired, setHideExpired] = useState(true);
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const funders = useMemo(
     () => Array.from(new Set(grants.map((g) => g.funder).filter(Boolean))).sort(),
@@ -120,19 +132,24 @@ export function GrantsListClient({
     return result;
   }, [grants, regionFilter, funderFilter, sorted, matches, cachedScores, userFunderLocations, hideExpired]);
 
-  const displayGrants = filteredGrants.slice(0, visibleCount);
-  const hasMore = visibleCount < filteredGrants.length;
+  const totalPages = Math.max(1, Math.ceil(filteredGrants.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+  const displayGrants = filteredGrants.slice(
+    (safePage - 1) * PAGE_SIZE,
+    safePage * PAGE_SIZE
+  );
 
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-center gap-3">
         <p className="text-sm text-muted-foreground">
-          {displayGrants.length} of {filteredGrants.length} grants
+          {filteredGrants.length} grant{filteredGrants.length !== 1 ? "s" : ""}
           {sorted && " (sorted by match score)"}
+          {totalPages > 1 && ` \u00b7 Page ${safePage} of ${totalPages}`}
         </p>
         <select
           value={regionFilter}
-          onChange={(e) => { setRegionFilter(e.target.value); setVisibleCount(PAGE_SIZE); }}
+          onChange={(e) => { setRegionFilter(e.target.value); setCurrentPage(1); }}
           className="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
         >
           {REGION_OPTIONS.map((o) => (
@@ -142,7 +159,7 @@ export function GrantsListClient({
         {funders.length > 0 && (
           <select
             value={funderFilter}
-            onChange={(e) => { setFunderFilter(e.target.value); setVisibleCount(PAGE_SIZE); }}
+            onChange={(e) => { setFunderFilter(e.target.value); setCurrentPage(1); }}
             className="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
           >
             <option value="">All funders</option>
@@ -157,7 +174,7 @@ export function GrantsListClient({
           <input
             type="checkbox"
             checked={hideExpired}
-            onChange={(e) => { setHideExpired(e.target.checked); setVisibleCount(PAGE_SIZE); }}
+            onChange={(e) => { setHideExpired(e.target.checked); setCurrentPage(1); }}
             className="rounded border-input"
           />
           Hide expired
@@ -199,15 +216,60 @@ export function GrantsListClient({
         })}
       </div>
 
-      {hasMore && (
-        <div className="mt-8 flex justify-center">
+      {totalPages > 1 && (
+        <nav className="mt-8 flex items-center justify-center gap-2">
           <Button
             variant="outline"
-            onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
+            size="sm"
+            disabled={safePage <= 1}
+            onClick={() => setCurrentPage(1)}
           >
-            Load more ({filteredGrants.length - visibleCount} remaining)
+            First
           </Button>
-        </div>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={safePage <= 1}
+            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+          >
+            Previous
+          </Button>
+
+          {generatePageNumbers(safePage, totalPages).map((p, i) =>
+            p === "..." ? (
+              <span key={`ellipsis-${i}`} className="px-1 text-sm text-muted-foreground">
+                ...
+              </span>
+            ) : (
+              <Button
+                key={p}
+                variant={p === safePage ? "default" : "outline"}
+                size="sm"
+                className="min-w-[2.25rem]"
+                onClick={() => setCurrentPage(p as number)}
+              >
+                {p}
+              </Button>
+            )
+          )}
+
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={safePage >= totalPages}
+            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+          >
+            Next
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={safePage >= totalPages}
+            onClick={() => setCurrentPage(totalPages)}
+          >
+            Last
+          </Button>
+        </nav>
       )}
     </div>
   );
