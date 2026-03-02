@@ -61,10 +61,4 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- EligibilityAssessment (if exists)
-DO $$ BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'EligibilityAssessment') THEN
-    EXECUTE 'ALTER TABLE "EligibilityAssessment" ALTER COLUMN "id" SET DEFAULT generate_cuid()';
-    EXECUTE 'ALTER TABLE "EligibilityAssessment" ALTER COLUMN "created_at" SET DEFAULT now()';
-  END IF;
-END $$;
+-- EligibilityAssessment already has UUID id + now() defaults from 005 migration; skip.
