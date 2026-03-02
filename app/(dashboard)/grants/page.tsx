@@ -3,7 +3,6 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg } from "@/lib/auth";
 import { GrantsListClient } from "@/components/grants/grants-list-client";
 import { DiscoverGrantsButton } from "@/components/grants/discover-grants-button";
-import { grantMatchesFunderLocations } from "@/lib/constants";
 import { computeUrgency } from "@/lib/urgency";
 
 export default async function GrantsPage() {
@@ -19,10 +18,8 @@ export default async function GrantsPage() {
   const profile = org.profiles?.[0];
   const hasProfile = !!profile;
   const profileComplete = (profile?.completionScore ?? 0) >= 50;
-  const userFunderLocations = (profile as { funderLocations?: string[] } | undefined)?.funderLocations;
-  const grants = allGrants.filter((g: { funderLocations?: string[] }) =>
-    grantMatchesFunderLocations(g.funderLocations, userFunderLocations)
-  );
+  const userFunderLocations = (profile as { funderLocations?: string[] } | undefined)?.funderLocations ?? [];
+  const grants = allGrants;
 
   let cachedScores: Record<string, { score: number; summary?: string }> = {};
   if (profileComplete && profile) {
@@ -70,12 +67,14 @@ export default async function GrantsPage() {
             deadline: g.deadline ?? null,
             sectors: g.sectors ?? [],
             regions: g.regions ?? [],
+            funderLocations: g.funderLocations ?? [],
             eligibility: g.eligibility ?? "",
             applicationUrl: g.applicationUrl ?? "",
             urgencyLevel: urgency.level,
             urgencyLabel: urgency.label,
           };
         })}
+        userFunderLocations={userFunderLocations}
         hasProfile={hasProfile}
         profileComplete={profileComplete}
         cachedScores={cachedScores}
