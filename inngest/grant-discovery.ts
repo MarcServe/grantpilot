@@ -15,10 +15,11 @@ export const grantDiscovery = inngest.createFunction(
   { cron: "0 4 * * *" }, // Daily 4am UTC
   async () => {
     const supabase = getSupabaseAdmin();
-    const { data: profiles = [] } = await supabase
+    const { data } = await supabase
       .from("BusinessProfile")
       .select("*")
       .gte("completionScore", 30);
+    const profiles = data ?? [];
 
     const byOrg = new Map<string, (typeof profiles)[number]>();
     for (const p of profiles as { organisationId?: string; organisation_id?: string }[]) {

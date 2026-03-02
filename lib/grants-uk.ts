@@ -11,7 +11,7 @@ const FIND_A_GRANT_BASE = "https://find-government-grants.service.gov.uk/grants"
 /**
  * Curated list of real UK grant programmes (name, funder). applicationUrl points to Find a Grant search.
  */
-const UK_GRANTS_CURATED: { name: string; funder: string; eligibility?: string; amount?: number }[] = [
+const UK_GRANTS_CURATED: { name: string; funder: string; eligibility?: string; amount?: number | null }[] = [
   { name: "Innovate UK Smart Grants", funder: "Innovate UK", eligibility: "UK registered businesses with innovative R&D projects.", amount: 500000 },
   { name: "Creative Scale Up Programme", funder: "Creative England", eligibility: "Creative businesses in England with growth potential.", amount: 150000 },
   { name: "Woodland Creation Planning Grant", funder: "Forestry Commission", eligibility: "Landowners and land managers in England.", amount: 30500 },
