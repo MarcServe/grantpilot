@@ -67,6 +67,7 @@ export function GrantsListClient({
   const [regionFilter, setRegionFilter] = useState<string>(
     userFunderLocations.length > 0 ? "recommended" : ""
   );
+  const [hideExpired, setHideExpired] = useState(true);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   const funders = useMemo(
@@ -84,7 +85,15 @@ export function GrantsListClient({
   }
 
   const filteredGrants = useMemo(() => {
+    const now = new Date();
     let result = grants;
+
+    if (hideExpired) {
+      result = result.filter((g) => {
+        if (!g.deadline) return true;
+        return new Date(g.deadline) >= now;
+      });
+    }
 
     if (regionFilter === "recommended") {
       result = result.filter((g) =>
@@ -109,7 +118,7 @@ export function GrantsListClient({
     }
 
     return result;
-  }, [grants, regionFilter, funderFilter, sorted, matches, cachedScores, userFunderLocations]);
+  }, [grants, regionFilter, funderFilter, sorted, matches, cachedScores, userFunderLocations, hideExpired]);
 
   const displayGrants = filteredGrants.slice(0, visibleCount);
   const hasMore = visibleCount < filteredGrants.length;
@@ -144,6 +153,15 @@ export function GrantsListClient({
             ))}
           </select>
         )}
+        <label className="flex items-center gap-1.5 text-sm">
+          <input
+            type="checkbox"
+            checked={hideExpired}
+            onChange={(e) => { setHideExpired(e.target.checked); setVisibleCount(PAGE_SIZE); }}
+            className="rounded border-input"
+          />
+          Hide expired
+        </label>
         {hasProfile && (
           <MatchButton
             onMatches={handleMatches}

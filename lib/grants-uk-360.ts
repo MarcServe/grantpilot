@@ -64,6 +64,9 @@ interface ThreeSixtyResponse {
   results?: ThreeSixtyGrant[];
 }
 
+const TWO_YEARS_AGO = new Date();
+TWO_YEARS_AGO.setFullYear(TWO_YEARS_AGO.getFullYear() - 2);
+
 function map360GrantToInput(g: ThreeSixtyGrant): GrantInput | null {
   const data = g.data;
   if (!data) return null;
@@ -71,22 +74,21 @@ function map360GrantToInput(g: ThreeSixtyGrant): GrantInput | null {
   const funder = data.fundingOrganization?.[0]?.name?.trim();
   if (!title || !funder) return null;
 
+  if (typeof data.awardDate === "string") {
+    const awarded = new Date(data.awardDate);
+    if (!isNaN(awarded.getTime()) && awarded < TWO_YEARS_AGO) return null;
+  }
+
   const grantId = g.grant_id || data.id || "";
   const programmeUrl = data.grantProgramme?.[0]?.url;
   const applicationUrl = programmeUrl || data.url || (grantId ? `${GRANTNAV_GRANT}${encodeURIComponent(grantId)}` : "");
-
-  let deadline: string | null = null;
-  if (typeof data.awardDate === "string") {
-    const d = new Date(data.awardDate);
-    if (!isNaN(d.getTime())) deadline = d.toISOString().slice(0, 10);
-  }
 
   return {
     externalId: `uk-360g-${String(grantId).replace(/\s+/g, "-")}`,
     name: title,
     funder,
     amount: typeof data.amountAwarded === "number" ? data.amountAwarded : null,
-    deadline,
+    deadline: null,
     applicationUrl: applicationUrl || "https://grantnav.threesixtygiving.org/",
     eligibility: (data.description?.slice(0, 500) as string) || "See 360Giving / funder for eligibility.",
     sectors: [],

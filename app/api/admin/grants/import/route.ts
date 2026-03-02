@@ -8,6 +8,7 @@ import {
   parseGrantRow,
   type GrantInput,
 } from "@/lib/grants-ingest";
+import { getSupabaseAdmin } from "@/lib/supabase";
 
 const GRANTS_IMPORT_SECRET = process.env.GRANTS_IMPORT_SECRET;
 
@@ -42,6 +43,17 @@ export async function POST(request: Request) {
       const ukResult = (runAll || body.syncUK === true) ? await syncGrantsFromUK() : { synced: 0, created: 0, updated: 0 };
       const euResult = (runAll || body.syncEU === true) ? await syncGrantsFromEU() : { synced: 0, created: 0, updated: 0 };
       const totalSynced = feedResult.synced + govResult.synced + ukResult.synced + euResult.synced;
+
+      // Remove grants with deadlines more than 1 year in the past
+      const cutoff = new Date();
+      cutoff.setFullYear(cutoff.getFullYear() - 1);
+      const supabase = getSupabaseAdmin();
+      const { count: purged } = await supabase
+        .from("Grant")
+        .delete({ count: "exact" })
+        .not("deadline", "is", null)
+        .lt("deadline", cutoff.toISOString());
+
       return NextResponse.json({
         ok: true,
         feed: feedResult,
@@ -49,6 +61,7 @@ export async function POST(request: Request) {
         uk: ukResult,
         eu: euResult,
         totalSynced,
+        purgedExpired: purged ?? 0,
       });
     }
 
