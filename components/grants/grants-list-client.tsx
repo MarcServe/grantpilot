@@ -6,7 +6,8 @@ import { GrantCard } from "./grant-card";
 import { MatchButton } from "./match-button";
 import type { GrantMatch } from "@/lib/claude";
 
-const PAGE_SIZE = 30;
+const PAGE_SIZE_OPTIONS = [15, 30, 50, 100, 200, 500, 1000] as const;
+const DEFAULT_PAGE_SIZE = 30;
 
 const REGION_OPTIONS = [
   { value: "", label: "All regions" },
@@ -80,6 +81,7 @@ export function GrantsListClient({
     userFunderLocations.length > 0 ? "recommended" : ""
   );
   const [hideExpired, setHideExpired] = useState(true);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [currentPage, setCurrentPage] = useState(1);
 
   const funders = useMemo(
@@ -132,11 +134,11 @@ export function GrantsListClient({
     return result;
   }, [grants, regionFilter, funderFilter, sorted, matches, cachedScores, userFunderLocations, hideExpired]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredGrants.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(filteredGrants.length / pageSize));
   const safePage = Math.min(currentPage, totalPages);
   const displayGrants = filteredGrants.slice(
-    (safePage - 1) * PAGE_SIZE,
-    safePage * PAGE_SIZE
+    (safePage - 1) * pageSize,
+    safePage * pageSize
   );
 
   return (
@@ -170,6 +172,15 @@ export function GrantsListClient({
             ))}
           </select>
         )}
+        <select
+          value={pageSize}
+          onChange={(e) => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
+          className="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+        >
+          {PAGE_SIZE_OPTIONS.map((n) => (
+            <option key={n} value={n}>{n} per page</option>
+          ))}
+        </select>
         <label className="flex items-center gap-1.5 text-sm">
           <input
             type="checkbox"
