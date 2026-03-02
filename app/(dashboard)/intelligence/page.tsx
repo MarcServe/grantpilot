@@ -143,11 +143,12 @@ export default async function IntelligencePage() {
           <Brain className="h-10 w-10 text-primary" />
           <div>
             <p className="font-medium">
-              Why GrantPilot is hard to replicate
+              What this page shows you
             </p>
             <p className="text-sm text-muted-foreground">
-              Horizontal agents can&apos;t casually ship this: it takes structured form intelligence,
-              portal automation, an eligibility engine, and grant knowledge. We build the vertical.
+              Here you see how GrantPilot works under the hood: form parsing and field mapping,
+              per-grant eligibility scores and improvement tips, and AI-powered matching so you
+              can focus on the best-fit grants first.
             </p>
           </div>
         </CardContent>

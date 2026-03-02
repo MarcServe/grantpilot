@@ -17,7 +17,8 @@ export async function POST(): Promise<NextResponse> {
     }
 
     const supabase = getSupabaseAdmin();
-    const { data: allGrants = [] } = await supabase.from("Grant").select("*");
+    const { data } = await supabase.from("Grant").select("*");
+    const allGrants = data ?? [];
     const userFunderLocations = (profile as { funderLocations?: string[] }).funderLocations;
     const grants = allGrants.filter((g: { funderLocations?: string[] }) =>
       grantMatchesFunderLocations(g.funderLocations, userFunderLocations)

@@ -7,6 +7,7 @@ const protectedPaths = [
   "/grants",
   "/applications",
   "/billing",
+  "/intelligence",
 ];
 
 export async function middleware(request: NextRequest) {

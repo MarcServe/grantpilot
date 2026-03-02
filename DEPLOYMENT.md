@@ -1,5 +1,25 @@
 # GrantPilot – Production Deployment
 
+## Production readiness checklist (before real customers)
+
+Before going live with customers, ensure:
+
+| Item | Notes |
+|------|--------|
+| **Env vars** | All required variables set on the host (see §1). **`NEXT_PUBLIC_APP_URL`** must be your production URL (e.g. `https://grantpilot.co.uk`) or Stripe checkout and email links will point to the wrong place. |
+| **Supabase** | All migrations applied (001–012). Storage bucket **`documents`** created. RLS applied if you use authenticated Supabase clients. |
+| **Auth** | Supabase Auth (or your IdP) configured with production redirect URLs. Sign-in/sign-up and dashboard protection are in place. |
+| **Grant data** | Either set **`GRANTS_FEED_URL`** for daily sync or import grants via **POST /api/admin/grants/import** (header **`x-grants-import-secret`**). Without grants, the app has nothing to match or display. |
+| **Inngest** | App registered in [Inngest Cloud](https://app.inngest.com) with production serve URL; **INNGEST_EVENT_KEY** and **INNGEST_SIGNING_KEY** set. Needed for grant-sync, discovery, deadline reminders, eligibility refresh. |
+| **Email** | **RESEND_API_KEY** and **EMAIL_FROM** set so transactional emails (welcome, reminders, digests) are sent. |
+| **WhatsApp** (optional) | **TWILIO_*** set and users can add a number + opt-in on Profile; otherwise email-only. |
+| **Billing** (optional) | **STRIPE_*** and webhook URL configured if you use paid plans. |
+| **Secrets** | **GRANTS_IMPORT_SECRET** set and kept secret if you use the admin import API. **APPROVE_LINK_SECRET** / **START_APPLICATION_LINK_SECRET** optional; fallback to Inngest signing key. |
+
+The app is structured for production: auth-protected dashboard, org-scoped data, RLS-ready schema, server-side API keys, and health check at **GET /api/health**. Run through sign-up → profile → grants → apply once on staging with real env vars before cutting over.
+
+---
+
 ## 1. Environment variables
 
 Set these in your host (Vercel, Railway, etc.) or in production `.env`:
@@ -24,16 +44,7 @@ Set these in your host (Vercel, Railway, etc.) or in production `.env`:
 
 ### Multi-agent grant discovery (optional)
 
-The **`Grant.source`** field (`default` | `claude` | `openai` | `gemini`) and ingest support are in place so you can tag grants by origin. **This does not by itself increase the number of results.** You get more results only when **discovery modules** are implemented that call OpenAI and/or Gemini to find grants, normalize them to the grant shape, and call `upsertGrant` with `source: "openai"` or `source: "gemini"`.
-
-**Where to set API keys**
-
-- **Local:** Add to `.env.local` (copy from `.env.example`):
-  - `OPENAI_API_KEY=` your [OpenAI API key](https://platform.openai.com/api-keys)
-  - `GEMINI_API_KEY=` (or `GOOGLE_AI_API_KEY`) your [Google AI Studio](https://aistudio.google.com/apikey) key
-- **Production (e.g. Vercel):** In the project’s **Environment Variables**, add the same names and values.
-
-Discovery modules that use these keys are not yet implemented. When added, they will run on a schedule or from a “Find grants” action and write new grants with the appropriate `source`.
+Claude, OpenAI, and Gemini discovery modules run from **“Find grants”** and from the **grant-discovery** Inngest job. Set **`OPENAI_API_KEY`** and **`GEMINI_API_KEY`** (or **`GOOGLE_AI_API_KEY`**) in production if you want those sources; Claude uses **`ANTHROPIC_API_KEY`** (required).
 
 ## 2. Storage (profile documents)
 
@@ -129,4 +140,17 @@ Functions (grant scanner, **grant-sync** from feed, deadline reminders, session 
 
 ## 8. Stripe webhooks (if using billing)
 
-- In Stripe Dashboard, set the webhook URL to `https://<your-domain>/api/webhooks/stripe` and set `STRIPE_WEBHOOK_SECRET` in env.
+**Endpoint:** `https://<your-domain>/api/webhooks/stripe`  
+**Env:** set `STRIPE_WEBHOOK_SECRET` to the signing secret Stripe shows after adding the endpoint.
+
+**Payload style:** Use **Snapshot** (full) payloads. Our handler reads full objects from `event.data.object` (e.g. `session.metadata`, `subscription.items.data`). Thin payloads only send IDs and would require fetching each object via the API; we do not support thin payloads. When adding the destination in Stripe, choose the option that delivers full event payloads (snapshot style).
+
+**Events to send to this endpoint:**
+
+| Event | Purpose |
+|-------|--------|
+| `checkout.session.completed` | Set organisation plan from completed checkout (customer + metadata.priceId). |
+| `customer.subscription.updated` | Update plan when subscription changes (e.g. upgrade/downgrade). |
+| `customer.subscription.deleted` | Set plan back to `FREE_TRIAL` when subscription ends. |
+
+If you use multiple payload styles in Stripe (e.g. one destination for snapshot, one for thin), point **this** webhook URL only at the **snapshot** destination. Event handling differs between styles; our code is written for snapshot only.
