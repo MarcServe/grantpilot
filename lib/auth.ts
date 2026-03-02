@@ -152,7 +152,7 @@ export async function requireUser() {
 export async function getActiveOrg() {
   const user = await requireUser();
   const membership =
-    user.memberships.find((m) => m.role === "OWNER" || m.role === "ADMIN") ??
+    user.memberships.find((m: { role: string }) => m.role === "OWNER" || m.role === "ADMIN") ??
     user.memberships[0];
   if (!membership) {
     throw new Error("No organisation found");
