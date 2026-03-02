@@ -53,17 +53,18 @@ model User {
 }
 
 model Organisation {
-  id           String               @id @default(cuid())
-  name         String
-  type         OrgType              @default(FOUNDER)
-  plan         Plan                 @default(FREE_TRIAL)
-  stripeId     String?
-  members      OrganisationMember[]
-  profiles     BusinessProfile[]
-  applications Application[]
-  usage        Usage[]
-  createdAt    DateTime             @default(now())
-  updatedAt    DateTime             @updatedAt
+  id                 String               @id @default(cuid())
+  name               String
+  type               OrgType              @default(FOUNDER)
+  plan               Plan                 @default(FREE_TRIAL)
+  stripeId           String?
+  preferredTimezone  String?              // IANA e.g. Europe/London for 9am local reminders
+  members            OrganisationMember[]
+  profiles           BusinessProfile[]
+  applications       Application[]
+  usage              Usage[]
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
 }
 
 model OrganisationMember {
@@ -98,6 +99,7 @@ model BusinessProfile {
   fundingPurposes    String[]
   fundingDetails     String?       @db.Text
   previousGrants     String?       @db.Text
+  funderLocations    String[]      @default([]) // US, UK, EU, Global – which funder regions user wants to see
   documents          Document[]
   applications       Application[]
   completionScore    Int           @default(0)
@@ -117,19 +119,20 @@ model Document {
 }
 
 model Grant {
-  id             String        @id @default(cuid())
-  externalId     String?       @unique
-  name           String
-  funder         String
-  amount         Float?
-  deadline       DateTime?
-  applicationUrl String
-  eligibility    String        @db.Text
-  sectors        String[]
-  regions        String[]
-  applications   Application[]
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  id               String        @id @default(cuid())
+  externalId       String?       @unique
+  name             String
+  funder           String
+  amount           Float?
+  deadline         DateTime?
+  applicationUrl  String
+  eligibility      String        @db.Text
+  sectors          String[]
+  regions          String[]
+  funderLocations  String[]      @default([]) // US, UK, EU, Global – which regions this funder serves
+  applications    Application[]
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 }
 
 model Application {

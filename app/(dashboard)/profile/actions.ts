@@ -7,10 +7,12 @@ import {
   step2Schema,
   step3Schema,
   step4Schema,
+  notificationPreferencesSchema,
   Step1Data,
   Step2Data,
   Step3Data,
   Step4Data,
+  NotificationPreferencesData,
 } from "@/lib/validations/profile";
 
 async function getOrgId(): Promise<string> {
@@ -87,6 +89,7 @@ async function getOrCreateProfile(organisationId: string) {
       fundingMax: 0,
       fundingPurposes: [],
       fundingDetails: null,
+      funderLocations: [],
     })
     .select("*, Document(*)")
     .single();
@@ -126,6 +129,7 @@ export async function saveStep1(data: Step1Data) {
       businessName: parsed.data.businessName,
       registrationNumber: parsed.data.registrationNumber ?? null,
       location: parsed.data.location,
+      funderLocations: parsed.data.funderLocations ?? [],
     })
     .eq("id", profile.id)
     .select()
@@ -267,5 +271,28 @@ export async function removeDocument(documentId: string) {
     .eq("id", documentId)
     .eq("profileId", profile.id);
 
+  return { success: true };
+}
+
+export async function updateNotificationPreferences(data: NotificationPreferencesData) {
+  const parsed = notificationPreferencesSchema.safeParse(data);
+  if (!parsed.success) return { error: "Invalid data" };
+
+  const { user } = await getActiveOrg();
+  const userId = (user as { id?: string }).id;
+  if (!userId) return { error: "User not found" };
+
+  const supabase = getSupabaseAdmin();
+  const update: Record<string, unknown> = {
+    phoneNumber: parsed.data.phoneNumber ?? null,
+    whatsappOptIn: parsed.data.whatsappOptIn,
+  };
+  if (parsed.data.whatsappOptIn) {
+    update.whatsappOptInAt = new Date().toISOString();
+  }
+
+  const { error } = await supabase.from("User").update(update).eq("id", userId);
+
+  if (error) return { error: error.message };
   return { success: true };
 }

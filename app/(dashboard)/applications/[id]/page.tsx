@@ -9,6 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { ArrowLeft, CheckCircle, XCircle, Clock, Loader2, SkipForward, ExternalLink, FileEdit, FileText } from "lucide-react";
 import { SubmitSection } from "@/components/applications/submit-section";
 import { StopApplicationButton } from "@/components/applications/stop-application-button";
+import { ApplicationTaskList } from "@/components/applications/application-task-list";
 
 const ITEM_STATUS_ICON: Record<string, React.ReactNode> = {
   done: <CheckCircle className="h-4 w-4 text-green-600" />,
@@ -86,6 +87,20 @@ export default async function ApplicationDetailPage({
     .order("created_at", { ascending: false })
     .limit(20);
 
+  const { data: taskRows = [] } = await supabase
+    .from("ApplicationTask")
+    .select("id, name, status, priority, dueDate, slug")
+    .eq("applicationId", application.id)
+    .order("dueDate", { ascending: true, nullsFirst: false });
+  const tasks = (taskRows ?? []).map((t: { id: string; name: string; status: string; priority: string; dueDate: string | null; slug?: string | null }) => ({
+    id: t.id,
+    name: t.name,
+    status: t.status,
+    priority: t.priority,
+    dueDate: t.dueDate,
+    slug: t.slug ?? null,
+  }));
+
   const totalItems = session?.total_items ?? 0;
   const processedItems = session?.processed_items ?? 0;
   const progressPercent = totalItems > 0 ? (processedItems / totalItems) * 100 : 0;
@@ -127,6 +142,10 @@ export default async function ApplicationDetailPage({
           </Badge>
         </div>
       </div>
+
+      {tasks.length > 0 && (
+        <ApplicationTaskList applicationId={application.id} tasks={tasks} />
+      )}
 
       <Card className="mb-6">
         <CardHeader>

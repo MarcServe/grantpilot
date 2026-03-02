@@ -3,8 +3,8 @@
 CREATE TABLE IF NOT EXISTS "EligibilityAssessment" (
   "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   "organisation_id" TEXT NOT NULL,
-  "profile_id" UUID NOT NULL REFERENCES "BusinessProfile"("id") ON DELETE CASCADE,
-  "grant_id" UUID NOT NULL REFERENCES "Grant"("id") ON DELETE CASCADE,
+  "profile_id" TEXT NOT NULL REFERENCES "BusinessProfile"("id") ON DELETE CASCADE,
+  "grant_id" TEXT NOT NULL REFERENCES "Grant"("id") ON DELETE CASCADE,
   "score" INTEGER NOT NULL CHECK ("score" >= 0 AND "score" <= 100),
   "decision" TEXT NOT NULL CHECK ("decision" IN ('likely_eligible', 'review', 'unlikely')),
   "summary" TEXT,

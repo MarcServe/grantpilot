@@ -18,7 +18,16 @@ export type NotificationType =
   | "deadline_reminder"
   | "welcome"
   | "grant_match"
-  | "grant_match_high";
+  | "grant_match_high"
+  | "grant_scan_digest";
+
+export interface DigestGrantItem {
+  grantId: string;
+  grantName: string;
+  score: number;
+  summary?: string;
+  startApplicationToken?: string;
+}
 
 export interface NotificationPayload {
   grantName?: string;
@@ -30,6 +39,12 @@ export interface NotificationPayload {
   score?: number;
   /** One-time token for approve-by-link (e.g. from WhatsApp/email) */
   approveToken?: string;
+  /** Token for start-application-by-link (deadline_reminder, digest) */
+  startApplicationToken?: string;
+  /** For grant_scan_digest: list of grants with View + Start application links */
+  grants?: DigestGrantItem[];
+  /** Business/profile name for digest subject and body */
+  profileName?: string;
 }
 
 export async function notifyUser(

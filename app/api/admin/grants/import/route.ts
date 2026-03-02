@@ -1,5 +1,13 @@
 import { NextResponse } from "next/server";
-import { syncGrantsFromFeed, upsertGrant, parseGrantRow, type GrantInput } from "@/lib/grants-ingest";
+import {
+  syncGrantsFromFeed,
+  syncGrantsFromGrantsGov,
+  syncGrantsFromUK,
+  syncGrantsFromEU,
+  upsertGrant,
+  parseGrantRow,
+  type GrantInput,
+} from "@/lib/grants-ingest";
 
 const GRANTS_IMPORT_SECRET = process.env.GRANTS_IMPORT_SECRET;
 
@@ -15,6 +23,9 @@ function auth(request: Request): boolean {
  * Header: x-grants-import-secret: <GRANTS_IMPORT_SECRET>
  *
  * Or POST with { "syncFeed": true } to run the GRANTS_FEED_URL sync once.
+ * Or POST with { "syncGrantsGov": true } to sync up to 500 from Grants.gov.
+ * Or POST with { "syncUK": true } for UK curated grants, { "syncEU": true } for EU curated grants.
+ * Or POST { "syncAll": true } to run feed + Grants.gov + UK + EU.
  */
 export async function POST(request: Request) {
   if (!auth(request)) {
@@ -24,12 +35,20 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
 
-    if (body && typeof body === "object" && body.syncFeed === true) {
-      const result = await syncGrantsFromFeed();
+    if (body && typeof body === "object" && (body.syncFeed === true || body.syncGrantsGov === true || body.syncUK === true || body.syncEU === true || body.syncAll === true)) {
+      const runAll = body.syncAll === true;
+      const feedResult = (runAll || body.syncFeed === true) ? await syncGrantsFromFeed() : { synced: 0, created: 0, updated: 0 };
+      const govResult = (runAll || body.syncGrantsGov === true) ? await syncGrantsFromGrantsGov(500) : { synced: 0, created: 0, updated: 0 };
+      const ukResult = (runAll || body.syncUK === true) ? await syncGrantsFromUK() : { synced: 0, created: 0, updated: 0 };
+      const euResult = (runAll || body.syncEU === true) ? await syncGrantsFromEU() : { synced: 0, created: 0, updated: 0 };
+      const totalSynced = feedResult.synced + govResult.synced + ukResult.synced + euResult.synced;
       return NextResponse.json({
         ok: true,
-        source: "feed",
-        ...result,
+        feed: feedResult,
+        grantsGov: govResult,
+        uk: ukResult,
+        eu: euResult,
+        totalSynced,
       });
     }
 

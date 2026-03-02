@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { ApplyButton } from "@/components/grants/apply-button";
 import { EligibilityCard } from "@/components/grants/eligibility-card";
+import { computeUrgency } from "@/lib/urgency";
 
 export default async function GrantDetailPage({
   params,
@@ -56,10 +57,11 @@ export default async function GrantDetailPage({
     eligibilityScore = (assessment as { score?: number } | null)?.score ?? null;
   }
 
-  const { data: allGrants = [] } = await supabase
+  const { data: allGrantsData } = await supabase
     .from("Grant")
     .select("id, name, funder, amount, applicationUrl, sectors")
     .neq("id", grant.id);
+  const allGrants = allGrantsData ?? [];
   const sectors = (grant.sectors ?? []) as string[];
   const funderName = (grant.funder ?? "") as string;
   const similarGrants = (allGrants as { id: string; name: string; funder: string; sectors?: string[] }[])
@@ -69,6 +71,8 @@ export default async function GrantDetailPage({
         (sectors.length > 0 && (g.sectors ?? []).some((s: string) => sectors.includes(s)))
     )
     .slice(0, 5);
+
+  const urgency = computeUrgency(grant.deadline ?? null);
 
   return (
     <div className="mx-auto max-w-4xl p-6">
@@ -108,6 +112,20 @@ export default async function GrantDetailPage({
               <Badge variant="outline" className="gap-1">
                 <Calendar className="h-3 w-3" />
                 Deadline: {new Date(grant.deadline).toLocaleDateString("en-GB")}
+              </Badge>
+            )}
+            {urgency.level !== "NONE" && urgency.label && (
+              <Badge
+                variant="outline"
+                className={
+                  urgency.level === "HIGH"
+                    ? "border-red-500/50 bg-red-50 text-red-800 dark:bg-red-950/30"
+                    : urgency.level === "MEDIUM"
+                      ? "border-amber-500/50 bg-amber-50 text-amber-800"
+                      : ""
+                }
+              >
+                {urgency.label}
               </Badge>
             )}
             {(grant.sectors ?? []).map((s: string) => (

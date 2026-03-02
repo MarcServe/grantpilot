@@ -1,9 +1,12 @@
 import { z } from "zod";
 
+export const FUNDER_LOCATION_VALUES = ["US", "UK", "EU", "Global"] as const;
+
 export const step1Schema = z.object({
   businessName: z.string().min(2, "Business name is required"),
   registrationNumber: z.string().optional(),
   location: z.string().min(2, "Location is required"),
+  funderLocations: z.array(z.enum(FUNDER_LOCATION_VALUES)).optional().default([]),
 });
 
 export const step2Schema = z.object({
@@ -54,11 +57,25 @@ export const step5Schema = z.object({
   })).optional(),
 });
 
+/** Phone for WhatsApp: optional; if provided, must have at least 10 digits. */
+export const notificationPreferencesSchema = z.object({
+  phoneNumber: z
+    .string()
+    .optional()
+    .transform((v) => (v?.trim() === "" ? undefined : v?.trim()))
+    .refine(
+      (v) => v == null || v.replace(/\D/g, "").length >= 10,
+      "Enter a valid phone number (e.g. +44 7123 456789)"
+    ),
+  whatsappOptIn: z.boolean(),
+});
+
 export type Step1Data = z.infer<typeof step1Schema>;
 export type Step2Data = z.infer<typeof step2Schema>;
 export type Step3Data = z.infer<typeof step3Schema>;
 export type Step4Data = z.infer<typeof step4Schema>;
 export type Step5Data = z.infer<typeof step5Schema>;
+export type NotificationPreferencesData = z.infer<typeof notificationPreferencesSchema>;
 
 export const SECTORS = [
   "Technology",

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg } from "@/lib/auth";
+import { grantMatchesFunderLocations } from "@/lib/constants";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -13,6 +14,7 @@ import {
   Clock,
   Sparkles,
   Target,
+  ListTodo,
 } from "lucide-react";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -50,6 +52,24 @@ export default async function DashboardPage() {
     .eq("organisationId", orgId)
     .in("status", ["FILLING", "REVIEW_REQUIRED"]);
 
+  const { data: upcomingTasksData = [] } = await supabase
+    .from("ApplicationTask")
+    .select("id, name, status, dueDate, applicationId")
+    .eq("organisationId", orgId)
+    .neq("status", "done")
+    .neq("status", "cancelled")
+    .order("dueDate", { ascending: true, nullsFirst: false })
+    .limit(8);
+  const upcomingTasks = (upcomingTasksData ?? []).map(
+    (t: { id: string; name: string; status: string; dueDate: string | null; applicationId: string }) => ({
+      id: t.id,
+      name: t.name,
+      status: t.status,
+      dueDate: t.dueDate,
+      applicationId: t.applicationId,
+    })
+  );
+
   const appsWithGrant = (recentApplications ?? []).map(
     (app: { Grant?: { name: string; funder: string }; createdAt: string; id: string; status: string; stopped_at?: string; stoppedAt?: string }) => {
       const stoppedAt = app.stopped_at ?? app.stoppedAt;
@@ -77,11 +97,14 @@ export default async function DashboardPage() {
     if (grantIds.length > 0) {
       const { data: grantsListData } = await supabase
         .from("Grant")
-        .select("id, name")
+        .select("id, name, funderLocations")
         .in("id", grantIds);
-      const grantsList = grantsListData ?? [];
-      const nameById = new Map((grantsList as { id: string; name: string }[]).map((g) => [g.id, g.name]));
+      const grantsList = (grantsListData ?? []) as { id: string; name: string; funderLocations?: string[] }[];
+      const userFunderLocations = (profile as { funderLocations?: string[] }).funderLocations;
+      const nameById = new Map(grantsList.map((g) => [g.id, g.name]));
+      const matchesLocation = new Set(grantsList.filter((g) => grantMatchesFunderLocations(g.funderLocations, userFunderLocations)).map((g) => g.id));
       for (const a of assessments as { grant_id: string; score: number; summary: string | null }[]) {
+        if (!matchesLocation.has(a.grant_id)) continue;
         const name = nameById.get(a.grant_id) ?? "Grant";
         if (a.score >= 80) suggestedGrants.push({ grantId: a.grant_id, grantName: name, score: a.score });
         else if (a.score >= 50) withinReachGrants.push({ grantId: a.grant_id, grantName: name, score: a.score, summary: a.summary ?? undefined });
@@ -155,6 +178,42 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {upcomingTasks.length > 0 && (
+        <Card className="mt-8">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ListTodo className="h-4 w-4 text-primary" />
+              Upcoming tasks
+            </CardTitle>
+            <p className="text-sm font-normal text-muted-foreground">
+              Tasks for your active applications. Open an application to mark tasks done.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-2">
+              {upcomingTasks.slice(0, 5).map((t) => (
+                <li key={t.id}>
+                  <Link
+                    href={`/applications/${t.applicationId}`}
+                    className="flex items-center justify-between rounded-md p-2 hover:bg-muted"
+                  >
+                    <span className="font-medium">{t.name}</span>
+                    {t.dueDate && (
+                      <span className="text-xs text-muted-foreground">
+                        Due {new Date(t.dueDate).toLocaleDateString("en-GB")}
+                      </span>
+                    )}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+            <Link href="/applications" className="mt-3 inline-block text-sm text-primary hover:underline">
+              View all applications <ArrowRight className="inline h-3 w-3" />
+            </Link>
+          </CardContent>
+        </Card>
+      )}
 
       {(suggestedGrants.length > 0 || withinReachGrants.length > 0) && (
         <div className="mt-8 grid gap-6 md:grid-cols-2">

@@ -1,4 +1,12 @@
-import type { NotificationType, NotificationPayload } from "./notify";
+import type { NotificationType, NotificationPayload, DigestGrantItem } from "./notify";
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
 
 function baseLayout(title: string, body: string, ctaUrl?: string, ctaText?: string): string {
   return `<!DOCTYPE html>
@@ -96,16 +104,24 @@ export function buildEmailHtml(
         ),
       };
 
-    case "deadline_reminder":
+    case "deadline_reminder": {
+      const viewGrantUrl = payload.grantId ? `${appUrl}/grants/${payload.grantId}` : `${appUrl}/grants`;
+      const startUrl = payload.startApplicationToken
+        ? `${appUrl}/start-application?token=${encodeURIComponent(payload.startApplicationToken)}`
+        : null;
+      const startLink = startUrl
+        ? `<p style="margin-top:12px"><a href="${startUrl}" style="color:#1B3A6B;font-weight:600">Start application from this link</a> (no login needed)</p>`
+        : "";
       return {
         subject: `Grant deadline approaching: ${grant}`,
         html: baseLayout(
           "Grant deadline approaching",
-          `<p>The deadline for <strong>${grant}</strong> is ${payload.deadline ?? "approaching soon"}.</p><p>Don't miss out — start your application now.</p>`,
-          `${appUrl}/grants`,
+          `<p>The deadline for <strong>${grant}</strong> is ${payload.deadline ?? "approaching soon"}.</p><p>Don't miss out — start your application now.</p>${startLink}`,
+          viewGrantUrl,
           "View Grant"
         ),
       };
+    }
 
     case "grant_match":
       return {
@@ -129,6 +145,35 @@ export function buildEmailHtml(
           `<p>You're <strong>${score}% eligible</strong> for <strong>${grantName}</strong> based on your profile.</p><p>View the grant and apply with AI when you're ready.</p>`,
           grantUrl,
           "View Grant"
+        ),
+      };
+    }
+
+    case "grant_scan_digest": {
+      const profileName = payload.profileName ?? "Your business";
+      const grants = payload.grants ?? [];
+      const rows = grants
+        .map((g: DigestGrantItem) => {
+          const viewUrl = `${appUrl}/grants/${g.grantId}`;
+          const startUrl = g.startApplicationToken
+            ? `${appUrl}/start-application?token=${encodeURIComponent(g.startApplicationToken)}`
+            : null;
+          const summaryText = g.summary ? ` — ${g.summary.slice(0, 120)}${g.summary.length > 120 ? "…" : ""}` : "";
+          const startLink = startUrl
+            ? ` <a href="${startUrl}" style="color:#1B3A6B;font-weight:600">Start application</a>`
+            : "";
+          return `<tr><td style="padding:12px 0;border-bottom:1px solid #e2e8f0"><strong>${escapeHtml(g.grantName)}</strong> (${g.score}% match)${escapeHtml(summaryText)}<br><a href="${viewUrl}" style="color:#1B3A6B">View grant</a>${startLink}</td></tr>`;
+        })
+        .join("");
+      const table = rows ? `<table style="width:100%;border-collapse:collapse">${rows}</table>` : "";
+      const body = `<p>New grant opportunities for <strong>${escapeHtml(profileName)}</strong> — review and start an application from the links below.</p>${table}<p style="margin-top:16px">You can also browse all grants and apply with AI from the app.</p>`;
+      return {
+        subject: `[Grant Pilot] New grant opportunities for ${profileName}`,
+        html: baseLayout(
+          `New grant opportunities for ${escapeHtml(profileName)}`,
+          body,
+          `${appUrl}/grants`,
+          "View all in Grant Pilot"
         ),
       };
     }
@@ -168,13 +213,32 @@ export function buildWhatsAppMessage(
     case "application_failed":
       return `There was an issue with your ${grant} application. Please check the details.\n\n${appUrl}/applications/${payload.applicationId ?? ""}`;
 
-    case "deadline_reminder":
-      return `Reminder: The deadline for ${grant} is ${payload.deadline ?? "approaching soon"}. Don't miss out!\n\n${appUrl}/grants`;
+    case "deadline_reminder": {
+      const viewUrl = payload.grantId ? `${appUrl}/grants/${payload.grantId}` : appUrl + "/grants";
+      let msg = `Reminder: The deadline for ${grant} is ${payload.deadline ?? "approaching soon"}. Don't miss out!\n\nView grant: ${viewUrl}`;
+      if (payload.startApplicationToken)
+        msg += `\nStart application: ${appUrl}/start-application?token=${encodeURIComponent(payload.startApplicationToken)}`;
+      return msg;
+    }
 
     case "grant_match_high": {
       const score = payload.score ?? 85;
       const grantUrl = payload.grantId ? `${appUrl}/grants/${payload.grantId}` : appUrl;
       return `You're ${score}% eligible for ${grant}. View grant and apply with AI:\n\n${grantUrl}`;
+    }
+
+    case "grant_scan_digest": {
+      const profileName = payload.profileName ?? "Your business";
+      const grants = payload.grants ?? [];
+      let msg = `New grant opportunities for ${profileName}\n\n`;
+      for (const g of grants as DigestGrantItem[]) {
+        const viewUrl = `${appUrl}/grants/${g.grantId}`;
+        msg += `• ${g.grantName} (${g.score}% match)\n  View: ${viewUrl}\n`;
+        if (g.startApplicationToken)
+          msg += `  Start application: ${appUrl}/start-application?token=${encodeURIComponent(g.startApplicationToken)}\n`;
+      }
+      msg += `\nView all: ${appUrl}/grants`;
+      return msg;
     }
 
     default:

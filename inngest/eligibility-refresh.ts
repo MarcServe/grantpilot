@@ -2,9 +2,12 @@ import { inngest } from "./client";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { matchGrantsToProfile, getEligibilityDecision } from "@/lib/claude";
 import { notifyOrgMembers } from "@/lib/notify";
+import { grantMatchesFunderLocations } from "@/lib/constants";
+import { createStartApplicationToken } from "@/lib/start-application-token";
+import type { DigestGrantItem } from "@/lib/notify";
 
 const TOP_N = 25;
-const HIGH_FIT_THRESHOLD = 85;
+const DIGEST_SCORE_THRESHOLD = 70;
 const NOTIFY_COOLDOWN_DAYS = 7;
 
 function profileToMatching(profile: Record<string, unknown>) {
@@ -29,9 +32,9 @@ export const eligibilityRefresh = inngest.createFunction(
   { cron: "0 3 * * *" },
   async () => {
     const supabase = getSupabaseAdmin();
-    const { data: grantsData } = await supabase.from("Grant").select("id, name, funder, amount, eligibility, sectors, regions");
-    const grants = grantsData ?? [];
-    if (grants.length === 0) return { refreshed: 0, notified: 0 };
+    const { data: grantsData } = await supabase.from("Grant").select("id, name, funder, amount, eligibility, sectors, regions, funderLocations");
+    const allGrants = grantsData ?? [];
+    if (allGrants.length === 0) return { refreshed: 0, notified: 0 };
 
     const { data: profilesData } = await supabase
       .from("BusinessProfile")
@@ -47,9 +50,13 @@ export const eligibilityRefresh = inngest.createFunction(
 
     let notifiedCount = 0;
 
+    type GrantRow = { id: string; name: string; funder: string; amount?: number; eligibility: string; sectors: string[]; regions: string[]; funderLocations?: string[] };
+    const grantsList = allGrants as GrantRow[];
+
     for (const [orgId, profile] of byOrg) {
       try {
-        const grantList = grants as { id: string; name: string; funder: string; amount?: number; eligibility: string; sectors: string[]; regions: string[] }[];
+        const userFunderLocations = (profile as { funderLocations?: string[] }).funderLocations;
+        const grantList = grantsList.filter((g) => grantMatchesFunderLocations(g.funderLocations, userFunderLocations));
         const matches = await matchGrantsToProfile(
           profileToMatching(profile as Record<string, unknown>),
           grantList.map((g) => ({
@@ -68,6 +75,10 @@ export const eligibilityRefresh = inngest.createFunction(
           .map((m) => grantList.find((g) => g.id === m.grantId))
           .filter(Boolean) as typeof grantList;
 
+        const cooldown = new Date();
+        cooldown.setDate(cooldown.getDate() - NOTIFY_COOLDOWN_DAYS);
+        const digestGrants: DigestGrantItem[] = [];
+
         for (const grant of topGrants) {
           try {
             const result = await getEligibilityDecision(
@@ -83,6 +94,7 @@ export const eligibilityRefresh = inngest.createFunction(
               }
             );
             const score = result.score ?? result.confidence;
+            const summary = result.summary ?? result.reason ?? undefined;
 
             const { error: upsertErr } = await supabase.from("EligibilityAssessment").upsert(
               {
@@ -91,7 +103,7 @@ export const eligibilityRefresh = inngest.createFunction(
                 grant_id: grant.id,
                 score,
                 decision: result.decision,
-                summary: result.summary ?? result.reason,
+                summary,
                 reasons: result.reasons ?? [],
                 alignment: result.alignment ?? null,
                 improvement_plan: result.improvementPlan ?? null,
@@ -101,9 +113,7 @@ export const eligibilityRefresh = inngest.createFunction(
             );
             if (upsertErr) console.error("[eligibility-refresh] upsert", upsertErr);
 
-            if (score >= HIGH_FIT_THRESHOLD) {
-              const cooldown = new Date();
-              cooldown.setDate(cooldown.getDate() - NOTIFY_COOLDOWN_DAYS);
+            if (score >= DIGEST_SCORE_THRESHOLD) {
               const { data: existing } = await supabase
                 .from("EligibilityAssessment")
                 .select("notified_at")
@@ -113,24 +123,42 @@ export const eligibilityRefresh = inngest.createFunction(
                 .single();
 
               const notifiedAt = (existing as { notified_at: string | null } | null)?.notified_at;
-              if (!notifiedAt || new Date(notifiedAt) < cooldown) {
-                await notifyOrgMembers(orgId, "grant_match_high", {
-                  grantName: grant.name,
+              const includeInDigest = !notifiedAt || new Date(notifiedAt) < cooldown;
+              if (includeInDigest) {
+                const startApplicationToken = createStartApplicationToken({
                   grantId: grant.id,
-                  score,
+                  profileId: profile.id,
+                  organisationId: orgId,
                 });
-                await supabase
-                  .from("EligibilityAssessment")
-                  .update({ notified_at: new Date().toISOString() })
-                  .eq("organisation_id", orgId)
-                  .eq("profile_id", profile.id)
-                  .eq("grant_id", grant.id);
-                notifiedCount += 1;
+                digestGrants.push({
+                  grantId: grant.id,
+                  grantName: grant.name,
+                  score,
+                  summary,
+                  startApplicationToken,
+                });
               }
             }
           } catch (err) {
             console.error(`[eligibility-refresh] grant ${grant.id} for org ${orgId}:`, err);
           }
+        }
+
+        if (digestGrants.length > 0) {
+          const profileName = (profile as { businessName?: string }).businessName ?? "Your business";
+          await notifyOrgMembers(orgId, "grant_scan_digest", {
+            grants: digestGrants,
+            profileName,
+          });
+          for (const item of digestGrants) {
+            await supabase
+              .from("EligibilityAssessment")
+              .update({ notified_at: new Date().toISOString() })
+              .eq("organisation_id", orgId)
+              .eq("profile_id", profile.id)
+              .eq("grant_id", item.grantId);
+          }
+          notifiedCount += digestGrants.length;
         }
       } catch (err) {
         console.error(`[eligibility-refresh] org ${orgId}:`, err);

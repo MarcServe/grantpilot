@@ -16,7 +16,15 @@ interface GrantCardProps {
   regions: string[];
   matchScore?: number;
   matchReason?: string;
+  urgencyLevel?: "HIGH" | "MEDIUM" | "LOW" | "NONE";
+  urgencyLabel?: string;
 }
+
+const URGENCY_CLASS: Record<string, string> = {
+  HIGH: "border-red-500/50 bg-red-50 text-red-800 dark:bg-red-950/30",
+  MEDIUM: "border-amber-500/50 bg-amber-50 text-amber-800 dark:bg-amber-950/30",
+  LOW: "border-muted text-muted-foreground",
+};
 
 export function GrantCard({
   id,
@@ -28,6 +36,8 @@ export function GrantCard({
   regions,
   matchScore,
   matchReason,
+  urgencyLevel,
+  urgencyLabel,
 }: GrantCardProps) {
   return (
     <Card className="transition-shadow hover:shadow-md">
@@ -66,6 +76,11 @@ export function GrantCard({
             <Badge variant="outline" className="gap-1">
               <Calendar className="h-3 w-3" />
               {new Date(deadline).toLocaleDateString("en-GB")}
+            </Badge>
+          )}
+          {urgencyLevel && urgencyLevel !== "NONE" && urgencyLabel && (
+            <Badge variant="outline" className={URGENCY_CLASS[urgencyLevel] ?? ""}>
+              {urgencyLabel}
             </Badge>
           )}
         </div>

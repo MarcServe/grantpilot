@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg } from "@/lib/auth";
 import { matchGrantsToProfile } from "@/lib/claude";
+import { grantMatchesFunderLocations } from "@/lib/constants";
 
 export async function POST(): Promise<NextResponse> {
   try {
@@ -16,7 +17,11 @@ export async function POST(): Promise<NextResponse> {
     }
 
     const supabase = getSupabaseAdmin();
-    const { data: grants = [] } = await supabase.from("Grant").select("*");
+    const { data: allGrants = [] } = await supabase.from("Grant").select("*");
+    const userFunderLocations = (profile as { funderLocations?: string[] }).funderLocations;
+    const grants = allGrants.filter((g: { funderLocations?: string[] }) =>
+      grantMatchesFunderLocations(g.funderLocations, userFunderLocations)
+    );
 
     const matches = await matchGrantsToProfile(
       {
@@ -32,7 +37,7 @@ export async function POST(): Promise<NextResponse> {
         fundingPurposes: profile.fundingPurposes,
         fundingDetails: profile.fundingDetails,
       },
-      (grants ?? []).map((g: { id: string; name: string; funder: string; amount?: number; eligibility: string; sectors: string[]; regions: string[] }) => ({
+      grants.map((g: { id: string; name: string; funder: string; amount?: number; eligibility: string; sectors: string[]; regions: string[] }) => ({
         id: g.id,
         name: g.name,
         funder: g.funder,

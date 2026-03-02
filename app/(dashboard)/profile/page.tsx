@@ -1,8 +1,14 @@
 import { getProfile } from "./actions";
+import { getActiveOrg } from "@/lib/auth";
 import { ProfileForm } from "@/components/profile/profile-form";
+import { NotificationPreferences } from "@/components/profile/notification-preferences";
 
 export default async function ProfilePage() {
-  const profile = await getProfile();
+  const [profile, { user }] = await Promise.all([getProfile(), getActiveOrg()]);
+
+  const userRow = user as { phoneNumber?: string | null; whatsappOptIn?: boolean };
+  const phoneNumber = userRow.phoneNumber ?? null;
+  const whatsappOptIn = Boolean(userRow.whatsappOptIn);
 
   return (
     <div className="mx-auto max-w-7xl p-6">
@@ -13,7 +19,16 @@ export default async function ProfilePage() {
           Your information is saved at each step.
         </p>
       </div>
-      <ProfileForm profile={profile} />
+
+      <div className="mx-auto max-w-2xl space-y-6">
+        <NotificationPreferences
+          defaultValues={{
+            phoneNumber,
+            whatsappOptIn,
+          }}
+        />
+        <ProfileForm profile={profile} />
+      </div>
     </div>
   );
 }

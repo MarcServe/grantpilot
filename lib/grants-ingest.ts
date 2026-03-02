@@ -15,6 +15,10 @@ export interface GrantInput {
   eligibility: string;
   sectors?: string[];
   regions?: string[];
+  /** Which regions this funder serves: US, UK, EU, Global. Used to match user preference. */
+  funderLocations?: string[];
+  /** Origin: default (feed/manual), claude, openai, gemini for multi-agent discovery. */
+  source?: "default" | "claude" | "openai" | "gemini";
 }
 
 function toArray(x: unknown): string[] {
@@ -48,8 +52,13 @@ export function parseGrantRow(row: unknown): GrantInput | null {
   const amount = typeof o.amount === "number" ? o.amount : typeof o.amount === "string" ? parseFloat(o.amount) : null;
   const externalId = typeof o.externalId === "string" ? o.externalId : typeof o.id === "string" ? o.id : undefined;
 
+  const funderLocations = toArray(o.funderLocations ?? o.funder_locations);
+  const source = typeof o.source === "string" && ["default", "claude", "openai", "gemini"].includes(o.source)
+    ? (o.source as "default" | "claude" | "openai" | "gemini")
+    : undefined;
   return {
     externalId: externalId || undefined,
+    source: source ?? "default",
     name,
     funder,
     amount: amount != null && !Number.isNaN(amount) ? amount : null,
@@ -58,6 +67,7 @@ export function parseGrantRow(row: unknown): GrantInput | null {
     eligibility: eligibility || "See application page.",
     sectors: toArray(o.sectors ?? o.sector),
     regions: toArray(o.regions ?? o.region),
+    funderLocations: funderLocations.length > 0 ? funderLocations : undefined,
   };
 }
 
@@ -69,7 +79,9 @@ export async function upsertGrant(input: GrantInput): Promise<{ id: string; crea
   const deadline = parseDeadline(input.deadline);
   const sectors = input.sectors?.length ? input.sectors : ["Other"];
   const regions = input.regions?.length ? input.regions : ["England"];
+  const funderLocations = input.funderLocations?.length ? input.funderLocations : [];
 
+  const source = input.source ?? "default";
   const data = {
     name: input.name,
     funder: input.funder,
@@ -79,6 +91,8 @@ export async function upsertGrant(input: GrantInput): Promise<{ id: string; crea
     eligibility: input.eligibility,
     sectors,
     regions,
+    funderLocations,
+    source,
   };
 
   if (input.externalId) {
@@ -142,6 +156,67 @@ export async function syncGrantsFromFeed(): Promise<{ synced: number; created: n
     const { created: c } = await upsertGrant(g);
     if (c) created++;
     else updated++;
+  }
+  return { synced: grants.length, created, updated };
+}
+
+/**
+ * Sync grants from Grants.gov (real-time US federal opportunities). No API key required.
+ * Fetches up to maxTotal (default 500) via pagination.
+ */
+export async function syncGrantsFromGrantsGov(maxTotal = 500): Promise<{ synced: number; created: number; updated: number }> {
+  const { fetchGrantsFromGrantsGov } = await import("@/lib/grants-gov");
+  const grants = await fetchGrantsFromGrantsGov(maxTotal);
+  let created = 0;
+  let updated = 0;
+  for (const g of grants) {
+    try {
+      const { created: c } = await upsertGrant(g);
+      if (c) created++;
+      else updated++;
+    } catch (e) {
+      console.warn("[grants-ingest] Skip grant", g.externalId, e);
+    }
+  }
+  return { synced: grants.length, created, updated };
+}
+
+/**
+ * Sync UK grants (curated list; links to Find a Grant). Optional future: data.gov.uk feed.
+ */
+export async function syncGrantsFromUK(): Promise<{ synced: number; created: number; updated: number }> {
+  const { fetchGrantsFromUK } = await import("@/lib/grants-uk");
+  const grants = await fetchGrantsFromUK();
+  let created = 0;
+  let updated = 0;
+  for (const g of grants) {
+    try {
+      const { created: c } = await upsertGrant(g);
+      if (c) created++;
+      else updated++;
+    } catch (e) {
+      console.warn("[grants-ingest] Skip UK grant", g.externalId, e);
+    }
+  }
+  return { synced: grants.length, created, updated };
+}
+
+/**
+ * Sync EU grants (curated list; links to Funding & Tenders Portal). Optional: EU_GRANTS_FEED_URL for custom feed.
+ */
+export async function syncGrantsFromEU(): Promise<{ synced: number; created: number; updated: number }> {
+  const { fetchGrantsFromEU } = await import("@/lib/grants-eu");
+  const grants = await fetchGrantsFromEU();
+  let created = 0;
+  let updated = 0;
+  for (const g of grants) {
+    try {
+      const { created: c } = await upsertGrant(g);
+      if (c) created++;
+      else updated++;
+    } catch (e) {
+      console.warn("[grants-ingest] Skip EU grant", g.externalId, e);
+    }
   }
   return { synced: grants.length, created, updated };
 }

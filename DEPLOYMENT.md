@@ -6,7 +6,9 @@ Set these in your host (Vercel, Railway, etc.) or in production `.env`:
 
 | Variable | Required | Notes |
 |----------|----------|--------|
-| `ANTHROPIC_API_KEY` | Yes | Grant matching (Claude) |
+| `ANTHROPIC_API_KEY` | Yes | Grant matching and eligibility (Claude) |
+| `OPENAI_API_KEY` | Optional | For multi-agent grant discovery (when implemented) |
+| `GEMINI_API_KEY` | Optional | For multi-agent grant discovery (when implemented); or `GOOGLE_AI_API_KEY` |
 | `DATABASE_URL` | Yes | Supabase Postgres; use pooler: `...:6543/postgres?pgbouncer=true` |
 | `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase anon key |
@@ -20,6 +22,19 @@ Set these in your host (Vercel, Railway, etc.) or in production `.env`:
 
 \* Inngest: use [Vercel integration](https://inngest.com/docs/deploy/vercel) to auto-set keys and sync.
 
+### Multi-agent grant discovery (optional)
+
+The **`Grant.source`** field (`default` | `claude` | `openai` | `gemini`) and ingest support are in place so you can tag grants by origin. **This does not by itself increase the number of results.** You get more results only when **discovery modules** are implemented that call OpenAI and/or Gemini to find grants, normalize them to the grant shape, and call `upsertGrant` with `source: "openai"` or `source: "gemini"`.
+
+**Where to set API keys**
+
+- **Local:** Add to `.env.local` (copy from `.env.example`):
+  - `OPENAI_API_KEY=` your [OpenAI API key](https://platform.openai.com/api-keys)
+  - `GEMINI_API_KEY=` (or `GOOGLE_AI_API_KEY`) your [Google AI Studio](https://aistudio.google.com/apikey) key
+- **Production (e.g. Vercel):** In the project’s **Environment Variables**, add the same names and values.
+
+Discovery modules that use these keys are not yet implemented. When added, they will run on a schedule or from a “Find grants” action and write new grants with the appropriate `source`.
+
 ## 2. Storage (profile documents)
 
 - In Supabase Dashboard → **Storage**, create a bucket named **`documents`** (public if you want direct links, or private and use signed URLs later). Profile document uploads use this bucket via the service role key.
@@ -28,6 +43,15 @@ Set these in your host (Vercel, Railway, etc.) or in production `.env`:
 
 - **Supabase**: Ensure all migrations are applied. Run the SQL in `supabase/migrations/` (e.g. `001_business_profile_funding_columns.sql`) in the Supabase SQL Editor if not already applied.
 - **Prisma**: No `prisma db push` in production from the app. Schema changes should be applied via SQL or migrations before deploy. `npm run build` runs `prisma generate` so the client matches your DB.
+
+### Phase 2: RLS (Row Level Security)
+
+Migration **`008_rls_hardening.sql`** enables RLS on all multi-tenant and user-scoped tables. It enforces tenant and user isolation at the database layer when requests use the **authenticated** role (user JWT). The **service role** (used by the Next.js app and worker) bypasses RLS, so existing behaviour is unchanged. Apply this migration in the Supabase SQL Editor after other migrations to harden access control.
+
+### Daily ingest and notification time (timezone)
+
+- **Grant discovery** runs **daily** at 4am UTC (`grant-discovery` Inngest function).
+- **Deadline reminders** run **every hour**. For each organisation, reminders are sent only when it is **9am in that org’s timezone** (so users get a morning notification in their local time). Apply **`012_organisation_timezone.sql`** to add `Organisation.preferredTimezone` (IANA, e.g. `Europe/London`). Users set it under **Billing → Notification time**; if unset, UTC is used.
 
 ## 4. Build and run
 

@@ -2,27 +2,36 @@ import Link from "next/link";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg } from "@/lib/auth";
 import { GrantsListClient } from "@/components/grants/grants-list-client";
+import { DiscoverGrantsButton } from "@/components/grants/discover-grants-button";
+import { grantMatchesFunderLocations } from "@/lib/constants";
+import { computeUrgency } from "@/lib/urgency";
 
 export default async function GrantsPage() {
   const { org, orgId } = await getActiveOrg();
   const supabase = getSupabaseAdmin();
 
-  const { data: grants = [] } = await supabase
+  const { data: grantsData } = await supabase
     .from("Grant")
     .select("*")
     .order("deadline", { ascending: true });
+  const allGrants = Array.isArray(grantsData) ? grantsData : [];
 
   const profile = org.profiles?.[0];
   const hasProfile = !!profile;
   const profileComplete = (profile?.completionScore ?? 0) >= 50;
+  const userFunderLocations = (profile as { funderLocations?: string[] } | undefined)?.funderLocations;
+  const grants = allGrants.filter((g: { funderLocations?: string[] }) =>
+    grantMatchesFunderLocations(g.funderLocations, userFunderLocations)
+  );
 
   let cachedScores: Record<string, { score: number; summary?: string }> = {};
   if (profileComplete && profile) {
-    const { data: rows = [] } = await supabase
+    const { data: rowsData } = await supabase
       .from("EligibilityAssessment")
       .select("grant_id, score, summary")
       .eq("organisation_id", orgId)
       .eq("profile_id", profile.id);
+    const rows = Array.isArray(rowsData) ? rowsData : [];
     for (const row of rows as { grant_id: string; score: number; summary: string | null }[]) {
       cachedScores[row.grant_id] = { score: row.score, summary: row.summary ?? undefined };
     }
@@ -37,26 +46,36 @@ export default async function GrantsPage() {
             Browse grants or use AI matching to find the best fit for your business.
           </p>
         </div>
-        <Link
-          href="/grants/apply-by-link"
-          className="shrink-0 rounded-md border bg-background px-4 py-2 text-sm font-medium hover:bg-muted"
-        >
-          Have a grant link? Apply here
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <DiscoverGrantsButton
+            disabled={!hasProfile || (profile?.completionScore ?? 0) < 30}
+          />
+          <Link
+            href="/grants/apply-by-link"
+            className="shrink-0 rounded-md border bg-background px-4 py-2 text-sm font-medium hover:bg-muted"
+          >
+            Have a grant link? Apply here
+          </Link>
+        </div>
       </div>
 
       <GrantsListClient
-        grants={(grants ?? []).map((g) => ({
-          id: g.id,
-          name: g.name,
-          funder: g.funder,
-          amount: g.amount ?? null,
-          deadline: g.deadline ?? null,
-          sectors: g.sectors ?? [],
-          regions: g.regions ?? [],
-          eligibility: g.eligibility ?? "",
-          applicationUrl: g.applicationUrl ?? "",
-        }))}
+        grants={grants.map((g) => {
+          const urgency = computeUrgency(g.deadline ?? null);
+          return {
+            id: g.id,
+            name: g.name,
+            funder: g.funder,
+            amount: g.amount ?? null,
+            deadline: g.deadline ?? null,
+            sectors: g.sectors ?? [],
+            regions: g.regions ?? [],
+            eligibility: g.eligibility ?? "",
+            applicationUrl: g.applicationUrl ?? "",
+            urgencyLevel: urgency.level,
+            urgencyLabel: urgency.label,
+          };
+        })}
         hasProfile={hasProfile}
         profileComplete={profileComplete}
         cachedScores={cachedScores}

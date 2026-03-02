@@ -28,6 +28,7 @@ interface ProfileData {
   businessName: string;
   registrationNumber: string | null;
   location: string;
+  funderLocations?: string[];
   sector: string;
   missionStatement: string;
   description: string;
@@ -201,6 +202,7 @@ export function ProfileForm({ profile }: { profile: ProfileData }) {
                 businessName: profile.businessName,
                 registrationNumber: profile.registrationNumber ?? undefined,
                 location: profile.location,
+                funderLocations: profile.funderLocations ?? [],
               }}
               onSubmit={handleStep1}
               isPending={isPending}

@@ -2,21 +2,22 @@ import { inngest } from "./client";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { matchGrantsToProfile } from "@/lib/claude";
 import { notifyOrgMembers } from "@/lib/notify";
+import { grantMatchesFunderLocations } from "@/lib/constants";
 
 export const grantScanner = inngest.createFunction(
   { id: "grant-scanner", name: "Nightly Grant Scanner" },
   { cron: "0 2 * * *" },
   async () => {
     const supabase = getSupabaseAdmin();
-    const { data: grants = [] } = await supabase.from("Grant").select("*");
-    if ((grants ?? []).length === 0) return { scanned: 0 };
+    const { data: grantsData } = await supabase.from("Grant").select("*");
+    const allGrants = Array.isArray(grantsData) ? grantsData : [];
+    if (allGrants.length === 0) return { scanned: 0 };
 
-    const { data: profiles = [] } = await supabase
+    const { data: profilesData } = await supabase
       .from("BusinessProfile")
       .select("*")
       .gte("completionScore", 50);
-
-    const list = profiles ?? [];
+    const list = Array.isArray(profilesData) ? profilesData : [];
     const byOrg = new Map<string, (typeof list)[number]>();
     for (const p of list) {
       if (!byOrg.has(p.organisationId)) byOrg.set(p.organisationId, p);
@@ -31,6 +32,11 @@ export const grantScanner = inngest.createFunction(
     for (const org of orgs) {
       const profile = org.profiles[0];
       if (!profile) continue;
+
+      const userFunderLocations = (profile as { funderLocations?: string[] }).funderLocations;
+      const grants = allGrants.filter((g: { funderLocations?: string[] }) =>
+        grantMatchesFunderLocations(g.funderLocations, userFunderLocations)
+      );
 
       try {
         const matches = await matchGrantsToProfile(
@@ -47,7 +53,7 @@ export const grantScanner = inngest.createFunction(
             fundingPurposes: profile.fundingPurposes,
             fundingDetails: profile.fundingDetails,
           },
-          (grants ?? []).map((g: { id: string; name: string; funder: string; amount?: number; eligibility: string; sectors: string[]; regions: string[] }) => ({
+          grants.map((g: { id: string; name: string; funder: string; amount?: number; eligibility: string; sectors: string[]; regions: string[] }) => ({
             id: g.id,
             name: g.name,
             funder: g.funder,

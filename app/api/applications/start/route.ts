@@ -5,6 +5,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { notifyOrgMembers } from "@/lib/notify";
 import { inngest } from "@/inngest/client";
 import { checkUsageLimit, recordUsage } from "@/lib/plan-check";
+import { createDefaultTasksForApplication } from "@/lib/application-tasks";
 
 const startSchema = z.object({
   grantId: z.string().min(1),
@@ -50,7 +51,7 @@ export async function POST(req: Request): Promise<NextResponse> {
 
     const { data: grant } = await supabase
       .from("Grant")
-      .select("id, name, applicationUrl")
+      .select("id, name, applicationUrl, deadline")
       .eq("id", grantId)
       .single();
     if (!grant) {
@@ -152,6 +153,13 @@ export async function POST(req: Request): Promise<NextResponse> {
     }
 
     await recordUsage(orgId, "autofill");
+
+    createDefaultTasksForApplication({
+      applicationId: application.id,
+      organisationId: orgId,
+      grantId,
+      grantDeadline: (grant as { deadline?: string } | null)?.deadline ?? null,
+    }).catch(console.error);
 
     notifyOrgMembers(orgId, "application_started", {
       grantName: grant.name,

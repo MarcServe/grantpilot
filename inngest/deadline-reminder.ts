@@ -1,15 +1,42 @@
 import { inngest } from "./client";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { notifyOrgMembers } from "@/lib/notify";
+import { createStartApplicationToken } from "@/lib/start-application-token";
+import { isNineAmLocal } from "@/lib/timezone";
 
 export const deadlineReminder = inngest.createFunction(
   { id: "deadline-reminder", name: "Grant Deadline Reminder" },
-  { cron: "0 9 * * *" },
+  { cron: "0 * * * *" }, // Every hour; send only when it's 9am in the org's timezone
   async () => {
     const supabase = getSupabaseAdmin();
     const now = new Date();
     const reminderDays = [7, 3, 1];
     let sent = 0;
+
+    const { data: profiles = [] } = await supabase
+      .from("BusinessProfile")
+      .select("*")
+      .gte("completionScore", 50);
+
+    const list = profiles ?? [];
+    const byOrgId = new Map<string, (typeof list)[number]>();
+    for (const p of list) {
+      const orgId = (p as { organisationId?: string; organisation_id?: string }).organisationId ?? (p as { organisation_id?: string }).organisation_id;
+      if (orgId && !byOrgId.has(orgId)) byOrgId.set(orgId, p);
+    }
+
+    const orgIds = Array.from(byOrgId.keys());
+    if (orgIds.length === 0) return { sent };
+
+    const { data: orgsData = [] } = await supabase
+      .from("Organisation")
+      .select("id, preferredTimezone")
+      .in("id", orgIds);
+
+    const orgsToNotify = (orgsData ?? []).filter((org: { id: string; preferredTimezone?: string | null }) =>
+      isNineAmLocal(org.preferredTimezone ?? "UTC")
+    );
+    const notifyOrgIds = new Set(orgsToNotify.map((o: { id: string }) => o.id));
 
     for (const days of reminderDays) {
       const targetDate = new Date(now);
@@ -28,20 +55,9 @@ export const deadlineReminder = inngest.createFunction(
 
       if ((grants ?? []).length === 0) continue;
 
-      const { data: profiles = [] } = await supabase
-        .from("BusinessProfile")
-        .select("*")
-        .gte("completionScore", 50);
-
-      const list = profiles ?? [];
-      const byOrg = new Map<string, (typeof list)[number]>();
-      for (const p of list) {
-        if (!byOrg.has(p.organisationId)) byOrg.set(p.organisationId, p);
-      }
-      const orgs = Array.from(byOrg.entries()).map(([id, profile]) => ({
-        id,
-        profiles: [profile],
-      }));
+      const orgs = Array.from(byOrgId.entries())
+        .filter(([id]) => notifyOrgIds.has(id))
+        .map(([id, profile]) => ({ id, profiles: [profile] }));
 
       for (const grant of grants ?? []) {
         for (const org of orgs) {
@@ -57,9 +73,19 @@ export const deadlineReminder = inngest.createFunction(
           if (alreadyApplied) continue;
 
           try {
+            const profile = org.profiles[0];
+            const startApplicationToken = profile
+              ? createStartApplicationToken({
+                  grantId: grant.id,
+                  profileId: profile.id,
+                  organisationId: org.id,
+                })
+              : undefined;
             await notifyOrgMembers(org.id, "deadline_reminder", {
               grantName: grant.name,
+              grantId: grant.id,
               deadline: grant.deadline ? new Date(grant.deadline).toLocaleDateString("en-GB") : undefined,
+              startApplicationToken,
             });
             sent++;
           } catch (err) {

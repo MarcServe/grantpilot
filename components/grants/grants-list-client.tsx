@@ -15,6 +15,8 @@ interface GrantData {
   regions: string[];
   eligibility: string;
   applicationUrl: string;
+  urgencyLevel?: "HIGH" | "MEDIUM" | "LOW" | "NONE";
+  urgencyLabel?: string;
 }
 
 interface CachedScore {
@@ -112,6 +114,8 @@ export function GrantsListClient({
               regions={grant.regions}
               matchScore={match?.score ?? cached?.score}
               matchReason={match?.reason ?? cached?.summary}
+              urgencyLevel={grant.urgencyLevel}
+              urgencyLabel={grant.urgencyLabel}
             />
           );
         })}
