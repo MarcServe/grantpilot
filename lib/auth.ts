@@ -15,7 +15,7 @@ export async function getCurrentUser() {
   const { data: userRow, error: userError } = await admin
     .from("User")
     .select(
-      "*, OrganisationMember(Organisation(*, BusinessProfile(*)))"
+      "*, OrganisationMember(*, Organisation(*, BusinessProfile(*)))"
     )
     .eq("supabaseId", authUser.id)
     .single();
@@ -94,7 +94,7 @@ export async function getCurrentUser() {
   const { data: fullUser, error: fetchError } = await admin
     .from("User")
     .select(
-      "*, OrganisationMember(Organisation(*, BusinessProfile(*)))"
+      "*, OrganisationMember(*, Organisation(*, BusinessProfile(*)))"
     )
     .eq("id", newUser.id)
     .single();
