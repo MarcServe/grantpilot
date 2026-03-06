@@ -81,7 +81,7 @@ curl -X POST "${NEXT_PUBLIC_SUPABASE_URL}/auth/v1/admin/users" \
 | `monitor-session` | Event-driven | Polls worker session status, updates Application, sends notifications | — |
 
 #### Notifications (email + WhatsApp)
-- **Email:** Resend (`RESEND_API_KEY`, `EMAIL_FROM`). If the `EMAIL_FROM` domain isn't verified on Resend, use `onboarding@resend.dev` as a test sender.
+- **Email:** Resend (`RESEND_API_KEY`, `EMAIL_FROM`). The verified sender domain is `bizboosters.co.uk` — use `EMAIL_FROM=GrantPilot <contact@bizboosters.co.uk>`.
 - **WhatsApp:** Twilio (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_NUMBER`)
 - Notification types: `application_started`, `review_required`, `application_submitted`, `application_failed`, `deadline_reminder`, `grant_match`, `grant_scan_digest`
 
