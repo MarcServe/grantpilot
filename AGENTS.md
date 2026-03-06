@@ -48,21 +48,58 @@ curl -X POST "${NEXT_PUBLIC_SUPABASE_URL}/auth/v1/admin/users" \
 - **No automated test suite.** The codebase has no test files, test framework (jest/vitest), or `npm test` script. Testing is manual: start the dev server, sign up, and exercise the UI/API. The health check (`GET /api/health`) and lint (`npx eslint .`) are the only automated checks.
 - **External services** (Anthropic, Stripe, Resend, Twilio) require real API keys set in `.env`. See `DEPLOYMENT.md` for the full env var reference. The app functions for basic UI flows without these keys.
 
-### Autonomous grant application flow
+### Full system architecture
 
-The core product feature is AI-powered grant form filling via the `grantpilot-worker`. The flow is:
+#### Apply with AI — catalog grants
+1. User clicks **"Apply with AI"** on a grant detail page → `POST /api/applications/start`
+2. API creates `Application` (FILLING), `cu_sessions` (running), and `cu_session_items` (open_grant_url, fill_company_details, fill_financials, upload_documents, prepare_review; + submit_application if autopilot)
+3. Sends notification to org members (email + WhatsApp)
+4. Sends Inngest event `app/session.started` → triggers `monitor-session`
+5. **Worker** (`grantpilot-worker/`) polls `cu_sessions` every 5s, picks up running sessions
+6. Worker uses Playwright + Claude to navigate the grant URL, fill forms, upload documents
+7. `monitor-session` (Inngest) polls every 5 min; on completion sends `review_required` notification with approve link
 
-1. **User clicks "Apply with AI"** on a grant → `POST /api/applications/start`
-2. API creates an `Application` (status: FILLING), a `cu_sessions` row, and `cu_session_items` for each step (open URL, fill company, fill financials, upload docs, prepare review, optionally submit)
-3. **Worker** (`grantpilot-worker/`) polls `cu_sessions` every 5s, picks up running sessions
-4. Worker uses **Playwright** (headless Chromium) to navigate the grant form and **Anthropic Claude** to map profile data → form fields
-5. On completion, Application status becomes `REVIEW_REQUIRED` (or `SUBMITTED` in autopilot mode)
+#### Apply with AI — external grant link
+1. User pastes URL(s) on `/grants/apply-by-link` → `POST /api/applications/start-with-link`
+2. API creates a new `Grant` from the URL, then same flow as catalog grants
+3. Supports up to 20 URLs at once, with optional autopilot
 
-**To test this locally, you need:**
-- Supabase (cloud or local) with credentials in `.env`
-- Next.js app running (`npm run dev`)
-- Worker running (`cd grantpilot-worker && npm run dev`)
-- A real `ANTHROPIC_API_KEY` **with sufficient credits** (required for Claude-based form mapping)
-- A grant with a reachable `applicationUrl` (the worker navigates to it in a real browser)
-- A completed business profile with documents uploaded to Supabase Storage
-- **Import sample grants:** `curl -X POST http://localhost:3000/api/admin/grants/import -H "Content-Type: application/json" -H "x-grants-import-secret: $GRANTS_IMPORT_SECRET" -d @public/grants-feed.sample.json`
+#### Grant discovery (internet search)
+- **API:** `POST /api/grants/discover` — runs Claude, OpenAI, and Gemini in parallel
+- **Cron:** `grant-discovery` Inngest job runs daily at 4:00 UTC for orgs with profile ≥ 30%
+- Discovered grants are upserted with `externalId` for deduplication
+- Requires `ANTHROPIC_API_KEY`; `OPENAI_API_KEY` and `GEMINI_API_KEY` are optional extra sources
+
+#### Inngest background jobs (cron schedules)
+| Job | Schedule | What it does | Needs |
+|-----|----------|-------------|-------|
+| `grant-sync` | 3:00 UTC | Syncs from JSON feed, Grants.gov, UK, EU sources | Feed URLs |
+| `grant-scanner` | 2:00 UTC | Matches grants to profiles (Claude), sends `grant_match` notifications | Anthropic |
+| `grant-discovery` | 4:00 UTC | Multi-agent search (Claude + OpenAI + Gemini) | Anthropic (+ optional OpenAI/Gemini) |
+| `eligibility-refresh` | 3:00 UTC | Scores grants per profile, upserts `EligibilityAssessment`, sends digest | Anthropic |
+| `deadline-reminder` | Every hour | At 9am local time per org, sends reminders for 7/3/1 day deadlines | Resend/Twilio |
+| `monitor-session` | Event-driven | Polls worker session status, updates Application, sends notifications | — |
+
+#### Notifications (email + WhatsApp)
+- **Email:** Resend (`RESEND_API_KEY`, `EMAIL_FROM`)
+- **WhatsApp:** Twilio (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_NUMBER`)
+- Notification types: `application_started`, `review_required`, `application_submitted`, `application_failed`, `deadline_reminder`, `grant_match`, `grant_scan_digest`
+
+#### Token-based actions from email/WhatsApp (no login required)
+- **Start application:** `/start-application?token=...` — deadline reminders and digest emails include this link
+- **Approve application:** `/approve?token=...` — review-required notifications include this link
+- Tokens are HMAC-signed with 7-day TTL; no auth session needed
+
+#### Dashboard data sources
+- **Profile Completion %** from `BusinessProfile.completionScore`
+- **Suggested grants** (score ≥ 80) and **Within reach** (50-79) from `EligibilityAssessment` — populated by `eligibility-refresh` cron
+- **Recent Applications** from `Application` table
+- Matched grants appear after `eligibility-refresh` runs (3:00 UTC daily)
+
+#### Running the full system locally
+```
+npm run dev                                    # Next.js app (port 3000)
+cd grantpilot-worker && npm run dev            # Worker (polls cu_sessions)
+npx inngest-cli@latest dev                     # Inngest dev server (optional, for cron jobs)
+```
+Worker needs its own `.env` with `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ANTHROPIC_API_KEY`.
