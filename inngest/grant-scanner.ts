@@ -6,7 +6,7 @@ import { grantMatchesFunderLocations } from "@/lib/constants";
 
 export const grantScanner = inngest.createFunction(
   { id: "grant-scanner", name: "Nightly Grant Scanner" },
-  { cron: "0 2 * * *" },
+  { cron: "0 7 * * *" }, // 7:00 UTC — match grants to profiles after sync + discovery
   async () => {
     const supabase = getSupabaseAdmin();
     const { data: grantsData } = await supabase.from("Grant").select("*");

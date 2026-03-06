@@ -12,7 +12,7 @@ import {
 
 export const grantDiscovery = inngest.createFunction(
   { id: "grant-discovery", name: "Multi-agent grant discovery (OpenAI + Gemini)" },
-  { cron: "0 4 * * *" }, // Daily 4am UTC
+  { cron: "30 6 * * *" }, // 6:30 UTC — discover new grants after sync
   async () => {
     const supabase = getSupabaseAdmin();
     const { data } = await supabase

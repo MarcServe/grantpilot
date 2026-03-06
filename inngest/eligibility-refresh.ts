@@ -29,7 +29,7 @@ function profileToMatching(profile: Record<string, unknown>) {
 
 export const eligibilityRefresh = inngest.createFunction(
   { id: "eligibility-refresh", name: "Eligibility cache refresh & high-fit notifications" },
-  { cron: "0 3 * * *" },
+  { cron: "30 7 * * *" }, // 7:30 UTC — score grants and send digest; results ready by ~8:00 AM UK
   async () => {
     const supabase = getSupabaseAdmin();
     const { data: grantsData } = await supabase.from("Grant").select("id, name, funder, amount, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations");

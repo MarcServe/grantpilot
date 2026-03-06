@@ -15,7 +15,7 @@ import {
  */
 export const grantSync = inngest.createFunction(
   { id: "grant-sync", name: "Grant Feed Sync" },
-  { cron: "0 3 * * *" },
+  { cron: "0 6 * * *" }, // 6:00 UTC — sync grant data first so downstream jobs have fresh data
   async () => {
     const feedResult = await syncGrantsFromFeed();
     const govResult = await syncGrantsFromGrantsGov(500);
