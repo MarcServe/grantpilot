@@ -26,6 +26,7 @@ interface GrantData {
   deadline: string | null;
   sectors: string[];
   regions: string[];
+  applicantTypes?: string[];
   funderLocations: string[];
   eligibility: string;
   applicationUrl: string;
@@ -218,6 +219,7 @@ export function GrantsListClient({
               deadline={grant.deadline}
               sectors={grant.sectors}
               regions={grant.regions}
+              applicantTypes={grant.applicantTypes}
               matchScore={match?.score ?? cached?.score}
               matchReason={match?.reason ?? cached?.summary}
               urgencyLevel={grant.urgencyLevel}

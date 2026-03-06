@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Calendar, Building2, MapPin, ArrowRight } from "lucide-react";
+import { Calendar, Building2, MapPin, ArrowRight, Users } from "lucide-react";
 
 interface GrantCardProps {
   id: string;
@@ -14,6 +14,7 @@ interface GrantCardProps {
   deadline: string | null;
   sectors: string[];
   regions: string[];
+  applicantTypes?: string[];
   matchScore?: number;
   matchReason?: string;
   urgencyLevel?: "HIGH" | "MEDIUM" | "LOW" | "NONE";
@@ -34,6 +35,7 @@ export function GrantCard({
   deadline,
   sectors,
   regions,
+  applicantTypes,
   matchScore,
   matchReason,
   urgencyLevel,
@@ -102,6 +104,17 @@ export function GrantCard({
             </Badge>
           ))}
         </div>
+
+        {applicantTypes && applicantTypes.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {applicantTypes.slice(0, 3).map((t) => (
+              <Badge key={t} variant="secondary" className="gap-1 text-xs">
+                <Users className="h-2.5 w-2.5" />
+                {t}
+              </Badge>
+            ))}
+          </div>
+        )}
 
         <Link href={`/grants/${id}`}>
           <Button variant="outline" size="sm" className="mt-2 w-full gap-2">

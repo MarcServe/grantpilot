@@ -67,6 +67,7 @@ export default async function GrantsPage() {
             deadline: g.deadline ?? null,
             sectors: g.sectors ?? [],
             regions: g.regions ?? [],
+            applicantTypes: g.applicantTypes ?? [],
             funderLocations: g.funderLocations ?? [],
             eligibility: g.eligibility ?? "",
             applicationUrl: g.applicationUrl ?? "",
