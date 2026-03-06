@@ -57,8 +57,21 @@ export async function POST(req: Request): Promise<NextResponse> {
     return NextResponse.json({ url: session.url });
   } catch (error) {
     console.error("[BILLING_CHECKOUT]", error);
+    const msg =
+      error instanceof Error ? error.message : "Internal server error";
+    const isStripeError =
+      error != null &&
+      typeof error === "object" &&
+      "type" in error &&
+      typeof (error as { type: unknown }).type === "string";
     return NextResponse.json(
-      { error: "Internal server error" },
+      {
+        error: isStripeError
+          ? `Stripe error: ${msg}`
+          : msg.includes("STRIPE_SECRET_KEY")
+            ? "Stripe is not configured. Please set the STRIPE_SECRET_KEY environment variable."
+            : "Internal server error",
+      },
       { status: 500 }
     );
   }
