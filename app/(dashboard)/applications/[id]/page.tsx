@@ -6,10 +6,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
-import { ArrowLeft, CheckCircle, XCircle, Clock, Loader2, SkipForward, ExternalLink, FileEdit, FileText } from "lucide-react";
+import { ArrowLeft, CheckCircle, XCircle, Clock, Loader2 } from "lucide-react";
 import { SubmitSection } from "@/components/applications/submit-section";
 import { StopApplicationButton } from "@/components/applications/stop-application-button";
 import { ApplicationTaskList } from "@/components/applications/application-task-list";
+import { EditableSnapshot } from "@/components/applications/editable-snapshot";
 
 const ITEM_STATUS_ICON: Record<string, React.ReactNode> = {
   done: <CheckCircle className="h-4 w-4 text-green-600" />,
@@ -262,81 +263,17 @@ export default async function ApplicationDetailPage({
       )}
 
       {showFilledSummary && filledSnapshot && (
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-sm font-medium">
-              <FileText className="h-4 w-4" />
-              Filled data summary
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="rounded-md border border-blue-200 bg-blue-50/50 p-3 text-sm dark:border-blue-800 dark:bg-blue-950/30">
-              <p className="font-medium text-blue-900 dark:text-blue-100">How to review and approve</p>
-              <ol className="mt-1 list-inside list-decimal space-y-0.5 text-blue-800 dark:text-blue-200">
-                <li>Review the prefilled fields and uploaded files below.</li>
-                <li>Optionally open the funder&apos;s form (link further down) to re-enter or edit on their site.</li>
-                <li>When ready, tick the confirmation and click &quot;Submit Application&quot; at the bottom to approve and submit.
-                </li>
-              </ol>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              Data the AI has filled in on the grant form. Review below or open the form to edit.
-            </p>
-            {filledSnapshot.fields && filledSnapshot.fields.length > 0 ? (
-              <div className="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-2">
-                {filledSnapshot.fields.filter((f) => f.value !== "").map((f, i) => (
-                  <div key={i} className="rounded border bg-muted/30 px-3 py-2">
-                    <p className="truncate text-xs font-medium text-muted-foreground">{f.label || f.name}</p>
-                    <p className="mt-0.5 truncate font-medium">{f.value}</p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">No form fields captured yet.</p>
-            )}
-            {filledSnapshot.fileNames && filledSnapshot.fileNames.length > 0 && (
-              <div>
-                <p className="mb-1 text-xs font-medium text-muted-foreground">Uploaded files</p>
-                <ul className="list-inside list-disc text-sm">
-                  {filledSnapshot.fileNames.map((name, i) => (
-                    <li key={i}>{name}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {filledSnapshot.capturedAt && (
-              <p className="text-xs text-muted-foreground">
-                Captured {new Date(filledSnapshot.capturedAt).toLocaleString("en-GB")}
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {["FILLING", "REVIEW_REQUIRED", "APPROVED"].includes(application.status) &&
-        (application.grant as { applicationUrl?: string })?.applicationUrl && (
-        <Card className="mb-6 border-primary/20 bg-primary/5">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-sm font-medium">
-              <FileEdit className="h-4 w-4" />
-              Review & edit your application
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              The AI fills the form in our system; use the &quot;Filled data summary&quot; above to review. The link below opens the funder&apos;s form in your browser (it will load empty — the prefilled data is only in our snapshot). You can re-enter or edit there, then return here to submit.
-            </p>
-            <a
-              href={(application.grant as { applicationUrl: string }).applicationUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 rounded-md border bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
-            >
-              <ExternalLink className="h-4 w-4" />
-              Open funder&apos;s form in new tab
-            </a>
-          </CardContent>
-        </Card>
+        <div className="mb-6">
+          <EditableSnapshot
+            applicationId={application.id}
+            fields={filledSnapshot.fields ?? []}
+            fileNames={filledSnapshot.fileNames ?? []}
+            capturedAt={filledSnapshot.capturedAt}
+            screenshotBase64={(filledSnapshot as { screenshotBase64?: string }).screenshotBase64}
+            grantUrl={(application.grant as { applicationUrl?: string })?.applicationUrl}
+            editable={["FILLING", "REVIEW_REQUIRED"].includes(application.status)}
+          />
+        </div>
       )}
 
       {canSubmit && (

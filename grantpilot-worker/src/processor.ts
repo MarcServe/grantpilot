@@ -155,6 +155,19 @@ async function processGrantApplicationSession(
 
   const applicationId = session.public_id.replace(/^grantapp_/, "");
 
+  let editedSnapshotFields: { label: string; name: string; value: string }[] | undefined;
+  if (applicationId) {
+    const { data: appRow } = await supabase
+      .from("Application")
+      .select("filled_snapshot")
+      .eq("id", applicationId)
+      .maybeSingle();
+    const snap = (appRow as { filled_snapshot?: { fields?: { label: string; name: string; value: string }[] } } | null)?.filled_snapshot;
+    if (snap?.fields && snap.fields.length > 0) {
+      editedSnapshotFields = snap.fields;
+    }
+  }
+
   try {
     for (const item of pending) {
       await markItemStatus(item.id, "processing");
@@ -166,8 +179,10 @@ async function processGrantApplicationSession(
 
       try {
         while (attempt < maxAttempts) {
+          const isSubmit = (item.action ?? "").toLowerCase() === "submit_application";
           lastResult = await runGrantStep(page, item, profile, documents, {
             requiredAttachments: requiredAttachments.length > 0 ? requiredAttachments : undefined,
+            editedSnapshotFields: isSubmit ? editedSnapshotFields : undefined,
           });
           if (lastResult.success) break;
           attempt += 1;
