@@ -21,7 +21,7 @@ export default async function GrantsPage() {
   const userFunderLocations = (profile as { funderLocations?: string[] } | undefined)?.funderLocations ?? [];
   const grants = allGrants;
 
-  let cachedScores: Record<string, { score: number; summary?: string }> = {};
+  const cachedScores: Record<string, { score: number; summary?: string }> = {};
   if (profileComplete && profile) {
     const { data: rowsData } = await supabase
       .from("EligibilityAssessment")

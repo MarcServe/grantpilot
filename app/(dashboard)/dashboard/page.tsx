@@ -83,8 +83,8 @@ export default async function DashboardPage() {
     }
   );
 
-  let suggestedGrants: { grantId: string; grantName: string; score: number }[] = [];
-  let withinReachGrants: { grantId: string; grantName: string; score: number; summary?: string }[] = [];
+  const suggestedGrants: { grantId: string; grantName: string; score: number }[] = [];
+  const withinReachGrants: { grantId: string; grantName: string; score: number; summary?: string }[] = [];
   if (profile && completionScore >= 50) {
     const { data: assessmentsData } = await supabase
       .from("EligibilityAssessment")
