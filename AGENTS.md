@@ -66,3 +66,4 @@ The worker is a long-running Node.js process that polls `cu_sessions` in Supabas
 - **No automated test suite** exists (no `test` script in `package.json`). Lint (`npx eslint .`) and build (`npm run build`) are the primary verification commands.
 - The `grantpilot-worker/` sub-package is optional for local dev; it requires Playwright browsers and is only needed for the auto-apply flow.
 - **Claude JSON responses** may be wrapped in markdown code fences. `lib/claude.ts` strips these before parsing.
+- **Anthropic API credits**: AI features (grant matching, eligibility, discovery) require an Anthropic account with active credits. A "credit balance too low" 400 error means the account needs top-up, not a code bug.
