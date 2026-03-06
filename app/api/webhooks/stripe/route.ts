@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getStripe } from "@/lib/stripe";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { notifyOrgMembers } from "@/lib/notify";
 import type Stripe from "stripe";
 
 export async function POST(req: Request): Promise<NextResponse> {
@@ -41,6 +42,17 @@ export async function POST(req: Request): Promise<NextResponse> {
             .from("Organisation")
             .update({ plan })
             .eq("stripeId", customerId);
+
+          const { data: org } = await supabase
+            .from("Organisation")
+            .select("id")
+            .eq("stripeId", customerId)
+            .maybeSingle();
+          if (org) {
+            await notifyOrgMembers(org.id, "subscription_activated", {
+              planName: plan === "BUSINESS" ? "Business" : "Pro",
+            }).catch(console.error);
+          }
         }
         break;
       }
@@ -53,10 +65,22 @@ export async function POST(req: Request): Promise<NextResponse> {
 
         if (subscription.status === "active") {
           const supabase = getSupabaseAdmin();
+          const { data: orgBefore } = await supabase
+            .from("Organisation")
+            .select("id, plan")
+            .eq("stripeId", customerId)
+            .maybeSingle();
+
           await supabase
             .from("Organisation")
             .update({ plan })
             .eq("stripeId", customerId);
+
+          if (orgBefore && orgBefore.plan !== plan) {
+            await notifyOrgMembers(orgBefore.id, "subscription_upgraded", {
+              planName: plan === "BUSINESS" ? "Business" : "Pro",
+            }).catch(console.error);
+          }
         }
         break;
       }
@@ -66,10 +90,20 @@ export async function POST(req: Request): Promise<NextResponse> {
         const customerId = subscription.customer as string;
 
         const supabase = getSupabaseAdmin();
+        const { data: org } = await supabase
+          .from("Organisation")
+          .select("id")
+          .eq("stripeId", customerId)
+          .maybeSingle();
+
         await supabase
           .from("Organisation")
           .update({ plan: "FREE_TRIAL" })
           .eq("stripeId", customerId);
+
+        if (org) {
+          await notifyOrgMembers(org.id, "subscription_cancelled", {}).catch(console.error);
+        }
         break;
       }
     }
