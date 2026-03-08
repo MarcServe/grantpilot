@@ -20,11 +20,11 @@ export async function POST() {
     const stripe = getStripe();
     const supabase = getSupabaseAdmin();
 
-    const { data: customers } = await stripe.customers.list({
+    const listResponse = await stripe.customers.list({
       email: email.trim().toLowerCase(),
       limit: 1,
     });
-    const customer = customers.data[0];
+    const customer = listResponse.data[0];
     if (!customer) {
       return NextResponse.json(
         { success: false, error: "No Stripe customer found for this email" },
@@ -32,21 +32,21 @@ export async function POST() {
       );
     }
 
-    const { data: subscriptions } = await stripe.subscriptions.list({
+    const subsResponse = await stripe.subscriptions.list({
       customer: customer.id,
       status: "active",
       limit: 1,
       expand: ["data.items.data.price"],
     });
-    const subscription = subscriptions.data[0];
+    const subscription = subsResponse.data[0];
     if (!subscription?.items?.data?.length) {
-      const { data: trialing } = await stripe.subscriptions.list({
+      const trialingResponse = await stripe.subscriptions.list({
         customer: customer.id,
         status: "trialing",
         limit: 1,
         expand: ["data.items.data.price"],
       });
-      const sub = trialing.data[0];
+      const sub = trialingResponse.data[0];
       if (sub?.items?.data?.length) {
         const priceId = sub.items.data[0].price.id;
         const plan = getPlanFromPriceId(priceId);
