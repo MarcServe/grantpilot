@@ -4,6 +4,18 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
+/**
+ * Strip markdown code fences and leading/trailing whitespace from a model response
+ * so JSON.parse succeeds even when the model wraps output in ```json ... ```.
+ */
+function cleanJsonResponse(raw: string): string {
+  let text = raw.trim();
+  // Remove ```json ... ``` or ``` ... ``` wrappers
+  const fenceMatch = text.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
+  if (fenceMatch) text = fenceMatch[1].trim();
+  return text;
+}
+
 interface ProfileForMatching {
   businessName: string;
   sector: string;
@@ -89,13 +101,22 @@ Include all grants, sorted by score descending.`,
     ],
   });
 
-  const text =
+  const rawText =
     response.content[0].type === "text" ? response.content[0].text : "";
+  const text = cleanJsonResponse(rawText);
 
   try {
     const parsed = JSON.parse(text) as GrantMatch[];
     return parsed.sort((a, b) => b.score - a.score);
   } catch {
+    // Try extracting a JSON array from the response (handles extra prose around JSON)
+    const arrayMatch = text.match(/\[[\s\S]*\]/);
+    if (arrayMatch) {
+      try {
+        const parsed = JSON.parse(arrayMatch[0]) as GrantMatch[];
+        return parsed.sort((a, b) => b.score - a.score);
+      } catch { /* fall through to default */ }
+    }
     return grants.map((g) => ({
       grantId: g.id,
       score: 50,
@@ -169,9 +190,11 @@ Rules:
     ],
   });
 
-  const text = response.content[0].type === "text" ? response.content[0].text : "";
+  const rawText = response.content[0].type === "text" ? response.content[0].text : "";
+  const text = cleanJsonResponse(rawText);
   try {
-    const parsed = JSON.parse(text) as EligibilityResult;
+    const jsonStr = text.startsWith("{") ? text : (text.match(/\{[\s\S]*\}/)?.[0] ?? text);
+    const parsed = JSON.parse(jsonStr) as EligibilityResult;
     const d = parsed.decision;
     if (d !== "likely_eligible" && d !== "review" && d !== "unlikely") parsed.decision = "review";
     const conf = Math.min(100, Math.max(0, Number(parsed.confidence) ?? Number(parsed.score) ?? 50));
