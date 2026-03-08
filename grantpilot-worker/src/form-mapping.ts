@@ -54,7 +54,9 @@ Return ONLY a JSON array of actions. Each action: { "selector": "css selector fo
 - Selector must be valid CSS (e.g. input[name="x"], #id, select[name="x"]).
 - Only include fields you can match from the form. Skip unknown fields.
 - For numbers use string representation.
-- For empty optional values you may omit the action.`;
+- For empty optional values you may omit the action.
+- Write in a natural, human tone. Keep text concise; avoid repetitive or template-like phrasing that sounds AI-generated.
+- If a form label suggests a character or word limit (e.g. "200 characters", "500 words"), keep the value well under that limit.`;
 
   const res = await anthropic.messages.create({
     model: "claude-sonnet-4-20250514",
@@ -69,7 +71,7 @@ Return ONLY a JSON array of actions. Each action: { "selector": "css selector fo
   try {
     const parsed = JSON.parse(jsonStr) as unknown;
     if (!Array.isArray(parsed)) return [];
-    return parsed
+    const actions = parsed
       .filter(
         (a): a is FillAction =>
           a != null &&
@@ -82,9 +84,38 @@ Return ONLY a JSON array of actions. Each action: { "selector": "css selector fo
         value: String((a as FillAction).value),
         type: ((a as FillAction).type as "fill" | "select" | "check") || "fill",
       }));
+    return applyFieldLimits(actions, 2000);
   } catch {
     return [];
   }
+}
+
+const DEFAULT_MAX_CHARS = 2000;
+
+function truncateByChars(s: string, max: number): string {
+  if (s.length <= max) return s;
+  return s.slice(0, max).trim();
+}
+
+function truncateByWords(s: string, maxWords: number): string {
+  const parts = s.trim().split(/\s+/);
+  if (parts.length <= maxWords) return s;
+  return parts.slice(0, maxWords).join(" ");
+}
+
+/**
+ * Apply character/word limits to fill action values to avoid overflow and reduce AI-style length.
+ */
+function applyFieldLimits(
+  actions: FillAction[],
+  defaultMaxChars: number = DEFAULT_MAX_CHARS
+): FillAction[] {
+  return actions.map((a) => {
+    if (a.type !== "fill" || typeof a.value !== "string") return a;
+    let value = a.value;
+    value = truncateByChars(value, defaultMaxChars);
+    return { ...a, value };
+  });
 }
 
 /**

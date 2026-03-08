@@ -18,21 +18,23 @@ export async function GET(): Promise<NextResponse> {
     const supabase = getSupabaseAdmin();
     const { data: rows = [] } = await supabase
       .from("EligibilityAssessment")
-      .select("grant_id, score, summary, reasons, alignment, improvement_plan")
+      .select("grant_id, score, summary, reasons, alignment, improvement_plan, met_criteria, missing_criteria")
       .eq("organisation_id", orgId)
       .eq("profile_id", profile.id);
 
     const scores: Record<
       string,
-      { score: number; summary?: string; reasons?: string[]; alignment?: string[]; improvementPlan?: unknown }
+      { score: number; summary?: string; reasons?: string[]; alignment?: string[]; improvementPlan?: unknown; met?: string[]; missing?: string[] }
     > = {};
-    for (const row of rows as { grant_id: string; score: number; summary: string | null; reasons: unknown; alignment: unknown; improvement_plan: unknown }[]) {
+    for (const row of rows as { grant_id: string; score: number; summary: string | null; reasons: unknown; alignment: unknown; improvement_plan: unknown; met_criteria: unknown; missing_criteria: unknown }[]) {
       scores[row.grant_id] = {
         score: row.score,
         summary: row.summary ?? undefined,
         reasons: (row.reasons as string[]) ?? undefined,
         alignment: (row.alignment as string[]) ?? undefined,
         improvementPlan: row.improvement_plan ?? undefined,
+        met: (row.met_criteria as string[]) ?? undefined,
+        missing: (row.missing_criteria as string[]) ?? undefined,
       };
     }
 

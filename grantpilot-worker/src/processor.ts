@@ -217,6 +217,26 @@ async function processGrantApplicationSession(
             .from("Application")
             .update({ filled_snapshot: result.snapshot })
             .eq("id", applicationId);
+          const appUrl = process.env.APP_URL;
+          const internalSecret = process.env.INTERNAL_API_SECRET;
+          if (appUrl && internalSecret && session.organisation_id && profileId) {
+            try {
+              await fetch(`${appUrl.replace(/\/$/, "")}/api/internal/merge-grant-memory`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "x-internal-secret": internalSecret,
+                },
+                body: JSON.stringify({
+                  profileId,
+                  organisationId: session.organisation_id,
+                  filledSnapshot: result.snapshot,
+                }),
+              });
+            } catch {
+              // non-fatal
+            }
+          }
         }
         if (result.success && (item.action ?? "").toLowerCase() === "submit_application") {
           if (applicationId) {

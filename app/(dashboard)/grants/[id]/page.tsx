@@ -12,10 +12,13 @@ import {
   MapPin,
   ExternalLink,
   ArrowLeft,
+  AlertTriangle,
 } from "lucide-react";
 import { ApplyButton } from "@/components/grants/apply-button";
 import { EligibilityCard } from "@/components/grants/eligibility-card";
 import { computeUrgency } from "@/lib/urgency";
+import { checkRequirementsAgainstDocuments } from "@/lib/grant-requirements";
+import type { RequiredAttachment } from "@/lib/grant-requirements";
 
 export default async function GrantDetailPage({
   params,
@@ -74,6 +77,28 @@ export default async function GrantDetailPage({
 
   const urgency = computeUrgency(grant.deadline ?? null);
 
+  let missingDocLabels: string[] = [];
+  if (profileId) {
+    const rawRequired = (grant as { required_attachments?: unknown }).required_attachments;
+    const required = (Array.isArray(rawRequired) ? rawRequired : []) as RequiredAttachment[];
+    if (required.length > 0) {
+      const { data: docRows } = await supabase
+        .from("Document")
+        .select("name, type, category")
+        .eq("profileId", profileId);
+      const docRowsAlt = !docRows?.length
+        ? await supabase.from("Document").select("name, type, category").eq("profile_id", profileId)
+        : { data: docRows };
+      const documents = (docRowsAlt.data ?? []).map((d: { name: string; type?: string; category?: string }) => ({
+        name: d.name,
+        type: d.type ?? "",
+        category: d.category ?? null,
+      }));
+      const { missing } = checkRequirementsAgainstDocuments(required, documents);
+      missingDocLabels = missing.map((r) => r.label);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-4xl p-6">
       <Link
@@ -83,6 +108,27 @@ export default async function GrantDetailPage({
         <ArrowLeft className="h-4 w-4" />
         Back to Grants
       </Link>
+
+      {missingDocLabels.length > 0 && (
+        <div className="mb-6 flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/40">
+          <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-500" />
+          <div>
+            <p className="font-medium text-amber-800 dark:text-amber-200">
+              This grant may require documents you haven&apos;t uploaded
+            </p>
+            <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">
+              Add these in Profile → Documents so we can attach them when you apply:{" "}
+              {missingDocLabels.join(", ")}.
+            </p>
+            <Link
+              href="/profile"
+              className="mt-2 inline-block text-sm font-medium text-amber-800 underline hover:no-underline dark:text-amber-200"
+            >
+              Go to Profile → Documents
+            </Link>
+          </div>
+        </div>
+      )}
 
       <Card>
         <CardHeader>

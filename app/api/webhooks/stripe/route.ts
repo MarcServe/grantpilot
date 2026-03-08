@@ -27,31 +27,39 @@ export async function POST(req: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
   }
 
+  const stripe = getStripe();
+  const supabase = getSupabaseAdmin();
+
   try {
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
         const customerId = session.customer as string;
-        const priceId = session.metadata?.priceId;
+        let priceId = session.metadata?.priceId as string | undefined;
+
+        if (!priceId && session.subscription && typeof session.subscription === "string") {
+          const sub = await stripe.subscriptions.retrieve(session.subscription, { expand: ["items.data.price"] });
+          priceId = sub.items.data[0]?.price.id ?? "";
+        }
 
         const plan = getPlanFromPriceId(priceId ?? "");
 
         if (customerId) {
-          const supabase = getSupabaseAdmin();
-          await supabase
+          const { data, error } = await supabase
             .from("Organisation")
             .update({ plan })
-            .eq("stripeId", customerId);
-
-          const { data: org } = await supabase
-            .from("Organisation")
-            .select("id")
             .eq("stripeId", customerId)
-            .maybeSingle();
-          if (org) {
-            await notifyOrgMembers(org.id, "subscription_activated", {
-              planName: plan === "BUSINESS" ? "Business" : "Pro",
-            }).catch(console.error);
+            .select("id");
+          if (error) {
+            console.error("[STRIPE_WEBHOOK] checkout.session.completed update failed:", error);
+          } else {
+            console.log("[STRIPE_WEBHOOK] checkout.session.completed", { customerId, priceId, plan, rows: data?.length ?? 0 });
+            const org = Array.isArray(data) ? data[0] : data;
+            if (org?.id) {
+              await notifyOrgMembers(org.id, "subscription_activated", {
+                planName: plan === "BUSINESS" ? "Business" : "Pro",
+              }).catch(console.error);
+            }
           }
         }
         break;
@@ -62,24 +70,30 @@ export async function POST(req: Request): Promise<NextResponse> {
         const customerId = subscription.customer as string;
         const priceId = subscription.items.data[0]?.price.id ?? "";
         const plan = getPlanFromPriceId(priceId);
+        const activeOrTrialing = subscription.status === "active" || subscription.status === "trialing";
 
-        if (subscription.status === "active") {
-          const supabase = getSupabaseAdmin();
+        if (activeOrTrialing) {
           const { data: orgBefore } = await supabase
             .from("Organisation")
             .select("id, plan")
             .eq("stripeId", customerId)
             .maybeSingle();
 
-          await supabase
+          const { data, error } = await supabase
             .from("Organisation")
             .update({ plan })
-            .eq("stripeId", customerId);
-
-          if (orgBefore && orgBefore.plan !== plan) {
-            await notifyOrgMembers(orgBefore.id, "subscription_upgraded", {
-              planName: plan === "BUSINESS" ? "Business" : "Pro",
-            }).catch(console.error);
+            .eq("stripeId", customerId)
+            .select("id");
+          if (error) {
+            console.error("[STRIPE_WEBHOOK] customer.subscription.updated update failed:", error);
+          } else {
+            console.log("[STRIPE_WEBHOOK] customer.subscription.updated", { customerId, priceId, plan, status: subscription.status, rows: data?.length ?? 0 });
+            const orgBeforeTyped = orgBefore as { id: string; plan: string } | null;
+            if (orgBeforeTyped && orgBeforeTyped.plan !== plan) {
+              await notifyOrgMembers(orgBeforeTyped.id, "subscription_upgraded", {
+                planName: plan === "BUSINESS" ? "Business" : "Pro",
+              }).catch(console.error);
+            }
           }
         }
         break;
@@ -89,20 +103,19 @@ export async function POST(req: Request): Promise<NextResponse> {
         const subscription = event.data.object as Stripe.Subscription;
         const customerId = subscription.customer as string;
 
-        const supabase = getSupabaseAdmin();
-        const { data: org } = await supabase
-          .from("Organisation")
-          .select("id")
-          .eq("stripeId", customerId)
-          .maybeSingle();
-
-        await supabase
+        const { data, error } = await supabase
           .from("Organisation")
           .update({ plan: "FREE_TRIAL" })
-          .eq("stripeId", customerId);
-
-        if (org) {
-          await notifyOrgMembers(org.id, "subscription_cancelled", {}).catch(console.error);
+          .eq("stripeId", customerId)
+          .select("id");
+        if (error) {
+          console.error("[STRIPE_WEBHOOK] customer.subscription.deleted update failed:", error);
+        } else {
+          console.log("[STRIPE_WEBHOOK] customer.subscription.deleted", { customerId, rows: data?.length ?? 0 });
+          const org = Array.isArray(data) ? data[0] : data;
+          if (org?.id) {
+            await notifyOrgMembers(org.id, "subscription_cancelled", {}).catch(console.error);
+          }
         }
         break;
       }

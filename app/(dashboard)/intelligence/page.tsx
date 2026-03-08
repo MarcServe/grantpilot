@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { EligibilityNotificationPreferences } from "@/components/profile/eligibility-notification-preferences";
 import {
   Brain,
   FileSearch,
@@ -115,6 +116,10 @@ export default async function IntelligencePage() {
               </Button>
             </Link>
           </CardContent>
+        </Card>
+
+        <Card className="md:col-span-2">
+          <EligibilityNotificationPreferences />
         </Card>
 
         <Card>

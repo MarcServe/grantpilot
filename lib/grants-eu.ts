@@ -95,9 +95,12 @@ function buildObjectives(meta: Record<string, string[]>): string | null {
 
 function extractSectors(meta: Record<string, string[]>): string[] {
   const keywords = meta.keywords ?? [];
+  const seen = new Set<string>();
   const sectors: string[] = [];
   for (const k of keywords) {
     if (k.includes(",") || k.length > 60 || k.startsWith("HORIZON") || k.startsWith("DIGITAL") || k.startsWith("CERV")) continue;
+    if (seen.has(k)) continue;
+    seen.add(k);
     sectors.push(k);
   }
   return sectors.slice(0, 10);

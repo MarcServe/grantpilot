@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -58,12 +59,14 @@ const STEP_LABELS = [
   "Documents",
 ];
 
-export function ProfileForm({ profile }: { profile: ProfileData }) {
-  const [step, setStep] = useState(1);
+export function ProfileForm({ profile, initialStep = 1 }: { profile: ProfileData; initialStep?: number }) {
+  const router = useRouter();
+  const [step, setStep] = useState(initialStep);
   const [isPending, startTransition] = useTransition();
   const [docs, setDocs] = useState(profile.documents);
 
-  const progressPercent = (step / 5) * 100;
+  const completionScore = profile.completionScore ?? 0;
+  const progressPercent = completionScore;
 
   function handleStep1(data: Step1Data) {
     return new Promise<void>((resolve) => {
@@ -74,6 +77,7 @@ export function ProfileForm({ profile }: { profile: ProfileData }) {
         } else {
           toast.success("Business basics saved");
           setStep(2);
+          router.refresh();
         }
         resolve();
       });
@@ -89,6 +93,7 @@ export function ProfileForm({ profile }: { profile: ProfileData }) {
         } else {
           toast.success("Description saved");
           setStep(3);
+          router.refresh();
         }
         resolve();
       });
@@ -104,6 +109,7 @@ export function ProfileForm({ profile }: { profile: ProfileData }) {
         } else {
           toast.success("Financials saved");
           setStep(4);
+          router.refresh();
         }
         resolve();
       });
@@ -119,6 +125,7 @@ export function ProfileForm({ profile }: { profile: ProfileData }) {
         } else {
           toast.success("Funding goals saved");
           setStep(5);
+          router.refresh();
         }
         resolve();
       });
@@ -157,6 +164,7 @@ export function ProfileForm({ profile }: { profile: ProfileData }) {
           },
         ]);
         toast.success("Document uploaded");
+        router.refresh();
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to upload document";
@@ -169,6 +177,7 @@ export function ProfileForm({ profile }: { profile: ProfileData }) {
       await removeDocument(id);
       setDocs((prev) => prev.filter((d) => d.id !== id));
       toast.success("Document removed");
+      router.refresh();
     });
   }
 
@@ -185,10 +194,10 @@ export function ProfileForm({ profile }: { profile: ProfileData }) {
             Step {step} of 5: {STEP_LABELS[step - 1]}
           </span>
           <span className="text-muted-foreground">
-            {Math.round(progressPercent)}%
+            {Math.round(progressPercent)}% complete
           </span>
         </div>
-        <Progress value={progressPercent} className="h-2" />
+        <Progress value={Math.min(100, Math.max(0, progressPercent))} className="h-2" />
       </div>
 
       <Card>

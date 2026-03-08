@@ -133,6 +133,8 @@ export interface ImprovementPlan {
   timeline?: string;
 }
 
+export type ConfidenceBand = "high" | "medium" | "low";
+
 export interface EligibilityResult {
   decision: EligibilityDecision;
   reason: string;
@@ -147,6 +149,16 @@ export interface EligibilityResult {
   alignment?: string[];
   /** For score < 75: gaps + actionable steps to improve fit */
   improvementPlan?: ImprovementPlan;
+  /** Criteria the applicant meets (for "Why you scored X%") */
+  met?: string[];
+  /** Criteria missing or weak */
+  missing?: string[];
+}
+
+export function getConfidenceBand(score: number): ConfidenceBand {
+  if (score >= 80) return "high";
+  if (score >= 60) return "medium";
+  return "low";
 }
 
 /**
@@ -178,14 +190,18 @@ Return ONLY valid JSON. No markdown. Use this exact shape:
   "summary": "One sentence overall take.",
   "reasons": ["Reason 1", "Reason 2", "Reason 3"],
   "alignment": ["How grant aligns with business - only if score >= 70, else []"],
-  "improvementPlan": { "gaps": ["Gap 1"], "actions": ["Action 1"], "timeline": "Short term" } or null
+  "improvementPlan": { "gaps": ["Gap 1"], "actions": ["Action 1"], "timeline": "Short term" } or null,
+  "met": ["Short label for each eligibility criterion the business clearly meets", "e.g. UK registered company", "SME eligible"],
+  "missing": ["Short label for each criterion that is missing or weak", "e.g. Requires pilot deployment evidence", "Requires sustainability component"]
 }
 
 Rules:
 - score and confidence should match (0-100). likely_eligible => score >= 75, review => 40-74, unlikely => < 40.
 - reasons: 3-5 short bullets. For high score explain why they're eligible; for low/medium explain what doesn't match or is missing.
 - alignment: only when score >= 70, 2-4 bullets on how this grant fits their business.
-- improvementPlan: only when score < 75. gaps = what's missing or misaligned; actions = concrete steps to improve fit; timeline optional (e.g. "0-3 months"). Use null when score >= 75.`,
+- improvementPlan: only when score < 75. gaps = what's missing or misaligned; actions = concrete steps to improve fit; timeline optional (e.g. "0-3 months"). Use null when score >= 75.
+- met: 2-6 short labels (one line each) for criteria the business clearly satisfies. Use checkmark-friendly phrasing.
+- missing: 0-6 short labels for criteria that are missing, weak, or unclear. Use warning-friendly phrasing. Use [] when score >= 85.`,
       },
     ],
   });
@@ -204,6 +220,8 @@ Rules:
     parsed.summary = parsed.summary ?? parsed.reason;
     if (!Array.isArray(parsed.reasons)) parsed.reasons = [];
     if (parsed.score >= 75 && parsed.improvementPlan) parsed.improvementPlan = undefined;
+    if (!Array.isArray(parsed.met)) parsed.met = [];
+    if (!Array.isArray(parsed.missing)) parsed.missing = [];
     return parsed;
   } catch {
     return {
@@ -214,5 +232,57 @@ Rules:
       summary: "We couldn't automatically assess eligibility. Please read the grant criteria and decide.",
       reasons: [],
     };
+  }
+}
+
+export interface ProfileImprovementSuggestions {
+  missionStatement?: string;
+  description?: string;
+  fundingDetails?: string;
+}
+
+/**
+ * Suggests rewritten profile sections to improve eligibility for a specific grant.
+ * Uses improvementPlan and missing criteria from eligibility result.
+ */
+export async function suggestProfileImprovements(
+  profile: ProfileForMatching,
+  grant: GrantForMatching,
+  eligibilityContext: { missing?: string[]; improvementPlan?: ImprovementPlan; summary?: string }
+): Promise<ProfileImprovementSuggestions> {
+  const response = await anthropic.messages.create({
+    model: "claude-sonnet-4-20250514",
+    max_tokens: 1500,
+    messages: [
+      {
+        role: "user",
+        content: `You are a grant application expert. Rewrite the business profile sections below to better align with this grant, addressing the missing or weak criteria. Keep the same tone and facts; improve clarity and emphasis to match the grant.
+
+Grant: ${grant.name} (${grant.funder}). Eligibility focus: ${grant.eligibility.slice(0, 400)}.
+
+Current profile:
+- Mission: ${profile.missionStatement}
+- Description: ${profile.description}
+- Funding details: ${profile.fundingDetails ?? "None"}
+
+What to address: ${(eligibilityContext.missing ?? []).join("; ")}. ${eligibilityContext.improvementPlan?.actions?.length ? "Actions: " + eligibilityContext.improvementPlan.actions.join("; ") : ""}
+
+Return ONLY valid JSON. No markdown. Use this exact shape (only include keys you are rewriting):
+{ "missionStatement": "rewritten mission if needed", "description": "rewritten description if needed", "fundingDetails": "rewritten funding narrative if needed" }
+Omit a key if no change suggested. Keep each value concise and human; do not exceed 2-3 paragraphs for description.`,
+      },
+    ],
+  });
+
+  const text = response.content[0].type === "text" ? response.content[0].text : "";
+  try {
+    const parsed = JSON.parse(text) as ProfileImprovementSuggestions;
+    return {
+      ...(parsed.missionStatement && { missionStatement: parsed.missionStatement }),
+      ...(parsed.description && { description: parsed.description }),
+      ...(parsed.fundingDetails && { fundingDetails: parsed.fundingDetails }),
+    };
+  } catch {
+    return {};
   }
 }

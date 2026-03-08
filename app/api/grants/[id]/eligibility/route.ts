@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { getEligibilityDecision } from "@/lib/claude";
+import { getEligibilityDecision, getConfidenceBand } from "@/lib/claude";
 
 function profileToMatching(profile: Record<string, unknown>) {
   const get = (key: string) => profile[key] ?? profile[key.replace(/([A-Z])/g, "_$1").toLowerCase()];
@@ -65,22 +65,35 @@ export async function GET(
     if (useCache) {
       const { data: cached } = await supabase
         .from("EligibilityAssessment")
-        .select("score, decision, summary, reasons, alignment, improvement_plan")
+        .select("score, decision, summary, reasons, alignment, improvement_plan, met_criteria, missing_criteria")
         .eq("organisation_id", orgId)
         .eq("profile_id", profile.id)
         .eq("grant_id", grantId)
         .maybeSingle();
       if (cached) {
-        const c = cached as { score: number; decision: string; summary: string | null; reasons: unknown; alignment: unknown; improvement_plan: unknown };
+        const c = cached as {
+          score: number;
+          decision: string;
+          summary: string | null;
+          reasons: unknown;
+          alignment: unknown;
+          improvement_plan: unknown;
+          met_criteria: unknown;
+          missing_criteria: unknown;
+        };
+        const score = c.score;
         return NextResponse.json({
           decision: c.decision,
           reason: c.summary ?? "",
-          confidence: c.score,
-          score: c.score,
+          confidence: score,
+          score,
           summary: c.summary ?? undefined,
           reasons: (c.reasons as string[]) ?? [],
           alignment: (c.alignment as string[]) ?? undefined,
           improvementPlan: c.improvement_plan ?? undefined,
+          met: (c.met_criteria as string[]) ?? [],
+          missing: (c.missing_criteria as string[]) ?? [],
+          confidenceBand: getConfidenceBand(score),
         });
       }
     }
@@ -113,12 +126,17 @@ export async function GET(
         reasons: result.reasons ?? [],
         alignment: result.alignment ?? null,
         improvement_plan: result.improvementPlan ?? null,
+        met_criteria: result.met ?? [],
+        missing_criteria: result.missing ?? [],
         updated_at: new Date().toISOString(),
       },
       { onConflict: "organisation_id,profile_id,grant_id" }
     );
 
-    return NextResponse.json(result);
+    return NextResponse.json({
+      ...result,
+      confidenceBand: getConfidenceBand(score),
+    });
   } catch (e) {
     console.error("[GRANTS_ELIGIBILITY]", e);
     return NextResponse.json(

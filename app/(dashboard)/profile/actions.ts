@@ -14,38 +14,68 @@ import {
   Step4Data,
   NotificationPreferencesData,
 } from "@/lib/validations/profile";
+import { syncGrantMemoryFromProfile } from "@/lib/grant-memory";
 
 async function getOrgId(): Promise<string> {
   const { orgId } = await getActiveOrg();
   return orgId;
 }
 
-function calculateCompletionScore(profile: {
-  businessName: string;
-  location: string;
-  sector: string;
-  missionStatement: string;
-  description: string;
-  employeeCount: number | null;
-  annualRevenue: number | null;
-  fundingMin: number;
-  fundingMax: number;
-  fundingPurposes: string[];
-  fundingDetails: string | null;
-}): number {
+function calculateCompletionScore(
+  profile: {
+    businessName: string;
+    location: string;
+    sector: string;
+    missionStatement: string;
+    description: string;
+    employeeCount: number | null;
+    annualRevenue: number | null;
+    fundingMin: number;
+    fundingMax: number;
+    fundingPurposes: string[];
+    fundingDetails: string | null;
+  },
+  documentCount = 0
+): number {
   let score = 0;
-  const total = 10;
-  if (profile.businessName) score++;
-  if (profile.location) score++;
-  if (profile.sector) score++;
-  if (profile.missionStatement) score++;
-  if (profile.description) score++;
-  if (profile.employeeCount) score++;
-  if (profile.annualRevenue) score++;
-  if (profile.fundingMin) score++;
-  if (profile.fundingMax) score++;
+  const total = 11; // 10 fields + documents
+  if (profile.businessName?.trim()) score++;
+  if (profile.location?.trim()) score++;
+  if (profile.sector?.trim()) score++;
+  if (profile.missionStatement?.trim()) score++;
+  if (profile.description?.trim()) score++;
+  if (profile.employeeCount != null) score++;
+  if (profile.annualRevenue != null) score++;
+  if (profile.fundingMin != null && profile.fundingMin >= 0) score++;
+  if (profile.fundingMax != null && profile.fundingMax >= 0) score++;
   if (profile.fundingPurposes?.length > 0) score++;
+  if (documentCount >= 1) score++;
   return Math.round((score / total) * 100);
+}
+
+async function recalcAndSaveCompletionScore(profileId: string): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const { data: profile } = await supabase
+    .from("BusinessProfile")
+    .select("businessName, location, sector, missionStatement, description, employeeCount, annualRevenue, fundingMin, fundingMax, fundingPurposes, fundingDetails")
+    .eq("id", profileId)
+    .single();
+  if (!profile) return;
+  const { count } = await supabase
+    .from("Document")
+    .select("id", { count: "exact", head: true })
+    .eq("profileId", profileId);
+  const score = calculateCompletionScore(profile as Parameters<typeof calculateCompletionScore>[0], count ?? 0);
+  await supabase.from("BusinessProfile").update({ completionScore: score }).eq("id", profileId);
+}
+
+async function syncGrantMemoryForProfile(profileId: string): Promise<void> {
+  try {
+    const orgId = await getOrgId();
+    await syncGrantMemoryFromProfile(profileId, orgId);
+  } catch {
+    // non-fatal
+  }
 }
 
 async function getOrCreateProfile(organisationId: string) {
@@ -137,10 +167,8 @@ export async function saveStep1(data: Step1Data) {
 
   if (updateError || !updated) return { error: updateError?.message ?? "Update failed" };
 
-  await supabase
-    .from("BusinessProfile")
-    .update({ completionScore: calculateCompletionScore(updated) })
-    .eq("id", profile.id);
+  await recalcAndSaveCompletionScore(profile.id);
+  await syncGrantMemoryForProfile(profile.id);
 
   return { success: true };
 }
@@ -166,10 +194,8 @@ export async function saveStep2(data: Step2Data) {
 
   if (updateError || !updated) return { error: updateError?.message ?? "Update failed" };
 
-  await supabase
-    .from("BusinessProfile")
-    .update({ completionScore: calculateCompletionScore(updated) })
-    .eq("id", profile.id);
+  await recalcAndSaveCompletionScore(profile.id);
+  await syncGrantMemoryForProfile(profile.id);
 
   return { success: true };
 }
@@ -195,10 +221,8 @@ export async function saveStep3(data: Step3Data) {
 
   if (updateError || !updated) return { error: updateError?.message ?? "Update failed" };
 
-  await supabase
-    .from("BusinessProfile")
-    .update({ completionScore: calculateCompletionScore(updated) })
-    .eq("id", profile.id);
+  await recalcAndSaveCompletionScore(profile.id);
+  await syncGrantMemoryForProfile(profile.id);
 
   return { success: true };
 }
@@ -225,10 +249,8 @@ export async function saveStep4(data: Step4Data) {
 
   if (updateError || !updated) return { error: updateError?.message ?? "Update failed" };
 
-  await supabase
-    .from("BusinessProfile")
-    .update({ completionScore: calculateCompletionScore(updated) })
-    .eq("id", profile.id);
+  await recalcAndSaveCompletionScore(profile.id);
+  await syncGrantMemoryForProfile(profile.id);
 
   return { success: true };
 }
@@ -257,6 +279,8 @@ export async function saveDocument(doc: {
   const { error } = await supabase.from("Document").insert(insert);
 
   if (error) return { error: error.message };
+  await recalcAndSaveCompletionScore(profile.id);
+  await syncGrantMemoryForProfile(profile.id);
   return { success: true };
 }
 
@@ -271,6 +295,8 @@ export async function removeDocument(documentId: string) {
     .eq("id", documentId)
     .eq("profileId", profile.id);
 
+  await recalcAndSaveCompletionScore(profile.id);
+  await syncGrantMemoryForProfile(profile.id);
   return { success: true };
 }
 

@@ -1,10 +1,21 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Scale, CheckCircle, AlertCircle, XCircle, Target, Lightbulb } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Loader2, Scale, CheckCircle, AlertCircle, XCircle, Target, Lightbulb, Check, AlertTriangle, Sparkles } from "lucide-react";
+import { toast } from "sonner";
 
 interface ImprovementPlan {
   gaps?: string[];
@@ -21,6 +32,112 @@ interface EligibilityResult {
   reasons?: string[];
   alignment?: string[];
   improvementPlan?: ImprovementPlan;
+  met?: string[];
+  missing?: string[];
+  confidenceBand?: "high" | "medium" | "low";
+}
+
+function AutoImproveButton({ grantId }: { grantId: string }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [suggestions, setSuggestions] = useState<{ missionStatement?: string; description?: string; fundingDetails?: string } | null>(null);
+
+  async function handleOpen(open: boolean) {
+    setOpen(open);
+    if (open && !suggestions) {
+      setLoading(true);
+      try {
+        const res = await fetch(`/api/grants/${grantId}/auto-improve`, { method: "POST" });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Failed to get suggestions");
+        setSuggestions(data.suggestions ?? {});
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Something went wrong");
+        setOpen(false);
+      } finally {
+        setLoading(false);
+      }
+    }
+  }
+
+  async function handleApply() {
+    if (!suggestions || Object.keys(suggestions).length === 0) return;
+    setApplying(true);
+    try {
+      const res = await fetch(`/api/grants/${grantId}/auto-improve/apply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(suggestions),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to apply");
+      toast.success("Profile updated. Re-check eligibility to see the new score.");
+      setOpen(false);
+      router.refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Something went wrong");
+    } finally {
+      setApplying(false);
+    }
+  }
+
+  const hasSuggestions = suggestions && Object.keys(suggestions).length > 0;
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" disabled={loading} className="gap-1.5">
+          {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+          Auto-improve application
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Auto-improve application</DialogTitle>
+          <DialogDescription>
+            We&apos;ve suggested rewrites for your profile to better match this grant. Review and apply to update your business profile.
+          </DialogDescription>
+        </DialogHeader>
+        {loading ? (
+          <p className="py-4 text-sm text-muted-foreground">Generating suggestions…</p>
+        ) : hasSuggestions ? (
+          <div className="space-y-3 max-h-60 overflow-y-auto">
+            {suggestions.missionStatement && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-1">Mission statement</p>
+                <p className="text-sm rounded border bg-muted/30 p-2">{suggestions.missionStatement}</p>
+              </div>
+            )}
+            {suggestions.description && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-1">Description</p>
+                <p className="text-sm rounded border bg-muted/30 p-2 whitespace-pre-wrap">{suggestions.description}</p>
+              </div>
+            )}
+            {suggestions.fundingDetails && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-1">Funding details</p>
+                <p className="text-sm rounded border bg-muted/30 p-2 whitespace-pre-wrap">{suggestions.fundingDetails}</p>
+              </div>
+            )}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No specific suggestions right now. Try improving your profile manually and re-check eligibility.</p>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+          {hasSuggestions && (
+            <Button onClick={handleApply} disabled={applying}>
+              {applying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Apply to profile
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 export function EligibilityCard({ grantId }: { grantId: string }) {
@@ -84,8 +201,13 @@ export function EligibilityCard({ grantId }: { grantId: string }) {
           <>
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-base font-semibold">
-                You&apos;re {score}% eligible
+                Eligibility: {score}%
               </span>
+              {result.confidenceBand && (
+                <Badge variant="outline" className="capitalize">
+                  Confidence: {result.confidenceBand}
+                </Badge>
+              )}
               <Badge
                 variant={result.decision === "likely_eligible" ? "default" : "secondary"}
                 className={result.decision === "unlikely" ? "border-red-200 bg-red-50 text-red-700" : result.decision === "review" ? "border-amber-200 bg-amber-50 text-amber-700" : ""}
@@ -94,6 +216,31 @@ export function EligibilityCard({ grantId }: { grantId: string }) {
               </Badge>
             </div>
             <p className="text-sm leading-relaxed">{result.summary ?? result.reason}</p>
+            {(result.met?.length || result.missing?.length) ? (
+              <div className="rounded-md border bg-muted/30 p-3">
+                <p className="mb-2 text-xs font-medium text-muted-foreground">Why you scored {score}%</p>
+                {result.met && result.met.length > 0 && (
+                  <ul className="space-y-1 text-sm text-green-700 dark:text-green-400">
+                    {result.met.map((m, i) => (
+                      <li key={i} className="flex items-center gap-2">
+                        <Check className="h-4 w-4 shrink-0" />
+                        {m}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {result.missing && result.missing.length > 0 && (
+                  <ul className="mt-2 space-y-1 text-sm text-amber-700 dark:text-amber-400">
+                    {result.missing.map((m, i) => (
+                      <li key={i} className="flex items-center gap-2">
+                        <AlertTriangle className="h-4 w-4 shrink-0" />
+                        {m}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ) : null}
             {result.reasons && result.reasons.length > 0 && (
               <ul className="list-inside list-disc space-y-1 text-sm text-muted-foreground">
                 {result.reasons.map((r, i) => (
@@ -143,10 +290,15 @@ export function EligibilityCard({ grantId }: { grantId: string }) {
                 )}
               </div>
             )}
-            <Button variant="ghost" size="sm" onClick={() => handleCheck(true)} disabled={loading}>
-              {loading ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
-              Re-check (fresh AI)
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="ghost" size="sm" onClick={() => handleCheck(true)} disabled={loading}>
+                {loading ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+                Re-check (fresh AI)
+              </Button>
+              {score < 85 && (result.improvementPlan?.actions?.length || result.missing?.length) ? (
+                <AutoImproveButton grantId={grantId} />
+              ) : null}
+            </div>
           </>
         )}
         {error && (

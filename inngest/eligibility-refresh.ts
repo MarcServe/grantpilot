@@ -4,7 +4,9 @@ import { matchGrantsToProfile, getEligibilityDecision } from "@/lib/claude";
 import { notifyOrgMembers } from "@/lib/notify";
 import { grantMatchesFunderLocations } from "@/lib/constants";
 import { createStartApplicationToken } from "@/lib/start-application-token";
+import { checkRequirementsAgainstDocuments } from "@/lib/grant-requirements";
 import type { DigestGrantItem } from "@/lib/notify";
+import type { RequiredAttachment } from "@/lib/grant-requirements";
 
 const TOP_N = 25;
 const DIGEST_SCORE_THRESHOLD = 70;
@@ -32,7 +34,7 @@ export const eligibilityRefresh = inngest.createFunction(
   { cron: "30 7 * * *" }, // 7:30 UTC — score grants and send digest; results ready by ~8:00 AM UK
   async () => {
     const supabase = getSupabaseAdmin();
-    const { data: grantsData } = await supabase.from("Grant").select("id, name, funder, amount, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations");
+    const { data: grantsData } = await supabase.from("Grant").select("id, name, funder, amount, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, required_attachments");
     const allGrants = grantsData ?? [];
     if (allGrants.length === 0) return { refreshed: 0, notified: 0 };
 
@@ -50,7 +52,7 @@ export const eligibilityRefresh = inngest.createFunction(
 
     let notifiedCount = 0;
 
-    type GrantRow = { id: string; name: string; funder: string; amount?: number; eligibility: string; description?: string; objectives?: string; applicantTypes?: string[]; sectors: string[]; regions: string[]; funderLocations?: string[] };
+    type GrantRow = { id: string; name: string; funder: string; amount?: number; eligibility: string; description?: string; objectives?: string; applicantTypes?: string[]; sectors: string[]; regions: string[]; funderLocations?: string[]; required_attachments?: unknown };
     const grantsList = allGrants as GrantRow[];
 
     for (const [orgId, profile] of byOrg) {
@@ -78,9 +80,30 @@ export const eligibilityRefresh = inngest.createFunction(
           .map((m) => grantList.find((g) => g.id === m.grantId))
           .filter(Boolean) as typeof grantList;
 
+        const { data: prefs } = await supabase
+          .from("EligibilityNotificationPreference")
+          .select("min_score, max_score, notify_email, notify_in_app")
+          .eq("organisation_id", orgId)
+          .maybeSingle();
+        const minScore = (prefs as { min_score?: number } | null)?.min_score ?? DIGEST_SCORE_THRESHOLD;
+        const maxScore = (prefs as { max_score?: number } | null)?.max_score ?? 100;
+
         const cooldown = new Date();
         cooldown.setDate(cooldown.getDate() - NOTIFY_COOLDOWN_DAYS);
         const digestGrants: DigestGrantItem[] = [];
+
+        const { data: profileDocsData } = await supabase
+          .from("Document")
+          .select("name, type, category")
+          .eq("profileId", profile.id);
+        const profileDocsAlt = !profileDocsData?.length
+          ? await supabase.from("Document").select("name, type, category").eq("profile_id", profile.id)
+          : { data: profileDocsData };
+        const profileDocuments = (profileDocsAlt.data ?? []).map((d: { name: string; type?: string; category?: string }) => ({
+          name: d.name,
+          type: d.type ?? "",
+          category: d.category ?? null,
+        }));
 
         for (const grant of topGrants) {
           try {
@@ -113,13 +136,17 @@ export const eligibilityRefresh = inngest.createFunction(
                 reasons: result.reasons ?? [],
                 alignment: result.alignment ?? null,
                 improvement_plan: result.improvementPlan ?? null,
+                met_criteria: result.met ?? [],
+                missing_criteria: result.missing ?? [],
                 updated_at: new Date().toISOString(),
               },
               { onConflict: "organisation_id,profile_id,grant_id" }
             );
             if (upsertErr) console.error("[eligibility-refresh] upsert", upsertErr);
 
-            if (score >= DIGEST_SCORE_THRESHOLD) {
+            const inRange = score >= minScore && score <= maxScore;
+
+            if (inRange) {
               const { data: existing } = await supabase
                 .from("EligibilityAssessment")
                 .select("notified_at")
@@ -136,12 +163,16 @@ export const eligibilityRefresh = inngest.createFunction(
                   profileId: profile.id,
                   organisationId: orgId,
                 });
+                const rawRequired = (grant as { required_attachments?: unknown }).required_attachments;
+                const required = (Array.isArray(rawRequired) ? rawRequired : []) as RequiredAttachment[];
+                const { missing } = checkRequirementsAgainstDocuments(required, profileDocuments);
                 digestGrants.push({
                   grantId: grant.id,
                   grantName: grant.name,
                   score,
                   summary,
                   startApplicationToken,
+                  missingDocuments: missing.length > 0 ? missing.map((r) => r.label) : undefined,
                 });
               }
             }

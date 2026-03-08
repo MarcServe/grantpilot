@@ -30,6 +30,8 @@ export interface DigestGrantItem {
   score: number;
   summary?: string;
   startApplicationToken?: string;
+  /** Labels of required documents the user has not uploaded (for reminder in digest). */
+  missingDocuments?: string[];
 }
 
 export interface NotificationPayload {

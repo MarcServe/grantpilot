@@ -162,11 +162,19 @@ export function buildEmailHtml(
           const startLink = startUrl
             ? ` <a href="${startUrl}" style="color:#1B3A6B;font-weight:600">Start application</a>`
             : "";
-          return `<tr><td style="padding:12px 0;border-bottom:1px solid #e2e8f0"><strong>${escapeHtml(g.grantName)}</strong> (${g.score}% match)${escapeHtml(summaryText)}<br><a href="${viewUrl}" style="color:#1B3A6B">View grant</a>${startLink}</td></tr>`;
+          const missingNote =
+            (g.missingDocuments?.length ?? 0) > 0
+              ? `<br><span style="color:#b45309;font-size:13px">May require: ${escapeHtml((g.missingDocuments ?? []).join(", "))}. <a href="${appUrl}/profile" style="color:#1B3A6B">Add in Profile → Documents</a></span>`
+              : "";
+          return `<tr><td style="padding:12px 0;border-bottom:1px solid #e2e8f0"><strong>${escapeHtml(g.grantName)}</strong> (${g.score}% match)${escapeHtml(summaryText)}<br><a href="${viewUrl}" style="color:#1B3A6B">View grant</a>${startLink}${missingNote}</td></tr>`;
         })
         .join("");
       const table = rows ? `<table style="width:100%;border-collapse:collapse">${rows}</table>` : "";
-      const body = `<p>New grant opportunities for <strong>${escapeHtml(profileName)}</strong> — review and start an application from the links below.</p>${table}<p style="margin-top:16px">You can also browse all grants and apply with AI from the app.</p>`;
+      const hasAnyMissing = grants.some((g: DigestGrantItem) => ((g.missingDocuments?.length) ?? 0) > 0);
+      const missingReminder = hasAnyMissing
+        ? `<p style="margin-top:16px;padding:12px;background:#fef3c7;border-radius:8px;color:#92400e">Some grants may require documents you haven&apos;t uploaded yet. Add them in <a href="${appUrl}/profile" style="color:#1B3A6B;font-weight:600">Profile → Documents</a> so we can auto-attach them when you apply.</p>`
+        : "";
+      const body = `<p>New grant opportunities for <strong>${escapeHtml(profileName)}</strong> — review and start an application from the links below.</p>${table}${missingReminder}<p style="margin-top:16px">You can also browse all grants and apply with AI from the app.</p>`;
       return {
         subject: `[Grant Pilot] New grant opportunities for ${profileName}`,
         html: baseLayout(
@@ -276,13 +284,16 @@ export function buildWhatsAppMessage(
       const profileName = payload.profileName ?? "Your business";
       const grants = payload.grants ?? [];
       let msg = `New grant opportunities for ${profileName}\n\n`;
+      let anyMissing = false;
       for (const g of grants as DigestGrantItem[]) {
         const viewUrl = `${appUrl}/grants/${g.grantId}`;
         msg += `• ${g.grantName} (${g.score}% match)\n  View: ${viewUrl}\n`;
         if (g.startApplicationToken)
           msg += `  Start application: ${appUrl}/start-application?token=${encodeURIComponent(g.startApplicationToken)}\n`;
+        if ((g.missingDocuments?.length ?? 0) > 0) anyMissing = true;
       }
       msg += `\nView all: ${appUrl}/grants`;
+      if (anyMissing) msg += `\n\nSome grants may require documents you haven't uploaded. Add them in Profile → Documents: ${appUrl}/profile`;
       return msg;
     }
 

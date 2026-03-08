@@ -59,6 +59,30 @@ function normaliseDocument(row: Record<string, unknown>): DocumentData {
   };
 }
 
+function mergeGrantMemoryIntoProfile(
+  profile: ProfileData,
+  payload: { company?: Record<string, unknown>; financials?: Record<string, unknown> }
+): ProfileData {
+  const company = payload.company ?? {};
+  const financials = payload.financials ?? {};
+  return {
+    ...profile,
+    businessName: (company.businessName as string) ?? profile.businessName,
+    registrationNumber: (company.registrationNumber as string | null) ?? profile.registrationNumber,
+    location: (company.location as string) ?? profile.location,
+    sector: (company.sector as string) ?? profile.sector,
+    missionStatement: (company.missionStatement as string) ?? profile.missionStatement,
+    description: (company.description as string) ?? profile.description,
+    employeeCount: financials.employeeCount != null ? Number(financials.employeeCount) : profile.employeeCount,
+    annualRevenue: financials.annualRevenue != null ? Number(financials.annualRevenue) : profile.annualRevenue,
+    previousGrants: (financials.previousGrants as string | null) ?? profile.previousGrants,
+    fundingMin: financials.fundingMin != null ? Number(financials.fundingMin) : profile.fundingMin,
+    fundingMax: financials.fundingMax != null ? Number(financials.fundingMax) : profile.fundingMax,
+    fundingPurposes: Array.isArray(financials.fundingPurposes) ? (financials.fundingPurposes as string[]) : profile.fundingPurposes,
+    fundingDetails: (financials.fundingDetails as string | null) ?? profile.fundingDetails,
+  };
+}
+
 export async function fetchProfileAndDocuments(
   businessProfileId: string
 ): Promise<{ profile: ProfileData; documents: DocumentData[] } | null> {
@@ -70,7 +94,18 @@ export async function fetchProfileAndDocuments(
 
   if (profileError || !profileRow) return null;
 
-  const profile = normaliseProfile(profileRow as Record<string, unknown>);
+  let profile = normaliseProfile(profileRow as Record<string, unknown>);
+
+  const { data: memoryRow } = await supabase
+    .from("GrantMemory")
+    .select("payload")
+    .eq("profile_id", businessProfileId)
+    .maybeSingle();
+
+  if (memoryRow?.payload && typeof memoryRow.payload === "object") {
+    const payload = memoryRow.payload as { company?: Record<string, unknown>; financials?: Record<string, unknown> };
+    profile = mergeGrantMemoryIntoProfile(profile, payload);
+  }
 
   const { data: docRowsById } = await supabase
     .from("Document")
