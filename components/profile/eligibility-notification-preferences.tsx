@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, Bell } from "lucide-react";
 import { toast } from "sonner";
 
@@ -107,12 +107,12 @@ export function EligibilityNotificationPreferences() {
         </div>
         <div className="flex flex-wrap gap-6">
           <div className="flex items-center gap-2">
-            <Switch id="notifyEmail" checked={notifyEmail} onCheckedChange={setNotifyEmail} />
-            <Label htmlFor="notifyEmail" className="text-sm font-normal">Email</Label>
+            <Checkbox id="notifyEmail" checked={notifyEmail} onCheckedChange={(c) => setNotifyEmail(c === true)} />
+            <Label htmlFor="notifyEmail" className="text-sm font-normal cursor-pointer">Email</Label>
           </div>
           <div className="flex items-center gap-2">
-            <Switch id="notifyInApp" checked={notifyInApp} onCheckedChange={setNotifyInApp} />
-            <Label htmlFor="notifyInApp" className="text-sm font-normal">In-app</Label>
+            <Checkbox id="notifyInApp" checked={notifyInApp} onCheckedChange={(c) => setNotifyInApp(c === true)} />
+            <Label htmlFor="notifyInApp" className="text-sm font-normal cursor-pointer">In-app</Label>
           </div>
         </div>
         <Button onClick={handleSave} disabled={saving} size="sm">
