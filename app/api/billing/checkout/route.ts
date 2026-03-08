@@ -44,18 +44,21 @@ export async function POST(req: Request): Promise<NextResponse> {
     }
 
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+    const billingSuccess = `${appUrl}/billing?billing=success`;
+    const billingCancel = `${appUrl}/billing?billing=cancelled`;
 
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       mode: "subscription",
       line_items: [{ price: parsed.data.priceId, quantity: 1 }],
       allow_promotion_codes: true,
-      success_url: `${appUrl}/dashboard?billing=success`,
-      cancel_url: `${appUrl}/dashboard?billing=cancelled`,
+      success_url: billingSuccess,
+      cancel_url: billingCancel,
       metadata: { priceId: parsed.data.priceId },
     });
 
-    return NextResponse.json({ url: session.url });
+    const url = session.url ?? null;
+    return NextResponse.json(url ? { url } : { error: "Stripe did not return a checkout URL" });
   } catch (error) {
     console.error("[BILLING_CHECKOUT]", error);
     const msg =

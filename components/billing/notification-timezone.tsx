@@ -53,9 +53,12 @@ export function NotificationTimezone({ preferredTimezone }: NotificationTimezone
       </CardHeader>
       <CardContent className="flex flex-wrap items-end gap-3">
         <select
+          id="notification-timezone"
+          name="preferredTimezone"
           value={tz}
           onChange={(e) => setTz(e.target.value)}
           className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+          aria-label="Notification timezone"
         >
           {VALID_TIMEZONES.map((z) => (
             <option key={z} value={z}>

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getStripe } from "@/lib/stripe";
+import { getStripe, getPlanFromPriceId, type PlanKey } from "@/lib/stripe";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { notifyOrgMembers } from "@/lib/notify";
 import type Stripe from "stripe";
@@ -161,12 +161,6 @@ export async function POST(req: Request): Promise<NextResponse> {
   return NextResponse.json({ received: true });
 }
 
-function getPlanFromPriceId(priceId: string): "FREE_TRIAL" | "PRO" | "BUSINESS" {
-  if (priceId === process.env.NEXT_PUBLIC_STRIPE_PRO_PRICE_ID) return "PRO";
-  if (priceId === process.env.NEXT_PUBLIC_STRIPE_BUSINESS_PRICE_ID) return "BUSINESS";
-  return "FREE_TRIAL";
-}
-
 /**
  * If no Organisation has this stripeId (e.g. subscription was created in Stripe dashboard or via link),
  * try to find org by Stripe customer email and update plan + set stripeId.
@@ -175,7 +169,7 @@ async function updatePlanByCustomerEmail(
   stripe: ReturnType<typeof getStripe>,
   supabase: ReturnType<typeof getSupabaseAdmin>,
   customerId: string,
-  plan: "FREE_TRIAL" | "PRO" | "BUSINESS"
+  plan: PlanKey
 ): Promise<boolean> {
   try {
     const customer = await stripe.customers.retrieve(customerId);

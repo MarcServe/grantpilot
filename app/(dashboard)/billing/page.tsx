@@ -4,7 +4,13 @@ import { PLAN_LIMITS } from "@/lib/stripe";
 import { BillingClient } from "@/components/billing/billing-client";
 import { NotificationTimezone } from "@/components/billing/notification-timezone";
 
-export default async function BillingPage() {
+interface BillingPageProps {
+  searchParams: Promise<{ billing?: string }>;
+}
+
+export default async function BillingPage({ searchParams }: BillingPageProps) {
+  const params = await searchParams;
+  const billingSuccess = params.billing === "success";
   const { org, orgId } = await getActiveOrg();
   const supabase = getSupabaseAdmin();
 
@@ -53,6 +59,7 @@ export default async function BillingPage() {
           autoFillsPerMonth: limits.autoFillsPerMonth,
           matchesPerMonth: limits.matchesPerMonth,
         }}
+        billingSuccessFromRedirect={billingSuccess}
       />
     </div>
   );

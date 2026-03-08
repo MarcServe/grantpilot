@@ -33,3 +33,9 @@ export const PLAN_LIMITS = {
 } as const;
 
 export type PlanKey = keyof typeof PLAN_LIMITS;
+
+export function getPlanFromPriceId(priceId: string): PlanKey {
+  if (priceId === process.env.NEXT_PUBLIC_STRIPE_PRO_PRICE_ID) return "PRO";
+  if (priceId === process.env.NEXT_PUBLIC_STRIPE_BUSINESS_PRICE_ID) return "BUSINESS";
+  return "FREE_TRIAL";
+}

@@ -86,9 +86,12 @@ export function Step5Documents({
         <div className="mb-4 flex flex-col gap-2">
           <Label className="text-xs text-muted-foreground">Type (for grant matching)</Label>
           <select
+            id="document-upload-category"
+            name="uploadCategory"
             className="w-full max-w-xs rounded-md border border-input bg-background px-3 py-2 text-sm"
             value={uploadCategory}
             onChange={(e) => setUploadCategory(e.target.value)}
+            aria-label="Document type for grant matching"
           >
             <option value="">— Select type —</option>
             {DOCUMENT_CATEGORIES.map((c) => (
@@ -113,11 +116,14 @@ export function Step5Documents({
               </span>
             </Button>
             <input
+              id="document-file-upload"
+              name="documentFile"
               type="file"
               className="hidden"
               accept=".pdf,.docx,.doc,.xlsx,.xls,video/*,.mp4,.webm,.mov"
               onChange={handleFileChange}
               disabled={uploading}
+              aria-label="Upload document"
             />
           </label>
         </div>

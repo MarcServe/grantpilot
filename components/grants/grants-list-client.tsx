@@ -151,9 +151,12 @@ export function GrantsListClient({
           {totalPages > 1 && ` \u00b7 Page ${safePage} of ${totalPages}`}
         </p>
         <select
+          id="grants-region-filter"
+          name="regionFilter"
           value={regionFilter}
           onChange={(e) => { setRegionFilter(e.target.value); setCurrentPage(1); }}
           className="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+          aria-label="Filter by region"
         >
           {REGION_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
@@ -161,9 +164,12 @@ export function GrantsListClient({
         </select>
         {funders.length > 0 && (
           <select
+            id="grants-funder-filter"
+            name="funderFilter"
             value={funderFilter}
             onChange={(e) => { setFunderFilter(e.target.value); setCurrentPage(1); }}
             className="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+            aria-label="Filter by funder"
           >
             <option value="">All funders</option>
             {funders.map((f) => (
@@ -174,16 +180,21 @@ export function GrantsListClient({
           </select>
         )}
         <select
+          id="grants-page-size"
+          name="pageSize"
           value={pageSize}
           onChange={(e) => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
           className="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+          aria-label="Grants per page"
         >
           {PAGE_SIZE_OPTIONS.map((n) => (
             <option key={n} value={n}>{n} per page</option>
           ))}
         </select>
-        <label className="flex items-center gap-1.5 text-sm">
+        <label className="flex items-center gap-1.5 text-sm" htmlFor="grants-hide-expired">
           <input
+            id="grants-hide-expired"
+            name="hideExpired"
             type="checkbox"
             checked={hideExpired}
             onChange={(e) => { setHideExpired(e.target.checked); setCurrentPage(1); }}

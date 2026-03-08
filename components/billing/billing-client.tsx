@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Check } from "lucide-react";
+import { Loader2, Check, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 interface BillingClientProps {
@@ -15,6 +16,8 @@ interface BillingClientProps {
     autoFillsPerMonth: number;
     matchesPerMonth: number;
   };
+  /** Set when user returns from Stripe success_url (e.g. /billing?billing=success) */
+  billingSuccessFromRedirect?: boolean;
 }
 
 const PLANS = [
@@ -63,8 +66,58 @@ export function BillingClient({
   autoFillCount,
   matchCount,
   limits,
+  billingSuccessFromRedirect = false,
 }: BillingClientProps) {
+  const router = useRouter();
   const [loading, setLoading] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+
+  // After Stripe checkout success: sync plan from Stripe and show toast, then clear URL
+  useEffect(() => {
+    if (!billingSuccessFromRedirect) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/billing/sync", { method: "POST" });
+        const data = await res.json();
+        if (cancelled) return;
+        if (data.success) {
+          toast.success("Payment successful. Your plan has been updated.");
+          router.replace("/billing");
+          router.refresh();
+        } else {
+          toast.success("Payment received. If your plan doesn’t update, click “Refresh subscription status”.");
+          router.replace("/billing");
+          router.refresh();
+        }
+      } catch {
+        if (!cancelled) {
+          toast.success("Payment received. If your plan doesn’t update, click “Refresh subscription status”.");
+          router.replace("/billing");
+          router.refresh();
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [billingSuccessFromRedirect, router]);
+
+  async function handleRefreshSubscription() {
+    setSyncing(true);
+    try {
+      const res = await fetch("/api/billing/sync", { method: "POST" });
+      const data = await res.json();
+      if (data.success) {
+        toast.success("Subscription updated");
+        router.refresh();
+      } else {
+        toast.error(data.error ?? "Could not refresh subscription");
+      }
+    } catch {
+      toast.error("Something went wrong");
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   async function handleUpgrade(priceId: string, planValue: string) {
     if (!priceId) {
@@ -80,14 +133,21 @@ export function BillingClient({
         body: JSON.stringify({ priceId }),
       });
 
-      const data = await res.json();
-      if (data.url) {
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.url) {
         window.location.href = data.url;
-      } else {
-        toast.error(data.error ?? "Failed to create checkout session");
+        return;
       }
+      const message =
+        data.error ||
+        (res.status === 403
+          ? "Only organisation owners or admins can upgrade. Switch to an owner/admin account."
+          : res.status === 500
+            ? "Server error. Please try again or contact support."
+            : "Failed to open checkout. Please try again.");
+      toast.error(message);
     } catch {
-      toast.error("Something went wrong");
+      toast.error("Network error. Please check your connection and try again.");
     } finally {
       setLoading(null);
     }
@@ -95,6 +155,17 @@ export function BillingClient({
 
   return (
     <div className="space-y-8">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleRefreshSubscription}
+          disabled={syncing}
+        >
+          {syncing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+          Refresh subscription status
+        </Button>
+      </div>
       <Card>
         <CardHeader>
           <CardTitle className="text-sm font-medium">Current Usage</CardTitle>
