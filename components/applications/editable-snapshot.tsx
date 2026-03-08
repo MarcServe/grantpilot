@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { FileText, Save, Loader2, Pencil, X, Code, Check } from "lucide-react";
 import { toast } from "sonner";
+import { normalizeFormFieldLabel } from "@/lib/form-field-labels";
 
 interface SnapshotField {
   label: string;
@@ -141,7 +142,7 @@ export function EditableSnapshot({
               {fields.filter((f) => f.value !== "" || editing).map((f, i) => (
                 <div key={`${f.name}-${i}`} className="rounded border bg-muted/30 px-3 py-2">
                   <p className="truncate text-xs font-medium text-muted-foreground">
-                    {f.label || f.name}
+                    {normalizeFormFieldLabel(f.label, f.name)}
                   </p>
                   {editing ? (
                     <Input
