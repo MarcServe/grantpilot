@@ -5,12 +5,14 @@ import {
   navigateToGrantUrl,
   getFormFields,
   applyFillActions,
+  applySnapshotValues,
   downloadToTemp,
   setFileInputs,
   clickSubmitButton,
   cleanupTempFiles,
   getFilledFormSnapshot,
   type FilledFormSnapshot,
+  type FilledField,
 } from "./browser.js";
 import { getFormFillActions, getFileInputMapping } from "./form-mapping.js";
 import {
@@ -30,6 +32,8 @@ export interface StepResult {
 
 export interface GrantStepOptions {
   requiredAttachments?: RequiredAttachment[];
+  /** User-edited snapshot fields; if present, submit uses these instead of re-mapping via Claude. */
+  editedSnapshotFields?: FilledField[];
 }
 
 async function getFileInputSelectors(page: Page): Promise<string[]> {
@@ -172,11 +176,17 @@ export async function runGrantStep(
         const { ok, error: navErr } = await navigateToGrantUrl(page, grantUrl);
         if (!ok) return { success: false, notes: navErr ?? "Navigate failed" };
       }
-      const fields = await getFormFields(page);
-      const companyActions = await getFormFillActions(fields, profile, "company");
-      const financialActions = await getFormFillActions(fields, profile, "financial");
-      await applyFillActions(page, companyActions);
-      await applyFillActions(page, financialActions);
+
+      const editedFields = options?.editedSnapshotFields;
+      if (editedFields && editedFields.length > 0) {
+        await applySnapshotValues(page, editedFields);
+      } else {
+        const fields = await getFormFields(page);
+        const companyActions = await getFormFillActions(fields, profile, "company");
+        const financialActions = await getFormFillActions(fields, profile, "financial");
+        await applyFillActions(page, companyActions);
+        await applyFillActions(page, financialActions);
+      }
       if (documents.length > 0) {
         const selectors = await getFileInputSelectors(page);
         if (selectors.length > 0) {

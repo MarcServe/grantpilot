@@ -178,6 +178,51 @@ export function buildEmailHtml(
       };
     }
 
+    case "subscription_activated": {
+      const plan = payload.planName ?? "Pro";
+      return {
+        subject: `Welcome to GrantPilot ${plan}!`,
+        html: baseLayout(
+          `You're now on GrantPilot ${plan}`,
+          `<p>Your subscription to <strong>GrantPilot ${plan}</strong> is now active.</p>
+          <p>Here's what's unlocked:</p>
+          <ul style="padding-left:20px">
+            ${plan === "Business" ? "<li>5 business profiles</li><li>Unlimited grant matches</li><li>Unlimited auto-fills</li><li>Priority support</li><li>All notification channels</li>" : "<li>Unlimited grant matches</li><li>10 auto-fills per month</li><li>Email &amp; WhatsApp notifications</li>"}
+          </ul>
+          <p>Your AI grant matching is running daily — we'll send you matched grants every morning.</p>`,
+          `${appUrl}/dashboard`,
+          "Go to Dashboard"
+        ),
+      };
+    }
+
+    case "subscription_upgraded": {
+      const plan = payload.planName ?? "Business";
+      return {
+        subject: `Upgraded to GrantPilot ${plan}`,
+        html: baseLayout(
+          `You've upgraded to GrantPilot ${plan}`,
+          `<p>Your plan has been upgraded to <strong>GrantPilot ${plan}</strong>.</p>
+          <p>Your new limits are now active — enjoy unlimited grant matches and auto-fills.</p>`,
+          `${appUrl}/billing`,
+          "View Subscription"
+        ),
+      };
+    }
+
+    case "subscription_cancelled":
+      return {
+        subject: "Your GrantPilot subscription has ended",
+        html: baseLayout(
+          "Your subscription has ended",
+          `<p>Your GrantPilot paid subscription has been cancelled and your account has been moved to the Free Trial plan.</p>
+          <p>You can still access your dashboard and existing applications, but AI grant matching, auto-fills, and notifications are limited on the free plan.</p>
+          <p>Ready to come back? Upgrade anytime from the billing page.</p>`,
+          `${appUrl}/billing`,
+          "Resubscribe"
+        ),
+      };
+
     default:
       return {
         subject: "Update from GrantPilot",
@@ -240,6 +285,19 @@ export function buildWhatsAppMessage(
       msg += `\nView all: ${appUrl}/grants`;
       return msg;
     }
+
+    case "subscription_activated": {
+      const plan = payload.planName ?? "Pro";
+      return `🎉 Welcome to GrantPilot ${plan}!\n\nYour subscription is active. AI grant matching runs daily — we'll send you matched grants every morning.\n\n${appUrl}/dashboard`;
+    }
+
+    case "subscription_upgraded": {
+      const plan = payload.planName ?? "Business";
+      return `⬆️ Upgraded to GrantPilot ${plan}!\n\nYour new limits are active. Enjoy unlimited grant matches and auto-fills.\n\n${appUrl}/billing`;
+    }
+
+    case "subscription_cancelled":
+      return `Your GrantPilot subscription has ended. You're now on the Free Trial plan.\n\nResubscribe anytime: ${appUrl}/billing`;
 
     default:
       return `You have an update on GrantPilot.\n\n${appUrl}`;

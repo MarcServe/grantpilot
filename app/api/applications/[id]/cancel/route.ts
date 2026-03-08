@@ -32,6 +32,7 @@ export async function POST(
         .eq("organisation_id", orgId)
         .maybeSingle();
       application = alt.data ?? null;
+      appErr = alt.error;
     }
 
     if (!application) {

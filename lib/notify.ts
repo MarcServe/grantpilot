@@ -19,7 +19,10 @@ export type NotificationType =
   | "welcome"
   | "grant_match"
   | "grant_match_high"
-  | "grant_scan_digest";
+  | "grant_scan_digest"
+  | "subscription_activated"
+  | "subscription_upgraded"
+  | "subscription_cancelled";
 
 export interface DigestGrantItem {
   grantId: string;
@@ -45,6 +48,8 @@ export interface NotificationPayload {
   grants?: DigestGrantItem[];
   /** Business/profile name for digest subject and body */
   profileName?: string;
+  /** Subscription plan name for billing notifications */
+  planName?: string;
 }
 
 export async function notifyUser(

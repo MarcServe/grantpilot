@@ -212,6 +212,7 @@ export interface FilledFormSnapshot {
   fields: FilledField[];
   fileNames: string[];
   capturedAt: string;
+  screenshotBase64?: string;
 }
 
 export async function getFilledFormSnapshot(page: Page): Promise<FilledFormSnapshot> {
@@ -253,11 +254,39 @@ export async function getFilledFormSnapshot(page: Page): Promise<FilledFormSnaps
     });
     return { fields, fileNames };
   });
+  let screenshotBase64: string | undefined;
+  try {
+    const buf = await page.screenshot({ fullPage: true, type: "jpeg", quality: 60 });
+    screenshotBase64 = buf.toString("base64");
+  } catch {
+    // screenshot is best-effort
+  }
+
   return {
     fields: result.fields as FilledField[],
     fileNames: result.fileNames as string[],
     capturedAt: new Date().toISOString(),
+    screenshotBase64,
   };
+}
+
+/**
+ * Apply values from a filled snapshot (original or user-edited) to the form.
+ * Used by submit_application to replay edited values instead of re-mapping via Claude.
+ */
+export async function applySnapshotValues(
+  page: Page,
+  fields: FilledField[]
+): Promise<{ applied: number; errors: string[] }> {
+  const actions: FillAction[] = fields
+    .filter((f) => f.value && f.value.trim() !== "")
+    .map((f) => ({
+      selector: f.name.includes("#")
+        ? f.name
+        : `[name="${f.name}"], #${f.name}`,
+      value: f.value,
+    }));
+  return applyFillActions(page, actions);
 }
 
 export async function clickSubmitButton(page: Page): Promise<{ clicked: boolean; error?: string }> {
