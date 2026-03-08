@@ -12,7 +12,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
   try {
-    const { orgId } = await getActiveOrg();
+    const { org, orgId } = await getActiveOrg();
     const profile = org.profiles?.[0];
     if (!profile) {
       return NextResponse.json({ error: "No profile found" }, { status: 400 });
