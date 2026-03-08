@@ -53,12 +53,26 @@ export async function POST(req: Request): Promise<NextResponse> {
           if (error) {
             console.error("[STRIPE_WEBHOOK] checkout.session.completed update failed:", error);
           } else {
-            console.log("[STRIPE_WEBHOOK] checkout.session.completed", { customerId, priceId, plan, rows: data?.length ?? 0 });
-            const org = Array.isArray(data) ? data[0] : data;
-            if (org?.id) {
-              await notifyOrgMembers(org.id, "subscription_activated", {
-                planName: plan === "BUSINESS" ? "Business" : "Pro",
-              }).catch(console.error);
+            const rows = Array.isArray(data) ? data : (data ? [data] : []);
+            if (rows.length === 0) {
+              const updated = await updatePlanByCustomerEmail(stripe, supabase, customerId, plan);
+              if (updated) {
+                const { data: orgData } = await supabase.from("Organisation").select("id").eq("stripeId", customerId).maybeSingle();
+                const org = orgData as { id: string } | null;
+                if (org?.id) {
+                  await notifyOrgMembers(org.id, "subscription_activated", {
+                    planName: plan === "BUSINESS" ? "Business" : "Pro",
+                  }).catch(console.error);
+                }
+              }
+            } else {
+              console.log("[STRIPE_WEBHOOK] checkout.session.completed", { customerId, priceId, plan, rows: rows.length });
+              const org = rows[0];
+              if (org?.id) {
+                await notifyOrgMembers(org.id, "subscription_activated", {
+                  planName: plan === "BUSINESS" ? "Business" : "Pro",
+                }).catch(console.error);
+              }
             }
           }
         }
@@ -79,7 +93,7 @@ export async function POST(req: Request): Promise<NextResponse> {
             .eq("stripeId", customerId)
             .maybeSingle();
 
-          const { data, error } = await supabase
+          let { data, error } = await supabase
             .from("Organisation")
             .update({ plan })
             .eq("stripeId", customerId)
@@ -87,10 +101,20 @@ export async function POST(req: Request): Promise<NextResponse> {
           if (error) {
             console.error("[STRIPE_WEBHOOK] customer.subscription.updated update failed:", error);
           } else {
-            console.log("[STRIPE_WEBHOOK] customer.subscription.updated", { customerId, priceId, plan, status: subscription.status, rows: data?.length ?? 0 });
+            const rows = Array.isArray(data) ? data : (data ? [data] : []);
+            if (rows.length === 0) {
+              await updatePlanByCustomerEmail(stripe, supabase, customerId, plan);
+            } else {
+              console.log("[STRIPE_WEBHOOK] customer.subscription.updated", { customerId, priceId, plan, status: subscription.status, rows: rows.length });
+            }
             const orgBeforeTyped = orgBefore as { id: string; plan: string } | null;
-            if (orgBeforeTyped && orgBeforeTyped.plan !== plan) {
-              await notifyOrgMembers(orgBeforeTyped.id, "subscription_upgraded", {
+            let orgIdToNotify: string | null = orgBeforeTyped?.id ?? (rows.length > 0 ? (rows[0] as { id: string }).id : null);
+            if (!orgIdToNotify) {
+              const { data: orgRow } = await supabase.from("Organisation").select("id").eq("stripeId", customerId).maybeSingle();
+              orgIdToNotify = (orgRow as { id: string } | null)?.id ?? null;
+            }
+            if (orgIdToNotify && orgBeforeTyped?.plan !== plan) {
+              await notifyOrgMembers(orgIdToNotify, "subscription_upgraded", {
                 planName: plan === "BUSINESS" ? "Business" : "Pro",
               }).catch(console.error);
             }
@@ -103,7 +127,7 @@ export async function POST(req: Request): Promise<NextResponse> {
         const subscription = event.data.object as Stripe.Subscription;
         const customerId = subscription.customer as string;
 
-        const { data, error } = await supabase
+        let { data, error } = await supabase
           .from("Organisation")
           .update({ plan: "FREE_TRIAL" })
           .eq("stripeId", customerId)
@@ -111,10 +135,19 @@ export async function POST(req: Request): Promise<NextResponse> {
         if (error) {
           console.error("[STRIPE_WEBHOOK] customer.subscription.deleted update failed:", error);
         } else {
-          console.log("[STRIPE_WEBHOOK] customer.subscription.deleted", { customerId, rows: data?.length ?? 0 });
-          const org = Array.isArray(data) ? data[0] : data;
-          if (org?.id) {
-            await notifyOrgMembers(org.id, "subscription_cancelled", {}).catch(console.error);
+          const rows = Array.isArray(data) ? data : (data ? [data] : []);
+          if (rows.length === 0) {
+            await updatePlanByCustomerEmail(stripe, supabase, customerId, "FREE_TRIAL");
+          } else {
+            console.log("[STRIPE_WEBHOOK] customer.subscription.deleted", { customerId, rows: rows.length });
+          }
+          let orgId: string | null = rows.length > 0 ? (rows[0] as { id: string }).id : null;
+          if (!orgId) {
+            const { data: orgRow } = await supabase.from("Organisation").select("id").eq("stripeId", customerId).maybeSingle();
+            orgId = (orgRow as { id: string } | null)?.id ?? null;
+          }
+          if (orgId) {
+            await notifyOrgMembers(orgId, "subscription_cancelled", {}).catch(console.error);
           }
         }
         break;
@@ -132,4 +165,56 @@ function getPlanFromPriceId(priceId: string): "FREE_TRIAL" | "PRO" | "BUSINESS" 
   if (priceId === process.env.NEXT_PUBLIC_STRIPE_PRO_PRICE_ID) return "PRO";
   if (priceId === process.env.NEXT_PUBLIC_STRIPE_BUSINESS_PRICE_ID) return "BUSINESS";
   return "FREE_TRIAL";
+}
+
+/**
+ * If no Organisation has this stripeId (e.g. subscription was created in Stripe dashboard or via link),
+ * try to find org by Stripe customer email and update plan + set stripeId.
+ */
+async function updatePlanByCustomerEmail(
+  stripe: ReturnType<typeof getStripe>,
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  customerId: string,
+  plan: "FREE_TRIAL" | "PRO" | "BUSINESS"
+): Promise<boolean> {
+  try {
+    const customer = await stripe.customers.retrieve(customerId);
+    if (customer.deleted || !("email" in customer) || !customer.email) return false;
+    const email = customer.email.trim().toLowerCase();
+    if (!email) return false;
+
+    const { data: userRow } = await supabase
+      .from("User")
+      .select("id")
+      .eq("email", email)
+      .maybeSingle();
+    if (!userRow) return false;
+
+    const userId = (userRow as { id: string }).id;
+    const { data: member } = await supabase
+      .from("OrganisationMember")
+      .select("*")
+      .eq("userId", userId)
+      .limit(1)
+      .maybeSingle();
+    if (!member) return false;
+
+    const m = member as Record<string, unknown>;
+    const orgId = (m.organisationId ?? m.organisation_id) as string | undefined;
+    if (!orgId) return false;
+
+    const { error } = await supabase
+      .from("Organisation")
+      .update({ plan, stripeId: customerId })
+      .eq("id", orgId);
+    if (error) {
+      console.error("[STRIPE_WEBHOOK] updatePlanByCustomerEmail failed:", error);
+      return false;
+    }
+    console.log("[STRIPE_WEBHOOK] updated org by customer email", { orgId, customerId, plan });
+    return true;
+  } catch (e) {
+    console.error("[STRIPE_WEBHOOK] updatePlanByCustomerEmail error:", e);
+    return false;
+  }
 }
