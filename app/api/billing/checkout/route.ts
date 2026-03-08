@@ -49,6 +49,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       customer: customerId,
       mode: "subscription",
       line_items: [{ price: parsed.data.priceId, quantity: 1 }],
+      allow_promotion_codes: true,
       success_url: `${appUrl}/dashboard?billing=success`,
       cancel_url: `${appUrl}/dashboard?billing=cancelled`,
       metadata: { priceId: parsed.data.priceId },

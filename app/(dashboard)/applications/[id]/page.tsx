@@ -132,7 +132,7 @@ export default async function ApplicationDetailPage({
           <p className="text-muted-foreground">{application.grant.funder}</p>
         </div>
         <div className="flex items-center gap-2">
-          {["PENDING", "FILLING", "REVIEW_REQUIRED"].includes(application.status) && (
+          {["PENDING", "FILLING", "REVIEW_REQUIRED"].includes(displayStatus) && (
             <StopApplicationButton applicationId={application.id} />
           )}
           <Badge

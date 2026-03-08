@@ -243,6 +243,14 @@ export function ProfileForm({ profile }: { profile: ProfileData }) {
               onSubmit={handleStep4}
               onBack={() => setStep(3)}
               isPending={isPending}
+              profileContext={{
+                businessName: profile.businessName,
+                sector: profile.sector,
+                description: profile.description,
+                missionStatement: profile.missionStatement,
+                employeeCount: profile.employeeCount,
+                annualRevenue: profile.annualRevenue,
+              }}
             />
           )}
           {step === 5 && (
