@@ -34,7 +34,7 @@ export function GrantImportUploader() {
         return;
       }
       setResult(data);
-      inputRef.current.value = "";
+      if (inputRef.current) inputRef.current.value = "";
     } catch (err) {
       setResult({ error: err instanceof Error ? err.message : "Upload failed" });
     } finally {
