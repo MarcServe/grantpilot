@@ -54,26 +54,25 @@ export async function POST(req: Request): Promise<NextResponse> {
 
     let createdById: string | null = null;
 
-    let { data: members = [] } = await supabase
+    type MemberRow = { userId?: string; user_id?: string };
+    let members: MemberRow[] = [];
+    const membersRes = await supabase
       .from("OrganisationMember")
       .select("userId, user_id")
       .eq("organisationId", orgId)
       .limit(1);
-    if (!Array.isArray(members)) members = [];
+    members = (membersRes.data ?? []) as MemberRow[];
     if (members.length === 0) {
       const alt = await supabase
         .from("OrganisationMember")
         .select("userId, user_id")
         .eq("organisation_id", orgId)
         .limit(1);
-      members = (alt.data ?? []) as { userId?: string; user_id?: string }[];
+      members = (alt.data ?? []) as MemberRow[];
     }
     const firstMember = members[0];
     if (firstMember) {
-      createdById =
-        (firstMember as { userId?: string; user_id?: string }).userId ??
-        (firstMember as { user_id?: string }).user_id ??
-        null;
+      createdById = firstMember.userId ?? firstMember.user_id ?? null;
     }
 
     // Fallback: if no members found (e.g. query/RLS edge case), use creator of latest application for this org
