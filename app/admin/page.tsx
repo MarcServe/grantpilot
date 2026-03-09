@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ShieldCheck } from "lucide-react";
+import { GrantImportUploader } from "@/components/admin/grant-import-uploader";
 
 export const dynamic = "force-dynamic";
 
@@ -62,14 +63,15 @@ export default async function AdminPage() {
             You are logged in as the admin account. Grant import and other admin tools can be added here.
           </p>
         </div>
+        <GrantImportUploader />
         <Card>
           <CardHeader>
-            <CardTitle>Admin actions</CardTitle>
+            <CardTitle>API import</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground">
-              Use the API to import grants: <code className="rounded bg-muted px-1 py-0.5">POST /api/admin/grants/import</code> with header{" "}
-              <code className="rounded bg-muted px-1 py-0.5">x-grants-import-secret</code> and a JSON array of grants, or CSV upload (when implemented).
+              You can also import via API: <code className="rounded bg-muted px-1 py-0.5">POST /api/admin/grants/import</code> with header{" "}
+              <code className="rounded bg-muted px-1 py-0.5">x-grants-import-secret</code> and a JSON array of grants.
             </p>
           </CardContent>
         </Card>
