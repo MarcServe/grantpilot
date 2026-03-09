@@ -10,7 +10,7 @@ RETURNS TEXT AS $$
 $$ LANGUAGE sql STABLE SECURITY DEFINER
 SET search_path = public;
 
-COMMENT ON FUNCTION grantpilot_current_user_id() IS 'Returns GrantPilot User.id for the current Supabase auth user (auth.uid()). Used by RLS policies.';
+COMMENT ON FUNCTION grantpilot_current_user_id() IS 'Returns Grants-Copilot User.id for the current Supabase auth user (auth.uid()). Used by RLS policies.';
 
 CREATE OR REPLACE FUNCTION grantpilot_user_organisation_ids()
 RETURNS TEXT[] AS $$

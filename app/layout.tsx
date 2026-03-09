@@ -15,9 +15,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "GrantPilot — AI-Powered Grant Applications",
+  title: "Grants-Copilot — AI-Powered Grant Applications",
   description:
-    "Discover, match, and file grant applications autonomously. GrantPilot saves founders time by automating the entire grant application process.",
+    "Discover, match, and file grant applications autonomously. Grants-Copilot saves founders time by automating the entire grant application process.",
 };
 
 export default function RootLayout({

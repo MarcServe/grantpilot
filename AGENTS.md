@@ -4,7 +4,7 @@
 
 ### Project overview
 
-GrantPilot is an AI-powered grant discovery/matching/application platform built with **Next.js 16** (App Router, Turbopack) and **TypeScript**. It has a secondary worker package at `grantpilot-worker/` for Playwright-based form filling. Both use **npm** as the package manager.
+Grants-Copilot is an AI-powered grant discovery/matching/application platform built with **Next.js 16** (App Router, Turbopack) and **TypeScript**. It has a secondary worker package at `grantpilot-worker/` for Playwright-based form filling. Both use **npm** as the package manager.
 
 ### Key services
 
@@ -81,7 +81,7 @@ curl -X POST "${NEXT_PUBLIC_SUPABASE_URL}/auth/v1/admin/users" \
 | `monitor-session` | Event-driven | Polls worker session status, updates Application, sends notifications | — |
 
 #### Notifications (email + WhatsApp)
-- **Email:** Resend (`RESEND_API_KEY`, `EMAIL_FROM`). The verified sender domain is `bizboosters.co.uk` — use `EMAIL_FROM=GrantPilot <contact@bizboosters.co.uk>`.
+- **Email:** Resend (`RESEND_API_KEY`, `EMAIL_FROM`). The verified sender domain is `bizboosters.co.uk` — use `EMAIL_FROM=Grants-Copilot <contact@bizboosters.co.uk>`.
 - **WhatsApp:** Twilio (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_NUMBER`)
 - Notification types: `application_started`, `review_required`, `application_submitted`, `application_failed`, `deadline_reminder`, `grant_match`, `grant_scan_digest`
 

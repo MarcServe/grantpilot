@@ -112,7 +112,7 @@ export function ApplyButton({ grantId, profileId, eligibilityScore }: ApplyButto
         <DialogHeader>
           <DialogTitle>Start AI Application</DialogTitle>
           <DialogDescription>
-            GrantPilot will use your business profile to fill in the grant
+            Grants-Copilot will use your business profile to fill in the grant
             application. By default the AI pauses for your review before
             submission; turn on Autopilot to submit without approval.
           </DialogDescription>

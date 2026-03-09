@@ -66,7 +66,7 @@ export function SubmitSection({ applicationId }: SubmitSectionProps) {
           />
           <label htmlFor="confirm" className="text-sm leading-relaxed">
             I have reviewed this application and confirm that all information is
-            accurate. I authorise GrantPilot to submit this application on my
+            accurate. I authorise Grants-Copilot to submit this application on my
             behalf.
           </label>
         </div>

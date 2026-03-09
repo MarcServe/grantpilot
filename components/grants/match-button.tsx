@@ -26,7 +26,7 @@ export function MatchButton({ onMatches, disabled }: MatchButtonProps) {
       }
 
       onMatches(data.matches);
-      toast.success("Grants matched successfully");
+      toast.success("Grants matched. Scores are saved — you can leave and come back anytime. Use \"Save matched to my list\" to revisit them later.");
     } catch {
       toast.error("Something went wrong");
     } finally {

@@ -22,6 +22,7 @@ export default async function GrantsPage() {
   const grants = allGrants;
 
   const cachedScores: Record<string, { score: number; summary?: string }> = {};
+  let savedGrantIds: string[] = [];
   if (profileComplete && profile) {
     const { data: rowsData } = await supabase
       .from("EligibilityAssessment")
@@ -32,6 +33,12 @@ export default async function GrantsPage() {
     for (const row of rows as { grant_id: string; score: number; summary: string | null }[]) {
       cachedScores[row.grant_id] = { score: row.score, summary: row.summary ?? undefined };
     }
+    const { data: savedData } = await supabase
+      .from("SavedGrant")
+      .select("grant_id")
+      .eq("organisation_id", orgId)
+      .eq("profile_id", profile.id);
+    savedGrantIds = (savedData ?? []).map((r: { grant_id: string }) => r.grant_id);
   }
 
   return (
@@ -79,6 +86,7 @@ export default async function GrantsPage() {
         hasProfile={hasProfile}
         profileComplete={profileComplete}
         cachedScores={cachedScores}
+        savedGrantIds={savedGrantIds}
       />
     </div>
   );

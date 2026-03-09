@@ -4,9 +4,15 @@ import { getActiveOrg } from "@/lib/auth";
 import { matchGrantsToProfile } from "@/lib/claude";
 import { grantMatchesFunderLocations } from "@/lib/constants";
 
+function scoreToDecision(score: number): "likely_eligible" | "review" | "unlikely" {
+  if (score >= 70) return "likely_eligible";
+  if (score >= 40) return "review";
+  return "unlikely";
+}
+
 export async function POST(): Promise<NextResponse> {
   try {
-    const { org } = await getActiveOrg();
+    const { org, orgId } = await getActiveOrg();
 
     const profile = org.profiles?.[0];
     if (!profile || (profile.completionScore ?? 0) < 50) {
@@ -51,6 +57,21 @@ export async function POST(): Promise<NextResponse> {
         regions: g.regions,
       }))
     );
+
+    for (const m of matches) {
+      await supabase.from("EligibilityAssessment").upsert(
+        {
+          organisation_id: orgId,
+          profile_id: profile.id,
+          grant_id: m.grantId,
+          score: m.score,
+          decision: scoreToDecision(m.score),
+          summary: m.reason ?? null,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "organisation_id,profile_id,grant_id" }
+      );
+    }
 
     return NextResponse.json({ matches });
   } catch (error) {

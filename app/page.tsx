@@ -12,7 +12,7 @@ export default function LandingPage() {
               <FileCheck className="h-5 w-5 text-primary-foreground" />
             </div>
             <span className="text-xl font-bold text-foreground">
-              GrantPilot
+              Grants-Copilot
             </span>
           </div>
           <div className="flex items-center gap-4">
@@ -35,7 +35,7 @@ export default function LandingPage() {
               <span className="text-primary">Start filing them.</span>
             </h1>
             <p className="mt-6 text-lg leading-8 text-muted-foreground">
-              GrantPilot discovers grants that match your business, fills in the
+              Grants-Copilot discovers grants that match your business, fills in the
               applications using AI, and pauses for your review before
               submitting. One profile. Unlimited applications.
             </p>

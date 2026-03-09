@@ -31,10 +31,11 @@ Return a JSON array of grant objects. Each object must have:
 - funder (string): organisation name
 - amount (number or null): max funding amount if known
 - deadline (string or null): ISO date e.g. "2026-06-30"
-- applicationUrl (string): URL to apply or find out more (required)
+- applicationUrl (string): direct URL to the application form or competition apply page (required). Prefer the actual form URL when known (e.g. Airtable, Typeform, Google Forms) so users and automation open the form directly—not the programme info page. Never use only a funder homepage or generic "for businesses" page. If you only have a programme info URL, use it, but the app can later discover the form link from that page.
 - eligibility (string): short eligibility summary
 - sectors (string array): e.g. ["Technology", "Healthcare"]
 - regions (string array): e.g. ["England", "UK"]
+- applicantTypes (string array): eligible applicant/entity types if known, e.g. ["Public Sector", "Non-profit", "Private Sector"] — who can apply. Omit or empty array if unknown.
 
 Use real funder and programme names where possible. Limit to ${MAX_GRANTS} grants. Return only the JSON array, no markdown or explanation.`;
 }

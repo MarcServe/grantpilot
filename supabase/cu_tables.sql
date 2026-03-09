@@ -1,4 +1,4 @@
--- GrantPilot Execution State Tables (Supabase)
+-- Grants-Copilot Execution State Tables (Supabase)
 -- Run this in the Supabase SQL Editor to create the cu_* tables.
 
 -- Task type definitions

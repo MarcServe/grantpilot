@@ -2,19 +2,9 @@ import Link from "next/link";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg } from "@/lib/auth";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { FileText, Clock, ArrowRight } from "lucide-react";
-
-const STATUS_COLORS: Record<string, string> = {
-  PENDING: "bg-yellow-100 text-yellow-800",
-  FILLING: "bg-blue-100 text-blue-800",
-  REVIEW_REQUIRED: "bg-purple-100 text-purple-800",
-  APPROVED: "bg-green-100 text-green-800",
-  SUBMITTED: "bg-green-100 text-green-800",
-  FAILED: "bg-red-100 text-red-800",
-  STOPPED: "bg-slate-100 text-slate-700",
-};
+import { FileText } from "lucide-react";
+import { ApplicationCardWithDelete } from "@/components/dashboard/application-card-with-delete";
 
 export default async function ApplicationsPage() {
   const { orgId } = await getActiveOrg();
@@ -62,33 +52,14 @@ export default async function ApplicationsPage() {
       ) : (
         <div className="space-y-3">
           {applications.map((app) => (
-            <Link key={app.id} href={`/applications/${app.id}`}>
-              <Card className="transition-colors hover:bg-muted/50">
-                <CardContent className="flex items-center justify-between p-4">
-                  <div>
-                    <p className="font-medium">{app.grant.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {app.grant.funder}
-                      {app.grant.amount != null &&
-                        ` — ${Number(app.grant.amount).toLocaleString("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 })}`}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Badge
-                      variant="secondary"
-                      className={STATUS_COLORS[app.displayStatus ?? app.status] ?? ""}
-                    >
-                      {(app.displayStatus ?? app.status).replace(/_/g, " ")}
-                    </Badge>
-                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <Clock className="h-3 w-3" />
-                      {new Date(app.createdAt).toLocaleDateString("en-GB")}
-                    </div>
-                    <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                </CardContent>
-              </Card>
-            </Link>
+            <ApplicationCardWithDelete
+              key={app.id}
+              id={app.id}
+              grantName={app.grant.name}
+              funder={app.grant.funder + (app.grant.amount != null ? ` — ${Number(app.grant.amount).toLocaleString("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 })}` : "")}
+              displayStatus={app.displayStatus ?? app.status}
+              createdAt={app.createdAt}
+            />
           ))}
         </div>
       )}

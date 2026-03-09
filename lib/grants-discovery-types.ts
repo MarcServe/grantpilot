@@ -26,7 +26,11 @@ export interface DiscoveryGrantRow {
   eligibility: string;
   sectors?: string[];
   regions?: string[];
+  /** Eligible applicant/entity types, e.g. ["Public Sector", "Non-profit", "Private Sector"]. */
+  applicantTypes?: string[];
 }
+
+import { looksLikeGenericOrListUrl } from "./grant-url-validation";
 
 const JSON_ARRAY_REGEX = /\[[\s\S]*\]/;
 
@@ -55,6 +59,7 @@ export function toGrantInput(
   const applicationUrl = typeof row.applicationUrl === "string" ? row.applicationUrl.trim() : "";
   const eligibility = typeof row.eligibility === "string" ? row.eligibility.trim() : "See application page.";
   if (!name || !funder || !applicationUrl) return null;
+  if (looksLikeGenericOrListUrl(applicationUrl)) return null;
 
   const amount =
     typeof row.amount === "number" && !Number.isNaN(row.amount)
@@ -66,6 +71,9 @@ export function toGrantInput(
   const regions = Array.isArray(row.regions)
     ? row.regions.filter((r): r is string => typeof r === "string")
     : ["England"];
+  const applicantTypes = Array.isArray(row.applicantTypes)
+    ? row.applicantTypes.filter((t): t is string => typeof t === "string")
+    : [];
   const deadline =
     row.deadline && typeof row.deadline === "string"
       ? row.deadline
@@ -86,5 +94,6 @@ export function toGrantInput(
     sectors,
     regions,
     funderLocations: funderLocations?.length ? funderLocations : undefined,
+    applicantTypes: applicantTypes.length > 0 ? applicantTypes : undefined,
   };
 }

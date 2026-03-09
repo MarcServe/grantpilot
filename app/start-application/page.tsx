@@ -20,7 +20,7 @@ export default async function StartApplicationPage({
             This link is missing or invalid. Please use the link from your email or WhatsApp.
           </p>
           <Link href="/sign-in" className="mt-4 inline-block text-sm font-medium text-primary hover:underline">
-            Sign in to GrantPilot
+            Sign in to Grants-Copilot
           </Link>
         </div>
       </div>
@@ -37,7 +37,7 @@ export default async function StartApplicationPage({
             This link has expired or is invalid. Please request a new link or sign in to start an application.
           </p>
           <Link href="/sign-in" className="mt-4 inline-block text-sm font-medium text-primary hover:underline">
-            Sign in to GrantPilot
+            Sign in to Grants-Copilot
           </Link>
         </div>
       </div>
@@ -60,7 +60,7 @@ export default async function StartApplicationPage({
             This grant may no longer be available.
           </p>
           <Link href="/sign-in" className="mt-4 inline-block text-sm font-medium text-primary hover:underline">
-            Sign in to GrantPilot
+            Sign in to Grants-Copilot
           </Link>
         </div>
       </div>
@@ -79,7 +79,7 @@ export default async function StartApplicationPage({
           href="/sign-in"
           className="mt-4 block text-center text-sm text-muted-foreground hover:text-foreground"
         >
-          Sign in to GrantPilot instead
+          Sign in to Grants-Copilot
         </Link>
       </div>
     </div>

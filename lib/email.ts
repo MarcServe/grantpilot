@@ -22,7 +22,7 @@ export async function sendEmail(
 
     const resend = getResend();
     const { error } = await resend.emails.send({
-      from: process.env.EMAIL_FROM ?? "GrantPilot <noreply@grantpilot.co.uk>",
+      from: process.env.EMAIL_FROM ?? "Grants-Copilot <noreply@grantpilot.co.uk>",
       to,
       subject,
       html,

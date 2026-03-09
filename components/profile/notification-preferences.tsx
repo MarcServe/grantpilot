@@ -99,6 +99,11 @@ export function NotificationPreferences({ defaultValues }: NotificationPreferenc
                     <p className="text-muted-foreground text-sm">
                       We&apos;ll send grant reminders and application updates to this number.
                     </p>
+                    <p className="text-muted-foreground text-xs mt-1">
+                      Not receiving messages? If you use Twilio&apos;s WhatsApp Sandbox, send &quot;join
+                      &lt;your-code&gt;&quot; to the Sandbox number in WhatsApp first. Check Twilio Console →
+                      Messaging → Logs for delivery status.
+                    </p>
                   </div>
                   <FormMessage />
                 </FormItem>

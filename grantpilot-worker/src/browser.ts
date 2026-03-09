@@ -29,7 +29,7 @@ export async function newGrantPage(browser: Browser): Promise<Page> {
   const context = await browser.newContext({
     viewport: VIEWPORT,
     userAgent:
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) GrantPilot/1.0",
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Grants-Copilot/1.0",
     ignoreHTTPSErrors: true,
   });
   const page = await context.newPage();
@@ -154,7 +154,7 @@ export function downloadToTemp(url: string): Promise<string> {
 
     const file = fs.createWriteStream(tmpPath);
     protocol
-      .get(url, { headers: { "User-Agent": "GrantPilot/1.0" } }, (res) => {
+      .get(url, { headers: { "User-Agent": "Grants-Copilot/1.0" } }, (res) => {
         if (res.statusCode && res.statusCode >= 400) {
           file.close();
           fs.unlink(tmpPath, () => {});

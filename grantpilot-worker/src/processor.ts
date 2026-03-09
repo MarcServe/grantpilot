@@ -130,7 +130,8 @@ async function processGrantApplicationSession(
       typeof (r as { label?: string }).label === "string"
   ) as { kind: "video" | "document"; label: string; categoryHint?: string; maxDurationMinutes?: number; maxSizeMB?: number; accept?: string }[];
 
-  const { profile, documents } = (await fetchProfileAndDocuments(profileId)) ?? {
+  const applicationIdForProfile = session.public_id.startsWith("grantapp_") ? session.public_id.replace(/^grantapp_/, "") : undefined;
+  const { profile, documents } = (await fetchProfileAndDocuments(profileId, applicationIdForProfile)) ?? {
     profile: {
       businessName: "",
       registrationNumber: null,
@@ -185,6 +186,7 @@ async function processGrantApplicationSession(
             editedSnapshotFields: isSubmit ? editedSnapshotFields : undefined,
           });
           if (lastResult.success) break;
+          if (lastResult.situation) break;
           attempt += 1;
           if (attempt < maxAttempts) {
             await appendLog(
@@ -200,8 +202,14 @@ async function processGrantApplicationSession(
 
         const result = lastResult!;
         const itemStatus = result.skipped ? "skipped" : result.success ? "done" : "failed";
+        const extraData: Record<string, unknown> = {
+          notes: result.notes,
+          retries: attempt,
+        };
+        if (result.situation) extraData.page_situation = result.situation;
+        if (result.needsDirectUrl) extraData.needs_direct_url = result.needsDirectUrl;
         await markItemStatus(item.id, itemStatus, {
-          extra_data: { notes: result.notes, retries: attempt },
+          extra_data: extraData,
           processed_at: new Date().toISOString(),
         });
         await appendLog(

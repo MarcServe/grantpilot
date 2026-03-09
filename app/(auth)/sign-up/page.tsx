@@ -74,7 +74,7 @@ export default function SignUpPage() {
             <FileCheck className="h-7 w-7 text-primary-foreground" />
           </div>
           <CardTitle className="text-2xl">Create your account</CardTitle>
-          <CardDescription>Start your GrantPilot journey today</CardDescription>
+          <CardDescription>Start your Grants-Copilot journey today</CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">

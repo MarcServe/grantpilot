@@ -1,4 +1,4 @@
-# GrantPilot – Production Deployment
+# Grants-Copilot – Production Deployment
 
 ## Production readiness checklist (before real customers)
 
@@ -36,9 +36,11 @@ Set these in your host (Vercel, Railway, etc.) or in production `.env`:
 | `NEXT_PUBLIC_APP_URL` | Yes | Production app URL (e.g. `https://grantpilot.co.uk`) |
 | `INNGEST_EVENT_KEY` | Yes* | From [Inngest Cloud](https://app.inngest.com) after app sync |
 | `INNGEST_SIGNING_KEY` | Yes* | From Inngest Cloud (secure serve) |
+| `CRON_SECRET` | Vercel Cron | Optional; set in Vercel (16+ chars). Used to secure **GET /api/cron/grant-discovery**. Vercel sends it as `Authorization: Bearer <CRON_SECRET>` when invoking the cron. If unset, the route allows the request (set it in production to prevent public triggers). |
 | `STRIPE_*` | Billing | If using paid plans |
 | `RESEND_API_KEY` | Emails | For transactional email |
-| `TWILIO_*` | WhatsApp | For WhatsApp notifications |
+| `TWILIO_*` | WhatsApp | For WhatsApp notifications (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_NUMBER`) |
+| `TWILIO_WHATSAPP_GRANT_MATCH_CONTENT_SID` | WhatsApp | Optional. Twilio Content Template SID (e.g. `HX...`) for grant-match messages. When set, grant_match and grant_match_high use the approved template; template must have placeholder `{{3}}` for the grant link. |
 
 \* Inngest: use [Vercel integration](https://inngest.com/docs/deploy/vercel) to auto-set keys and sync.
 
@@ -61,7 +63,7 @@ Migration **`008_rls_hardening.sql`** enables RLS on all multi-tenant and user-s
 
 ### Daily ingest and notification time (timezone)
 
-- **Grant discovery** runs **daily** at 4am UTC (`grant-discovery` Inngest function).
+- **Grant discovery** runs **daily** at 6:30 UTC via either (1) the **grant-discovery** Inngest function, or (2) **Vercel Cron** calling **GET /api/cron/grant-discovery** (see `vercel.json`). If Inngest is not configured, the Vercel Cron ensures new grants are still discovered daily. Set **CRON_SECRET** in Vercel to secure the cron endpoint.
 - **Deadline reminders** run **every hour**. For each organisation, reminders are sent only when it is **9am in that org’s timezone** (so users get a morning notification in their local time). Apply **`012_organisation_timezone.sql`** to add `Organisation.preferredTimezone` (IANA, e.g. `Europe/London`). Users set it under **Billing → Notification time**; if unset, UTC is used.
 
 ## 4. Build and run
@@ -97,7 +99,7 @@ npm start
 4. **Sync**  
    The **grant-sync** Inngest function runs **daily at 03:00** and fetches this URL, then creates or updates grants by `externalId`. To run a sync immediately without waiting for cron, call **`POST /api/admin/grants/import`** with header **`x-grants-import-secret: <GRANTS_IMPORT_SECRET>`** and body **`{ "syncFeed": true }`**.
 
-Feed format: each object must have **`name`**, **`funder`**, **`applicationUrl`**, **`eligibility`**. Optional: **`amount`**, **`deadline`** (ISO date, e.g. `2026-06-30`), **`sectors`** (array of strings), **`regions`** (array), **`externalId`** (unique string for upserts). See **`public/grants-feed.sample.json`** for an example.
+Feed format: each object must have **`name`**, **`funder`**, **`applicationUrl`**, **`eligibility`**. Optional: **`amount`**, **`deadline`** (ISO date, e.g. `2026-06-30`), **`sectors`** (array of strings), **`regions`** (array), **`applicantTypes`** (array of strings, e.g. `["Public Sector", "Non-profit", "Private Sector"]` — who can apply), **`externalId`** (unique string for upserts). See **`public/grants-feed.sample.json`** for an example.
 
 - **Manual / CI import**  
   Call **`POST /api/admin/grants/import`** with:
@@ -154,3 +156,26 @@ Functions (grant scanner, **grant-sync** from feed, deadline reminders, session 
 | `customer.subscription.deleted` | Set plan back to `FREE_TRIAL` when subscription ends. |
 
 If you use multiple payload styles in Stripe (e.g. one destination for snapshot, one for thin), point **this** webhook URL only at the **snapshot** destination. Event handling differs between styles; our code is written for snapshot only.
+
+---
+
+## 9. Troubleshooting
+
+### Git: “no matches found” when adding files with brackets (zsh)
+
+In zsh, `[id]` is treated as a glob. Quote the path:
+
+```bash
+git add "app/api/grants/[id]/auto-improve/apply/route.ts"
+```
+
+### Cron endpoint returns 404
+
+- **Deploy**: Ensure the latest code is deployed so **GET /api/cron/grant-discovery** exists (route: `app/api/cron/grant-discovery/route.ts`).
+- **Auth**: Set **CRON_SECRET** in Vercel (Environment Variables). Call with `Authorization: Bearer <CRON_SECRET>` (replace `YOUR_CRON_SECRET` with the actual value). If **CRON_SECRET** is unset, the route still runs but is publicly callable.
+
+### Supabase CLI: “Cannot find project ref” / config parse errors
+
+- **db push**: Pushing migrations to the **hosted** project requires linking: `npx supabase link --project-ref <your-project-ref>` (ref from Supabase Dashboard → Project Settings).
+- **Config**: If you see invalid keys (`health_timeout`, `storage.analytics`, etc.), the repo’s `supabase/config.toml` is compatible with Supabase CLI v2.34.3; those options are commented out. For the latest options, upgrade the CLI: `npm update supabase` or install from [Supabase CLI](https://supabase.com/docs/guides/cli/getting-started#updating-the-supabase-cli).
+- **Migrations on hosted DB**: Either run the SQL from `supabase/migrations/*.sql` in the Supabase SQL Editor, or after `supabase link`, run `npx supabase db push`.

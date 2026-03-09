@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Calendar, Building2, MapPin, ArrowRight, Users } from "lucide-react";
+import { Calendar, Building2, MapPin, ArrowRight, Users, Bookmark } from "lucide-react";
 
 interface GrantCardProps {
   id: string;
@@ -19,6 +19,8 @@ interface GrantCardProps {
   matchReason?: string;
   urgencyLevel?: "HIGH" | "MEDIUM" | "LOW" | "NONE";
   urgencyLabel?: string;
+  isSaved?: boolean;
+  onToggleSave?: () => void;
 }
 
 const URGENCY_CLASS: Record<string, string> = {
@@ -40,19 +42,36 @@ export function GrantCard({
   matchReason,
   urgencyLevel,
   urgencyLabel,
+  isSaved,
+  onToggleSave,
 }: GrantCardProps) {
   return (
     <Card className="transition-shadow hover:shadow-md">
       <CardHeader className="pb-3">
-        <div className="flex items-start justify-between">
-          <div>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
             <CardTitle className="text-lg">{name}</CardTitle>
             <div className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
-              <Building2 className="h-3.5 w-3.5" />
+              <Building2 className="h-3.5 w-3.5 shrink-0" />
               {funder}
             </div>
           </div>
-          {matchScore !== undefined && (
+          <div className="flex shrink-0 items-center gap-1">
+            {onToggleSave && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={(e) => { e.preventDefault(); onToggleSave(); }}
+                title={isSaved ? "Remove from saved" : "Save to my list"}
+              >
+                <Bookmark
+                  className={`h-4 w-4 ${isSaved ? "fill-primary text-primary" : ""}`}
+                />
+              </Button>
+            )}
+            {matchScore !== undefined && (
             <div
               className={`flex h-12 w-12 items-center justify-center rounded-full text-sm font-bold text-white ${
                 matchScore >= 70
@@ -65,7 +84,13 @@ export function GrantCard({
               {matchScore}%
             </div>
           )}
+          </div>
         </div>
+        {isSaved && (
+          <Badge variant="secondary" className="mt-2 w-fit text-xs">
+            Saved
+          </Badge>
+        )}
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="flex flex-wrap gap-2">
@@ -92,13 +117,13 @@ export function GrantCard({
         )}
 
         <div className="flex flex-wrap gap-1">
-          {sectors.slice(0, 3).map((s) => (
-            <Badge key={s} variant="outline" className="text-xs">
+          {sectors.slice(0, 3).map((s, i) => (
+            <Badge key={`sector-${i}-${s}`} variant="outline" className="text-xs">
               {s}
             </Badge>
           ))}
-          {regions.slice(0, 2).map((r) => (
-            <Badge key={r} variant="outline" className="gap-1 text-xs">
+          {regions.slice(0, 2).map((r, i) => (
+            <Badge key={`region-${i}-${r}`} variant="outline" className="gap-1 text-xs">
               <MapPin className="h-2.5 w-2.5" />
               {r}
             </Badge>
@@ -107,8 +132,8 @@ export function GrantCard({
 
         {applicantTypes && applicantTypes.length > 0 && (
           <div className="flex flex-wrap gap-1">
-            {applicantTypes.slice(0, 3).map((t) => (
-              <Badge key={t} variant="secondary" className="gap-1 text-xs">
+            {applicantTypes.slice(0, 3).map((t, i) => (
+              <Badge key={`applicant-${i}-${t}`} variant="secondary" className="gap-1 text-xs">
                 <Users className="h-2.5 w-2.5" />
                 {t}
               </Badge>

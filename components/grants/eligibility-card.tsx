@@ -37,7 +37,7 @@ interface EligibilityResult {
   confidenceBand?: "high" | "medium" | "low";
 }
 
-function AutoImproveButton({ grantId }: { grantId: string }) {
+function AutoImproveButton({ grantId, applicationId }: { grantId: string; applicationId?: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -62,18 +62,26 @@ function AutoImproveButton({ grantId }: { grantId: string }) {
     }
   }
 
-  async function handleApply() {
+  async function handleApply(toProfile: boolean) {
     if (!suggestions || Object.keys(suggestions).length === 0) return;
+    if (toProfile === false && !applicationId) return;
     setApplying(true);
     try {
+      const body = toProfile
+        ? suggestions
+        : { ...suggestions, applyToApplicationOnly: true, applicationId };
       const res = await fetch(`/api/grants/${grantId}/auto-improve/apply`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(suggestions),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to apply");
-      toast.success("Profile updated. Re-check eligibility to see the new score.");
+      if (toProfile) {
+        toast.success("Profile updated. Re-check eligibility to see the new score.");
+      } else {
+        toast.success("Saved for this application only. Your main profile is unchanged. The next time the AI fills this application, it will use these details.");
+      }
       setOpen(false);
       router.refresh();
     } catch (e) {
@@ -97,7 +105,7 @@ function AutoImproveButton({ grantId }: { grantId: string }) {
         <DialogHeader>
           <DialogTitle>Auto-improve application</DialogTitle>
           <DialogDescription>
-            We&apos;ve suggested rewrites for your profile to better match this grant. Review and apply to update your business profile.
+            We&apos;ve suggested rewrites to better match this grant. Apply to your main profile (used for all grants) or use for this application only (your profile stays unchanged).
           </DialogDescription>
         </DialogHeader>
         {loading ? (
@@ -126,13 +134,21 @@ function AutoImproveButton({ grantId }: { grantId: string }) {
         ) : (
           <p className="text-sm text-muted-foreground">No specific suggestions right now. Try improving your profile manually and re-check eligibility.</p>
         )}
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+        <DialogFooter className="flex-col gap-2 sm:flex-row">
+          <Button variant="outline" onClick={() => setOpen(false)} className="sm:mr-auto">Cancel</Button>
           {hasSuggestions && (
-            <Button onClick={handleApply} disabled={applying}>
-              {applying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Apply to profile
-            </Button>
+            <>
+              {applicationId && (
+                <Button variant="secondary" onClick={() => handleApply(false)} disabled={applying}>
+                  {applying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  Use for this application only
+                </Button>
+              )}
+              <Button onClick={() => handleApply(true)} disabled={applying}>
+                {applying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Apply to profile
+              </Button>
+            </>
           )}
         </DialogFooter>
       </DialogContent>
@@ -140,7 +156,7 @@ function AutoImproveButton({ grantId }: { grantId: string }) {
   );
 }
 
-export function EligibilityCard({ grantId }: { grantId: string }) {
+export function EligibilityCard({ grantId, applicationId }: { grantId: string; applicationId?: string }) {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<EligibilityResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -296,7 +312,7 @@ export function EligibilityCard({ grantId }: { grantId: string }) {
                 Re-check (fresh AI)
               </Button>
               {score < 85 && (result.improvementPlan?.actions?.length || result.missing?.length) ? (
-                <AutoImproveButton grantId={grantId} />
+                <AutoImproveButton grantId={grantId} applicationId={applicationId} />
               ) : null}
             </div>
           </>

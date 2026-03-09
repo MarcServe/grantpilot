@@ -83,8 +83,18 @@ function mergeGrantMemoryIntoProfile(
   };
 }
 
+function mergeProfileOverrides(profile: ProfileData, overrides: Record<string, unknown>): ProfileData {
+  return {
+    ...profile,
+    missionStatement: typeof overrides.missionStatement === "string" ? overrides.missionStatement : profile.missionStatement,
+    description: typeof overrides.description === "string" ? overrides.description : profile.description,
+    fundingDetails: overrides.fundingDetails !== undefined ? (overrides.fundingDetails == null ? null : String(overrides.fundingDetails)) : profile.fundingDetails,
+  };
+}
+
 export async function fetchProfileAndDocuments(
-  businessProfileId: string
+  businessProfileId: string,
+  applicationId?: string
 ): Promise<{ profile: ProfileData; documents: DocumentData[] } | null> {
   const { data: profileRow, error: profileError } = await supabase
     .from("BusinessProfile")
@@ -105,6 +115,18 @@ export async function fetchProfileAndDocuments(
   if (memoryRow?.payload && typeof memoryRow.payload === "object") {
     const payload = memoryRow.payload as { company?: Record<string, unknown>; financials?: Record<string, unknown> };
     profile = mergeGrantMemoryIntoProfile(profile, payload);
+  }
+
+  if (applicationId) {
+    const { data: appRow } = await supabase
+      .from("Application")
+      .select("profile_overrides")
+      .eq("id", applicationId)
+      .maybeSingle();
+    const overrides = (appRow as { profile_overrides?: Record<string, unknown> } | null)?.profile_overrides;
+    if (overrides && typeof overrides === "object" && Object.keys(overrides).length > 0) {
+      profile = mergeProfileOverrides(profile, overrides);
+    }
   }
 
   const { data: docRowsById } = await supabase

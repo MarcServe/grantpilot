@@ -1,5 +1,5 @@
 import { sendEmail } from "./email";
-import { sendWhatsApp } from "./whatsapp";
+import { sendWhatsApp, sendWhatsAppWithTemplate } from "./whatsapp";
 import { getSupabaseAdmin } from "./supabase";
 import { buildEmailHtml, buildWhatsAppMessage } from "./notification-templates";
 
@@ -76,14 +76,49 @@ export async function notifyUser(
   }
 
   if (user.whatsappOptIn && user.phoneNumber) {
-    const message = buildWhatsAppMessage(type, payload, appUrl);
-    const result = await sendWhatsApp(user.phoneNumber, message);
-    await supabase.from("NotificationLog").insert({
+    const contentSid = process.env.TWILIO_WHATSAPP_GRANT_MATCH_CONTENT_SID;
+    const useTemplate =
+      (type === "grant_match" || type === "grant_match_high") &&
+      contentSid &&
+      contentSid.trim().length > 0;
+
+    const result = useTemplate
+      ? await sendWhatsAppWithTemplate(user.phoneNumber, contentSid!.trim(), {
+          // Template placeholder {{3}} = grant link (e.g. "View grant and apply with AI: {{3}}, Grants-Copilot")
+          "3":
+            payload.grantId ? `${appUrl}/grants/${payload.grantId}` : `${appUrl}/grants`,
+        })
+      : await sendWhatsApp(user.phoneNumber, buildWhatsAppMessage(type, payload, appUrl));
+
+    const logPayload: Record<string, unknown> = {
       userId: user.id,
       channel: "whatsapp",
       type,
       status: result.success ? "sent" : "failed",
       error: result.error ?? null,
+    };
+    if (result.twilioSid ?? result.twilioStatus) {
+      logPayload.metadata = {
+        twilioSid: result.twilioSid ?? null,
+        twilioStatus: result.twilioStatus ?? null,
+      };
+    }
+    await supabase.from("NotificationLog").insert(logPayload);
+  } else if (user.whatsappOptIn && !user.phoneNumber) {
+    await supabase.from("NotificationLog").insert({
+      userId: user.id,
+      channel: "whatsapp",
+      type,
+      status: "skipped",
+      error: "no_phone",
+    });
+  } else if (!user.whatsappOptIn && user.phoneNumber) {
+    await supabase.from("NotificationLog").insert({
+      userId: user.id,
+      channel: "whatsapp",
+      type,
+      status: "skipped",
+      error: "not_opted_in",
     });
   }
 }
@@ -112,19 +147,28 @@ export async function notifyOrgMembers(
   payload: NotificationPayload
 ): Promise<void> {
   const supabase = getSupabaseAdmin();
+  const userColumns = "id, email, phoneNumber, whatsappOptIn";
   let { data: members = [] } = await supabase
     .from("OrganisationMember")
-    .select("*, User(*)")
+    .select(`*, User(${userColumns})`)
     .eq("organisationId", organisationId)
     .neq("role", "VIEWER");
 
   if (!members?.length) {
     const alt = await supabase
       .from("OrganisationMember")
-      .select("*, User(*)")
+      .select(`*, User(${userColumns})`)
       .eq("organisation_id", organisationId)
       .neq("role", "VIEWER");
     members = alt.data ?? [];
+  }
+  if (!members?.length) {
+    const altSnake = await supabase
+      .from("OrganisationMember")
+      .select("*, User(id, email, phone_number, whatsapp_opt_in)")
+      .eq("organisation_id", organisationId)
+      .neq("role", "VIEWER");
+    members = altSnake.data ?? [];
   }
 
   const list = Array.isArray(members) ? members : [];

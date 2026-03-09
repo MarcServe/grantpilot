@@ -11,11 +11,11 @@ import {
   Search,
   FileText,
   ArrowRight,
-  Clock,
   Sparkles,
   Target,
   ListTodo,
 } from "lucide-react";
+import { ApplicationCardWithDelete } from "@/components/dashboard/application-card-with-delete";
 
 const STATUS_COLORS: Record<string, string> = {
   PENDING: "bg-yellow-100 text-yellow-800",
@@ -54,21 +54,32 @@ export default async function DashboardPage() {
 
   const { data: upcomingTasksData = [] } = await supabase
     .from("ApplicationTask")
-    .select("id, name, status, dueDate, applicationId")
+    .select("id, name, status, dueDate, applicationId, grantId")
     .eq("organisationId", orgId)
     .neq("status", "done")
     .neq("status", "cancelled")
     .order("dueDate", { ascending: true, nullsFirst: false })
     .limit(8);
-  const upcomingTasks = (upcomingTasksData ?? []).map(
-    (t: { id: string; name: string; status: string; dueDate: string | null; applicationId: string }) => ({
-      id: t.id,
-      name: t.name,
-      status: t.status,
-      dueDate: t.dueDate,
-      applicationId: t.applicationId,
-    })
-  );
+  const taskRows = (upcomingTasksData ?? []) as { id: string; name: string; status: string; dueDate: string | null; applicationId: string; grantId: string | null }[];
+  const grantIdsFromTasks = [...new Set(taskRows.map((t) => t.grantId).filter(Boolean))] as string[];
+  const grantNameById: Record<string, string> = {};
+  if (grantIdsFromTasks.length > 0) {
+    const { data: grantRows } = await supabase
+      .from("Grant")
+      .select("id, name")
+      .in("id", grantIdsFromTasks);
+    for (const g of grantRows ?? []) {
+      grantNameById[(g as { id: string }).id] = (g as { name: string }).name;
+    }
+  }
+  const upcomingTasks = taskRows.map((t) => ({
+    id: t.id,
+    name: t.name,
+    status: t.status,
+    dueDate: t.dueDate,
+    applicationId: t.applicationId,
+    grantName: t.grantId ? grantNameById[t.grantId] ?? null : null,
+  }));
 
   const appsWithGrant = (recentApplications ?? []).map(
     (app: { Grant?: { name: string; funder: string }; createdAt: string; id: string; status: string; stopped_at?: string; stoppedAt?: string }) => {
@@ -187,7 +198,7 @@ export default async function DashboardPage() {
               Upcoming tasks
             </CardTitle>
             <p className="text-sm font-normal text-muted-foreground">
-              Tasks for your active applications. Open an application to mark tasks done.
+              Next steps for your active applications. Click a task to open that application and mark it done.
             </p>
           </CardHeader>
           <CardContent>
@@ -196,9 +207,9 @@ export default async function DashboardPage() {
                 <li key={t.id}>
                   <Link
                     href={`/applications/${t.applicationId}`}
-                    className="flex items-center justify-between rounded-md p-2 hover:bg-muted"
+                    className="flex flex-col gap-0.5 rounded-md p-2 hover:bg-muted sm:flex-row sm:items-center sm:justify-between"
                   >
-                    <span className="font-medium">{t.name}</span>
+                    <span className="font-medium">{t.name}{t.grantName ? ` — ${t.grantName}` : ""}</span>
                     {t.dueDate && (
                       <span className="text-xs text-muted-foreground">
                         Due {new Date(t.dueDate).toLocaleDateString("en-GB")}
@@ -310,32 +321,14 @@ export default async function DashboardPage() {
         ) : (
           <div className="space-y-3">
             {appsWithGrant.map((app) => (
-              <Link key={app.id} href={`/applications/${app.id}`}>
-                <Card className="transition-colors hover:bg-muted/50">
-                  <CardContent className="flex items-center justify-between p-4">
-                    <div className="flex items-center gap-4">
-                      <div>
-                        <p className="font-medium">{app.grant.name}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {app.grant.funder}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <Badge
-                        variant="secondary"
-                        className={STATUS_COLORS[app.displayStatus] ?? ""}
-                      >
-                        {app.displayStatus.replace(/_/g, " ")}
-                      </Badge>
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <Clock className="h-3 w-3" />
-                        {new Date(app.createdAt).toLocaleDateString("en-GB")}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
+              <ApplicationCardWithDelete
+                key={app.id}
+                id={app.id}
+                grantName={app.grant.name}
+                funder={app.grant.funder}
+                displayStatus={app.displayStatus}
+                createdAt={app.createdAt}
+              />
             ))}
           </div>
         )}

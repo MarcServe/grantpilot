@@ -117,7 +117,26 @@ Only return valid JSON, no markdown.`,
 
       const text = response.choices[0]?.message?.content ?? "{}";
       const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-      const result = JSON.parse(cleaned);
+      const raw = JSON.parse(cleaned) as { summary?: string; milestones?: unknown[]; outcomes?: unknown[] };
+      const toStr = (x: unknown): string => {
+        if (typeof x === "string") return x;
+        if (x != null && typeof x === "object") {
+          const o = x as Record<string, unknown>;
+          const s =
+            (typeof o.text === "string" && o.text) ||
+            (typeof o.milestone === "string" && o.milestone) ||
+            (typeof o.content === "string" && o.content) ||
+            (typeof o.title === "string" && o.title) ||
+            (typeof o.description === "string" && o.description);
+          if (s) return s;
+        }
+        return String(x ?? "");
+      };
+      const result = {
+        summary: typeof raw.summary === "string" ? raw.summary : "",
+        milestones: Array.isArray(raw.milestones) ? raw.milestones.map(toStr) : [],
+        outcomes: Array.isArray(raw.outcomes) ? raw.outcomes.map(toStr) : [],
+      };
       return NextResponse.json(result);
     }
 

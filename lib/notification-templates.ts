@@ -15,13 +15,13 @@ function baseLayout(title: string, body: string, ctaUrl?: string, ctaText?: stri
 <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:0;background:#f8fafc">
   <div style="max-width:600px;margin:0 auto;padding:40px 20px">
     <div style="text-align:center;margin-bottom:32px">
-      <h2 style="color:#1B3A6B;margin:0">GrantPilot</h2>
+      <h2 style="color:#1B3A6B;margin:0">Grants-Copilot</h2>
     </div>
     <div style="background:#fff;border-radius:12px;padding:32px;border:1px solid #e2e8f0">
       <h1 style="font-size:20px;color:#1a1a1a;margin:0 0 16px">${title}</h1>
       <div style="color:#555;font-size:15px;line-height:1.6">${body}</div>
       ${ctaUrl ? `<div style="text-align:center;margin:24px 0">
-        <a href="${ctaUrl}" style="display:inline-block;background:#1B3A6B;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">${ctaText ?? "View in GrantPilot"}</a>
+        <a href="${ctaUrl}" style="display:inline-block;background:#1B3A6B;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">${ctaText ?? "View in Grants-Copilot"}</a>
       </div>` : ""}
     </div>
     <div style="text-align:center;margin-top:24px;color:#999;font-size:12px">
@@ -42,10 +42,10 @@ export function buildEmailHtml(
   switch (type) {
     case "welcome":
       return {
-        subject: "Welcome to GrantPilot",
+        subject: "Welcome to Grants-Copilot",
         html: baseLayout(
-          "Welcome to GrantPilot",
-          "<p>Thanks for joining GrantPilot. Start by completing your business profile — it takes about 5 minutes and unlocks AI grant matching.</p>",
+          "Welcome to Grants-Copilot",
+          "<p>Thanks for joining Grants-Copilot. Start by completing your business profile — it takes about 5 minutes and unlocks AI grant matching.</p>",
           `${appUrl}/profile`,
           "Complete Your Profile"
         ),
@@ -176,12 +176,12 @@ export function buildEmailHtml(
         : "";
       const body = `<p>New grant opportunities for <strong>${escapeHtml(profileName)}</strong> — review and start an application from the links below.</p>${table}${missingReminder}<p style="margin-top:16px">You can also browse all grants and apply with AI from the app.</p>`;
       return {
-        subject: `[Grant Pilot] New grant opportunities for ${profileName}`,
+        subject: `[Grants-Copilot] New grant opportunities for ${profileName}`,
         html: baseLayout(
           `New grant opportunities for ${escapeHtml(profileName)}`,
           body,
           `${appUrl}/grants`,
-          "View all in Grant Pilot"
+          "View all in Grants-Copilot"
         ),
       };
     }
@@ -189,10 +189,10 @@ export function buildEmailHtml(
     case "subscription_activated": {
       const plan = payload.planName ?? "Pro";
       return {
-        subject: `Welcome to GrantPilot ${plan}!`,
+        subject: `Welcome to Grants-Copilot ${plan}!`,
         html: baseLayout(
-          `You're now on GrantPilot ${plan}`,
-          `<p>Your subscription to <strong>GrantPilot ${plan}</strong> is now active.</p>
+          `You're now on Grants-Copilot ${plan}`,
+          `<p>Your subscription to <strong>Grants-Copilot ${plan}</strong> is now active.</p>
           <p>Here's what's unlocked:</p>
           <ul style="padding-left:20px">
             ${plan === "Business" ? "<li>5 business profiles</li><li>Unlimited grant matches</li><li>Unlimited auto-fills</li><li>Priority support</li><li>All notification channels</li>" : "<li>Unlimited grant matches</li><li>10 auto-fills per month</li><li>Email &amp; WhatsApp notifications</li>"}
@@ -207,10 +207,10 @@ export function buildEmailHtml(
     case "subscription_upgraded": {
       const plan = payload.planName ?? "Business";
       return {
-        subject: `Upgraded to GrantPilot ${plan}`,
+        subject: `Upgraded to Grants-Copilot ${plan}`,
         html: baseLayout(
-          `You've upgraded to GrantPilot ${plan}`,
-          `<p>Your plan has been upgraded to <strong>GrantPilot ${plan}</strong>.</p>
+          `You've upgraded to Grants-Copilot ${plan}`,
+          `<p>Your plan has been upgraded to <strong>Grants-Copilot ${plan}</strong>.</p>
           <p>Your new limits are now active — enjoy unlimited grant matches and auto-fills.</p>`,
           `${appUrl}/billing`,
           "View Subscription"
@@ -220,10 +220,10 @@ export function buildEmailHtml(
 
     case "subscription_cancelled":
       return {
-        subject: "Your GrantPilot subscription has ended",
+        subject: "Your Grants-Copilot subscription has ended",
         html: baseLayout(
           "Your subscription has ended",
-          `<p>Your GrantPilot paid subscription has been cancelled and your account has been moved to the Free Trial plan.</p>
+          `<p>Your Grants-Copilot paid subscription has been cancelled and your account has been moved to the Free Trial plan.</p>
           <p>You can still access your dashboard and existing applications, but AI grant matching, auto-fills, and notifications are limited on the free plan.</p>
           <p>Ready to come back? Upgrade anytime from the billing page.</p>`,
           `${appUrl}/billing`,
@@ -233,8 +233,8 @@ export function buildEmailHtml(
 
     default:
       return {
-        subject: "Update from GrantPilot",
-        html: baseLayout("Update", "<p>You have an update on GrantPilot.</p>", appUrl),
+        subject: "Update from Grants-Copilot",
+        html: baseLayout("Update", "<p>You have an update on Grants-Copilot.</p>", appUrl),
       };
   }
 }
@@ -299,18 +299,18 @@ export function buildWhatsAppMessage(
 
     case "subscription_activated": {
       const plan = payload.planName ?? "Pro";
-      return `🎉 Welcome to GrantPilot ${plan}!\n\nYour subscription is active. AI grant matching runs daily — we'll send you matched grants every morning.\n\n${appUrl}/dashboard`;
+      return `🎉 Welcome to Grants-Copilot ${plan}!\n\nYour subscription is active. AI grant matching runs daily — we'll send you matched grants every morning.\n\n${appUrl}/dashboard`;
     }
 
     case "subscription_upgraded": {
       const plan = payload.planName ?? "Business";
-      return `⬆️ Upgraded to GrantPilot ${plan}!\n\nYour new limits are active. Enjoy unlimited grant matches and auto-fills.\n\n${appUrl}/billing`;
+      return `⬆️ Upgraded to Grants-Copilot ${plan}!\n\nYour new limits are active. Enjoy unlimited grant matches and auto-fills.\n\n${appUrl}/billing`;
     }
 
     case "subscription_cancelled":
-      return `Your GrantPilot subscription has ended. You're now on the Free Trial plan.\n\nResubscribe anytime: ${appUrl}/billing`;
+      return `Your Grants-Copilot subscription has ended. You're now on the Free Trial plan.\n\nResubscribe anytime: ${appUrl}/billing`;
 
     default:
-      return `You have an update on GrantPilot.\n\n${appUrl}`;
+      return `You have an update on Grants-Copilot.\n\n${appUrl}`;
   }
 }

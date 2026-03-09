@@ -80,7 +80,7 @@ function mapToGrantInput(entry: FindAGrantEntry): GrantInput | null {
  */
 async function fetchFromFindAGrant(): Promise<GrantInput[]> {
   const res = await fetch(`${FIND_A_GRANT_URL}?searchTerm=&limit=200`, {
-    headers: { "User-Agent": "GrantPilot/1.0 (grant aggregator)" },
+    headers: { "User-Agent": "Grants-Copilot/1.0 (grant aggregator)" },
     signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) throw new Error(`Find a Grant returned ${res.status}`);

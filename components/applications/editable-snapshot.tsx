@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { FileText, Save, Loader2, Pencil, X, Code, Check } from "lucide-react";
+import { FileText, Save, Loader2, Pencil, X, Code, Check, Bookmark } from "lucide-react";
 import { toast } from "sonner";
 import { normalizeFormFieldLabel } from "@/lib/form-field-labels";
 
@@ -37,6 +37,7 @@ export function EditableSnapshot({
   const [fields, setFields] = useState(initialFields);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [savingToProfile, setSavingToProfile] = useState(false);
   const [dirty, setDirty] = useState(false);
 
   const handleFieldChange = useCallback((index: number, value: string) => {
@@ -71,8 +72,27 @@ export function EditableSnapshot({
     }
   }
 
+  async function handleSaveToProfile() {
+    setSavingToProfile(true);
+    try {
+      const res = await fetch(`/api/applications/${applicationId}/save-to-profile`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        toast.error(data.error ?? "Failed to save to profile");
+        return;
+      }
+      toast.success("Answers saved to your profile — they’ll be used for future applications.");
+    } catch {
+      toast.error("Something went wrong");
+    } finally {
+      setSavingToProfile(false);
+    }
+  }
+
   const bookmarkletCode = `javascript:void(${encodeURIComponent(
-    `(function(){var f=${JSON.stringify(fields.filter((f) => f.value))};f.forEach(function(d){var e=document.querySelector('[name="'+d.name+'"]')||document.getElementById(d.name);if(e&&e.type!=='file'){e.value=d.value;e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}))}});alert('GrantPilot: '+f.length+' fields pre-filled. Review and edit as needed.')})()`
+    `(function(){var f=${JSON.stringify(fields.filter((f) => f.value))};f.forEach(function(d){var e=document.querySelector('[name="'+d.name+'"]')||document.getElementById(d.name);if(e&&e.type!=='file'){e.value=d.value;e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}))}});alert('Grants-Copilot: '+f.length+' fields pre-filled. Review and edit as needed.')})()`
   )})`;
 
   return (
@@ -137,6 +157,25 @@ export function EditableSnapshot({
             </ol>
           </div>
 
+          {fields.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-1"
+                onClick={handleSaveToProfile}
+                disabled={savingToProfile}
+              >
+                {savingToProfile ? <Loader2 className="h-3 w-3 animate-spin" /> : <Bookmark className="h-3 w-3" />}
+                Save answers to my profile
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                Use these answers for future applications.
+              </span>
+            </div>
+          )}
+
           {fields.length > 0 ? (
             <div className="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-2">
               {fields.filter((f) => f.value !== "" || editing).map((f, i) => (
@@ -200,7 +239,7 @@ export function EditableSnapshot({
                 onClick={(e) => { e.preventDefault(); toast.info("Drag this link to your bookmarks bar, then click it on the grant form page."); }}
               >
                 <Code className="h-4 w-4" />
-                GrantPilot Auto-Fill
+                Grants-Copilot Auto-Fill
               </a>
               <a
                 href={grantUrl}

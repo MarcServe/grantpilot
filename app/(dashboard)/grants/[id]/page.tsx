@@ -15,6 +15,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { ApplyButton } from "@/components/grants/apply-button";
+import { EditApplicationUrl } from "@/components/grants/edit-application-url";
 import { EligibilityCard } from "@/components/grants/eligibility-card";
 import { computeUrgency } from "@/lib/urgency";
 import { checkRequirementsAgainstDocuments } from "@/lib/grant-requirements";
@@ -189,6 +190,11 @@ export default async function GrantDetailPage({
 
           <Separator />
 
+          <div>
+            <h3 className="mb-2 font-semibold">Application link</h3>
+            <EditApplicationUrl grantId={grant.id} applicationUrl={grant.applicationUrl ?? ""} />
+          </div>
+
           {grant.description && (
             <div>
               <h3 className="mb-2 font-semibold">Description</h3>
@@ -226,7 +232,7 @@ export default async function GrantDetailPage({
           {hasProfile && profileId && (
             <>
               <Separator />
-              <EligibilityCard grantId={grant.id} />
+              <EligibilityCard grantId={grant.id} applicationId={existingApplication?.id} />
             </>
           )}
 

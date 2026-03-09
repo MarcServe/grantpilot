@@ -49,7 +49,7 @@ export function ApproveForm({ applicationId, token, grantName }: ApproveFormProp
           You can now sign in and submit when ready, or do it from the app.
         </p>
         <Button asChild className="mt-4">
-          <a href="/sign-in">Sign in to GrantPilot</a>
+          <a href="/sign-in">Sign in to Grants-Copilot</a>
         </Button>
       </div>
     );

@@ -48,7 +48,7 @@ export function SignInForm() {
             <FileCheck className="h-7 w-7 text-primary-foreground" />
           </div>
           <CardTitle className="text-2xl">Welcome back</CardTitle>
-          <CardDescription>Sign in to your GrantPilot account</CardDescription>
+          <CardDescription>Sign in to your Grants-Copilot account</CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">

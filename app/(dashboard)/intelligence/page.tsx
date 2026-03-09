@@ -46,7 +46,7 @@ export default async function IntelligencePage() {
   return (
     <div className="mx-auto max-w-4xl p-6">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold">GrantPilot Intelligence</h1>
+        <h1 className="text-2xl font-bold">Grants-Copilot Intelligence</h1>
         <p className="mt-1 text-muted-foreground">
           Vertical depth that general assistants can&apos;t replicate: structured form intelligence,
           portal automation, eligibility decisions, and grant knowledge.
@@ -151,7 +151,7 @@ export default async function IntelligencePage() {
               What this page shows you
             </p>
             <p className="text-sm text-muted-foreground">
-              Here you see how GrantPilot works under the hood: form parsing and field mapping,
+              Here you see how Grants-Copilot works under the hood: form parsing and field mapping,
               per-grant eligibility scores and improvement tips, and AI-powered matching so you
               can focus on the best-fit grants first.
             </p>

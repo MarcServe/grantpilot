@@ -194,17 +194,34 @@ export function Step4Funding({
     toast.success("Funding summary generated");
   }
 
+  function toPlanLine(item: unknown): string {
+    if (typeof item === "string") return item;
+    if (item != null && typeof item === "object") {
+      const o = item as Record<string, unknown>;
+      const s =
+        (typeof o.text === "string" && o.text) ||
+        (typeof o.milestone === "string" && o.milestone) ||
+        (typeof o.content === "string" && o.content) ||
+        (typeof o.title === "string" && o.title) ||
+        (typeof o.description === "string" && o.description);
+      if (s) return s;
+    }
+    return String(item ?? "");
+  }
+
   async function handleGeneratePlan() {
     const result = await callAI("generate_plan");
     if (!result) return;
+    const milestones = (result.milestones ?? []).map((m: unknown, i: number) => `${i + 1}. ${toPlanLine(m)}`);
+    const outcomes = (result.outcomes ?? []).map((o: unknown) => `• ${toPlanLine(o)}`);
     const planText = [
-      result.summary,
+      result.summary ?? "",
       "",
       "Key Milestones:",
-      ...(result.milestones?.map((m: string, i: number) => `${i + 1}. ${m}`) ?? []),
+      ...milestones,
       "",
       "Expected Outcomes:",
-      ...(result.outcomes?.map((o: string) => `• ${o}`) ?? []),
+      ...outcomes,
     ].join("\n");
     setGeneratedSummary(planText);
     form.setValue("fundingDetails", planText, { shouldValidate: true });
@@ -418,7 +435,7 @@ export function Step4Funding({
         />
 
         <p className="text-xs text-muted-foreground">
-          GrantPilot uses this information to match your business with the most relevant grants and prepare stronger applications automatically.
+          Grants-Copilot uses this information to match your business with the most relevant grants and prepare stronger applications automatically.
         </p>
 
         <div className="flex justify-between">

@@ -8,7 +8,8 @@
     "applicationUrl": "https://apply-for-innovation-funding.service.gov.uk/competition/search",
     "eligibility": "UK registered businesses working on innovative projects with strong commercial potential. Must demonstrate a clear innovation, market opportunity, and ability to deliver the project.",
     "sectors": ["Technology", "Manufacturing", "Healthcare", "Energy"],
-    "regions": ["England", "Wales", "Scotland", "Northern Ireland"]
+    "regions": ["England", "Wales", "Scotland", "Northern Ireland"],
+    "applicantTypes": ["Private Sector", "Non-profit"]
   },
   {
     "externalId": "creative-scale-up-2026",
@@ -19,6 +20,7 @@
     "applicationUrl": "https://www.creative-england.co.uk/programmes",
     "eligibility": "Creative businesses with at least 2 years of trading history and minimum annual revenue of £250,000. Must be based in England and demonstrate scalability.",
     "sectors": ["Creative Industries", "Digital Media", "Gaming", "Film"],
-    "regions": ["England"]
+    "regions": ["England"],
+    "applicantTypes": ["Private Sector"]
   }
 ]

@@ -4,6 +4,7 @@
  */
 
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { looksLikeGenericOrListUrl } from "@/lib/grant-url-validation";
 
 export interface GrantInput {
   externalId?: string;
@@ -51,11 +52,13 @@ export function parseGrantRow(row: unknown): GrantInput | null {
   const eligibility = typeof o.eligibility === "string" ? o.eligibility : typeof o.description === "string" ? o.description : "";
 
   if (!name || !funder || !applicationUrl) return null;
+  if (looksLikeGenericOrListUrl(applicationUrl)) return null;
 
   const amount = typeof o.amount === "number" ? o.amount : typeof o.amount === "string" ? parseFloat(o.amount) : null;
   const externalId = typeof o.externalId === "string" ? o.externalId : typeof o.id === "string" ? o.id : undefined;
 
   const funderLocations = toArray(o.funderLocations ?? o.funder_locations);
+  const applicantTypes = toArray(o.applicantTypes ?? o.applicant_types);
   const source = typeof o.source === "string" && ["default", "claude", "openai", "gemini"].includes(o.source)
     ? (o.source as "default" | "claude" | "openai" | "gemini")
     : undefined;
@@ -71,6 +74,7 @@ export function parseGrantRow(row: unknown): GrantInput | null {
     sectors: toArray(o.sectors ?? o.sector),
     regions: toArray(o.regions ?? o.region),
     funderLocations: funderLocations.length > 0 ? funderLocations : undefined,
+    applicantTypes: applicantTypes.length > 0 ? applicantTypes : undefined,
   };
 }
 

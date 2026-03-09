@@ -20,6 +20,7 @@ import {
   buildUploadPlan,
   type RequiredAttachment,
 } from "./required-attachments.js";
+import { detectPageSituation, type PageSituation } from "./page-situation.js";
 
 export interface StepResult {
   success: boolean;
@@ -28,6 +29,10 @@ export interface StepResult {
   skipped?: boolean;
   /** Filled form snapshot for in-app review (e.g. from prepare_review step). */
   snapshot?: FilledFormSnapshot;
+  /** Page situation when open_grant_url hits login/list/verify; app shows banner. */
+  situation?: PageSituation;
+  /** When true, app should prompt user to set direct application URL. */
+  needsDirectUrl?: boolean;
 }
 
 export interface GrantStepOptions {
@@ -66,9 +71,41 @@ export async function runGrantStep(
         return { success: false, notes: "No grant URL on item" };
       }
       const { ok, error } = await navigateToGrantUrl(page, grantUrl);
-      return ok
-        ? { success: true, notes: `Opened ${grantUrl}` }
-        : { success: false, notes: error ?? "Navigate failed" };
+      if (!ok) {
+        return { success: false, notes: error ?? "Navigate failed" };
+      }
+      const { situation, needsDirectUrl } = await detectPageSituation(page);
+      if (situation === "login_required") {
+        return {
+          success: false,
+          notes: "This funder requires you to sign in. Sign in on their site, then use the bookmarklet or Resume to continue.",
+          situation: "login_required",
+        };
+      }
+      if (situation === "needs_verification") {
+        return {
+          success: false,
+          notes: "This funder requires you to create an account or verify your email. Complete that on the funder's site, then use the bookmarklet or Resume to continue.",
+          situation: "needs_verification",
+        };
+      }
+      if (situation === "competition_list") {
+        return {
+          success: false,
+          notes: "This link goes to a list of schemes. Please open the specific grant and update the application URL for this grant, then retry.",
+          situation: "competition_list",
+          needsDirectUrl: needsDirectUrl ?? true,
+        };
+      }
+      if (situation === "unknown") {
+        return {
+          success: false,
+          notes: "This page doesn't look like an application form. Please open the specific grant or application page and update the application URL, then retry.",
+          situation: "unknown",
+          needsDirectUrl: needsDirectUrl ?? true,
+        };
+      }
+      return { success: true, notes: `Opened ${grantUrl}` };
     }
 
     case "fill_company_details": {
@@ -78,6 +115,29 @@ export async function runGrantStep(
         return { success: true, skipped: true, notes: "No company fields on form; skipped" };
       }
       const { applied, errors } = await applyFillActions(page, actions);
+      const { situation } = await detectPageSituation(page);
+      if (situation === "login_required") {
+        return {
+          success: false,
+          notes: "Page redirected to sign-in. Sign in on the funder's site, then use the bookmarklet or Resume.",
+          situation: "login_required",
+        };
+      }
+      if (situation === "needs_verification") {
+        return {
+          success: false,
+          notes: "Page requires account or email verification. Complete that on the funder's site, then use the bookmarklet or Resume.",
+          situation: "needs_verification",
+        };
+      }
+      if (situation === "competition_list") {
+        return {
+          success: false,
+          notes: "Page is a list of schemes. Use the direct application URL for this grant, then retry.",
+          situation: "competition_list",
+          needsDirectUrl: true,
+        };
+      }
       const note =
         errors.length > 0
           ? `Filled ${applied} fields; errors: ${errors.join("; ")}`

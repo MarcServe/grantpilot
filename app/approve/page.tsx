@@ -21,7 +21,7 @@ export default async function ApprovePage({
             This approval link is missing or invalid. Please use the link from your email or WhatsApp.
           </p>
           <Link href="/sign-in" className="mt-4 inline-block text-sm font-medium text-primary hover:underline">
-            Sign in to GrantPilot
+            Sign in to Grants-Copilot
           </Link>
         </div>
       </div>
@@ -38,7 +38,7 @@ export default async function ApprovePage({
             This approval link has expired or is invalid. Please request a new link or sign in to approve.
           </p>
           <Link href="/sign-in" className="mt-4 inline-block text-sm font-medium text-primary hover:underline">
-            Sign in to GrantPilot
+            Sign in to Grants-Copilot
           </Link>
         </div>
       </div>
@@ -66,7 +66,7 @@ export default async function ApprovePage({
             This application has already been approved or submitted, or the link is no longer valid.
           </p>
           <Link href="/sign-in" className="mt-4 inline-block text-sm font-medium text-primary hover:underline">
-            Sign in to GrantPilot
+            Sign in to Grants-Copilot
           </Link>
         </div>
       </div>

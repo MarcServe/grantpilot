@@ -52,25 +52,51 @@ export async function POST(req: Request): Promise<NextResponse> {
       return NextResponse.json({ error: "Grant not found" }, { status: 404 });
     }
 
+    let createdById: string | null = null;
+
     let { data: members = [] } = await supabase
       .from("OrganisationMember")
       .select("userId, user_id")
       .eq("organisationId", orgId)
       .limit(1);
-    if (!Array.isArray(members) || members.length === 0) {
+    if (!Array.isArray(members)) members = [];
+    if (members.length === 0) {
       const alt = await supabase
         .from("OrganisationMember")
         .select("userId, user_id")
         .eq("organisation_id", orgId)
         .limit(1);
-      members = alt.data ?? [];
+      members = (alt.data ?? []) as { userId?: string; user_id?: string }[];
     }
-    const firstMember = Array.isArray(members) ? members[0] : null;
-    const createdById =
-      (firstMember as { userId?: string; user_id?: string } | null)?.userId ??
-      (firstMember as { user_id?: string } | null)?.user_id;
+    const firstMember = members[0];
+    if (firstMember) {
+      createdById =
+        (firstMember as { userId?: string; user_id?: string }).userId ??
+        (firstMember as { user_id?: string }).user_id ??
+        null;
+    }
+
+    // Fallback: if no members found (e.g. query/RLS edge case), use creator of latest application for this org
     if (!createdById) {
-      return NextResponse.json({ error: "Organisation has no members" }, { status: 400 });
+      const { data: latestApp } = await supabase
+        .from("Application")
+        .select("createdById, created_by_id")
+        .eq("organisationId", orgId)
+        .order("createdAt", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const app = latestApp as { createdById?: string; created_by_id?: string } | null;
+      createdById = app?.createdById ?? app?.created_by_id ?? null;
+    }
+
+    if (!createdById) {
+      return NextResponse.json(
+        {
+          error:
+            "Organisation has no members. Please sign in to Grants-Copilot first, then try this link again.",
+        },
+        { status: 400 }
+      );
     }
 
     const { allowed } = await checkUsageLimit(orgId, "autofill");

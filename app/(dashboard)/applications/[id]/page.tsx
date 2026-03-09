@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
-import { ArrowLeft, CheckCircle, XCircle, Clock, Loader2 } from "lucide-react";
+import { ArrowLeft, CheckCircle, XCircle, Clock, Loader2, AlertCircle } from "lucide-react";
 import { SubmitSection } from "@/components/applications/submit-section";
 import { StopApplicationButton } from "@/components/applications/stop-application-button";
 import { ApplicationTaskList } from "@/components/applications/application-task-list";
@@ -116,6 +116,23 @@ export default async function ApplicationDetailPage({
     filledSnapshot &&
     (application.status === "FILLING" || application.status === "REVIEW_REQUIRED" || application.status === "APPROVED");
 
+  const sessionItems = (items ?? []) as {
+    id: number;
+    action: string | null;
+    status: string;
+    error_message: string | null;
+    extra_data?: { page_situation?: string; needs_direct_url?: boolean; notes?: string };
+  }[];
+  const pageSituationItem = sessionItems.find(
+    (i) => i.extra_data && typeof (i.extra_data as { page_situation?: string }).page_situation === "string"
+  );
+  const pageSituation = pageSituationItem
+    ? (pageSituationItem.extra_data as { page_situation?: string }).page_situation
+    : null;
+  const needsDirectUrl = pageSituationItem
+    ? (pageSituationItem.extra_data as { needs_direct_url?: boolean }).needs_direct_url
+    : false;
+
   return (
     <div className="mx-auto max-w-4xl p-6">
       <Link
@@ -143,6 +160,49 @@ export default async function ApplicationDetailPage({
           </Badge>
         </div>
       </div>
+
+      {pageSituation && (
+        <Card className="mb-6 border-amber-200 bg-amber-50">
+          <CardContent className="flex gap-3 p-4">
+            <AlertCircle className="h-5 w-5 shrink-0 text-amber-600" />
+            <div className="text-sm">
+              {pageSituation === "login_required" && (
+                <>
+                  <p className="font-medium text-amber-900">Sign in required</p>
+                  <p className="mt-1 text-amber-800">
+                    This funder requires you to sign in. Sign in on their site, then use the bookmarklet below or resume the application to continue.
+                  </p>
+                </>
+              )}
+              {pageSituation === "competition_list" && (
+                <>
+                  <p className="font-medium text-amber-900">Use the direct application link</p>
+                  <p className="mt-1 text-amber-800">
+                    This link goes to a list of schemes. Open the specific grant you want to apply for, copy its URL, and update the application URL for this grant, then retry.
+                  </p>
+                  <Link
+                    href={`/grants/${(application as { grant?: { id?: string } }).grant?.id ?? ""}`}
+                    className="mt-2 inline-block text-sm font-medium text-amber-800 underline hover:no-underline"
+                  >
+                    Edit application URL on grant page
+                  </Link>
+                </>
+              )}
+              {pageSituation === "needs_verification" && (
+                <>
+                  <p className="font-medium text-amber-900">Account or email verification needed</p>
+                  <p className="mt-1 text-amber-800">
+                    This funder requires you to create an account or verify your email. Complete that on the funder&apos;s site, then use the bookmarklet below or resume the application to continue.
+                  </p>
+                </>
+              )}
+              {pageSituation && !["login_required", "competition_list", "needs_verification"].includes(pageSituation) && (
+                <p className="text-amber-800">{pageSituationItem?.extra_data?.notes ?? "This step needs your attention."}</p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {tasks.length > 0 && (
         <ApplicationTaskList applicationId={application.id} tasks={tasks} />
