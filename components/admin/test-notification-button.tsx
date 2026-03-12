@@ -18,7 +18,16 @@ export function TestNotificationButton() {
         toast.error(data.error ?? "Failed to send test notification");
         return;
       }
-      toast.success(data.message ?? "Test notification sent. Check your email and WhatsApp.");
+      const emailOk = data.email === "sent";
+      const whatsappOk = data.whatsapp === "sent";
+      if (emailOk && whatsappOk) {
+        toast.success("Test sent to your email and WhatsApp.");
+      } else if (emailOk && !whatsappOk) {
+        const reason = data.whatsappReason || "Check Profile (phone + WhatsApp opt-in) and Vercel env (TWILIO_WHATSAPP_GRANT_MATCH_CONTENT_SID).";
+        toast.warning(`Email sent. WhatsApp not sent: ${reason}`, { duration: 8000 });
+      } else {
+        toast.success(data.message ?? "Test notification sent.");
+      }
     } catch {
       toast.error("Failed to send test notification");
     } finally {

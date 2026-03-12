@@ -49,9 +49,40 @@ export async function POST() {
       grantId: grantId ?? undefined,
       score: 85,
     });
+
+    const { data: logs } = await supabase
+      .from("NotificationLog")
+      .select("channel, status, error")
+      .eq("userId", id)
+      .eq("type", "grant_match_high")
+      .order("createdAt", { ascending: false })
+      .limit(5);
+
+    const emailLog = (logs ?? []).find((r: { channel: string }) => r.channel === "email");
+    const whatsappLog = (logs ?? []).find((r: { channel: string }) => r.channel === "whatsapp");
+    const emailStatus = (emailLog as { status?: string } | undefined)?.status ?? "unknown";
+    const whatsappStatus = (whatsappLog as { status?: string } | undefined)?.status ?? "unknown";
+    const whatsappError = (whatsappLog as { error?: string | null } | undefined)?.error ?? null;
+
+    let whatsappReason = "";
+    if (whatsappStatus === "skipped" && whatsappError) {
+      if (whatsappError === "whatsapp_requires_template") {
+        whatsappReason = "Set TWILIO_WHATSAPP_GRANT_MATCH_CONTENT_SID in Vercel and use an approved Content Template with placeholder {{3}} for the grant link.";
+      } else if (whatsappError === "no_phone") {
+        whatsappReason = "Add your phone number in Profile and opt in to WhatsApp.";
+      } else {
+        whatsappReason = whatsappError;
+      }
+    } else if (whatsappStatus === "failed" && whatsappError) {
+      whatsappReason = whatsappError;
+    }
+
     return NextResponse.json({
       ok: true,
-      message: "Test notification sent to your email and WhatsApp (if phone and template are configured).",
+      message: "Test notification sent.",
+      email: emailStatus,
+      whatsapp: whatsappStatus,
+      whatsappReason: whatsappReason || undefined,
     });
   } catch (e) {
     console.error("[admin/test-notification]", e);
