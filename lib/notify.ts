@@ -93,8 +93,11 @@ export async function notifyUser(
 
     // WhatsApp business-initiated messages require Content Templates (Twilio 63016). Never use body.
     if (useGrantTemplate) {
+      const grantUrl = payload.grantId ? `${appUrl}/grants/${payload.grantId}` : `${appUrl}/grants`;
       const result = await sendWhatsAppWithTemplate(user.phoneNumber, grantMatchSid, {
-        "3": payload.grantId ? `${appUrl}/grants/${payload.grantId}` : `${appUrl}/grants`,
+        "1": grantUrl,
+        "2": grantUrl,
+        "3": grantUrl,
       });
       const logPayload: Record<string, unknown> = {
         userId: user.id,
