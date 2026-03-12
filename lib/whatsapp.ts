@@ -44,11 +44,18 @@ export async function sendWhatsAppWithTemplate(
     const toE164Formatted = toE164(to);
     const fromE164Formatted = toE164(fromNumber);
 
+    const sanitized: Record<string, string> = {};
+    for (const [k, v] of Object.entries(contentVariables)) {
+      if (k != null && String(v).trim() !== "") sanitized[k] = String(v).replace(/[\r\n\t]+/g, " ").trim();
+    }
+    if (Object.keys(sanitized).length === 0) {
+      return { success: false, error: "No valid content variables (template placeholders must be non-empty)" };
+    }
     const twilioMessage = await client.messages.create({
       from: `whatsapp:${fromE164Formatted}`,
       to: `whatsapp:${toE164Formatted}`,
       contentSid,
-      contentVariables: JSON.stringify(contentVariables),
+      contentVariables: JSON.stringify(sanitized),
     });
 
     const sid = twilioMessage.sid ?? undefined;
