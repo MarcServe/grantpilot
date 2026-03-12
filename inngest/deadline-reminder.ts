@@ -72,8 +72,29 @@ export const deadlineReminder = inngest.createFunction(
 
           if (alreadyApplied) continue;
 
+          const profile = org.profiles[0];
+          const profileId = (profile as { id?: string }).id;
+          if (!profileId) continue;
+
+          const { data: prefs } = await supabase
+            .from("EligibilityNotificationPreference")
+            .select("min_score, max_score")
+            .eq("organisation_id", org.id)
+            .maybeSingle();
+          const minScore = (prefs as { min_score?: number } | null)?.min_score ?? 70;
+          const maxScore = (prefs as { max_score?: number } | null)?.max_score ?? 100;
+
+          const { data: assessment } = await supabase
+            .from("EligibilityAssessment")
+            .select("score")
+            .eq("organisation_id", org.id)
+            .eq("profile_id", profileId)
+            .eq("grant_id", grant.id)
+            .maybeSingle();
+          const score = (assessment as { score?: number } | null)?.score;
+          if (score == null || score < minScore || score > maxScore) continue;
+
           try {
-            const profile = org.profiles[0];
             const startApplicationToken = profile
               ? createStartApplicationToken({
                   grantId: grant.id,

@@ -52,8 +52,8 @@ export function StartApplicationForm({ token, grantName }: StartApplicationFormP
           Your application for {grantName} has been created. Our AI is filling it in.
         </p>
         {applicationId && (
-          <Button asChild className="mt-4">
-            <a href={`/applications/${applicationId}`}>View application</a>
+          <Button className="mt-4" onClick={() => router.push(`/applications/${applicationId}`)}>
+            View application
           </Button>
         )}
       </div>

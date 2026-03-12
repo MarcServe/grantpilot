@@ -12,8 +12,10 @@ import { toast } from "sonner";
 export function EligibilityNotificationPreferences() {
   const [minScore, setMinScore] = useState(70);
   const [maxScore, setMaxScore] = useState(100);
+  const [eligibleThreshold, setEligibleThreshold] = useState(70);
   const [notifyEmail, setNotifyEmail] = useState(true);
   const [notifyInApp, setNotifyInApp] = useState(true);
+  const [notifyWhatsApp, setNotifyWhatsApp] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -23,8 +25,10 @@ export function EligibilityNotificationPreferences() {
       .then((data) => {
         if (data.minScore != null) setMinScore(data.minScore);
         if (data.maxScore != null) setMaxScore(data.maxScore);
+        if (data.eligibleThreshold != null) setEligibleThreshold(data.eligibleThreshold);
         if (data.notifyEmail != null) setNotifyEmail(data.notifyEmail);
         if (data.notifyInApp != null) setNotifyInApp(data.notifyInApp);
+        if (data.notifyWhatsApp != null) setNotifyWhatsApp(data.notifyWhatsApp);
       })
       .catch(() => toast.error("Failed to load preferences"))
       .finally(() => setLoading(false));
@@ -43,8 +47,10 @@ export function EligibilityNotificationPreferences() {
         body: JSON.stringify({
           minScore: Number(minScore),
           maxScore: Number(maxScore),
+          eligibleThreshold: Number(eligibleThreshold),
           notifyEmail,
           notifyInApp,
+          notifyWhatsApp,
         }),
       });
       const data = await res.json();
@@ -77,7 +83,7 @@ export function EligibilityNotificationPreferences() {
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          Notify me when a grant&apos;s eligibility score falls in this range (e.g. 70–85% or 85–100%).
+          Notify me when a grant&apos;s eligibility score falls in this range (e.g. 70–85% or 85–100%). Within-reach grants (below eligible threshold) are email only; eligible grants get email + WhatsApp when enabled.
         </p>
         <div className="flex flex-wrap items-center gap-4">
           <div className="flex items-center gap-2">
@@ -104,6 +110,18 @@ export function EligibilityNotificationPreferences() {
               className="w-20"
             />
           </div>
+          <div className="flex items-center gap-2">
+            <Label htmlFor="eligibleThreshold" className="text-sm" title="Grants at or above this score get WhatsApp + email; below get email only">Eligible from %</Label>
+            <Input
+              id="eligibleThreshold"
+              type="number"
+              min={0}
+              max={100}
+              value={eligibleThreshold}
+              onChange={(e) => setEligibleThreshold(Number(e.target.value))}
+              className="w-20"
+            />
+          </div>
         </div>
         <div className="flex flex-wrap gap-6">
           <div className="flex items-center gap-2">
@@ -113,6 +131,10 @@ export function EligibilityNotificationPreferences() {
           <div className="flex items-center gap-2">
             <Checkbox id="notifyInApp" checked={notifyInApp} onCheckedChange={(c) => setNotifyInApp(c === true)} />
             <Label htmlFor="notifyInApp" className="text-sm font-normal cursor-pointer">In-app</Label>
+          </div>
+          <div className="flex items-center gap-2">
+            <Checkbox id="notifyWhatsApp" checked={notifyWhatsApp} onCheckedChange={(c) => setNotifyWhatsApp(c === true)} />
+            <Label htmlFor="notifyWhatsApp" className="text-sm font-normal cursor-pointer">WhatsApp</Label>
           </div>
         </div>
         <Button onClick={handleSave} disabled={saving} size="sm">

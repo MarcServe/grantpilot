@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ShieldCheck } from "lucide-react";
 import { GrantImportUploader } from "@/components/admin/grant-import-uploader";
+import { TestNotificationButton } from "@/components/admin/test-notification-button";
 
 export const dynamic = "force-dynamic";
 
@@ -64,6 +65,7 @@ export default async function AdminPage() {
           </p>
         </div>
         <GrantImportUploader />
+        <TestNotificationButton />
         <Card>
           <CardHeader>
             <CardTitle>API import</CardTitle>

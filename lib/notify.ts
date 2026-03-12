@@ -54,10 +54,16 @@ export interface NotificationPayload {
   planName?: string;
 }
 
+export interface NotifyOptions {
+  /** When false, skip WhatsApp for this notification (e.g. org preference for eligibility digest). */
+  sendWhatsApp?: boolean;
+}
+
 export async function notifyUser(
   user: NotifyUser,
   type: NotificationType,
-  payload: NotificationPayload
+  payload: NotificationPayload,
+  options?: NotifyOptions
 ): Promise<void> {
   const appUrl = payload.appUrl ?? process.env.NEXT_PUBLIC_APP_URL ?? "https://grantpilot.co.uk";
 
@@ -75,35 +81,61 @@ export async function notifyUser(
     });
   }
 
-  if (user.whatsappOptIn && user.phoneNumber) {
-    const contentSid = process.env.TWILIO_WHATSAPP_GRANT_MATCH_CONTENT_SID;
-    const useTemplate =
-      (type === "grant_match" || type === "grant_match_high") &&
-      contentSid &&
-      contentSid.trim().length > 0;
+  if (options?.sendWhatsApp === false) {
+    // Org opted out of WhatsApp for this notification type (e.g. eligibility digest).
+  } else if (user.whatsappOptIn && user.phoneNumber) {
+    const grantMatchSid = (process.env.TWILIO_WHATSAPP_GRANT_MATCH_CONTENT_SID ?? "").trim();
+    const deadlineSid = (process.env.TWILIO_WHATSAPP_DEADLINE_CONTENT_SID ?? "").trim();
 
-    const result = useTemplate
-      ? await sendWhatsAppWithTemplate(user.phoneNumber, contentSid!.trim(), {
-          // Template placeholder {{3}} = grant link (e.g. "View grant and apply with AI: {{3}}, Grants-Copilot")
-          "3":
-            payload.grantId ? `${appUrl}/grants/${payload.grantId}` : `${appUrl}/grants`,
-        })
-      : await sendWhatsApp(user.phoneNumber, buildWhatsAppMessage(type, payload, appUrl));
+    const useGrantTemplate =
+      (type === "grant_match" || type === "grant_match_high") && grantMatchSid.length > 0;
+    const useDeadlineTemplate = type === "deadline_reminder" && deadlineSid.length > 0;
 
-    const logPayload: Record<string, unknown> = {
-      userId: user.id,
-      channel: "whatsapp",
-      type,
-      status: result.success ? "sent" : "failed",
-      error: result.error ?? null,
-    };
-    if (result.twilioSid ?? result.twilioStatus) {
-      logPayload.metadata = {
-        twilioSid: result.twilioSid ?? null,
-        twilioStatus: result.twilioStatus ?? null,
+    // WhatsApp business-initiated messages require Content Templates (Twilio 63016). Never use body.
+    if (useGrantTemplate) {
+      const result = await sendWhatsAppWithTemplate(user.phoneNumber, grantMatchSid, {
+        "3": payload.grantId ? `${appUrl}/grants/${payload.grantId}` : `${appUrl}/grants`,
+      });
+      const logPayload: Record<string, unknown> = {
+        userId: user.id,
+        channel: "whatsapp",
+        type,
+        status: result.success ? "sent" : "failed",
+        error: result.error ?? null,
       };
+      if (result.twilioSid ?? result.twilioStatus) {
+        logPayload.metadata = { twilioSid: result.twilioSid ?? null, twilioStatus: result.twilioStatus ?? null };
+      }
+      await supabase.from("NotificationLog").insert(logPayload);
+    } else if (useDeadlineTemplate) {
+      const startUrl = payload.startApplicationToken
+        ? `${appUrl}/start-application?token=${encodeURIComponent(payload.startApplicationToken)}`
+        : `${appUrl}/grants/${payload.grantId ?? ""}`;
+      const result = await sendWhatsAppWithTemplate(user.phoneNumber, deadlineSid, {
+        "1": payload.grantName ?? "Grant",
+        "2": payload.deadline ?? "soon",
+        "3": startUrl,
+      });
+      const logPayload: Record<string, unknown> = {
+        userId: user.id,
+        channel: "whatsapp",
+        type,
+        status: result.success ? "sent" : "failed",
+        error: result.error ?? null,
+      };
+      if (result.twilioSid ?? result.twilioStatus) {
+        logPayload.metadata = { twilioSid: result.twilioSid ?? null, twilioStatus: result.twilioStatus ?? null };
+      }
+      await supabase.from("NotificationLog").insert(logPayload);
+    } else {
+      await supabase.from("NotificationLog").insert({
+        userId: user.id,
+        channel: "whatsapp",
+        type,
+        status: "skipped",
+        error: "whatsapp_requires_template",
+      });
     }
-    await supabase.from("NotificationLog").insert(logPayload);
   } else if (user.whatsappOptIn && !user.phoneNumber) {
     await supabase.from("NotificationLog").insert({
       userId: user.id,
@@ -144,7 +176,8 @@ function toNotifyUser(raw: Record<string, unknown> | null | undefined): NotifyUs
 export async function notifyOrgMembers(
   organisationId: string,
   type: NotificationType,
-  payload: NotificationPayload
+  payload: NotificationPayload,
+  options?: NotifyOptions
 ): Promise<void> {
   const supabase = getSupabaseAdmin();
   const userColumns = "id, email, phoneNumber, whatsappOptIn";
@@ -177,6 +210,6 @@ export async function notifyOrgMembers(
     .filter((u): u is NotifyUser => u != null);
 
   await Promise.allSettled(
-    withUser.map((u) => notifyUser(u, type, payload))
+    withUser.map((u) => notifyUser(u, type, payload, options))
   );
 }

@@ -103,7 +103,13 @@ export async function discoverFormLink(pageUrl: string): Promise<{ formUrl: stri
       headers: { "User-Agent": USER_AGENT },
       signal: AbortSignal.timeout(CRAWL_TIMEOUT_MS),
     });
-    if (!res.ok) return { formUrl: null, error: `HTTP ${res.status}` };
+    if (!res.ok) {
+      const msg =
+        res.status === 404
+          ? "Page returned 404 (Not Found). The programme URL may be wrong or the page may have been moved."
+          : `Page returned HTTP ${res.status}.`;
+      return { formUrl: null, error: msg };
+    }
     const html = await res.text();
     const formUrl = discoverFormLinkFromHtml(html, pageUrl);
     return { formUrl };

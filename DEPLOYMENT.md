@@ -41,6 +41,7 @@ Set these in your host (Vercel, Railway, etc.) or in production `.env`:
 | `RESEND_API_KEY` | Emails | For transactional email |
 | `TWILIO_*` | WhatsApp | For WhatsApp notifications (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_NUMBER`) |
 | `TWILIO_WHATSAPP_GRANT_MATCH_CONTENT_SID` | WhatsApp | Optional. Twilio Content Template SID (e.g. `HX...`) for grant-match messages. When set, grant_match and grant_match_high use the approved template; template must have placeholder `{{3}}` for the grant link. |
+| `TWILIO_WHATSAPP_DEADLINE_CONTENT_SID` | WhatsApp | Optional. Twilio Content Template SID for deadline reminders. When set, deadline_reminder uses the template; placeholders `{{1}}` grant name, `{{2}}` deadline date, `{{3}}` start-application or grant URL. Business-initiated WhatsApp requires templates (Twilio 63016). |
 
 \* Inngest: use [Vercel integration](https://inngest.com/docs/deploy/vercel) to auto-set keys and sync.
 

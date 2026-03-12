@@ -82,11 +82,13 @@ export const eligibilityRefresh = inngest.createFunction(
 
         const { data: prefs } = await supabase
           .from("EligibilityNotificationPreference")
-          .select("min_score, max_score, notify_email, notify_in_app")
+          .select("min_score, max_score, eligible_threshold, notify_email, notify_in_app, notify_whatsapp")
           .eq("organisation_id", orgId)
           .maybeSingle();
         const minScore = (prefs as { min_score?: number } | null)?.min_score ?? DIGEST_SCORE_THRESHOLD;
         const maxScore = (prefs as { max_score?: number } | null)?.max_score ?? 100;
+        const eligibleThreshold = (prefs as { eligible_threshold?: number } | null)?.eligible_threshold ?? 70;
+        const sendWhatsApp = (prefs as { notify_whatsapp?: boolean } | null)?.notify_whatsapp ?? false;
 
         const cooldown = new Date();
         cooldown.setDate(cooldown.getDate() - NOTIFY_COOLDOWN_DAYS);
@@ -186,8 +188,16 @@ export const eligibilityRefresh = inngest.createFunction(
           await notifyOrgMembers(orgId, "grant_scan_digest", {
             grants: digestGrants,
             profileName,
-          });
+          }, { sendWhatsApp: false });
           for (const item of digestGrants) {
+            if (item.score >= eligibleThreshold && sendWhatsApp) {
+              await notifyOrgMembers(orgId, "grant_match_high", {
+                grantId: item.grantId,
+                grantName: item.grantName,
+                score: item.score,
+                startApplicationToken: item.startApplicationToken,
+              }, { sendWhatsApp: true });
+            }
             await supabase
               .from("EligibilityAssessment")
               .update({ notified_at: new Date().toISOString() })

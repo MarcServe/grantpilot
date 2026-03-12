@@ -13,7 +13,7 @@ export async function GET(): Promise<NextResponse> {
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase
       .from("EligibilityNotificationPreference")
-      .select("min_score, max_score, notify_email, notify_in_app")
+      .select("min_score, max_score, eligible_threshold, notify_email, notify_in_app, notify_whatsapp")
       .eq("organisation_id", orgId)
       .maybeSingle();
 
@@ -26,17 +26,21 @@ export async function GET(): Promise<NextResponse> {
       return NextResponse.json({
         minScore: 70,
         maxScore: 100,
+        eligibleThreshold: 70,
         notifyEmail: true,
         notifyInApp: true,
+        notifyWhatsApp: false,
       });
     }
 
-    const row = data as { min_score: number; max_score: number; notify_email: boolean; notify_in_app: boolean };
+    const row = data as { min_score: number; max_score: number; eligible_threshold?: number; notify_email: boolean; notify_in_app: boolean; notify_whatsapp?: boolean };
     return NextResponse.json({
       minScore: row.min_score,
       maxScore: row.max_score,
+      eligibleThreshold: row.eligible_threshold ?? 70,
       notifyEmail: row.notify_email,
       notifyInApp: row.notify_in_app,
+      notifyWhatsApp: row.notify_whatsapp ?? false,
     });
   } catch (e) {
     console.error("[ELIGIBILITY_PREFS]", e);
@@ -65,8 +69,10 @@ export async function PUT(req: Request): Promise<NextResponse> {
           organisation_id: orgId,
           min_score: parsed.data.minScore,
           max_score: parsed.data.maxScore,
+          eligible_threshold: parsed.data.eligibleThreshold ?? 70,
           notify_email: parsed.data.notifyEmail,
           notify_in_app: parsed.data.notifyInApp,
+          notify_whatsapp: parsed.data.notifyWhatsApp ?? false,
           updated_at: new Date().toISOString(),
         },
         { onConflict: "organisation_id" }
