@@ -16,6 +16,7 @@ import {
   ListTodo,
 } from "lucide-react";
 import { ApplicationCardWithDelete } from "@/components/dashboard/application-card-with-delete";
+import { DashboardNotificationChannels } from "@/components/dashboard/notification-channels-card";
 
 const STATUS_COLORS: Record<string, string> = {
   PENDING: "bg-yellow-100 text-yellow-800",
@@ -28,7 +29,12 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default async function DashboardPage() {
-  const { org, orgId } = await getActiveOrg();
+  const { org, orgId, user } = await getActiveOrg();
+  const rawUser = user as Record<string, unknown> | undefined;
+  const phoneNumber = (rawUser?.phoneNumber ?? rawUser?.phone_number) as string | null | undefined;
+  const hasPhone = Boolean(phoneNumber && String(phoneNumber).trim().length >= 10);
+  const whatsappOptIn = Boolean(rawUser?.whatsappOptIn ?? rawUser?.whatsapp_opt_in);
+
   const supabase = getSupabaseAdmin();
 
   const profile = org.profiles?.[0];
@@ -189,6 +195,11 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      <DashboardNotificationChannels
+        initialWhatsappOptIn={whatsappOptIn}
+        initialHasPhone={hasPhone}
+      />
 
       {upcomingTasks.length > 0 && (
         <Card className="mt-8">
