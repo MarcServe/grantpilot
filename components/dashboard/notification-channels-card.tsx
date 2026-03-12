@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -20,7 +20,8 @@ export function DashboardNotificationChannels({
   const [whatsappOptIn, setWhatsappOptIn] = useState(initialWhatsappOptIn);
   const [isPending, setIsPending] = useState(false);
 
-  async function onToggle(checked: boolean) {
+  async function onToggle(checked: boolean | "indeterminate") {
+    const value = checked === true;
     if (!initialHasPhone) {
       toast.error("Add your WhatsApp number in Profile first.");
       return;
@@ -30,15 +31,15 @@ export function DashboardNotificationChannels({
       const res = await fetch("/api/profile/notification-channels", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ whatsappOptIn: checked }),
+        body: JSON.stringify({ whatsappOptIn: value }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         toast.error(data.error ?? "Failed to update");
         return;
       }
-      setWhatsappOptIn(checked);
-      toast.success(checked ? "WhatsApp notifications enabled" : "WhatsApp notifications disabled");
+      setWhatsappOptIn(value);
+      toast.success(value ? "WhatsApp notifications enabled" : "WhatsApp notifications disabled");
     } finally {
       setIsPending(false);
     }
@@ -58,7 +59,7 @@ export function DashboardNotificationChannels({
           {isPending ? (
             <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
           ) : (
-            <Switch
+            <Checkbox
               checked={whatsappOptIn}
               onCheckedChange={onToggle}
               disabled={!initialHasPhone}
