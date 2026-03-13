@@ -1,9 +1,10 @@
-import { supabase } from "./supabase.js";
+import { getSupabase } from "./supabase.js";
 import type { CuSession, CuSessionItem } from "./types.js";
 import { extractEmailFromUrl } from "./claude.js";
 import { fetchProfileAndDocuments } from "./profile-data.js";
 import { launchGrantBrowser, newGrantPage } from "./browser.js";
 import { runGrantStep } from "./grant-steps.js";
+import { getNextScoutJob, processScoutJob } from "./scout.js";
 
 const POLL_INTERVAL_MS = 5000;
 const PROGRESS_UPDATE_EVERY = 5;
@@ -15,7 +16,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 export async function getNextRunnableSession(): Promise<CuSession | null> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from("cu_sessions")
     .select("*")
     .in("status", ["running", "resumed"])
@@ -27,7 +28,7 @@ export async function getNextRunnableSession(): Promise<CuSession | null> {
 }
 
 async function getPendingItems(sessionId: number, limit = 50): Promise<CuSessionItem[]> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from("cu_session_items")
     .select("*")
     .eq("session_id", sessionId)
@@ -44,7 +45,7 @@ async function markItemStatus(
   status: string,
   patch: Record<string, unknown> = {}
 ): Promise<void> {
-  const { error } = await supabase
+  const { error } = await getSupabase()
     .from("cu_session_items")
     .update({ status, ...patch })
     .eq("id", itemId);
@@ -58,7 +59,7 @@ async function appendLog(
   detail: string,
   success = true
 ): Promise<void> {
-  const { error } = await supabase.from("cu_session_logs").insert({
+  const { error } = await getSupabase().from("cu_session_logs").insert({
     session_id: sessionId,
     step,
     action,
@@ -76,7 +77,7 @@ async function updateSessionProgress(
   const patch: Record<string, unknown> = { processed_items: processedItems };
   if (lastCheckpoint) patch.last_checkpoint = lastCheckpoint;
 
-  const { error } = await supabase
+  const { error } = await getSupabase()
     .from("cu_sessions")
     .update(patch)
     .eq("id", sessionId);
@@ -84,7 +85,7 @@ async function updateSessionProgress(
 }
 
 async function completeSession(sessionId: number): Promise<void> {
-  const { error } = await supabase
+  const { error } = await getSupabase()
     .from("cu_sessions")
     .update({ status: "completed", completed_at: new Date().toISOString() })
     .eq("id", sessionId);
@@ -92,7 +93,7 @@ async function completeSession(sessionId: number): Promise<void> {
 }
 
 async function failSession(sessionId: number, errorLog: string): Promise<void> {
-  const { error } = await supabase
+  const { error } = await getSupabase()
     .from("cu_sessions")
     .update({ status: "failed", error_log: errorLog })
     .eq("id", sessionId);
@@ -102,7 +103,7 @@ async function failSession(sessionId: number, errorLog: string): Promise<void> {
 /** Fetch grant required_attachments for smart document/video matching. */
 async function fetchGrantRequiredAttachments(grantId: string | null): Promise<unknown[]> {
   if (!grantId) return [];
-  const { data } = await supabase
+  const { data } = await getSupabase()
     .from("Grant")
     .select("required_attachments")
     .eq("id", grantId)
@@ -158,7 +159,7 @@ async function processGrantApplicationSession(
 
   let editedSnapshotFields: { label: string; name: string; value: string }[] | undefined;
   if (applicationId) {
-    const { data: appRow } = await supabase
+    const { data: appRow } = await getSupabase()
       .from("Application")
       .select("filled_snapshot")
       .eq("id", applicationId)
@@ -221,7 +222,7 @@ async function processGrantApplicationSession(
         );
 
         if (result.success && result.snapshot && applicationId) {
-          await supabase
+          await getSupabase()
             .from("Application")
             .update({ filled_snapshot: result.snapshot })
             .eq("id", applicationId);
@@ -248,7 +249,7 @@ async function processGrantApplicationSession(
         }
         if (result.success && (item.action ?? "").toLowerCase() === "submit_application") {
           if (applicationId) {
-            await supabase
+            await getSupabase()
               .from("Application")
               .update({ status: "SUBMITTED" })
               .eq("id", applicationId);
@@ -364,17 +365,25 @@ export async function processSession(session: CuSession): Promise<void> {
 const IDLE_LOG_EVERY_POLLS = 12; // log every ~60s when no work
 
 export async function runLoop(): Promise<void> {
-  console.log("[worker] Starting poll loop... (polling every 5s; start an application from the app to see activity)");
+  console.log("[worker] Starting poll loop... (Scout + Filer; polling every 5s)");
 
   let idlePolls = 0;
   while (true) {
     try {
+      // Scout: find application form URLs from programme pages (nightly enqueue)
+      const scoutJob = await getNextScoutJob();
+      if (scoutJob) {
+        idlePolls = 0;
+        await processScoutJob(scoutJob);
+        continue;
+      }
+
       const session = await getNextRunnableSession();
 
       if (!session) {
         idlePolls += 1;
         if (idlePolls === IDLE_LOG_EVERY_POLLS) {
-          console.log("[worker] Idle, no pending sessions. Keep running — start an application from the app to process.");
+          console.log("[worker] Idle, no pending Scout jobs or sessions.");
           idlePolls = 0;
         }
         await sleep(POLL_INTERVAL_MS);

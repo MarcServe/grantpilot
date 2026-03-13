@@ -6,8 +6,17 @@ import { deadlineReminder } from "@/inngest/deadline-reminder";
 import { monitorSession } from "@/inngest/monitor-session";
 import { eligibilityRefresh } from "@/inngest/eligibility-refresh";
 import { grantDiscovery } from "@/inngest/grant-discovery";
+import { grantFormUrlScout } from "@/inngest/grant-form-url-scout";
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [grantScanner, grantSync, deadlineReminder, monitorSession, eligibilityRefresh, grantDiscovery],
+  functions: [
+    grantScanner,
+    grantSync,
+    deadlineReminder,
+    monitorSession,
+    eligibilityRefresh,
+    grantDiscovery,
+    grantFormUrlScout,
+  ],
 });

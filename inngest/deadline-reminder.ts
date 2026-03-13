@@ -10,8 +10,21 @@ export const deadlineReminder = inngest.createFunction(
   async () => {
     const supabase = getSupabaseAdmin();
     const now = new Date();
-    const reminderDays = [7, 3, 1];
+    const reminderDays = [7, 3, 1] as const;
     let sent = 0;
+    const diagnostics: {
+      profilesWithScore50: number;
+      orgsWithProfile: number;
+      orgsAt9amLocal: number;
+      grantsByDay: Record<number, number>;
+      sent: number;
+    } = {
+      profilesWithScore50: 0,
+      orgsWithProfile: 0,
+      orgsAt9amLocal: 0,
+      grantsByDay: { 7: 0, 3: 0, 1: 0 },
+      sent: 0,
+    };
 
     const { data: profiles = [] } = await supabase
       .from("BusinessProfile")
@@ -19,6 +32,8 @@ export const deadlineReminder = inngest.createFunction(
       .gte("completionScore", 50);
 
     const list = profiles ?? [];
+    diagnostics.profilesWithScore50 = list.length;
+
     const byOrgId = new Map<string, (typeof list)[number]>();
     for (const p of list) {
       const orgId = (p as { organisationId?: string; organisation_id?: string }).organisationId ?? (p as { organisation_id?: string }).organisation_id;
@@ -26,7 +41,12 @@ export const deadlineReminder = inngest.createFunction(
     }
 
     const orgIds = Array.from(byOrgId.keys());
-    if (orgIds.length === 0) return { sent };
+    diagnostics.orgsWithProfile = orgIds.length;
+
+    if (orgIds.length === 0) {
+      console.info("[deadline-reminder] No orgs with profile completionScore >= 50", diagnostics);
+      return { sent, ...diagnostics };
+    }
 
     const { data: orgsData = [] } = await supabase
       .from("Organisation")
@@ -36,7 +56,13 @@ export const deadlineReminder = inngest.createFunction(
     const orgsToNotify = (orgsData ?? []).filter((org: { id: string; preferredTimezone?: string | null }) =>
       isNineAmLocal(org.preferredTimezone ?? "UTC")
     );
+    diagnostics.orgsAt9amLocal = orgsToNotify.length;
     const notifyOrgIds = new Set(orgsToNotify.map((o: { id: string }) => o.id));
+
+    if (notifyOrgIds.size === 0) {
+      console.info("[deadline-reminder] No orgs at 9am local this hour", diagnostics);
+      return { sent, ...diagnostics };
+    }
 
     for (const days of reminderDays) {
       const targetDate = new Date(now);
@@ -53,7 +79,9 @@ export const deadlineReminder = inngest.createFunction(
         .gte("deadline", startOfDay.toISOString())
         .lte("deadline", endOfDay.toISOString());
 
-      if ((grants ?? []).length === 0) continue;
+      const grantCount = (grants ?? []).length;
+      diagnostics.grantsByDay[days] = grantCount;
+      if (grantCount === 0) continue;
 
       const orgs = Array.from(byOrgId.entries())
         .filter(([id]) => notifyOrgIds.has(id))
@@ -116,6 +144,10 @@ export const deadlineReminder = inngest.createFunction(
       }
     }
 
-    return { sent };
+    diagnostics.sent = sent;
+    if (sent === 0) {
+      console.info("[deadline-reminder] No reminders sent; run output has diagnostics", diagnostics);
+    }
+    return { sent, ...diagnostics };
   }
 );

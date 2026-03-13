@@ -11,13 +11,18 @@ export const grantScanner = inngest.createFunction(
     const supabase = getSupabaseAdmin();
     const { data: grantsData } = await supabase.from("Grant").select("*");
     const allGrants = Array.isArray(grantsData) ? grantsData : [];
-    if (allGrants.length === 0) return { scanned: 0 };
+    const diagnostics = { totalGrants: allGrants.length, profilesWithScore50: 0, orgsScanned: 0, highMatchesTotal: 0 };
+    if (allGrants.length === 0) {
+      console.info("[grant-scanner] No grants in DB", diagnostics);
+      return { scanned: 0, matchCount: 0, ...diagnostics };
+    }
 
     const { data: profilesData } = await supabase
       .from("BusinessProfile")
       .select("*")
       .gte("completionScore", 50);
     const list = Array.isArray(profilesData) ? profilesData : [];
+    diagnostics.profilesWithScore50 = list.length;
     const byOrg = new Map<string, (typeof list)[number]>();
     for (const p of list) {
       if (!byOrg.has(p.organisationId)) byOrg.set(p.organisationId, p);
@@ -26,6 +31,12 @@ export const grantScanner = inngest.createFunction(
       id,
       profiles: [profile],
     }));
+    diagnostics.orgsScanned = orgs.length;
+
+    if (orgs.length === 0) {
+      console.info("[grant-scanner] No orgs with profile completionScore >= 50", diagnostics);
+      return { scanned: 0, matchCount: 0, ...diagnostics };
+    }
 
     let matchCount = 0;
 
@@ -77,6 +88,10 @@ export const grantScanner = inngest.createFunction(
       }
     }
 
-    return { scanned: orgs.length, matchCount };
+    diagnostics.highMatchesTotal = matchCount;
+    if (matchCount === 0) {
+      console.info("[grant-scanner] No grant_match notifications sent; run output has diagnostics", diagnostics);
+    }
+    return { scanned: orgs.length, matchCount, ...diagnostics };
   }
 );

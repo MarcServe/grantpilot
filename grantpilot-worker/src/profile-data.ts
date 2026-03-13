@@ -1,4 +1,4 @@
-import { supabase } from "./supabase.js";
+import { getSupabase } from "./supabase.js";
 
 export interface ProfileData {
   businessName: string;
@@ -96,7 +96,7 @@ export async function fetchProfileAndDocuments(
   businessProfileId: string,
   applicationId?: string
 ): Promise<{ profile: ProfileData; documents: DocumentData[] } | null> {
-  const { data: profileRow, error: profileError } = await supabase
+  const { data: profileRow, error: profileError } = await getSupabase()
     .from("BusinessProfile")
     .select("*")
     .eq("id", businessProfileId)
@@ -106,7 +106,7 @@ export async function fetchProfileAndDocuments(
 
   let profile = normaliseProfile(profileRow as Record<string, unknown>);
 
-  const { data: memoryRow } = await supabase
+  const { data: memoryRow } = await getSupabase()
     .from("GrantMemory")
     .select("payload")
     .eq("profile_id", businessProfileId)
@@ -118,7 +118,7 @@ export async function fetchProfileAndDocuments(
   }
 
   if (applicationId) {
-    const { data: appRow } = await supabase
+    const { data: appRow } = await getSupabase()
       .from("Application")
       .select("profile_overrides")
       .eq("id", applicationId)
@@ -129,14 +129,14 @@ export async function fetchProfileAndDocuments(
     }
   }
 
-  const { data: docRowsById } = await supabase
+  const { data: docRowsById } = await getSupabase()
     .from("Document")
     .select("id, name, url, type, size, category")
     .eq("profileId", businessProfileId);
 
   let docRows = docRowsById;
   if (!docRows?.length) {
-    const { data: altRows } = await supabase
+    const { data: altRows } = await getSupabase()
       .from("Document")
       .select("id, name, url, type, size, category")
       .eq("profile_id", businessProfileId);

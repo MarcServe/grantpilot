@@ -13,14 +13,20 @@ function getEnv(name: string, fallbackVar?: string): string {
   return v;
 }
 
-export const SUPABASE_URL = getEnv("SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_URL");
-export const SUPABASE_SERVICE_ROLE_KEY = getEnv(
-  "SUPABASE_SERVICE_ROLE_KEY",
-  "SUPABASE_SERVICE_KEY"
-);
+let _client: SupabaseClient | null = null;
 
-export const supabase: SupabaseClient = createClient(
-  SUPABASE_URL,
-  SUPABASE_SERVICE_ROLE_KEY,
-  { auth: { persistSession: false } }
-);
+/**
+ * Lazy Supabase client so we don't throw at import (avoids crash before HTTP server listens).
+ * Call getSupabase() when you need the client; throws only on first use if env is missing.
+ */
+export function getSupabase(): SupabaseClient {
+  if (!_client) {
+    const url = getEnv("SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_URL");
+    const key = getEnv(
+      "SUPABASE_SERVICE_ROLE_KEY",
+      "SUPABASE_SERVICE_KEY"
+    );
+    _client = createClient(url, key, { auth: { persistSession: false } });
+  }
+  return _client;
+}
