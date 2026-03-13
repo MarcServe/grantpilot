@@ -80,23 +80,108 @@ export function isLikelyApplicationFormUrl(url: string): boolean {
   }
 }
 
+/** Keywords that indicate a grant/funding programme page (path or host). */
+const PROGRAMME_KEYWORDS = [
+  "grant",
+  "funding",
+  "call",
+  "programme",
+  "program",
+  "competition",
+  "innovation",
+  "apply",
+  "fund",
+  "opportunity",
+  "opportunities",
+  "award",
+  "scheme",
+  "initiative",
+  "proposal",
+  "fellowship",
+  "research",
+  "startup-support",
+  "challenge",
+  "accelerator",
+  "open-call",
+  "funding-calls",
+  "current-funding",
+  "grant-programmes",
+];
+
+/** Path segments that indicate an apply/application page. */
+const APPLY_PATH_SEGMENTS = [
+  "apply",
+  "application",
+  "applications",
+  "submit",
+  "register",
+  "start-application",
+  "open-call",
+  "apply-now",
+  "apply-online",
+];
+
+/** Domains that typically host grant programmes (substring match on hostname). */
+const TRUSTED_GRANT_DOMAIN_PARTS = [
+  "grants.gov",
+  "service.gov.uk",
+  "europa.eu",
+  "find-government-grants",
+  "apply-for-innovation-funding",
+  "innovationfunding",
+  "researchfunding",
+  "openfunding",
+  "fundingcalls",
+  "funding-programmes",
+  "competition.search",
+  "researchprofessional.com",
+  "funding.gov",
+];
+
 /**
- * Returns true if the URL looks like a programme/info page (e.g. technation.io/programmes/climate/)
- * where the actual application might be linked from the page (e.g. "Apply" -> Airtable form).
+ * Returns true if the URL's host is a known grant platform (e.g. service.gov.uk, grants.gov).
+ */
+export function isTrustedGrantDomain(url: string): boolean {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.toLowerCase();
+    return TRUSTED_GRANT_DOMAIN_PARTS.some((part) => host.includes(part));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Returns true if the URL points to a PDF (for routing to PDF extraction).
+ */
+export function isPdfUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    const path = u.pathname.toLowerCase();
+    return path.endsWith(".pdf") || u.searchParams.get("format") === "pdf";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Returns true if the URL looks like a programme/info page or apply page
+ * (actual application may be linked from the page). Uses keywords, trusted domains, and path segments.
  */
 export function isLikelyProgrammeInfoUrl(url: string): boolean {
   if (isLikelyApplicationFormUrl(url)) return false;
   try {
     const u = new URL(url);
     const path = u.pathname.toLowerCase();
-    return (
-      path.includes("/programme") ||
-      path.includes("/programmes/") ||
-      path.includes("/opportunit") ||
-      path.includes("/funding/") ||
-      path.includes("/grant/") ||
-      path.includes("/grants/")
-    );
+    const host = u.hostname.toLowerCase();
+    const pathAndHost = `${path} ${host}`;
+
+    if (isTrustedGrantDomain(url)) return true;
+
+    if (APPLY_PATH_SEGMENTS.some((seg) => path.includes(`/${seg}`) || path.includes(`/${seg}/`)))
+      return true;
+
+    return PROGRAMME_KEYWORDS.some((k) => pathAndHost.includes(k));
   } catch {
     return false;
   }

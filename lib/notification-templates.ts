@@ -69,7 +69,7 @@ export function buildEmailHtml(
         : undefined;
       const ctaUrl = reviewUrl;
       const extra = approveUrl
-        ? `<p style="margin-top:16px"><a href="${approveUrl}" style="color:#1B3A6B;font-weight:600">Approve &amp; submit from this link</a> (no login needed on your phone)</p>`
+        ? `<p style="margin-top:16px"><a href="${approveUrl}" style="color:#1B3A6B;font-weight:600">Approve &amp; submit (no login)</a></p>`
         : "";
       return {
         subject: `Review required: ${grant}`,
@@ -110,7 +110,7 @@ export function buildEmailHtml(
         ? `${appUrl}/start-application?token=${encodeURIComponent(payload.startApplicationToken)}`
         : null;
       const startLink = startUrl
-        ? `<p style="margin-top:12px"><a href="${startUrl}" style="color:#1B3A6B;font-weight:600">Start application from this link</a> (no login needed)</p>`
+        ? `<p style="margin-top:12px"><a href="${startUrl}" style="color:#1B3A6B;font-weight:600">Apply with GrantsCopilot</a> (no login needed)</p>`
         : "";
       return {
         subject: `Grant deadline approaching: ${grant}`,
@@ -137,14 +137,18 @@ export function buildEmailHtml(
     case "grant_match_high": {
       const grantName = payload.grantName ?? "A grant";
       const score = payload.score ?? 85;
-      const grantUrl = payload.grantId ? `${appUrl}/grants/${payload.grantId}` : `${appUrl}/grants`;
+      const startUrl = payload.startApplicationToken
+        ? `${appUrl}/start-application?token=${encodeURIComponent(payload.startApplicationToken)}`
+        : null;
+      const ctaUrl = startUrl ?? (payload.grantId ? `${appUrl}/grants/${payload.grantId}` : `${appUrl}/grants`);
+      const ctaText = startUrl ? "Apply with GrantsCopilot (no login)" : "View Grant";
       return {
         subject: `You're ${score}% eligible: ${grantName}`,
         html: baseLayout(
           `High match: ${grantName}`,
-          `<p>You're <strong>${score}% eligible</strong> for <strong>${grantName}</strong> based on your profile.</p><p>View the grant and apply with AI when you're ready.</p>`,
-          grantUrl,
-          "View Grant"
+          `<p>You're <strong>${score}% eligible</strong> for <strong>${grantName}</strong> based on your profile.</p><p>Apply with GrantsCopilot — no login needed.</p>`,
+          ctaUrl,
+          ctaText
         ),
       };
     }
@@ -160,13 +164,26 @@ export function buildEmailHtml(
             : null;
           const summaryText = g.summary ? ` — ${g.summary.slice(0, 120)}${g.summary.length > 120 ? "…" : ""}` : "";
           const startLink = startUrl
-            ? ` <a href="${startUrl}" style="color:#1B3A6B;font-weight:600">Start application</a>`
+            ? ` <a href="${startUrl}" style="color:#1B3A6B;font-weight:600">Apply with GrantsCopilot (no login)</a>`
             : "";
           const missingNote =
             (g.missingDocuments?.length ?? 0) > 0
               ? `<br><span style="color:#b45309;font-size:13px">May require: ${escapeHtml((g.missingDocuments ?? []).join(", "))}. <a href="${appUrl}/profile" style="color:#1B3A6B">Add in Profile → Documents</a></span>`
               : "";
-          return `<tr><td style="padding:12px 0;border-bottom:1px solid #e2e8f0"><strong>${escapeHtml(g.grantName)}</strong> (${g.score}% match)${escapeHtml(summaryText)}<br><a href="${viewUrl}" style="color:#1B3A6B">View grant</a>${startLink}${missingNote}</td></tr>`;
+          const hasWorkNeeded =
+            g.score < 70 &&
+            ((g.improvementPlan?.actions?.length ?? 0) > 0 ||
+              (g.improvementPlan?.gaps?.length ?? 0) > 0 ||
+              (g.missingCriteria?.length ?? 0) > 0);
+          const workNeededParts: string[] = [];
+          if (g.improvementPlan?.actions?.length) workNeededParts.push(...g.improvementPlan.actions.slice(0, 3));
+          if (g.improvementPlan?.gaps?.length) workNeededParts.push(...g.improvementPlan.gaps.slice(0, 2));
+          if (g.missingCriteria?.length) workNeededParts.push(...g.missingCriteria.slice(0, 3));
+          const workNeededNote =
+            hasWorkNeeded && workNeededParts.length > 0
+              ? `<br><span style="color:#0369a1;font-size:13px">Work needed to improve fit: ${escapeHtml([...new Set(workNeededParts)].slice(0, 3).join("; "))}. <a href="${viewUrl}" style="color:#1B3A6B">View grant for full details</a></span>`
+              : "";
+          return `<tr><td style="padding:12px 0;border-bottom:1px solid #e2e8f0"><strong>${escapeHtml(g.grantName)}</strong> (${g.score}% match)${escapeHtml(summaryText)}<br><a href="${viewUrl}" style="color:#1B3A6B">View grant</a>${startLink}${missingNote}${workNeededNote}</td></tr>`;
         })
         .join("");
       const table = rows ? `<table style="width:100%;border-collapse:collapse">${rows}</table>` : "";
@@ -270,14 +287,16 @@ export function buildWhatsAppMessage(
       const viewUrl = payload.grantId ? `${appUrl}/grants/${payload.grantId}` : appUrl + "/grants";
       let msg = `Reminder: The deadline for ${grant} is ${payload.deadline ?? "approaching soon"}. Don't miss out!\n\nView grant: ${viewUrl}`;
       if (payload.startApplicationToken)
-        msg += `\nStart application: ${appUrl}/start-application?token=${encodeURIComponent(payload.startApplicationToken)}`;
+        msg += `\nApply with GrantsCopilot (no login): ${appUrl}/start-application?token=${encodeURIComponent(payload.startApplicationToken)}`;
       return msg;
     }
 
     case "grant_match_high": {
       const score = payload.score ?? 85;
-      const grantUrl = payload.grantId ? `${appUrl}/grants/${payload.grantId}` : appUrl;
-      return `You're ${score}% eligible for ${grant}. View grant and apply with AI:\n\n${grantUrl}`;
+      const linkUrl = payload.startApplicationToken
+        ? `${appUrl}/start-application?token=${encodeURIComponent(payload.startApplicationToken)}`
+        : (payload.grantId ? `${appUrl}/grants/${payload.grantId}` : appUrl);
+      return `You're ${score}% eligible for ${grant}. Apply with GrantsCopilot (no login):\n\n${linkUrl}`;
     }
 
     case "grant_scan_digest": {
@@ -289,8 +308,11 @@ export function buildWhatsAppMessage(
         const viewUrl = `${appUrl}/grants/${g.grantId}`;
         msg += `• ${g.grantName} (${g.score}% match)\n  View: ${viewUrl}\n`;
         if (g.startApplicationToken)
-          msg += `  Start application: ${appUrl}/start-application?token=${encodeURIComponent(g.startApplicationToken)}\n`;
+          msg += `  Apply with GrantsCopilot (no login): ${appUrl}/start-application?token=${encodeURIComponent(g.startApplicationToken)}\n`;
         if ((g.missingDocuments?.length ?? 0) > 0) anyMissing = true;
+        const workParts = [...(g.improvementPlan?.actions ?? []), ...(g.missingCriteria ?? [])].slice(0, 2);
+        if (g.score < 70 && workParts.length > 0)
+          msg += `  Work needed: ${workParts.join("; ")}\n`;
       }
       msg += `\nView all: ${appUrl}/grants`;
       if (anyMissing) msg += `\n\nSome grants may require documents you haven't uploaded. Add them in Profile → Documents: ${appUrl}/profile`;

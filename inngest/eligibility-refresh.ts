@@ -9,7 +9,8 @@ import type { DigestGrantItem } from "@/lib/notify";
 import type { RequiredAttachment } from "@/lib/grant-requirements";
 
 const TOP_N = 25;
-const DIGEST_SCORE_THRESHOLD = 70;
+/** Default minimum score for digest (50 = include "within reach" so users get email and work-needed guidance). */
+const DIGEST_SCORE_THRESHOLD = 50;
 const NOTIFY_COOLDOWN_DAYS = 7;
 
 function profileToMatching(profile: Record<string, unknown>) {
@@ -185,6 +186,8 @@ export const eligibilityRefresh = inngest.createFunction(
                   summary,
                   startApplicationToken,
                   missingDocuments: missing.length > 0 ? missing.map((r) => r.label) : undefined,
+                  improvementPlan: result.improvementPlan ?? undefined,
+                  missingCriteria: result.missing ?? undefined,
                 });
               }
             }

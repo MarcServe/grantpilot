@@ -17,6 +17,11 @@ const APPLY_PATTERNS = [
   /^apply$/i,
   /^applications$/i,
   /submit\s+(your\s+)?application/i,
+  /apply\s+for\s+funding/i,
+  /submit\s+proposal/i,
+  /start\s+application/i,
+  /register\s+interest/i,
+  /apply\s+online/i,
 ];
 
 /** href patterns that suggest a form (path or host). */
@@ -28,6 +33,11 @@ const FORM_URL_PATTERNS = [
   /\/form\b/i,
   /\/apply\b/i,
   /\/application/i,
+  /\/submit\b/i,
+  /\/register\b/i,
+  /\/start-application/i,
+  /\/apply-now/i,
+  /\/open-call/i,
 ];
 
 function linkTextSuggestsApply(text: string): boolean {

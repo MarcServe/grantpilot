@@ -52,12 +52,19 @@ async function fetchSitemapUrls(
     return pageUrls;
   }
 
-  if (pathPattern) return all.filter((u) => pathPattern.test(u));
-  return all;
+  let urls = pathPattern ? all.filter((u) => pathPattern.test(u)) : all;
+  const priorityPattern = /\/202[5-9]\/|\/latest\/|\/new\//i;
+  urls.sort((a, b) => {
+    const aP = priorityPattern.test(a) ? 1 : 0;
+    const bP = priorityPattern.test(b) ? 1 : 0;
+    return bP - aP;
+  });
+  return urls;
 }
 
-/** Known grant-related path patterns for sitemaps. */
-const GRANT_PATH_PATTERN = /\/grant|\/funding|\/opportunit|\/programme|\/apply|\/grants\//i;
+/** Known grant-related path patterns for sitemaps (including funding hub pages). */
+const GRANT_PATH_PATTERN =
+  /\/grant|\/funding|\/opportunit|\/programme|\/apply|\/grants\/|\/funding-opportunities|\/grant-programmes|\/current-funding|\/open-calls|\/opportunities|\/funding-calls|\/competition/i;
 
 /** Domains and their sitemap URLs + optional path filter. */
 const SITEMAP_SOURCES: { url: string; source: string; pattern?: RegExp }[] = [
@@ -115,6 +122,11 @@ export async function discoverFromRssFeed(
 /** Search queries for grant discovery (used when BING_SEARCH_API_KEY or Google CSE is set). */
 const DISCOVERY_SEARCH_QUERIES = [
   "grant opportunity site:.gov",
+  "site:.gov \"grant programme\"",
+  "site:.gov.uk \"apply for funding\"",
+  "site:.edu \"research funding call\"",
+  "site:.org \"grant opportunity\"",
+  "site:.eu \"call for proposals\"",
   "funding call open site:.gov.uk",
   "innovation grant application site:.gov",
   "research grant call site:.eu",

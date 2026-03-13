@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { CheckCircle, Loader2 } from "lucide-react";
@@ -16,6 +16,7 @@ export function StartApplicationForm({ token, grantName }: StartApplicationFormP
   const [applicationId, setApplicationId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const autoStarted = useRef(false);
 
   async function handleStart() {
     setLoading(true);
@@ -28,7 +29,12 @@ export function StartApplicationForm({ token, grantName }: StartApplicationFormP
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "Failed to start application");
+        if (res.status === 409 && data.applicationId) {
+          setApplicationId(data.applicationId);
+          setDone(true);
+        } else {
+          setError(data.error ?? "Failed to start application");
+        }
         return;
       }
       setApplicationId(data.applicationId);
@@ -42,6 +48,12 @@ export function StartApplicationForm({ token, grantName }: StartApplicationFormP
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (autoStarted.current || loading || done) return;
+    autoStarted.current = true;
+    handleStart();
+  }, []);
 
   if (done) {
     return (
@@ -72,7 +84,7 @@ export function StartApplicationForm({ token, grantName }: StartApplicationFormP
         ) : (
           <CheckCircle className="h-4 w-4" />
         )}
-        {loading ? "Starting…" : "Start application"}
+        {loading ? "Starting…" : "Apply with AI"}
       </Button>
       {error && (
         <p className="text-center text-sm text-destructive">{error}</p>

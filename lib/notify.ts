@@ -32,6 +32,10 @@ export interface DigestGrantItem {
   startApplicationToken?: string;
   /** Labels of required documents the user has not uploaded (for reminder in digest). */
   missingDocuments?: string[];
+  /** For "within reach" grants: what to do to improve eligibility (in sync with dashboard work needed). */
+  improvementPlan?: { gaps?: string[]; actions?: string[] } | null;
+  /** Criteria the profile does not yet meet. */
+  missingCriteria?: string[];
 }
 
 export interface NotificationPayload {
@@ -93,8 +97,13 @@ export async function notifyUser(
 
     // WhatsApp business-initiated messages require Content Templates (Twilio 63016). Never use body.
     if (useGrantTemplate) {
-      const rawUrl = payload.grantId ? `${appUrl}/grants/${payload.grantId}` : `${appUrl}/grants`;
-      const grantUrl = String(rawUrl).replace(/[\r\n\t]+/g, " ").trim() || `${appUrl}/grants`;
+      const linkUrl =
+        type === "grant_match_high" && payload.startApplicationToken
+          ? `${appUrl}/start-application?token=${encodeURIComponent(payload.startApplicationToken)}`
+          : payload.grantId
+            ? `${appUrl}/grants/${payload.grantId}`
+            : `${appUrl}/grants`;
+      const grantUrl = String(linkUrl).replace(/[\r\n\t]+/g, " ").trim() || `${appUrl}/grants`;
       const score = payload.score != null ? String(Math.round(Number(payload.score))) : "85";
       const grantName = (payload.grantName ?? "Grant").replace(/[\r\n\t]+/g, " ").trim() || "Grant";
       const result = await sendWhatsAppWithTemplate(user.phoneNumber, grantMatchSid, {

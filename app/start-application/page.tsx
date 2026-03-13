@@ -70,9 +70,9 @@ export default async function StartApplicationPage({
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-muted/30 p-4">
       <div className="w-full max-w-md rounded-lg border bg-card p-6 shadow-sm">
-        <h1 className="text-lg font-semibold text-foreground">Start application</h1>
+        <h1 className="text-lg font-semibold text-foreground">Apply with AI</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Start your application for <strong>{grant.name}</strong>? Our AI will help fill it in using your business profile.
+          Opening this link starts your application for <strong>{grant.name}</strong>. Our AI will fill it in using your business profile — no login needed.
         </p>
         <StartApplicationForm token={token} grantName={grant.name} />
         <Link

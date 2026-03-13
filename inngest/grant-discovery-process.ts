@@ -12,6 +12,7 @@ import {
 import { fetchGrantsFromCrawl } from "@/lib/grants-crawl";
 import { upsertGrant } from "@/lib/grants-ingest";
 import { waitForDomainThrottle } from "@/lib/throttle-per-domain";
+import { isPdfUrl } from "@/lib/grant-url-validation";
 
 const BATCH_SIZE = 30;
 
@@ -24,6 +25,11 @@ export const grantDiscoveryProcess = inngest.createFunction(
 
     for (const row of pending) {
       try {
+        if (isPdfUrl(row.url)) {
+          await markDiscoveryFailed(row.id, "PDF extraction not yet implemented");
+          results.push({ id: row.id, url: row.url, status: "failed", grants: 0 });
+          continue;
+        }
         await waitForDomainThrottle(row.url);
         const { grants } = await fetchGrantsFromCrawl(row.url, row.source ?? "discovery", {
           skipClassifier: false,

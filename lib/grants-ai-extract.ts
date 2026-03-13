@@ -22,7 +22,7 @@ function stripHtmlToText(html: string): string {
 
 /**
  * Optional classifier: does this page announce or list grant/funding opportunities?
- * Reduces cost by skipping extraction on non-grant pages.
+ * Prefer yes if the text mentions deadline/closing date or funding amounts (£, €, $).
  */
 export async function isGrantPage(htmlOrText: string): Promise<boolean> {
   const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
@@ -31,6 +31,9 @@ export async function isGrantPage(htmlOrText: string): Promise<boolean> {
   const text = htmlOrText.length > 20_000 ? htmlOrText.slice(0, 20_000) + "…" : htmlOrText;
   const clean = text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 8000);
 
+  const hasDeadlineSignal = /\b(deadline|closing\s+date|applications\s+close|call\s+opens|submission\s+deadline)\b/i.test(clean);
+  const hasCurrencySignal = /[£€$]|\bfunding\s+up\s+to\b|\bgrant\s+value\b/i.test(clean);
+
   const anthropic = new Anthropic({ apiKey });
   const response = await anthropic.messages.create({
     model: MODEL,
@@ -38,16 +41,21 @@ export async function isGrantPage(htmlOrText: string): Promise<boolean> {
     messages: [
       {
         role: "user",
-        content: `Does this web page announce or list grant or funding opportunities (calls for applications, funding programmes, awards)? Answer only: yes or no.\n\n${clean}`,
+        content: `Is this web page announcing or listing a grant, funding programme, or call for proposals (e.g. funding opportunity, innovation competition, award)? Answer only: yes or no.
+Prefer yes if the text mentions an application deadline, closing date, or funding amount (£, €, $). Exclude general blog posts or news that only mention grants in passing.
+
+${clean}`,
       },
     ],
   });
   const out =
     response.content[0].type === "text" ? response.content[0].text.trim().toLowerCase() : "";
-  return out.startsWith("yes");
+  if (out.startsWith("yes")) return true;
+  if (hasDeadlineSignal && hasCurrencySignal) return true;
+  return false;
 }
 
-const EXTRACT_SYSTEM = `You extract grant and funding opportunities from web page content. Return a JSON array of objects. Each object must have:
+const EXTRACT_SYSTEM = `You extract grant and funding opportunities from web page content. Treat the page as a grant opportunity if it clearly contains at least two of: funding amount (or range), eligibility criteria, application deadline, or "how to apply". Return a JSON array of objects. Each object must have:
 - grant_title (string): name of the grant or programme
 - funder (string): organisation offering the funding
 - funding_amount (number or null): maximum amount if stated
