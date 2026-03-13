@@ -3,8 +3,30 @@
  * Set GRANTS_FEED_URL in env to enable periodic sync (e.g. via Inngest).
  */
 
+import { createHash } from "crypto";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { looksLikeGenericOrListUrl } from "@/lib/grant-url-validation";
+
+/** Normalize string for hashing: lowercase, trim, collapse whitespace. */
+function normalizeForHash(s: string): string {
+  return String(s ?? "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+/**
+ * Compute a stable externalId for deduplication when the source does not provide one.
+ * hash(grant_name + funder + deadline) so the same grant from multiple sources upserts once.
+ */
+export function computeGrantHash(
+  name: string,
+  funder: string,
+  deadline: string | null | undefined
+): string {
+  const payload = `${normalizeForHash(name)}|${normalizeForHash(funder)}|${normalizeForHash(deadline ?? "")}`;
+  return createHash("sha256").update(payload).digest("hex").slice(0, 32);
+}
 
 export interface GrantInput {
   externalId?: string;
@@ -106,11 +128,15 @@ export async function upsertGrant(input: GrantInput): Promise<{ id: string; crea
     source,
   };
 
-  if (input.externalId) {
+  const externalId =
+    input.externalId?.trim() ||
+    computeGrantHash(input.name, input.funder, input.deadline);
+
+  if (externalId) {
     const { data: existing } = await supabase
       .from("Grant")
       .select("id")
-      .eq("externalId", input.externalId)
+      .eq("externalId", externalId)
       .maybeSingle();
 
     if (existing) {
@@ -123,7 +149,7 @@ export async function upsertGrant(input: GrantInput): Promise<{ id: string; crea
     .from("Grant")
     .insert({
       ...data,
-      externalId: input.externalId ?? null,
+      externalId,
     })
     .select("id")
     .single();
