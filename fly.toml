@@ -1,0 +1,22 @@
+# Fly app for grantpilot-worker. Used when deploying from repo root (e.g. GitHub → Fly).
+# Build uses Dockerfile.worker so the worker subdirectory is built correctly.
+# To deploy from CLI from the worker dir: cd grantpilot-worker && fly deploy
+
+app = 'grantpilot-1ak4uw'
+primary_region = 'lhr'
+
+[build]
+  dockerfile = "Dockerfile.worker"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'off'
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ['app']
+
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1

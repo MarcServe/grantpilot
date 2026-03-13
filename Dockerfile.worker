@@ -1,0 +1,16 @@
+# Build the grantpilot-worker from repo root (for Fly.io dashboard deploys).
+# Same as grantpilot-worker/Dockerfile but COPY paths are relative to repo root.
+FROM mcr.microsoft.com/playwright:v1.58.2-noble
+
+WORKDIR /app
+
+COPY grantpilot-worker/package.json grantpilot-worker/package-lock.json ./
+RUN npm ci
+
+COPY grantpilot-worker/tsconfig.json ./
+COPY grantpilot-worker/src ./src
+
+RUN npm run build && npm prune --omit=dev
+
+ENV NODE_ENV=production
+CMD ["node", "dist/index.js"]
