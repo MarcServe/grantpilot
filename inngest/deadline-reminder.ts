@@ -45,7 +45,7 @@ export const deadlineReminder = inngest.createFunction(
 
     if (orgIds.length === 0) {
       console.info("[deadline-reminder] No orgs with profile completionScore >= 50", diagnostics);
-      return { sent, ...diagnostics };
+      return { ...diagnostics };
     }
 
     const { data: orgsData = [] } = await supabase
@@ -61,7 +61,7 @@ export const deadlineReminder = inngest.createFunction(
 
     if (notifyOrgIds.size === 0) {
       console.info("[deadline-reminder] No orgs at 9am local this hour", diagnostics);
-      return { sent, ...diagnostics };
+      return { ...diagnostics };
     }
 
     for (const days of reminderDays) {
@@ -148,6 +148,6 @@ export const deadlineReminder = inngest.createFunction(
     if (sent === 0) {
       console.info("[deadline-reminder] No reminders sent; run output has diagnostics", diagnostics);
     }
-    return { sent, ...diagnostics };
+    return { ...diagnostics };
   }
 );

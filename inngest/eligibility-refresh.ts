@@ -36,10 +36,10 @@ export const eligibilityRefresh = inngest.createFunction(
     const supabase = getSupabaseAdmin();
     const { data: grantsData } = await supabase.from("Grant").select("id, name, funder, amount, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, required_attachments");
     const allGrants = grantsData ?? [];
-    const diagnostics = { totalGrants: allGrants.length, orgsWithProfile: 0, notified: 0 };
+    const diagnostics = { totalGrants: allGrants.length, orgsWithProfile: 0, notified: 0, refreshed: 0 };
     if (allGrants.length === 0) {
       console.info("[eligibility-refresh] No grants in DB", diagnostics);
-      return { refreshed: 0, notified: 0, ...diagnostics };
+      return { ...diagnostics };
     }
 
     const { data: profilesData } = await supabase
@@ -57,7 +57,7 @@ export const eligibilityRefresh = inngest.createFunction(
 
     if (byOrg.size === 0) {
       console.info("[eligibility-refresh] No orgs with profile completionScore >= 50", diagnostics);
-      return { refreshed: 0, notified: 0, ...diagnostics };
+      return { ...diagnostics };
     }
 
     let notifiedCount = 0;
@@ -223,9 +223,10 @@ export const eligibilityRefresh = inngest.createFunction(
     }
 
     diagnostics.notified = notifiedCount;
+    diagnostics.refreshed = byOrg.size;
     if (notifiedCount === 0) {
       console.info("[eligibility-refresh] No digest/high-fit notifications sent; run output has diagnostics", diagnostics);
     }
-    return { refreshed: byOrg.size, notified: notifiedCount, ...diagnostics };
+    return { ...diagnostics };
   }
 );
