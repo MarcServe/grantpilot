@@ -130,7 +130,7 @@ export async function runScoutDiscovery(page: Page, homepageUrl: string): Promis
 
   // One hop: navigate to the candidate and confirm it's a form page (has form elements or known form host)
   try {
-    const nav = await page.goto(formUrl, { waitUntil: "domcontentloaded", timeout: 15000 });
+    const nav = await page.goto(formUrl, { waitUntil: "domcontentloaded", timeout: 90_000 });
     if (nav && nav.status() >= 400) return formUrl; // still return it, let DB store it
     const newLinks = await getPageLinks(page);
     // If this page has many form-like links, ask Claude again for the best one; else keep formUrl
@@ -179,6 +179,7 @@ export async function processScoutJob(job: GrantLinkJob): Promise<void> {
 
   const browser = await launchGrantBrowser();
   const page = await newGrantPage(browser);
+  page.setDefaultTimeout(90_000); // Allow Scout to take its time like a human (slow form pages)
 
   try {
     const formUrl = await runScoutDiscovery(page, job.homepage_url);

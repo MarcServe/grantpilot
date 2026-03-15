@@ -80,7 +80,7 @@ export function ApplyButton({ grantId, profileId, eligibilityScore }: ApplyButto
         return;
       }
 
-      toast.success(autopilot ? "Application started! AI will fill and submit." : "Application started! AI is processing your application.");
+      toast.success(autopilot ? "Application started! GrantsCopilot will fill and submit." : "Application started! GrantsCopilot is processing your application.");
       setOpen(false);
       router.push(`/applications/${data.applicationId}`);
     } catch {
@@ -105,21 +105,21 @@ export function ApplyButton({ grantId, profileId, eligibilityScore }: ApplyButto
       <DialogTrigger asChild>
         <Button className="gap-2">
           <FileCheck className="h-4 w-4" />
-          Apply with AI
+          Apply with GrantsCopilot
         </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Start AI Application</DialogTitle>
+          <DialogTitle>Start GrantsCopilot Application</DialogTitle>
           <DialogDescription>
-            Grants-Copilot will use your business profile to fill in the grant
-            application. By default the AI pauses for your review before
+            GrantsCopilot will use your business profile to fill in the grant
+            application. By default it pauses for your review before
             submission; turn on Autopilot to submit without approval.
           </DialogDescription>
         </DialogHeader>
         <div className="rounded-lg bg-muted p-4 text-sm">
           <ul className="space-y-2">
-            <li>1. AI opens the grant application form</li>
+            <li>1. GrantsCopilot opens the grant application form</li>
             <li>2. Fills in company details from your profile</li>
             <li>3. Prepares financial information</li>
             <li>4. Uploads supporting documents and videos</li>

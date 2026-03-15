@@ -80,7 +80,7 @@ function AutoImproveButton({ grantId, applicationId }: { grantId: string; applic
       if (toProfile) {
         toast.success("Profile updated. Re-check eligibility to see the new score.");
       } else {
-        toast.success("Saved for this application only. Your main profile is unchanged. The next time the AI fills this application, it will use these details.");
+        toast.success("Saved for this application only. Your main profile is unchanged. The next time GrantsCopilot fills this application, it will use these details.");
       }
       setOpen(false);
       router.refresh();
@@ -200,7 +200,7 @@ export function EligibilityCard({ grantId, applicationId }: { grantId: string; a
         {!result ? (
           <>
             <p className="text-sm text-muted-foreground">
-              Get an AI assessment of how well your business fits this grant. We may show a cached score if we&apos;ve already assessed it.
+              Get a GrantsCopilot assessment of how well your business fits this grant. We may show a cached score if we&apos;ve already assessed it.
             </p>
             <Button
               variant="outline"
@@ -309,7 +309,7 @@ export function EligibilityCard({ grantId, applicationId }: { grantId: string; a
             <div className="flex flex-wrap gap-2">
               <Button variant="ghost" size="sm" onClick={() => handleCheck(true)} disabled={loading}>
                 {loading ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
-                Re-check (fresh AI)
+                Re-check (fresh GrantsCopilot)
               </Button>
               {score < 85 && (result.improvementPlan?.actions?.length || result.missing?.length) ? (
                 <AutoImproveButton grantId={grantId} applicationId={applicationId} />

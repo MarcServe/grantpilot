@@ -50,8 +50,8 @@ curl -X POST "${NEXT_PUBLIC_SUPABASE_URL}/auth/v1/admin/users" \
 
 ### Full system architecture
 
-#### Apply with AI — catalog grants
-1. User clicks **"Apply with AI"** on a grant detail page → `POST /api/applications/start`
+#### Apply with GrantsCopilot — catalog grants
+1. User clicks **"Apply with GrantsCopilot"** on a grant detail page → `POST /api/applications/start`
 2. API creates `Application` (FILLING), `cu_sessions` (running), and `cu_session_items` (open_grant_url, fill_company_details, fill_financials, upload_documents, prepare_review; + submit_application if autopilot)
 3. Sends notification to org members (email + WhatsApp)
 4. Sends Inngest event `app/session.started` → triggers `monitor-session`
@@ -59,7 +59,7 @@ curl -X POST "${NEXT_PUBLIC_SUPABASE_URL}/auth/v1/admin/users" \
 6. Worker uses Playwright + Claude to navigate the grant URL, fill forms, upload documents
 7. `monitor-session` (Inngest) polls every 5 min; on completion sends `review_required` notification with approve link
 
-#### Apply with AI — external grant link
+#### Apply with GrantsCopilot — external grant link
 1. User pastes URL(s) on `/grants/apply-by-link` → `POST /api/applications/start-with-link`
 2. API creates a new `Grant` from the URL, then same flow as catalog grants
 3. Supports up to 20 URLs at once, with optional autopilot

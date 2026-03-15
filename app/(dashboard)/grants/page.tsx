@@ -47,7 +47,7 @@ export default async function GrantsPage() {
         <div>
           <h1 className="text-2xl font-bold">Available Grants</h1>
           <p className="mt-1 text-muted-foreground">
-            Browse grants or use AI matching to find the best fit for your business.
+            Browse grants or use GrantsCopilot matching to find the best fit for your business.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

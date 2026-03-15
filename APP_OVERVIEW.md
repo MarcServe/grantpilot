@@ -32,8 +32,8 @@ This document describes how the application works: features, user actions, backg
 | `/dashboard` | Overview: profile completion, applications count, suggested/within-reach grants, tasks, notification prefs |
 | `/profile` | Business profile (multi-step form), notification channels, eligibility digest preferences |
 | `/grants` | Browse grants (from sync + discovery) |
-| `/grants/[id]` | Grant detail: eligibility score, Apply with AI, edit application URL, similar grants |
-| `/grants/apply-by-link` | Paste external grant URL(s); start application(s) with AI (up to 20 URLs, optional autopilot) |
+| `/grants/[id]` | Grant detail: eligibility score, Apply with GrantsCopilot, edit application URL, similar grants |
+| `/grants/apply-by-link` | Paste external grant URL(s); start application(s) with GrantsCopilot (up to 20 URLs, optional autopilot) |
 | `/applications` | List of applications with status |
 | `/applications/[id]` | Application detail: status, tasks, snapshot, approve/cancel/delete |
 | `/billing` | Subscription, plan limits, Stripe checkout/portal |
@@ -48,7 +48,7 @@ This document describes how the application works: features, user actions, backg
 
 - **Profile completion %:** From `BusinessProfile.completionScore`. Link to complete profile if &lt; 100%.
 - **Total / active applications:** Counts from `Application` (active = FILLING or REVIEW_REQUIRED).
-- **Available grants:** Link to `/grants`; copy explains “Complete your profile first” or “Get AI-powered grant matches”.
+- **Available grants:** Link to `/grants`; copy explains “Complete your profile first” or “Get GrantsCopilot grant matches”.
 - **Suggested grants:** From `EligibilityAssessment` where score ≥ 80 and grant matches org’s `funderLocations`. Shown only if profile completion ≥ 50%.
 - **Within reach:** Same source, score 50–79.
 - **Recent applications:** Last 5 with status (including STOPPED when failed + stopped).
@@ -84,11 +84,11 @@ Data for suggested/within-reach is filled by the **eligibility-refresh** Inngest
 - **Grant detail (`/grants/[id]`):**  
   - Name, funder, amount, deadline, application URL, eligibility text, description, sectors, regions.  
   - **Eligibility score** (from `EligibilityAssessment`) and improvement tips when profile exists.  
-  - **Apply with AI** button → starts application (subject to plan limits).  
+  - **Apply with GrantsCopilot** button → starts application (subject to plan limits).  
   - Edit application URL (if grant form URL differs).  
   - Required attachments vs. profile documents: missing document labels shown.  
   - Similar grants (same funder or sector).  
-  - Optional: Find application form (Playwright Scout), auto-improve eligibility (AI).
+  - Optional: Find application form (Playwright Scout), auto-improve eligibility (GrantsCopilot).
 - **Apply by link:** User pastes URL(s) on `/grants/apply-by-link` → `POST /api/applications/start-with-link` creates Grant(s) and starts application(s) (same flow as catalog grants; optional autopilot).
 - **APIs:**  
   - `POST /api/grants/discover` — manual discovery (Claude + optional OpenAI/Gemini).  
@@ -101,7 +101,7 @@ Data for suggested/within-reach is filled by the **eligibility-refresh** Inngest
 
 ## 7. Applications
 
-- **Start (catalog):** User clicks “Apply with AI” on grant detail → `POST /api/applications/start` (profile + grant from app). Creates `Application` (FILLING), `cu_sessions`, `cu_session_items`, notifies org, sends Inngest `app/session.started`, worker picks up session.
+- **Start (catalog):** User clicks “Apply with GrantsCopilot” on grant detail → `POST /api/applications/start` (profile + grant from app). Creates `Application` (FILLING), `cu_sessions`, `cu_session_items`, notifies org, sends Inngest `app/session.started`, worker picks up session.
 - **Start by token (no login):** User opens `/start-application?token=...` from email/WhatsApp → page auto-submits to `POST /api/applications/start-by-token` → one-click start, then success or “already started”.
 - **Start with link:** `POST /api/applications/start-with-link` (body: URL(s), optional autopilot) → creates Grant(s) then same as catalog start.
 - **Application statuses:** PENDING, FILLING, REVIEW_REQUIRED, APPROVED, SUBMITTED, FAILED (and STOPPED in UI when failed + stopped).
@@ -115,7 +115,7 @@ Data for suggested/within-reach is filled by the **eligibility-refresh** Inngest
 
 ---
 
-## 8. Apply with AI — end-to-end flow
+## 8. Apply with GrantsCopilot — end-to-end flow
 
 1. **Start:** User or token triggers start → API creates `Application` (FILLING), `cu_sessions` (running), `cu_session_items` (e.g. open_grant_url, fill_company_details, fill_financials, upload_documents, prepare_review; plus submit_application if autopilot).
 2. **Notification:** Org members get `application_started` (email + WhatsApp).

@@ -45,7 +45,7 @@ export function buildEmailHtml(
         subject: "Welcome to Grants-Copilot",
         html: baseLayout(
           "Welcome to Grants-Copilot",
-          "<p>Thanks for joining Grants-Copilot. Start by completing your business profile — it takes about 5 minutes and unlocks AI grant matching.</p>",
+          "<p>Thanks for joining Grants-Copilot. Start by completing your business profile — it takes about 5 minutes and unlocks GrantsCopilot grant matching.</p>",
           `${appUrl}/profile`,
           "Complete Your Profile"
         ),
@@ -56,7 +56,7 @@ export function buildEmailHtml(
         subject: `Application started: ${grant}`,
         html: baseLayout(
           "Your application has started",
-          `<p>We've started processing your application for <strong>${grant}</strong>.</p><p>Our AI is filling in the form using your business profile. We'll let you know when it's ready for review.</p>`,
+          `<p>We've started processing your application for <strong>${grant}</strong>.</p><p>GrantsCopilot is filling in the form using your business profile. We'll let you know when it's ready for review.</p>`,
           payload.applicationId ? `${appUrl}/applications/${payload.applicationId}` : undefined,
           "Track Progress"
         ),
@@ -75,7 +75,7 @@ export function buildEmailHtml(
         subject: `Review required: ${grant}`,
         html: baseLayout(
           "Your application is ready for review",
-          `<p>Your application for <strong>${grant}</strong> has been filled in by our AI and is ready for your review.</p><p>Please review all the information carefully before approving the submission.</p>${extra}`,
+          `<p>Your application for <strong>${grant}</strong> has been filled in by GrantsCopilot and is ready for your review.</p><p>Please review all the information carefully before approving the submission.</p>${extra}`,
           ctaUrl,
           "Review Application"
         ),
@@ -110,7 +110,7 @@ export function buildEmailHtml(
         subject: `Sign-in required: ${grant}`,
         html: baseLayout(
           "Sign in required to continue",
-          `<p>Your application for <strong>${grant}</strong> needs you to sign in on the funder's website.</p><p>Open the application below, then sign in or create an account on their site. After that, use the bookmarklet or click Resume to let our AI continue filling the form.</p>`,
+          `<p>Your application for <strong>${grant}</strong> needs you to sign in on the funder's website.</p><p>Open the application below, then sign in or create an account on their site. After that, use the bookmarklet or click Resume to let GrantsCopilot continue filling the form.</p>`,
           applicationUrl,
           "Open Application"
         ),
@@ -123,7 +123,7 @@ export function buildEmailHtml(
         subject: `More info needed: ${grant}`,
         html: baseLayout(
           "We need a few details to continue",
-          `<p>Your application for <strong>${grant}</strong> needs a few required details that aren't in your profile.</p><p>Open the application below, fill in the requested fields, and click Resume so our AI can continue.</p>`,
+          `<p>Your application for <strong>${grant}</strong> needs a few required details that aren't in your profile.</p><p>Open the application below, fill in the requested fields, and click Resume so GrantsCopilot can continue.</p>`,
           applicationUrl,
           "Provide Details"
         ),
@@ -154,7 +154,7 @@ export function buildEmailHtml(
         subject: "New grant matches found",
         html: baseLayout(
           "New grants match your profile",
-          "<p>We've found new grants that match your business profile. Check them out and apply with AI.</p>",
+          "<p>We've found new grants that match your business profile. Check them out and apply with GrantsCopilot.</p>",
           `${appUrl}/grants`,
           "View Matches"
         ),
@@ -217,7 +217,7 @@ export function buildEmailHtml(
       const missingReminder = hasAnyMissing
         ? `<p style="margin-top:16px;padding:12px;background:#fef3c7;border-radius:8px;color:#92400e">Some grants may require documents you haven&apos;t uploaded yet. Add them in <a href="${appUrl}/profile" style="color:#1B3A6B;font-weight:600">Profile → Documents</a> so we can auto-attach them when you apply.</p>`
         : "";
-      const body = `<p>New grant opportunities for <strong>${escapeHtml(profileName)}</strong> — review and start an application from the links below.</p>${table}${missingReminder}<p style="margin-top:16px">You can also browse all grants and apply with AI from the app.</p>`;
+      const body = `<p>New grant opportunities for <strong>${escapeHtml(profileName)}</strong> — review and start an application from the links below.</p>${table}${missingReminder}<p style="margin-top:16px">You can also browse all grants and apply with GrantsCopilot from the app.</p>`;
       return {
         subject: `[Grants-Copilot] New grant opportunities for ${profileName}`,
         html: baseLayout(
@@ -240,7 +240,7 @@ export function buildEmailHtml(
           <ul style="padding-left:20px">
             ${plan === "Business" ? "<li>5 business profiles</li><li>Unlimited grant matches</li><li>Unlimited auto-fills</li><li>Priority support</li><li>All notification channels</li>" : "<li>Unlimited grant matches</li><li>10 auto-fills per month</li><li>Email &amp; WhatsApp notifications</li>"}
           </ul>
-          <p>Your AI grant matching is running daily — we'll send you matched grants every morning.</p>`,
+          <p>Your GrantsCopilot grant matching is running daily — we'll send you matched grants every morning.</p>`,
           `${appUrl}/dashboard`,
           "Go to Dashboard"
         ),
@@ -267,7 +267,7 @@ export function buildEmailHtml(
         html: baseLayout(
           "Your subscription has ended",
           `<p>Your Grants-Copilot paid subscription has been cancelled and your account has been moved to the Free Trial plan.</p>
-          <p>You can still access your dashboard and existing applications, but AI grant matching, auto-fills, and notifications are limited on the free plan.</p>
+          <p>You can still access your dashboard and existing applications, but GrantsCopilot grant matching, auto-fills, and notifications are limited on the free plan.</p>
           <p>Ready to come back? Upgrade anytime from the billing page.</p>`,
           `${appUrl}/billing`,
           "Resubscribe"
@@ -357,7 +357,7 @@ export function buildWhatsAppMessage(
 
     case "subscription_activated": {
       const plan = payload.planName ?? "Pro";
-      return `🎉 Welcome to Grants-Copilot ${plan}!\n\nYour subscription is active. AI grant matching runs daily — we'll send you matched grants every morning.\n\n${appUrl}/dashboard`;
+      return `🎉 Welcome to Grants-Copilot ${plan}!\n\nYour subscription is active. GrantsCopilot grant matching runs daily — we'll send you matched grants every morning.\n\n${appUrl}/dashboard`;
     }
 
     case "subscription_upgraded": {

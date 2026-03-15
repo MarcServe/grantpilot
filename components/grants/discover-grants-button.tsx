@@ -56,7 +56,7 @@ export function DiscoverGrantsButton({ disabled, className }: DiscoverGrantsButt
       ) : (
         <Search className="mr-2 h-4 w-4" />
       )}
-      Find grants (AI discovery)
+      Find grants (GrantsCopilot)
     </Button>
   );
 }

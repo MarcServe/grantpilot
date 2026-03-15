@@ -6,7 +6,7 @@ import * as https from "https";
 import * as http from "http";
 
 const VIEWPORT = { width: 1280, height: 720 };
-const NAV_TIMEOUT_MS = 60_000;
+const NAV_TIMEOUT_MS = 90_000; // Allow slow grant/homepage loads (Scout and form filling)
 const ACTION_TIMEOUT_MS = 15_000;
 
 export interface FormFieldInfo {

@@ -102,7 +102,7 @@ export default async function GrantDetailPage({
   }
 
   return (
-    <div className="mx-auto max-w-4xl p-6">
+    <div className="mx-auto max-w-4xl min-w-0 overflow-hidden p-6">
       <EnsureFormLinkScout
         grantId={grant.id}
         applicationUrl={grant.applicationUrl ?? ""}
@@ -137,7 +137,7 @@ export default async function GrantDetailPage({
         </div>
       )}
 
-      <Card>
+      <Card className="min-w-0">
         <CardHeader>
           <div className="flex items-start justify-between">
             <div>

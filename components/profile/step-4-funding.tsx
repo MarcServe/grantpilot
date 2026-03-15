@@ -153,7 +153,7 @@ export function Step4Funding({
       });
       if (!res.ok) {
         const data = await res.json();
-        toast.error(data.error ?? "AI request failed");
+        toast.error(data.error ?? "GrantsCopilot request failed");
         return null;
       }
       return await res.json();
@@ -169,7 +169,7 @@ export function Step4Funding({
     const result = await callAI("recommend");
     if (!result) return;
     setAiRecommendation(result);
-    toast.success("AI recommendations ready");
+    toast.success("GrantsCopilot recommendations ready");
   }
 
   async function handleApplyRecommendations() {
@@ -245,7 +245,7 @@ export function Step4Funding({
               className="gap-2"
             >
               {loadingAI === "recommend" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
-              AI Funding Strategy
+              GrantsCopilot Funding Strategy
             </Button>
           </div>
         )}
@@ -291,7 +291,7 @@ export function Step4Funding({
                 className="gap-2"
               >
                 <Sparkles className="h-3.5 w-3.5" />
-                Apply AI Recommendations
+                Apply GrantsCopilot Recommendations
               </Button>
             </CardContent>
           </Card>

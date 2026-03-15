@@ -128,8 +128,8 @@ export function EditApplicationUrl({ grantId, applicationUrl }: EditApplicationU
         toast.info(data.message ?? "Discovery already in progress.");
         return;
       }
-      // status === "pending": poll until terminal or timeout
-      const maxWaitMs = 120_000;
+      // status === "pending": poll until terminal or timeout (allow Scout to take its time)
+      const maxWaitMs = 300_000; // 5 min so worker can complete slow form-link discovery
       const pollIntervalMs = 3000;
       const start = Date.now();
       while (Date.now() - start < maxWaitMs) {
@@ -165,17 +165,19 @@ export function EditApplicationUrl({ grantId, applicationUrl }: EditApplicationU
   };
 
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <a
-          href={applicationUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-sm text-primary underline hover:no-underline"
-        >
-          <ExternalLink className="h-3 w-3" />
-          {applicationUrl.length > 50 ? `${applicationUrl.slice(0, 50)}…` : applicationUrl}
-        </a>
+    <div className="space-y-2 min-w-0">
+      <div className="flex flex-wrap items-center gap-2 min-w-0">
+        <div className="min-w-0 flex-1 overflow-hidden">
+          <a
+            href={applicationUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-sm text-primary underline hover:no-underline break-all"
+          >
+            <ExternalLink className="h-3 w-3 shrink-0" />
+            <span className="min-w-0 break-all">{applicationUrl.length > 50 ? `${applicationUrl.slice(0, 50)}…` : applicationUrl}</span>
+          </a>
+        </div>
         <Button
           type="button"
           variant="ghost"

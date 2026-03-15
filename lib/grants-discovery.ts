@@ -101,6 +101,6 @@ export function profileToDiscoveryProfile(profile: {
     fundingMin: Number(profile.fundingMin) || 0,
     fundingMax: Number(profile.fundingMax) || 0,
     fundingPurposes: Array.isArray(profile.fundingPurposes) ? profile.fundingPurposes : [],
-    funderLocations: (profile.funderLocations ?? []) as ("US" | "UK" | "EU" | "Global")[],
+    funderLocations: (profile.funderLocations ?? []) as ("US" | "UK" | "EU" | "CA" | "AU" | "Global")[],
   };
 }

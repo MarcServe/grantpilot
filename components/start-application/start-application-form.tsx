@@ -61,7 +61,7 @@ export function StartApplicationForm({ token, grantName }: StartApplicationFormP
         <CheckCircle className="mx-auto h-10 w-10 text-green-600" />
         <p className="mt-2 font-medium text-green-800">Application started</p>
         <p className="mt-1 text-sm text-green-700">
-          Your application for {grantName} has been created. Our AI is filling it in.
+          Your application for {grantName} has been created. GrantsCopilot is filling it in.
         </p>
         {applicationId && (
           <Button className="mt-4" onClick={() => router.push(`/applications/${applicationId}`)}>
@@ -84,7 +84,7 @@ export function StartApplicationForm({ token, grantName }: StartApplicationFormP
         ) : (
           <CheckCircle className="h-4 w-4" />
         )}
-        {loading ? "Starting…" : "Apply with AI"}
+        {loading ? "Starting…" : "Apply with GrantsCopilot"}
       </Button>
       {error && (
         <p className="text-center text-sm text-destructive">{error}</p>

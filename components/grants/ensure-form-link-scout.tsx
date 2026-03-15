@@ -14,7 +14,7 @@ interface EnsureFormLinkScoutProps {
 /**
  * When eligibility is good and the grant URL is a programme page, enqueue a Scout job
  * so the worker (Playwright) discovers the real application form link. That makes
- * "Apply with AI" use the correct form URL when the user clicks it.
+ * "Apply with GrantsCopilot" use the correct form URL when the user clicks it.
  */
 export function EnsureFormLinkScout({ grantId, applicationUrl, eligibilityScore }: EnsureFormLinkScoutProps) {
   const enqueued = useRef(false);

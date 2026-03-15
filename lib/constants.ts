@@ -1,14 +1,16 @@
 /**
  * Funder location / region codes used for filtering.
- * US = USA-only funders, UK = UK funders, EU = European Union, Global = open to multiple regions.
+ * US = USA-only funders, UK = UK funders, EU = European Union, CA = Canada, AU = Australia, Global = open to multiple regions.
  */
-export const FUNDER_LOCATIONS = ["US", "UK", "EU", "Global"] as const;
+export const FUNDER_LOCATIONS = ["US", "UK", "EU", "CA", "AU", "Global"] as const;
 export type FunderLocation = (typeof FUNDER_LOCATIONS)[number];
 
 export const FUNDER_LOCATION_LABELS: Record<FunderLocation, string> = {
   US: "United States",
   UK: "United Kingdom",
   EU: "Europe (EU)",
+  CA: "Canada",
+  AU: "Australia",
   Global: "Global",
 };
 

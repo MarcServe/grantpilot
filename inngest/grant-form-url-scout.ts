@@ -9,7 +9,7 @@ const RECENT_FOUND_DAYS = 14;
  * Nightly Scout enqueue: find grants with programme/info-style URLs that need
  * the real application form URL discovered. Inserts/updates grant_links to
  * status='pending' so the Fly.io Scout worker can process them.
- * Apply with AI then uses Grant.applicationUrl (updated by the worker).
+ * Apply with GrantsCopilot then uses Grant.applicationUrl (updated by the worker).
  */
 export const grantFormUrlScout = inngest.createFunction(
   { id: "grant-form-url-scout", name: "Nightly Grant Form URL Scout (enqueue)" },

@@ -108,7 +108,7 @@ export default async function IntelligencePage() {
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Per-grant eligibility score (e.g. 90% eligible), reasons why, and for partial fits an AI improvement plan. Scores are cached and shown on the grants list; we notify you for high-fit grants.
+              Per-grant eligibility score (e.g. 90% eligible), reasons why, and for partial fits a GrantsCopilot improvement plan. Scores are cached and shown on the grants list; we notify you for high-fit grants.
             </p>
             <Link href="/grants">
               <Button variant="outline" size="sm" className="gap-1">
@@ -131,7 +131,7 @@ export default async function IntelligencePage() {
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Grants by funder, similar grants by sector and amount, and AI matching so you see
+              Grants by funder, similar grants by sector and amount, and GrantsCopilot matching so you see
               the best-fit opportunities first. More structure coming: funder graph, requirements graph.
             </p>
             <Link href="/grants">
@@ -152,7 +152,7 @@ export default async function IntelligencePage() {
             </p>
             <p className="text-sm text-muted-foreground">
               Here you see how Grants-Copilot works under the hood: form parsing and field mapping,
-              per-grant eligibility scores and improvement tips, and AI-powered matching so you
+              per-grant eligibility scores and improvement tips, and GrantsCopilot matching so you
               can focus on the best-fit grants first.
             </p>
           </div>

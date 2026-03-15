@@ -15,6 +15,8 @@ const REGION_OPTIONS = [
   { value: "UK", label: "UK" },
   { value: "US", label: "US" },
   { value: "EU", label: "EU" },
+  { value: "CA", label: "Canada" },
+  { value: "AU", label: "Australia" },
   { value: "Global", label: "Global" },
   { value: "recommended", label: "Recommended for you" },
   { value: "saved", label: "My saved grants" },

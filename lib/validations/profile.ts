@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const FUNDER_LOCATION_VALUES = ["US", "UK", "EU", "Global"] as const;
+export const FUNDER_LOCATION_VALUES = ["US", "UK", "EU", "CA", "AU", "Global"] as const;
 
 export const step1Schema = z.object({
   businessName: z.string().min(2, "Business name is required"),

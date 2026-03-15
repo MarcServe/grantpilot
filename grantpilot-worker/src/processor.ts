@@ -269,6 +269,22 @@ async function processGrantApplicationSession(
               .from("Application")
               .update({ status: "SUBMITTED" })
               .eq("id", applicationId);
+            const appUrl = process.env.APP_URL;
+            const internalSecret = process.env.INTERNAL_API_SECRET;
+            if (appUrl && internalSecret) {
+              try {
+                await fetch(`${appUrl.replace(/\/$/, "")}/api/internal/notify-application-submitted`, {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    "x-internal-secret": internalSecret,
+                  },
+                  body: JSON.stringify({ applicationId }),
+                });
+              } catch (err) {
+                console.error("[worker] notify-application-submitted failed", err);
+              }
+            }
           }
         }
         if (
