@@ -15,6 +15,8 @@ export type NotificationType =
   | "review_required"
   | "application_submitted"
   | "application_failed"
+  | "application_login_required"
+  | "application_needs_info"
   | "deadline_reminder"
   | "welcome"
   | "grant_match"

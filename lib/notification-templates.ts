@@ -104,6 +104,32 @@ export function buildEmailHtml(
         ),
       };
 
+    case "application_login_required": {
+      const applicationUrl = payload.applicationId ? `${appUrl}/applications/${payload.applicationId}` : appUrl;
+      return {
+        subject: `Sign-in required: ${grant}`,
+        html: baseLayout(
+          "Sign in required to continue",
+          `<p>Your application for <strong>${grant}</strong> needs you to sign in on the funder's website.</p><p>Open the application below, then sign in or create an account on their site. After that, use the bookmarklet or click Resume to let our AI continue filling the form.</p>`,
+          applicationUrl,
+          "Open Application"
+        ),
+      };
+    }
+
+    case "application_needs_info": {
+      const applicationUrl = payload.applicationId ? `${appUrl}/applications/${payload.applicationId}` : appUrl;
+      return {
+        subject: `More info needed: ${grant}`,
+        html: baseLayout(
+          "We need a few details to continue",
+          `<p>Your application for <strong>${grant}</strong> needs a few required details that aren't in your profile.</p><p>Open the application below, fill in the requested fields, and click Resume so our AI can continue.</p>`,
+          applicationUrl,
+          "Provide Details"
+        ),
+      };
+    }
+
     case "deadline_reminder": {
       const viewGrantUrl = payload.grantId ? `${appUrl}/grants/${payload.grantId}` : `${appUrl}/grants`;
       const startUrl = payload.startApplicationToken
@@ -282,6 +308,16 @@ export function buildWhatsAppMessage(
 
     case "application_failed":
       return `There was an issue with your ${grant} application. Please check the details.\n\n${appUrl}/applications/${payload.applicationId ?? ""}`;
+
+    case "application_login_required": {
+      const applicationUrl = payload.applicationId ? `${appUrl}/applications/${payload.applicationId}` : appUrl;
+      return `Sign-in required for ${grant}. Sign in on the funder's site, then open the application and use Resume or the bookmarklet to continue.\n\nOpen application: ${applicationUrl}`;
+    }
+
+    case "application_needs_info": {
+      const applicationUrl = payload.applicationId ? `${appUrl}/applications/${payload.applicationId}` : appUrl;
+      return `We need a few details to continue your ${grant} application. Open the link, fill in the requested fields, and click Resume.\n\n${applicationUrl}`;
+    }
 
     case "deadline_reminder": {
       const viewUrl = payload.grantId ? `${appUrl}/grants/${payload.grantId}` : appUrl + "/grants";

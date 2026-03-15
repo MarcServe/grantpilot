@@ -66,6 +66,8 @@ export default async function GrantsPage() {
       <GrantsListClient
         grants={grants.map((g) => {
           const urgency = computeUrgency(g.deadline ?? null);
+          const raw = g as { createdAt?: string; created_at?: string };
+          const createdAt = raw.createdAt ?? raw.created_at ?? null;
           return {
             id: g.id,
             name: g.name,
@@ -80,6 +82,7 @@ export default async function GrantsPage() {
             applicationUrl: g.applicationUrl ?? "",
             urgencyLevel: urgency.level,
             urgencyLabel: urgency.label,
+            createdAt,
           };
         })}
         userFunderLocations={userFunderLocations}

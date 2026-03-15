@@ -14,7 +14,7 @@ import {
   type FilledFormSnapshot,
   type FilledField,
 } from "./browser.js";
-import { getFormFillActions, getFileInputMapping } from "./form-mapping.js";
+import { getFormFillActions, getFormFillActionsWithMissing, getFileInputMapping, type MissingRequiredField } from "./form-mapping.js";
 import {
   matchDocumentsToRequirements,
   buildUploadPlan,
@@ -33,12 +33,18 @@ export interface StepResult {
   situation?: PageSituation;
   /** When true, app should prompt user to set direct application URL. */
   needsDirectUrl?: boolean;
+  /** When true, required form fields are missing from profile; app should collect and resume. */
+  needsInput?: boolean;
+  /** List of required fields to ask the user for (when needsInput is true). */
+  missingRequired?: MissingRequiredField[];
 }
 
 export interface GrantStepOptions {
   requiredAttachments?: RequiredAttachment[];
   /** User-edited snapshot fields; if present, submit uses these instead of re-mapping via Claude. */
   editedSnapshotFields?: FilledField[];
+  /** User-provided answers for previously missing required fields (label -> value). */
+  needsInputAnswers?: Record<string, string>;
 }
 
 async function getFileInputSelectors(page: Page): Promise<string[]> {
@@ -110,7 +116,20 @@ export async function runGrantStep(
 
     case "fill_company_details": {
       const fields = await getFormFields(page);
-      const actions = await getFormFillActions(fields, profile, "company");
+      const { actions, missingRequired } = await getFormFillActionsWithMissing(
+        fields,
+        profile,
+        "company",
+        options?.needsInputAnswers
+      );
+      if (missingRequired.length > 0) {
+        return {
+          success: false,
+          notes: "Some required fields are missing from your profile. We've sent you a link to provide them, then you can resume.",
+          needsInput: true,
+          missingRequired,
+        };
+      }
       if (actions.length === 0) {
         return { success: true, skipped: true, notes: "No company fields on form; skipped" };
       }
@@ -147,7 +166,20 @@ export async function runGrantStep(
 
     case "fill_financials": {
       const fields = await getFormFields(page);
-      const actions = await getFormFillActions(fields, profile, "financial");
+      const { actions, missingRequired } = await getFormFillActionsWithMissing(
+        fields,
+        profile,
+        "financial",
+        options?.needsInputAnswers
+      );
+      if (missingRequired.length > 0) {
+        return {
+          success: false,
+          notes: "Some required financial fields are missing from your profile. Provide them in the link we sent, then resume.",
+          needsInput: true,
+          missingRequired,
+        };
+      }
       if (actions.length === 0) {
         return { success: true, skipped: true, notes: "No financial fields on form; skipped" };
       }

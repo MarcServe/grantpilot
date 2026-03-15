@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +34,10 @@ export function EditApplicationUrl({ grantId, applicationUrl }: EditApplicationU
   const [saving, setSaving] = useState(false);
   const [discovering, setDiscovering] = useState(false);
   const showFindForm = isLikelyProgrammePage(applicationUrl);
+
+  useEffect(() => {
+    setValue(applicationUrl);
+  }, [applicationUrl]);
 
   const handleSave = async () => {
     const url = value.trim();
@@ -103,19 +107,56 @@ export function EditApplicationUrl({ grantId, applicationUrl }: EditApplicationU
   const handleFindForm = async () => {
     setDiscovering(true);
     try {
-      const res = await fetch(`/api/grants/${grantId}/discover-form-link`);
+      const res = await fetch(`/api/grants/${grantId}/scout-form-link`, { method: "POST" });
       const data = await res.json();
       if (!res.ok) {
-        toast.error(data.error ?? "Discovery failed");
+        toast.error(data.error ?? "Failed to start discovery");
         return;
       }
-      if (data.formUrl) {
+      if (data.status === "skipped") {
+        toast.info(data.message ?? "No Scout needed for this URL.");
+        return;
+      }
+      if (data.status === "found" && data.formUrl) {
         setValue(data.formUrl);
         setEditing(true);
+        router.refresh();
         toast.success("Application form link found. Review and save to use it for auto-fill.");
-      } else {
-        toast.info(data.message ?? data.error ?? "No application form link found on this page.");
+        return;
       }
+      if (data.status === "running") {
+        toast.info(data.message ?? "Discovery already in progress.");
+        return;
+      }
+      // status === "pending": poll until terminal or timeout
+      const maxWaitMs = 120_000;
+      const pollIntervalMs = 3000;
+      const start = Date.now();
+      while (Date.now() - start < maxWaitMs) {
+        await new Promise((r) => setTimeout(r, pollIntervalMs));
+        const pollRes = await fetch(`/api/grants/${grantId}/scout-form-link`);
+        const pollData = await pollRes.json();
+        if (!pollRes.ok) {
+          toast.error(pollData.error ?? "Poll failed");
+          return;
+        }
+        if (pollData.status === "found" && pollData.formUrl) {
+          setValue(pollData.formUrl);
+          setEditing(true);
+          router.refresh();
+          toast.success("Application form link found. Review and save to use it for auto-fill.");
+          return;
+        }
+        if (pollData.status === "failed" || pollData.status === "manual_review_needed") {
+          toast.info(
+            pollData.status === "failed"
+              ? pollData.error ?? "Discovery failed. Try editing the URL manually."
+              : "No application form link identified. Edit the URL manually if you know the form link."
+          );
+          return;
+        }
+      }
+      toast.info("Discovery is taking longer than expected. The worker may still update the link—refresh the page later.");
     } catch {
       toast.error("Failed to discover form link");
     } finally {
@@ -161,7 +202,7 @@ export function EditApplicationUrl({ grantId, applicationUrl }: EditApplicationU
       </div>
       {showFindForm && (
         <p className="text-xs text-muted-foreground">
-          This link looks like a programme info page. Use &quot;Find application form&quot; to get the direct form URL (e.g. Airtable) so the worker can fill it without opening the info page.
+          This link looks like a programme info page. Use &quot;Find application form&quot; to open the page in a browser (Playwright) and find the direct form URL like a human would. The worker must be running for discovery to complete.
         </p>
       )}
     </div>

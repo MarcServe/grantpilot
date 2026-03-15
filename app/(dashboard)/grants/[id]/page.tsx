@@ -17,6 +17,7 @@ import {
 import { ApplyButton } from "@/components/grants/apply-button";
 import { EditApplicationUrl } from "@/components/grants/edit-application-url";
 import { EligibilityCard } from "@/components/grants/eligibility-card";
+import { EnsureFormLinkScout } from "@/components/grants/ensure-form-link-scout";
 import { computeUrgency } from "@/lib/urgency";
 import { checkRequirementsAgainstDocuments } from "@/lib/grant-requirements";
 import type { RequiredAttachment } from "@/lib/grant-requirements";
@@ -102,6 +103,11 @@ export default async function GrantDetailPage({
 
   return (
     <div className="mx-auto max-w-4xl p-6">
+      <EnsureFormLinkScout
+        grantId={grant.id}
+        applicationUrl={grant.applicationUrl ?? ""}
+        eligibilityScore={eligibilityScore}
+      />
       <Link
         href="/grants"
         className="mb-6 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"

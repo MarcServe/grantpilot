@@ -158,15 +158,22 @@ async function processGrantApplicationSession(
   const applicationId = session.public_id.replace(/^grantapp_/, "");
 
   let editedSnapshotFields: { label: string; name: string; value: string }[] | undefined;
+  let needsInputAnswers: Record<string, string> | undefined;
   if (applicationId) {
     const { data: appRow } = await getSupabase()
       .from("Application")
-      .select("filled_snapshot")
+      .select("filled_snapshot, needs_input_answers")
       .eq("id", applicationId)
       .maybeSingle();
-    const snap = (appRow as { filled_snapshot?: { fields?: { label: string; name: string; value: string }[] } } | null)?.filled_snapshot;
-    if (snap?.fields && snap.fields.length > 0) {
-      editedSnapshotFields = snap.fields;
+    const row = appRow as {
+      filled_snapshot?: { fields?: { label: string; name: string; value: string }[] };
+      needs_input_answers?: Record<string, string> | null;
+    } | null;
+    if (row?.filled_snapshot?.fields?.length) {
+      editedSnapshotFields = row.filled_snapshot.fields;
+    }
+    if (row?.needs_input_answers && typeof row.needs_input_answers === "object") {
+      needsInputAnswers = row.needs_input_answers as Record<string, string>;
     }
   }
 
@@ -185,6 +192,7 @@ async function processGrantApplicationSession(
           lastResult = await runGrantStep(page, item, profile, documents, {
             requiredAttachments: requiredAttachments.length > 0 ? requiredAttachments : undefined,
             editedSnapshotFields: isSubmit ? editedSnapshotFields : undefined,
+            needsInputAnswers,
           });
           if (lastResult.success) break;
           if (lastResult.situation) break;
@@ -202,17 +210,25 @@ async function processGrantApplicationSession(
         }
 
         const result = lastResult!;
-        const itemStatus = result.skipped ? "skipped" : result.success ? "done" : "failed";
+        const isNeedsInput = result.needsInput && result.missingRequired && result.missingRequired.length > 0;
+        const itemStatus = isNeedsInput
+          ? "pending"
+          : result.skipped
+            ? "skipped"
+            : result.success
+              ? "done"
+              : "failed";
         const extraData: Record<string, unknown> = {
           notes: result.notes,
           retries: attempt,
         };
         if (result.situation) extraData.page_situation = result.situation;
         if (result.needsDirectUrl) extraData.needs_direct_url = result.needsDirectUrl;
-        await markItemStatus(item.id, itemStatus, {
-          extra_data: extraData,
-          processed_at: new Date().toISOString(),
-        });
+        if (result.needsInput) extraData.needs_input = true;
+        if (result.missingRequired) extraData.missing_required = result.missingRequired;
+        const statusPatch: Record<string, unknown> = { extra_data: extraData };
+        if (!isNeedsInput) statusPatch.processed_at = new Date().toISOString();
+        await markItemStatus(item.id, itemStatus, statusPatch);
         await appendLog(
           session.id,
           "grant_application",
@@ -254,6 +270,58 @@ async function processGrantApplicationSession(
               .update({ status: "SUBMITTED" })
               .eq("id", applicationId);
           }
+        }
+        if (
+          (result.situation === "login_required" || result.situation === "needs_verification") &&
+          applicationId
+        ) {
+          const appUrl = process.env.APP_URL;
+          const internalSecret = process.env.INTERNAL_API_SECRET;
+          if (appUrl && internalSecret) {
+            try {
+              await fetch(`${appUrl.replace(/\/$/, "")}/api/internal/notify-login-required`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "x-internal-secret": internalSecret,
+                },
+                body: JSON.stringify({ applicationId }),
+              });
+            } catch (err) {
+              console.error("[worker] notify-login-required failed", err);
+            }
+          }
+        }
+        if (result.needsInput && result.missingRequired && result.missingRequired.length > 0 && applicationId) {
+          await getSupabase()
+            .from("Application")
+            .update({
+              status: "NEEDS_INPUT",
+              needs_input: result.missingRequired,
+              updatedAt: new Date().toISOString(),
+            })
+            .eq("id", applicationId);
+          await getSupabase()
+            .from("cu_sessions")
+            .update({ status: "paused", updated_at: new Date().toISOString() })
+            .eq("id", session.id);
+          const appUrl = process.env.APP_URL;
+          const internalSecret = process.env.INTERNAL_API_SECRET;
+          if (appUrl && internalSecret) {
+            try {
+              await fetch(`${appUrl.replace(/\/$/, "")}/api/internal/notify-needs-input`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "x-internal-secret": internalSecret,
+                },
+                body: JSON.stringify({ applicationId }),
+              });
+            } catch (err) {
+              console.error("[worker] notify-needs-input failed", err);
+            }
+          }
+          break;
         }
         processed += 1;
       } catch (err) {

@@ -1,25 +1,9 @@
 import Link from "next/link";
-import {
-  FileCheck,
-  LayoutDashboard,
-  Building2,
-  Search,
-  FileText,
-  CreditCard,
-  Brain,
-} from "lucide-react";
+import { FileCheck } from "lucide-react";
 import { UserNav } from "@/components/layout/user-nav";
+import { DashboardNav } from "@/components/layout/dashboard-nav";
 
 export const dynamic = "force-dynamic";
-
-const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/profile", label: "Profile", icon: Building2 },
-  { href: "/grants", label: "Grants", icon: Search },
-  { href: "/applications", label: "Applications", icon: FileText },
-  { href: "/intelligence", label: "Intelligence", icon: Brain },
-  { href: "/billing", label: "Billing", icon: CreditCard },
-];
 
 export default function DashboardLayout({
   children,
@@ -39,18 +23,7 @@ export default function DashboardLayout({
             </span>
           </Link>
 
-          <nav className="hidden items-center gap-1 md:flex">
-            {navItems.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              >
-                <item.icon className="h-4 w-4" />
-                {item.label}
-              </Link>
-            ))}
-          </nav>
+          <DashboardNav />
 
           <UserNav />
         </div>

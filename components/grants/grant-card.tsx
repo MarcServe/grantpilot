@@ -19,6 +19,8 @@ interface GrantCardProps {
   matchReason?: string;
   urgencyLevel?: "HIGH" | "MEDIUM" | "LOW" | "NONE";
   urgencyLabel?: string;
+  /** When the grant was added to the database (ISO string). */
+  addedAt?: string | null;
   isSaved?: boolean;
   onToggleSave?: () => void;
 }
@@ -42,6 +44,7 @@ export function GrantCard({
   matchReason,
   urgencyLevel,
   urgencyLabel,
+  addedAt,
   isSaved,
   onToggleSave,
 }: GrantCardProps) {
@@ -51,9 +54,16 @@ export function GrantCard({
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
             <CardTitle className="text-lg">{name}</CardTitle>
-            <div className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
-              <Building2 className="h-3.5 w-3.5 shrink-0" />
-              {funder}
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm text-muted-foreground">
+              <span className="flex items-center gap-1">
+                <Building2 className="h-3.5 w-3.5 shrink-0" />
+                {funder}
+              </span>
+              {addedAt && (
+                <span className="text-xs">
+                  Added {new Date(addedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                </span>
+              )}
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">

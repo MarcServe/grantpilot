@@ -11,6 +11,7 @@ import { SubmitSection } from "@/components/applications/submit-section";
 import { StopApplicationButton } from "@/components/applications/stop-application-button";
 import { ApplicationTaskList } from "@/components/applications/application-task-list";
 import { EditableSnapshot } from "@/components/applications/editable-snapshot";
+import { NeedsInputForm } from "@/components/applications/needs-input-form";
 
 const ITEM_STATUS_ICON: Record<string, React.ReactNode> = {
   done: <CheckCircle className="h-4 w-4 text-green-600" />,
@@ -24,6 +25,7 @@ const STATUS_COLORS: Record<string, string> = {
   PENDING: "bg-yellow-100 text-yellow-800",
   FILLING: "bg-blue-100 text-blue-800",
   REVIEW_REQUIRED: "bg-purple-100 text-purple-800",
+  NEEDS_INPUT: "bg-amber-100 text-amber-800",
   APPROVED: "bg-green-100 text-green-800",
   SUBMITTED: "bg-green-100 text-green-800",
   FAILED: "bg-red-100 text-red-800",
@@ -149,7 +151,7 @@ export default async function ApplicationDetailPage({
           <p className="text-muted-foreground">{application.grant.funder}</p>
         </div>
         <div className="flex items-center gap-2">
-          {["PENDING", "FILLING", "REVIEW_REQUIRED"].includes(displayStatus) && (
+          {["PENDING", "FILLING", "REVIEW_REQUIRED", "NEEDS_INPUT"].includes(displayStatus) && (
             <StopApplicationButton applicationId={application.id} />
           )}
           <Badge
@@ -160,6 +162,13 @@ export default async function ApplicationDetailPage({
           </Badge>
         </div>
       </div>
+
+      {application.status === "NEEDS_INPUT" && (() => {
+        const needsInput = (application as { needs_input?: { selector: string; label: string; hint?: string }[] }).needs_input;
+        const list = Array.isArray(needsInput) ? needsInput : [];
+        if (list.length === 0) return null;
+        return <NeedsInputForm applicationId={application.id} needsInput={list} />;
+      })()}
 
       {pageSituation && (
         <Card className="mb-6 border-amber-200 bg-amber-50">

@@ -34,6 +34,7 @@ interface GrantData {
   applicationUrl: string;
   urgencyLevel?: "HIGH" | "MEDIUM" | "LOW" | "NONE";
   urgencyLabel?: string;
+  createdAt?: string | null;
 }
 
 interface CachedScore {
@@ -303,6 +304,7 @@ export function GrantsListClient({
               matchReason={match?.reason ?? cached?.summary}
               urgencyLevel={grant.urgencyLevel}
               urgencyLabel={grant.urgencyLabel}
+              addedAt={grant.createdAt ?? undefined}
               isSaved={isSaved}
               onToggleSave={profileComplete ? () => toggleSaved(grant.id, isSaved) : undefined}
             />

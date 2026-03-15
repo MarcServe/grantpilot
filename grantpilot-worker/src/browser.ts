@@ -107,19 +107,26 @@ export interface FillAction {
   type?: "fill" | "select" | "check";
 }
 
+const FILL_DELAY_MS = 150;
+
 export async function applyFillActions(
   page: Page,
   actions: FillAction[]
 ): Promise<{ applied: number; errors: string[] }> {
   const errors: string[] = [];
   let applied = 0;
-  for (const a of actions) {
+  for (let i = 0; i < actions.length; i++) {
+    const a = actions[i];
+    if (i > 0) {
+      await page.waitForTimeout(FILL_DELAY_MS);
+    }
     try {
       const el = await page.$(a.selector);
       if (!el) {
         errors.push(`Element not found: ${a.selector}`);
         continue;
       }
+      await el.scrollIntoViewIfNeeded();
       const tag = await el.evaluate((e) => (e as HTMLElement).tagName.toLowerCase());
       const type = await el.evaluate((e) => (e as HTMLInputElement).type?.toLowerCase());
       if (tag === "select") {
