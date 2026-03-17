@@ -201,8 +201,8 @@ export function GrantsListClient({
   );
 
   return (
-    <div>
-      <div className="mb-6 flex flex-wrap items-center gap-3">
+    <div className="min-w-0">
+      <div className="mb-6 flex flex-wrap items-center gap-3 gap-y-2">
         <p className="text-sm text-muted-foreground">
           {filteredGrants.length} grant{filteredGrants.length !== 1 ? "s" : ""}
           {sorted && " (sorted by match score)"}

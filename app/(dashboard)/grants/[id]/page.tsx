@@ -102,7 +102,7 @@ export default async function GrantDetailPage({
   }
 
   return (
-    <div className="mx-auto max-w-4xl min-w-0 overflow-hidden p-6">
+    <div className="mx-auto max-w-4xl min-w-0 overflow-hidden px-4 py-6 sm:p-6">
       <EnsureFormLinkScout
         grantId={grant.id}
         applicationUrl={grant.applicationUrl ?? ""}
@@ -139,9 +139,9 @@ export default async function GrantDetailPage({
 
       <Card className="min-w-0">
         <CardHeader>
-          <div className="flex items-start justify-between">
-            <div>
-              <CardTitle className="text-2xl">{grant.name}</CardTitle>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <CardTitle className="text-xl break-words sm:text-2xl">{grant.name}</CardTitle>
               <div className="mt-2 flex items-center gap-1 text-muted-foreground">
                 <Building2 className="h-4 w-4" />
                 {grant.funder}
@@ -202,26 +202,26 @@ export default async function GrantDetailPage({
           </div>
 
           {grant.description && (
-            <div>
+            <div className="min-w-0">
               <h3 className="mb-2 font-semibold">Description</h3>
-              <p className="whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
+              <p className="whitespace-pre-line break-words text-sm leading-relaxed text-muted-foreground">
                 {grant.description}
               </p>
             </div>
           )}
 
           {grant.objectives && (
-            <div>
+            <div className="min-w-0">
               <h3 className="mb-2 font-semibold">Objectives & Conditions</h3>
-              <p className="whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
+              <p className="whitespace-pre-line break-words text-sm leading-relaxed text-muted-foreground">
                 {String(grant.objectives).slice(0, 1500)}
               </p>
             </div>
           )}
 
-          <div>
+          <div className="min-w-0">
             <h3 className="mb-2 font-semibold">Eligibility</h3>
-            <p className="text-sm leading-relaxed text-muted-foreground">
+            <p className="break-words text-sm leading-relaxed text-muted-foreground">
               {grant.eligibility}
             </p>
             {(grant.applicantTypes as string[] | undefined)?.length ? (

@@ -4,10 +4,12 @@ import * as path from "path";
 import * as os from "os";
 import * as https from "https";
 import * as http from "http";
+import Anthropic from "@anthropic-ai/sdk";
 
 const VIEWPORT = { width: 1280, height: 720 };
-const NAV_TIMEOUT_MS = 90_000; // Allow slow grant/homepage loads (Scout and form filling)
-const ACTION_TIMEOUT_MS = 15_000;
+/** 5 min: stability over speed; users can wait ~10 min for submitted/review/needs info/login. */
+const NAV_TIMEOUT_MS = 300_000;
+const ACTION_TIMEOUT_MS = 300_000;
 
 export interface FormFieldInfo {
   name: string;
@@ -16,6 +18,12 @@ export interface FormFieldInfo {
   label: string;
   placeholder: string;
   options?: string[];
+  /** HTML maxlength (characters). */
+  maxLength?: number;
+  /** Whether the field is required. */
+  required?: boolean;
+  /** Helper/instruction text (e.g. aria-describedby, next sibling) for limits like "Max 500 words". */
+  instruction?: string;
 }
 
 export async function launchGrantBrowser(): Promise<Browser> {
@@ -53,6 +61,7 @@ export async function navigateToGrantUrl(page: Page, url: string): Promise<{ ok:
 
 /**
  * Extract form field metadata from the page for Claude to map profile data.
+ * Includes maxLength, required, and instruction text so filling respects form requirements.
  */
 export async function getFormFields(page: Page): Promise<FormFieldInfo[]> {
   const fields = await page.evaluate(() => {
@@ -63,6 +72,9 @@ export async function getFormFields(page: Page): Promise<FormFieldInfo[]> {
       label: string;
       placeholder: string;
       options?: string[];
+      maxLength?: number;
+      required?: boolean;
+      instruction?: string;
     }> = [];
     const inputs = document.querySelectorAll(
       'input:not([type="hidden"]):not([type="submit"]):not([type="button"]), textarea, select'
@@ -94,7 +106,31 @@ export async function getFormFields(page: Page): Promise<FormFieldInfo[]> {
           .map((o) => o.value)
           .filter((v) => v);
       }
-      result.push({ name, id, type, label, placeholder, options });
+      let maxLength: number | undefined;
+      const maxLenAttr = (el as HTMLInputElement).getAttribute("maxlength");
+      if (maxLenAttr != null) {
+        const n = parseInt(maxLenAttr, 10);
+        if (!isNaN(n) && n > 0) maxLength = n;
+      }
+      if (maxLength == null && typeof (el as HTMLInputElement).maxLength === "number" && (el as HTMLInputElement).maxLength > 0)
+        maxLength = (el as HTMLInputElement).maxLength;
+      const required = (el as HTMLInputElement).hasAttribute("required") || (el as HTMLInputElement).required;
+      let instructionText = "";
+      const describedBy = (el as HTMLInputElement).getAttribute("aria-describedby");
+      if (describedBy) {
+        const parts = describedBy.trim().split(/\s+/);
+        for (const idRef of parts) {
+          const desc = document.getElementById(idRef);
+          if (desc) instructionText += (desc.textContent?.trim() ?? "") + " ";
+        }
+      }
+      const next = (el as HTMLElement).nextElementSibling;
+      if (next && /^(div|p|span|small)$/i.test(next.tagName)) {
+        const t = next.textContent?.trim() ?? "";
+        if (t.length > 0 && t.length <= 300) instructionText += t + " ";
+      }
+      const instruction = instructionText.trim().slice(0, 500) || undefined;
+      result.push({ name, id, type, label, placeholder, options, maxLength, required, instruction });
     });
     return result;
   });
@@ -296,6 +332,112 @@ export async function applySnapshotValues(
   return applyFillActions(page, actions);
 }
 
+/** Text that indicates a "next step" wizard button (not final Submit). */
+const NEXT_LABELS = /next|continue|next step|next section|proceed|go to next/i;
+
+/**
+ * Vision fallback: ask Claude for a CSS selector for the Next/Continue or Submit button.
+ * Returns selector or null on failure.
+ */
+async function getButtonSelectorWithVision(
+  page: Page,
+  intent: "next" | "submit"
+): Promise<string | null> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey?.trim()) return null;
+  let screenshotBase64: string;
+  try {
+    const buf = await page.screenshot({ type: "png", fullPage: false });
+    screenshotBase64 = buf.toString("base64");
+  } catch {
+    return null;
+  }
+  const prompt =
+    intent === "submit"
+      ? `Look at this screenshot of a form. Find the main "Submit" or "Send" or "Submit application" button. Return ONLY a valid CSS selector that targets that button (e.g. button[type="submit"], input[value="Submit"], or a more specific selector). One line, no explanation.`
+      : `Look at this screenshot of a form. Find the "Next" or "Continue" or "Next step" button (NOT the final Submit button). Return ONLY a valid CSS selector that targets that button. One line, no explanation.`;
+  try {
+    const anthropic = new Anthropic({ apiKey });
+    const res = await anthropic.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 150,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: "image/png", data: screenshotBase64 } },
+            { type: "text", text: prompt },
+          ],
+        },
+      ],
+    });
+    const text = (res.content?.[0]?.type === "text" ? res.content[0].text : "").trim();
+    const selector = text.split("\n")[0]?.trim().replace(/^["']|["']$/g, "");
+    if (!selector || selector.length > 200) return null;
+    const el = await page.$(selector);
+    if (el) {
+      await el.dispose();
+      return selector;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+/**
+ * Find and click a "Next" / "Continue" wizard button (not Submit).
+ * Returns true if a next button was clicked, false if none found.
+ * Uses vision fallback when DOM-based search fails.
+ */
+export async function clickNextOrContinueButton(page: Page): Promise<boolean> {
+  const candidates = [
+    page.locator("button", { hasText: NEXT_LABELS }),
+    page.locator('input[type="button"]', { hasText: NEXT_LABELS }),
+    page.locator('input[type="submit"]', { hasText: NEXT_LABELS }),
+    page.locator('a[href]', { hasText: NEXT_LABELS }),
+    page.locator('[role="button"]', { hasText: NEXT_LABELS }),
+  ];
+  for (const loc of candidates) {
+    try {
+      const count = await loc.count();
+      for (let i = 0; i < count; i++) {
+        const node = loc.nth(i);
+        const text = (await node.textContent()) || (await node.getAttribute("value")) || "";
+        if (/\bsubmit\b/i.test(text)) continue;
+        await node.scrollIntoViewIfNeeded();
+        await node.click();
+        await Promise.race([
+          page.waitForLoadState("domcontentloaded").catch(() => {}),
+          page.waitForTimeout(3000),
+        ]);
+        return true;
+      }
+    } catch {
+      // try next locator
+    }
+  }
+  const visionSelector = await getButtonSelectorWithVision(page, "next");
+  if (visionSelector) {
+    try {
+      const el = await page.$(visionSelector);
+      if (el) {
+        await el.scrollIntoViewIfNeeded();
+        await el.click();
+        await el.dispose();
+        await Promise.race([
+          page.waitForLoadState("domcontentloaded").catch(() => {}),
+          page.waitForTimeout(3000),
+        ]);
+        return true;
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return false;
+}
+
 export async function clickSubmitButton(page: Page): Promise<{ clicked: boolean; error?: string }> {
   const selectors = [
     'input[type="submit"]',
@@ -316,6 +458,20 @@ export async function clickSubmitButton(page: Page): Promise<{ clicked: boolean;
       }
     } catch {
       // try next
+    }
+  }
+  const visionSelector = await getButtonSelectorWithVision(page, "submit");
+  if (visionSelector) {
+    try {
+      const el = await page.$(visionSelector);
+      if (el) {
+        await el.scrollIntoViewIfNeeded();
+        await el.click();
+        await el.dispose();
+        return { clicked: true };
+      }
+    } catch {
+      // ignore
     }
   }
   return { clicked: false, error: "No submit button found" };

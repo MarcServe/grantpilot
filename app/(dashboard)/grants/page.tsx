@@ -12,7 +12,7 @@ export default async function GrantsPage() {
   const { data: grantsData } = await supabase
     .from("Grant")
     .select("*")
-    .order("deadline", { ascending: true });
+    .order("createdAt", { ascending: false });
   const allGrants = Array.isArray(grantsData) ? grantsData : [];
 
   const profile = org.profiles?.[0];
@@ -42,7 +42,7 @@ export default async function GrantsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl p-6">
+    <div className="mx-auto max-w-7xl min-w-0 px-4 py-6 sm:p-6">
       <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold">Available Grants</h1>

@@ -1,8 +1,10 @@
 /**
  * Detect page situation after opening a grant URL so we can block fill steps
  * when the user must sign in, use a direct application link, or complete verification.
+ * Uses vision (screenshot + Claude) first; falls back to DOM heuristics on API failure.
  */
 
+import Anthropic from "@anthropic-ai/sdk";
 import type { Page } from "playwright";
 
 export type PageSituation =
@@ -18,11 +20,97 @@ export interface PageSituationResult {
   needsDirectUrl?: boolean;
 }
 
+const VALID_SITUATIONS: PageSituation[] = [
+  "login_required",
+  "competition_list",
+  "application_form",
+  "needs_verification",
+  "unknown",
+];
+
+/**
+ * Vision-based detection: screenshot + Claude to classify page.
+ * Returns null on API/parse failure so caller can fall back to heuristics.
+ */
+async function detectPageSituationWithVision(page: Page): Promise<PageSituationResult | null> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey?.trim()) return null;
+  let screenshotBase64: string;
+  try {
+    const buf = await page.screenshot({ type: "png", fullPage: false });
+    screenshotBase64 = buf.toString("base64");
+  } catch {
+    return null;
+  }
+  const anthropic = new Anthropic({ apiKey });
+  const pageUrl = page.url();
+  const prompt = `Look at this screenshot of a webpage (URL: ${pageUrl}).
+
+Classify the page as exactly one of:
+- login_required: sign-in / log-in form, password field, or gateway
+- needs_verification: email verification, create account, confirm email, check inbox
+- competition_list: list of schemes, competitions, or funding opportunities (user should open a specific grant and use direct application URL)
+- application_form: actual grant application form with multiple fillable fields
+- unknown: none of the above or unclear
+
+If the page is a competition list or portal (multiple grants/schemes), set needsDirectUrl to true so the user is asked to provide the direct application URL.
+
+Return ONLY a JSON object with two keys: "situation" (one of the strings above) and "needsDirectUrl" (boolean, true only for competition_list or when the user must open a specific application page). No markdown.`;
+
+  try {
+    const res = await anthropic.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 200,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: "image/png", data: screenshotBase64 } },
+            { type: "text", text: prompt },
+          ],
+        },
+      ],
+    });
+    const text = res.content?.[0]?.type === "text" ? res.content[0].text : "";
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    const jsonStr = jsonMatch ? jsonMatch[0] : text;
+    const parsed = JSON.parse(jsonStr) as { situation?: string; needsDirectUrl?: boolean };
+    const situation = parsed.situation as string | undefined;
+    if (!situation || !VALID_SITUATIONS.includes(situation as PageSituation)) {
+      return null;
+    }
+    return {
+      situation: situation as PageSituation,
+      ...(parsed.needsDirectUrl === true ? { needsDirectUrl: true } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Heuristic detection: login form, competition list, verify/register, or application form.
  * Order: login > verify > list > form > unknown.
  */
+function detectPageSituationHeuristic(raw: {
+  situation?: string;
+  needsDirectUrl?: boolean;
+}): PageSituationResult {
+  const situation = (raw?.situation ?? "unknown") as PageSituation;
+  const needsDirectUrl = raw?.needsDirectUrl === true;
+  return {
+    situation: VALID_SITUATIONS.includes(situation) ? situation : "unknown",
+    ...(needsDirectUrl ? { needsDirectUrl: true } : {}),
+  };
+}
+
+/**
+ * Detect page situation: vision-first, then fall back to DOM heuristics.
+ */
 export async function detectPageSituation(page: Page): Promise<PageSituationResult> {
+  const visionResult = await detectPageSituationWithVision(page);
+  if (visionResult) return visionResult;
+
   const raw = await page.evaluate(() => {
     const body = document.body?.innerText?.toLowerCase() ?? "";
     const html = document.documentElement?.innerHTML?.toLowerCase() ?? "";
@@ -102,14 +190,5 @@ export async function detectPageSituation(page: Page): Promise<PageSituationResu
     return { situation: "unknown", needsDirectUrl: true };
   });
 
-  const situation = (raw?.situation ?? "unknown") as PageSituation;
-  const needsDirectUrl = raw?.needsDirectUrl === true;
-  return {
-    situation: ["login_required", "competition_list", "application_form", "needs_verification", "unknown"].includes(
-      situation
-    )
-      ? situation
-      : "unknown",
-    ...(needsDirectUrl ? { needsDirectUrl: true } : {}),
-  };
+  return detectPageSituationHeuristic(raw as { situation?: string; needsDirectUrl?: boolean });
 }

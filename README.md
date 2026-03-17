@@ -1,43 +1,82 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Grants-Copilot (GrantPilot)
 
-## Getting Started
+AI-powered grant discovery, matching, and application platform. Find grants, get eligibility scores, and use **Apply with GrantsCopilot** to auto-fill application forms (Playwright + Claude).
 
-First, run the development server:
+**Stack:** Next.js 16 (App Router, Turbopack), TypeScript, Supabase (Postgres, Auth, Storage). Optional worker: `grantpilot-worker/` for Playwright-based form filling.
+
+---
+
+## Getting started
+
+### Prerequisites
+
+- Node.js 18+
+- npm
+
+### 1. Install and run the app
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 2. Environment variables
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Create a `.env` file (or use `.env.local`). Required for the app to run:
 
-## Learn More
+| Variable | Description |
+|----------|-------------|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key |
+| `SUPABASE_SERVICE_KEY` | Supabase service role key |
+| `NEXT_PUBLIC_APP_URL` | App URL (e.g. `http://localhost:3000`) |
+| `ANTHROPIC_API_KEY` | For AI features (matching, eligibility, form filling) |
 
-To learn more about Next.js, take a look at the following resources:
+Optional: `RESEND_API_KEY`, `EMAIL_FROM`, Stripe keys, Twilio (WhatsApp). See [DEPLOYMENT.md](./DEPLOYMENT.md) for the full list.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+**Note:** The app uses **Supabase** for all database access. There is no Prisma at runtime and no `DATABASE_URL`; the Prisma schema is for documentation only.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+---
 
-## Production
+## Commands
 
-- **Build**: `npm run build` (runs `prisma generate` then `next build`).
-- **Run**: `npm start`.
-- **Health**: `GET /api/health` returns `{ "status": "ok" }`.
-- **Deploy**: See [DEPLOYMENT.md](./DEPLOYMENT.md) for env vars, database migrations, Inngest (Anthropic-backed jobs), and hosting (Vercel recommended).
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start Next.js dev server (port 3000) |
+| `npm run build` | Production build (`next build`) |
+| `npm start` | Start production server |
+| `npx eslint .` | Lint (or `npm run lint`) |
 
-## Deploy on Vercel
+**Health check:** `GET /api/health` returns `{"status":"ok"}`.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js. For Grants-Copilot, add the [Inngest Vercel integration](https://inngest.com/docs/deploy/vercel) so background jobs (grant scanner, reminders) sync and run in production.
+---
 
-Check out [DEPLOYMENT.md](./DEPLOYMENT.md) and the [Next.js deployment docs](https://nextjs.org/docs/app/building-your-application/deploying).
+## Optional: full system
+
+- **Worker** (form filling): `cd grantpilot-worker && npm install && npm run dev`  
+  Needs its own `.env` with `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ANTHROPIC_API_KEY`.
+
+- **Inngest** (cron jobs: grant sync, scanner, eligibility refresh, reminders):  
+  `npx inngest-cli@latest dev`  
+  Required in production for grant matching, digest emails, and deadline reminders.
+
+---
+
+## Docs
+
+- **[AGENTS.md](./AGENTS.md)** — Cursor/agent instructions, services, architecture, Inngest jobs, notifications.
+- **[APP_OVERVIEW.md](./APP_OVERVIEW.md)** — Features, routes, user flows, Apply with GrantsCopilot end-to-end.
+- **[DEPLOYMENT.md](./DEPLOYMENT.md)** — Env vars, hosting (e.g. Vercel), Inngest, migrations.
+
+---
+
+## Deploy
+
+- **Build:** `npm run build`
+- **Run:** `npm start`
+- **Hosting:** Vercel (or similar). Add the [Inngest integration](https://inngest.com/docs/deploy/vercel) so background jobs run in production.
+- **Database:** Run Supabase migrations (`supabase/migrations/`) against your project.
+
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for details.

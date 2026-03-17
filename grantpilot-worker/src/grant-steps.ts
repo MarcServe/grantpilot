@@ -9,12 +9,13 @@ import {
   downloadToTemp,
   setFileInputs,
   clickSubmitButton,
+  clickNextOrContinueButton,
   cleanupTempFiles,
   getFilledFormSnapshot,
   type FilledFormSnapshot,
   type FilledField,
 } from "./browser.js";
-import { getFormFillActions, getFormFillActionsWithMissing, getFileInputMapping, type MissingRequiredField } from "./form-mapping.js";
+import { getFormFillActions, getFormFillActionsWithMissing, getFileInputMapping, extractRequiredAttachmentsFromPage, type MissingRequiredField } from "./form-mapping.js";
 import {
   matchDocumentsToRequirements,
   buildUploadPlan,
@@ -39,12 +40,22 @@ export interface StepResult {
   missingRequired?: MissingRequiredField[];
 }
 
+export interface GrantContext {
+  name: string;
+  funder: string;
+  eligibility: string;
+  description?: string;
+  objectives?: string;
+}
+
 export interface GrantStepOptions {
   requiredAttachments?: RequiredAttachment[];
   /** User-edited snapshot fields; if present, submit uses these instead of re-mapping via Claude. */
   editedSnapshotFields?: FilledField[];
   /** User-provided answers for previously missing required fields (label -> value). */
   needsInputAnswers?: Record<string, string>;
+  /** Grant context for vision-first, tone-aware filling (name, funder, eligibility, description). */
+  grantContext?: GrantContext;
 }
 
 async function getFileInputSelectors(page: Page): Promise<string[]> {
@@ -115,80 +126,108 @@ export async function runGrantStep(
     }
 
     case "fill_company_details": {
-      const fields = await getFormFields(page);
-      const { actions, missingRequired } = await getFormFillActionsWithMissing(
-        fields,
-        profile,
-        "company",
-        options?.needsInputAnswers
-      );
-      if (missingRequired.length > 0) {
-        return {
-          success: false,
-          notes: "Some required fields are missing from your profile. We've sent you a link to provide them, then you can resume.",
-          needsInput: true,
-          missingRequired,
-        };
+      const maxWizardSteps = 10;
+      let totalApplied = 0;
+      const allErrors: string[] = [];
+      for (let step = 0; step < maxWizardSteps; step++) {
+        const fields = await getFormFields(page);
+        const fillOptions = options?.grantContext ? { page, grantContext: options.grantContext } : undefined;
+        const { actions, missingRequired } = await getFormFillActionsWithMissing(
+          fields,
+          profile,
+          "company",
+          options?.needsInputAnswers,
+          fillOptions
+        );
+        if (missingRequired.length > 0) {
+          return {
+            success: false,
+            notes: "Some required fields are missing from your profile. We've sent you a link to provide them, then you can resume.",
+            needsInput: true,
+            missingRequired,
+          };
+        }
+        if (actions.length > 0) {
+          const { applied, errors } = await applyFillActions(page, actions);
+          totalApplied += applied;
+          allErrors.push(...errors);
+          const { situation } = await detectPageSituation(page);
+          if (situation === "login_required") {
+            return {
+              success: false,
+              notes: "Page redirected to sign-in. Sign in on the funder's site, then use the bookmarklet or Resume.",
+              situation: "login_required",
+            };
+          }
+          if (situation === "needs_verification") {
+            return {
+              success: false,
+              notes: "Page requires account or email verification. Complete that on the funder's site, then use the bookmarklet or Resume.",
+              situation: "needs_verification",
+            };
+          }
+          if (situation === "competition_list") {
+            return {
+              success: false,
+              notes: "Page is a list of schemes. Use the direct application URL for this grant, then retry.",
+              situation: "competition_list",
+              needsDirectUrl: true,
+            };
+          }
+        }
+        const clickedNext = await clickNextOrContinueButton(page);
+        if (!clickedNext) break;
+        await page.waitForTimeout(2000);
       }
-      if (actions.length === 0) {
+      if (totalApplied === 0) {
         return { success: true, skipped: true, notes: "No company fields on form; skipped" };
       }
-      const { applied, errors } = await applyFillActions(page, actions);
-      const { situation } = await detectPageSituation(page);
-      if (situation === "login_required") {
-        return {
-          success: false,
-          notes: "Page redirected to sign-in. Sign in on the funder's site, then use the bookmarklet or Resume.",
-          situation: "login_required",
-        };
-      }
-      if (situation === "needs_verification") {
-        return {
-          success: false,
-          notes: "Page requires account or email verification. Complete that on the funder's site, then use the bookmarklet or Resume.",
-          situation: "needs_verification",
-        };
-      }
-      if (situation === "competition_list") {
-        return {
-          success: false,
-          notes: "Page is a list of schemes. Use the direct application URL for this grant, then retry.",
-          situation: "competition_list",
-          needsDirectUrl: true,
-        };
-      }
       const note =
-        errors.length > 0
-          ? `Filled ${applied} fields; errors: ${errors.join("; ")}`
-          : `Filled ${applied} company fields`;
-      return { success: applied > 0, notes: note };
+        allErrors.length > 0
+          ? `Filled ${totalApplied} fields; errors: ${allErrors.join("; ")}`
+          : `Filled ${totalApplied} company fields`;
+      return { success: totalApplied > 0, notes: note };
     }
 
     case "fill_financials": {
-      const fields = await getFormFields(page);
-      const { actions, missingRequired } = await getFormFillActionsWithMissing(
-        fields,
-        profile,
-        "financial",
-        options?.needsInputAnswers
-      );
-      if (missingRequired.length > 0) {
-        return {
-          success: false,
-          notes: "Some required financial fields are missing from your profile. Provide them in the link we sent, then resume.",
-          needsInput: true,
-          missingRequired,
-        };
+      const maxWizardSteps = 10;
+      let totalApplied = 0;
+      const allErrors: string[] = [];
+      for (let step = 0; step < maxWizardSteps; step++) {
+        const fields = await getFormFields(page);
+        const fillOptions = options?.grantContext ? { page, grantContext: options.grantContext } : undefined;
+        const { actions, missingRequired } = await getFormFillActionsWithMissing(
+          fields,
+          profile,
+          "financial",
+          options?.needsInputAnswers,
+          fillOptions
+        );
+        if (missingRequired.length > 0) {
+          return {
+            success: false,
+            notes: "Some required financial fields are missing from your profile. Provide them in the link we sent, then resume.",
+            needsInput: true,
+            missingRequired,
+          };
+        }
+        if (actions.length > 0) {
+          const { applied, errors } = await applyFillActions(page, actions);
+          totalApplied += applied;
+          allErrors.push(...errors);
+        }
+        const clickedNext = await clickNextOrContinueButton(page);
+        if (!clickedNext) break;
+        await page.waitForTimeout(2000);
       }
-      if (actions.length === 0) {
+      if (totalApplied === 0) {
         return { success: true, skipped: true, notes: "No financial fields on form; skipped" };
       }
-      const { applied, errors } = await applyFillActions(page, actions);
       const note =
-        errors.length > 0
-          ? `Filled ${applied} fields; errors: ${errors.join("; ")}`
-          : `Filled ${applied} financial fields`;
-      return { success: applied >= 0, notes: note };
+        allErrors.length > 0
+          ? `Filled ${totalApplied} fields; errors: ${allErrors.join("; ")}`
+          : `Filled ${totalApplied} financial fields`;
+      return { success: totalApplied >= 0, notes: note };
     }
 
     case "upload_documents": {
@@ -204,8 +243,13 @@ export async function runGrantStep(
         let orderedSelectors: string[];
         let paths: string[];
 
-        if (requiredAttachments.length > 0) {
-          const matched = matchDocumentsToRequirements(requiredAttachments, documents);
+        const attachmentsToUse =
+          requiredAttachments.length > 0
+            ? requiredAttachments
+            : await extractRequiredAttachmentsFromPage(page);
+
+        if (attachmentsToUse.length > 0) {
+          const matched = matchDocumentsToRequirements(attachmentsToUse, documents);
           const plan = buildUploadPlan(selectors, documents, matched);
           orderedSelectors = plan.selectors;
           paths = [];
@@ -230,7 +274,8 @@ export async function runGrantStep(
 
         const mapping = await getFileInputMapping(
           selectors,
-          documents.map((d) => d.name)
+          documents.map((d) => d.name),
+          { page }
         );
         for (let i = 0; i < documents.length; i++) {
           const path = await downloadToTemp(documents[i].url);
@@ -274,8 +319,21 @@ export async function runGrantStep(
         await applySnapshotValues(page, editedFields);
       } else {
         const fields = await getFormFields(page);
-        const companyActions = await getFormFillActions(fields, profile, "company");
-        const financialActions = await getFormFillActions(fields, profile, "financial");
+        const fillOptions = options?.grantContext ? { page, grantContext: options.grantContext } : undefined;
+        const { actions: companyActions } = await getFormFillActionsWithMissing(
+          fields,
+          profile,
+          "company",
+          options?.needsInputAnswers,
+          fillOptions
+        );
+        const { actions: financialActions } = await getFormFillActionsWithMissing(
+          fields,
+          profile,
+          "financial",
+          options?.needsInputAnswers,
+          fillOptions
+        );
         await applyFillActions(page, companyActions);
         await applyFillActions(page, financialActions);
       }
@@ -286,8 +344,12 @@ export async function runGrantStep(
           try {
             let orderedSelectors: string[];
             let paths: string[];
-            if (requiredAttachments.length > 0) {
-              const matched = matchDocumentsToRequirements(requiredAttachments, documents);
+            const attachmentsToUse =
+              requiredAttachments.length > 0
+                ? requiredAttachments
+                : await extractRequiredAttachmentsFromPage(page);
+            if (attachmentsToUse.length > 0) {
+              const matched = matchDocumentsToRequirements(attachmentsToUse, documents);
               const plan = buildUploadPlan(selectors, documents, matched);
               for (const url of plan.documentUrls) {
                 const p = await downloadToTemp(url);
@@ -300,7 +362,8 @@ export async function runGrantStep(
               tempPaths.push(...pathsAll);
               const mapping = await getFileInputMapping(
                 selectors,
-                documents.map((d) => d.name)
+                documents.map((d) => d.name),
+                { page }
               );
               orderedSelectors = mapping.map((m) => m.selector);
               paths = mapping.map((m) => pathsAll[m.documentIndex] ?? pathsAll[0]);

@@ -112,6 +112,25 @@ async function fetchGrantRequiredAttachments(grantId: string | null): Promise<un
   return Array.isArray(raw) ? raw : [];
 }
 
+/** Fetch grant name, funder, eligibility, description for vision-first, tone-aware filling. */
+async function fetchGrantContext(grantId: string | null): Promise<{ name: string; funder: string; eligibility: string; description?: string; objectives?: string } | null> {
+  if (!grantId) return null;
+  const { data } = await getSupabase()
+    .from("Grant")
+    .select("name, funder, eligibility, description, objectives")
+    .eq("id", grantId)
+    .maybeSingle();
+  const row = data as { name?: string; funder?: string; eligibility?: string; description?: string; objectives?: string } | null;
+  if (!row || !row.name || !row.funder) return null;
+  return {
+    name: String(row.name),
+    funder: String(row.funder),
+    eligibility: String(row.eligibility ?? ""),
+    description: row.description != null ? String(row.description) : undefined,
+    objectives: row.objectives != null ? String(row.objectives) : undefined,
+  };
+}
+
 /**
  * Process all pending grant_application items with one browser session.
  * Opens grant URL once, then runs fill/upload/prepare/submit steps in order.
@@ -131,6 +150,7 @@ async function processGrantApplicationSession(
       typeof (r as { label?: string }).label === "string"
   ) as { kind: "video" | "document"; label: string; categoryHint?: string; maxDurationMinutes?: number; maxSizeMB?: number; accept?: string }[];
 
+  const grantContext = await fetchGrantContext(grantId);
   const applicationIdForProfile = session.public_id.startsWith("grantapp_") ? session.public_id.replace(/^grantapp_/, "") : undefined;
   const { profile, documents } = (await fetchProfileAndDocuments(profileId, applicationIdForProfile)) ?? {
     profile: {
@@ -193,6 +213,7 @@ async function processGrantApplicationSession(
             requiredAttachments: requiredAttachments.length > 0 ? requiredAttachments : undefined,
             editedSnapshotFields: isSubmit ? editedSnapshotFields : undefined,
             needsInputAnswers,
+            grantContext: grantContext ?? undefined,
           });
           if (lastResult.success) break;
           if (lastResult.situation) break;
