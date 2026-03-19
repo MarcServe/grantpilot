@@ -76,7 +76,7 @@ curl -X POST "${NEXT_PUBLIC_SUPABASE_URL}/auth/v1/admin/users" \
 | `grant-sync` | 3:00 UTC | Syncs from JSON feed, Grants.gov, UK, EU sources | Feed URLs |
 | `grant-scanner` | 2:00 UTC | Matches grants to profiles (Claude), sends `grant_match` notifications | Anthropic |
 | `grant-discovery` | 4:00 UTC | Multi-agent search (Claude + OpenAI + Gemini) | Anthropic (+ optional OpenAI/Gemini) |
-| `eligibility-refresh` | 3:00 UTC | Scores grants per profile, upserts `EligibilityAssessment`, sends digest | Anthropic |
+| `eligibility-refresh` | Every 30 min (cron) | Scores grants per profile, upserts `EligibilityAssessment`; digest/WhatsApp only if profile completion ≥ `ELIGIBILITY_NOTIFY_MIN_COMPLETION` (default 60%) | Anthropic |
 | `deadline-reminder` | Every hour | At 9am local time per org, sends reminders for 7/3/1 day deadlines | Resend/Twilio |
 | `monitor-session` | Event-driven | Polls worker session status, updates Application, sends notifications | — |
 

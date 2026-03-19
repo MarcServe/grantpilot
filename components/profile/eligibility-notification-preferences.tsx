@@ -84,6 +84,10 @@ export function EligibilityNotificationPreferences() {
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
           Notify me when a grant&apos;s eligibility score falls in this range (e.g. 70–85% or 85–100%). Within-reach grants (below eligible threshold) are email only; eligible grants get email + WhatsApp when enabled.
+          {" "}
+          Digest and high-fit alerts are only sent once your profile completion is at least 60% (configurable in production via{" "}
+          <code className="rounded bg-muted px-1 text-xs">ELIGIBILITY_NOTIFY_MIN_COMPLETION</code>
+          ).
         </p>
         <div className="flex flex-wrap items-center gap-4">
           <div className="flex items-center gap-2">

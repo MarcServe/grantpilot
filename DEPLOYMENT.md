@@ -43,6 +43,7 @@ Set these in your host (Vercel, Railway, etc.) or in production `.env`:
 | `TWILIO_WHATSAPP_GRANT_MATCH_CONTENT_SID` | WhatsApp | Optional. Twilio Content Template SID (e.g. `HX...`) for grant-match messages. When set, grant_match and grant_match_high use the approved template. |
 | `TWILIO_WHATSAPP_GRANT_MATCH_VAR_INDEX` | WhatsApp | Optional. Template variable key(s) for the grant link, comma-separated (e.g. `1` or `1,2,3`). Default `1` (template placeholder `{{1}}`). If your template uses `{{3}}` only, set to `3`. Must match your Content Template's variable names exactly. |
 | `TWILIO_WHATSAPP_DEADLINE_CONTENT_SID` | WhatsApp | Optional. Twilio Content Template SID for deadline reminders. When set, deadline_reminder uses the template; placeholders `{{1}}` grant name, `{{2}}` deadline date, `{{3}}` start-application or grant URL. Business-initiated WhatsApp requires templates (Twilio 63016). |
+| `ELIGIBILITY_NOTIFY_MIN_COMPLETION` | Optional | Minimum `BusinessProfile.completionScore` (0–100) before **eligibility digest** and **grant_match_high** WhatsApp are sent. Default **60**. Scoring still runs for all org-linked profiles. |
 
 \* Inngest: use [Vercel integration](https://inngest.com/docs/deploy/vercel) to auto-set keys and sync.
 

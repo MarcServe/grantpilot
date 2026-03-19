@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { getEligibilityNotifyMinCompletion } from "@/lib/eligibility-notify-config";
 
 const INTERNAL_SECRET = process.env.INTERNAL_API_SECRET;
 
@@ -91,10 +92,18 @@ export async function GET(req: Request): Promise<NextResponse> {
       else byTypeChannel[log.type][log.channel].skipped += 1;
     }
 
+    const notifyMinCompletion = getEligibilityNotifyMinCompletion();
     const blockers: string[] = [];
     if (!profile) blockers.push("No BusinessProfile found for organisation.");
     if (profile && (profile.completionScore ?? 0) < 50) {
-      blockers.push(`Profile completion is ${(profile.completionScore ?? 0)}%; eligibility refresh requires >= 50%.`);
+      blockers.push(
+        `Profile completion is ${(profile.completionScore ?? 0)}%; grants list / API cached eligibility UI typically expects ≥ 50%.`
+      );
+    }
+    if (profile && (profile.completionScore ?? 0) < notifyMinCompletion) {
+      blockers.push(
+        `Eligibility digest and high-fit WhatsApp are skipped until profile completion ≥ ${notifyMinCompletion}% (ELIGIBILITY_NOTIFY_MIN_COMPLETION). Current: ${profile.completionScore ?? 0}%.`
+      );
     }
     if ((assessmentCount ?? 0) === 0) blockers.push("No rows in EligibilityAssessment for this organisation yet.");
     const p = prefs as { notify_email?: boolean; notify_whatsapp?: boolean } | null;
@@ -104,6 +113,7 @@ export async function GET(req: Request): Promise<NextResponse> {
     return NextResponse.json({
       ok: true,
       orgId,
+      eligibilityNotifyMinCompletion: notifyMinCompletion,
       profile: profile
         ? { id: profile.id, businessName: profile.businessName ?? null, completionScore: profile.completionScore ?? 0 }
         : null,

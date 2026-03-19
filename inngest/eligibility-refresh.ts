@@ -7,9 +7,10 @@ import { createStartApplicationToken } from "@/lib/start-application-token";
 import { checkRequirementsAgainstDocuments } from "@/lib/grant-requirements";
 import type { DigestGrantItem } from "@/lib/notify";
 import type { RequiredAttachment } from "@/lib/grant-requirements";
+import { getEligibilityNotifyMinCompletion } from "@/lib/eligibility-notify-config";
 
 const TOP_N = 25;
-/** Default minimum score for digest (0 = every profile gets eligibility notifications by default). */
+/** Default minimum grant match score to include in digest lists (0 = full range per org prefs). */
 const DIGEST_SCORE_THRESHOLD = 0;
 const NOTIFY_COOLDOWN_DAYS = 7;
 
@@ -41,6 +42,14 @@ function getProfileOrgId(p: { organisationId?: string; organisation_id?: string 
   return orgId && String(orgId).trim() ? String(orgId) : null;
 }
 
+function getProfileCompletionScore(profile: Record<string, unknown>): number {
+  const raw =
+    profile.completionScore ??
+    profile.completion_score;
+  const n = typeof raw === "number" ? raw : Number(raw);
+  return Number.isFinite(n) ? Math.min(100, Math.max(0, Math.round(n))) : 0;
+}
+
 export async function runEligibilityRefreshJob(): Promise<{
   totalGrants: number;
   orgsWithProfile: number;
@@ -68,7 +77,9 @@ export async function runEligibilityRefreshJob(): Promise<{
       .select("*");
     const profiles = profilesData ?? [];
 
-    /** Every org-linked profile is processed so multi-profile orgs each get scores + notifications. */
+    const minCompletionForNotifications = getEligibilityNotifyMinCompletion();
+
+    /** Every org-linked profile is processed so multi-profile orgs each get scores; notifications need min completion. */
     const profilesWithOrg = profiles.filter((p) => getProfileOrgId(p as { organisationId?: string; organisation_id?: string }) != null);
     const uniqueOrgs = new Set(
       profilesWithOrg.map((p) => getProfileOrgId(p as { organisationId?: string; organisation_id?: string })!)
@@ -89,6 +100,7 @@ export async function runEligibilityRefreshJob(): Promise<{
     for (const profile of profilesWithOrg) {
       const orgId = getProfileOrgId(profile as { organisationId?: string; organisation_id?: string })!;
       try {
+        const completionScore = getProfileCompletionScore(profile as Record<string, unknown>);
         const userFunderLocations = (profile as { funderLocations?: string[] }).funderLocations;
         const grantList = grantsList.filter((g) => grantMatchesFunderLocations(g.funderLocations, userFunderLocations));
         const matches = await matchGrantsToProfile(
@@ -218,7 +230,11 @@ export async function runEligibilityRefreshJob(): Promise<{
           }
         }
 
-        if (digestGrants.length > 0) {
+        // Digest + high-fit WhatsApp only when profile is complete enough (avoids noisy emails for empty profiles).
+        if (
+          digestGrants.length > 0 &&
+          completionScore >= minCompletionForNotifications
+        ) {
           const profileName = (profile as { businessName?: string }).businessName ?? "Your business";
           await notifyOrgMembers(orgId, "grant_scan_digest", {
             grants: digestGrants,
@@ -244,6 +260,10 @@ export async function runEligibilityRefreshJob(): Promise<{
               .eq("grant_id", item.grantId);
           }
           notifiedCount += digestGrants.length;
+        } else if (digestGrants.length > 0 && completionScore < minCompletionForNotifications) {
+          console.info(
+            `[eligibility-refresh] Skipping digest for org ${orgId} profile ${profile.id}: completion ${completionScore}% < ${minCompletionForNotifications}%`
+          );
         }
 
         // Persist scores for all other grants (beyond top 25) so the grants list shows eligibility for every grant.
