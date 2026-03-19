@@ -61,6 +61,8 @@ export interface NotificationPayload {
 }
 
 export interface NotifyOptions {
+  /** When false, skip email (e.g. org eligibility preference). Default: send email when user has one. */
+  sendEmail?: boolean;
   /** When false, skip WhatsApp for this notification (e.g. org preference for eligibility digest). */
   sendWhatsApp?: boolean;
 }
@@ -75,7 +77,7 @@ export async function notifyUser(
 
   const supabase = getSupabaseAdmin();
 
-  if (user.email) {
+  if (options?.sendEmail !== false && user.email) {
     const { subject, html } = buildEmailHtml(type, payload, appUrl);
     const result = await sendEmail(user.email, subject, html);
     await supabase.from("NotificationLog").insert({

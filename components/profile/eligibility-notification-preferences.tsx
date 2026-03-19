@@ -10,7 +10,7 @@ import { Loader2, Bell } from "lucide-react";
 import { toast } from "sonner";
 
 export function EligibilityNotificationPreferences() {
-  const [minScore, setMinScore] = useState(70);
+  const [minScore, setMinScore] = useState(0);
   const [maxScore, setMaxScore] = useState(100);
   const [eligibleThreshold, setEligibleThreshold] = useState(70);
   const [notifyEmail, setNotifyEmail] = useState(true);

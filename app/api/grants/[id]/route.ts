@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { enqueueGrantForScoutIfProgrammeUrl } from "@/lib/enqueue-scout";
 
 const patchSchema = z.object({
   applicationUrl: z.string().url("Please enter a valid URL"),
@@ -44,6 +45,8 @@ export async function PATCH(
     if (!data) {
       return NextResponse.json({ error: "Grant not found" }, { status: 404 });
     }
+
+    await enqueueGrantForScoutIfProgrammeUrl(id).catch(() => {});
 
     return NextResponse.json(data);
   } catch (e) {

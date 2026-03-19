@@ -24,7 +24,7 @@ export async function GET(): Promise<NextResponse> {
 
     if (!data) {
       return NextResponse.json({
-        minScore: 70,
+        minScore: 0,
         maxScore: 100,
         eligibleThreshold: 70,
         notifyEmail: true,

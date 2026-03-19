@@ -6,6 +6,7 @@
 import { createHash } from "crypto";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { looksLikeGenericOrListUrl } from "@/lib/grant-url-validation";
+import { enqueueGrantForScoutIfProgrammeUrl } from "@/lib/enqueue-scout";
 
 /** Normalize string for hashing: lowercase, trim, collapse whitespace. */
 function normalizeForHash(s: string): string {
@@ -155,6 +156,7 @@ export async function upsertGrant(input: GrantInput): Promise<{ id: string; crea
     .single();
 
   if (error || !grant) throw new Error(error?.message ?? "Failed to create grant");
+  await enqueueGrantForScoutIfProgrammeUrl(grant.id).catch(() => {});
   return { id: grant.id, created: true };
 }
 

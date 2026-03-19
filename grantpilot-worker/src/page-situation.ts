@@ -12,12 +12,20 @@ export type PageSituation =
   | "competition_list"
   | "application_form"
   | "needs_verification"
+  | "page_not_found"
   | "unknown";
 
 export interface PageSituationResult {
   situation: PageSituation;
-  /** Set when situation is competition_list; app can prompt user to set direct URL. */
+  /** Set when situation is competition_list or page_not_found; app can prompt user to set direct URL. */
   needsDirectUrl?: boolean;
+}
+
+export interface NavigationHints {
+  /** Main document response status returned by Playwright page.goto. */
+  status?: number;
+  /** Final URL after redirects. */
+  finalUrl?: string;
 }
 
 const VALID_SITUATIONS: PageSituation[] = [
@@ -25,6 +33,7 @@ const VALID_SITUATIONS: PageSituation[] = [
   "competition_list",
   "application_form",
   "needs_verification",
+  "page_not_found",
   "unknown",
 ];
 
@@ -51,11 +60,12 @@ Classify the page as exactly one of:
 - needs_verification: email verification, create account, confirm email, check inbox
 - competition_list: list of schemes, competitions, or funding opportunities (user should open a specific grant and use direct application URL)
 - application_form: actual grant application form with multiple fillable fields
+- page_not_found: 404 error, "we can't find that page", "page not found", "doesn't exist", or similar broken/missing page message (application link is broken)
 - unknown: none of the above or unclear
 
-If the page is a competition list or portal (multiple grants/schemes), set needsDirectUrl to true so the user is asked to provide the direct application URL.
+If the page is a competition list or portal, set needsDirectUrl to true. If the page is page_not_found (404/broken link), set needsDirectUrl to true so the user is asked to update the application URL.
 
-Return ONLY a JSON object with two keys: "situation" (one of the strings above) and "needsDirectUrl" (boolean, true only for competition_list or when the user must open a specific application page). No markdown.`;
+Return ONLY a JSON object with two keys: "situation" (one of the strings above) and "needsDirectUrl" (boolean). No markdown.`;
 
   try {
     const res = await anthropic.messages.create({
@@ -107,7 +117,20 @@ function detectPageSituationHeuristic(raw: {
 /**
  * Detect page situation: vision-first, then fall back to DOM heuristics.
  */
-export async function detectPageSituation(page: Page): Promise<PageSituationResult> {
+export async function detectPageSituation(page: Page, hints?: NavigationHints): Promise<PageSituationResult> {
+  const navStatus = hints?.status;
+  if (typeof navStatus === "number" && navStatus >= 400) {
+    if (navStatus === 404 || navStatus === 410) {
+      return { situation: "page_not_found", needsDirectUrl: true };
+    }
+    return { situation: "unknown", needsDirectUrl: true };
+  }
+
+  const finalUrl = (hints?.finalUrl ?? page.url() ?? "").toLowerCase();
+  if (/(\/404(?:[/?#]|$))|(\/not-found(?:[/?#]|$))|[?&](?:error|status)=404/.test(finalUrl)) {
+    return { situation: "page_not_found", needsDirectUrl: true };
+  }
+
   const visionResult = await detectPageSituationWithVision(page);
   if (visionResult) return visionResult;
 
@@ -145,6 +168,21 @@ export async function detectPageSituation(page: Page): Promise<PageSituationResu
     ];
     if (verifyPhrases.some((p) => body.includes(p) || html.includes(p))) {
       return { situation: "needs_verification" };
+    }
+
+    // 404 / page not found / broken link
+    const notFoundPhrases = [
+      "we can't find that page",
+      "can't find that page",
+      "page not found",
+      "404",
+      "page you're looking for can't be found",
+      "doesn't exist",
+      "not found",
+      "this page doesn't exist",
+    ];
+    if (notFoundPhrases.some((p) => body.includes(p) || html.includes(p))) {
+      return { situation: "page_not_found", needsDirectUrl: true };
     }
 
     // Application form: meaningful set of fillable fields (not just search/login)

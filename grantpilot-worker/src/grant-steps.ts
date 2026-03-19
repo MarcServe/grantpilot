@@ -87,11 +87,22 @@ export async function runGrantStep(
       if (!grantUrl) {
         return { success: false, notes: "No grant URL on item" };
       }
-      const { ok, error } = await navigateToGrantUrl(page, grantUrl);
-      if (!ok) {
-        return { success: false, notes: error ?? "Navigate failed" };
+      const nav = await navigateToGrantUrl(page, grantUrl);
+      if (!nav.ok) {
+        if (nav.status === 404 || nav.status === 410) {
+          return {
+            success: false,
+            notes: "This application link is broken (404 / page not found). Please find the correct application URL and update it for this grant, then retry.",
+            situation: "page_not_found",
+            needsDirectUrl: true,
+          };
+        }
+        return { success: false, notes: nav.error ?? "Navigate failed" };
       }
-      const { situation, needsDirectUrl } = await detectPageSituation(page);
+      const { situation, needsDirectUrl } = await detectPageSituation(page, {
+        status: nav.status,
+        finalUrl: nav.finalUrl,
+      });
       if (situation === "login_required") {
         return {
           success: false,
@@ -111,6 +122,14 @@ export async function runGrantStep(
           success: false,
           notes: "This link goes to a list of schemes. Please open the specific grant and update the application URL for this grant, then retry.",
           situation: "competition_list",
+          needsDirectUrl: needsDirectUrl ?? true,
+        };
+      }
+      if (situation === "page_not_found") {
+        return {
+          success: false,
+          notes: "This application link is broken (404 / page not found). Please find the correct application URL and update it for this grant, then retry.",
+          situation: "page_not_found",
           needsDirectUrl: needsDirectUrl ?? true,
         };
       }
@@ -171,6 +190,14 @@ export async function runGrantStep(
               success: false,
               notes: "Page is a list of schemes. Use the direct application URL for this grant, then retry.",
               situation: "competition_list",
+              needsDirectUrl: true,
+            };
+          }
+          if (situation === "page_not_found") {
+            return {
+              success: false,
+              notes: "Application link is broken (404). Update the application URL for this grant, then retry.",
+              situation: "page_not_found",
               needsDirectUrl: true,
             };
           }

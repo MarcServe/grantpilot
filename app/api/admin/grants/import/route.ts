@@ -9,6 +9,7 @@ import {
   type GrantInput,
 } from "@/lib/grants-ingest";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { requestEligibilityRefresh } from "@/lib/eligibility-refresh-trigger";
 
 const GRANTS_IMPORT_SECRET = process.env.GRANTS_IMPORT_SECRET;
 
@@ -54,6 +55,8 @@ export async function POST(request: Request) {
         .not("deadline", "is", null)
         .lt("deadline", cutoff.toISOString());
 
+      await requestEligibilityRefresh(undefined, "admin.grants.import.sync");
+
       return NextResponse.json({
         ok: true,
         feed: feedResult,
@@ -86,6 +89,8 @@ export async function POST(request: Request) {
       if (c) created++;
       else updated++;
     }
+
+    await requestEligibilityRefresh(undefined, "admin.grants.import.manual");
 
     return NextResponse.json({
       ok: true,

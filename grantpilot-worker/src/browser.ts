@@ -45,14 +45,20 @@ export async function newGrantPage(browser: Browser): Promise<Page> {
   return page;
 }
 
-export async function navigateToGrantUrl(page: Page, url: string): Promise<{ ok: boolean; error?: string }> {
+export async function navigateToGrantUrl(
+  page: Page,
+  url: string
+): Promise<{ ok: boolean; status?: number; finalUrl?: string; error?: string }> {
   try {
     const res = await page.goto(url, {
       waitUntil: "domcontentloaded",
       timeout: NAV_TIMEOUT_MS,
     });
-    const ok = res != null && res.status() < 400;
-    return ok ? { ok: true } : { ok: false, error: `HTTP ${res?.status() ?? "unknown"}` };
+    const status = res?.status();
+    const finalUrl = page.url();
+    const ok = status != null ? status < 400 : true;
+    if (ok) return { ok: true, status, finalUrl };
+    return { ok: false, status, finalUrl, error: `HTTP ${status ?? "unknown"}` };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return { ok: false, error: msg };

@@ -4,6 +4,7 @@ import {
   runDiscoveryAndUpsert,
   profileToDiscoveryProfile,
 } from "@/lib/grants-discovery";
+import { requestEligibilityRefresh } from "@/lib/eligibility-refresh-trigger";
 
 /**
  * POST /api/grants/discover
@@ -41,6 +42,7 @@ export async function POST(): Promise<NextResponse> {
     });
 
     const result = await runDiscoveryAndUpsert(discoveryProfile);
+    await requestEligibilityRefresh(orgId, "grants.discover");
 
     return NextResponse.json({
       ok: true,

@@ -4,7 +4,7 @@ import { grantScanner } from "@/inngest/grant-scanner";
 import { grantSync } from "@/inngest/grant-sync";
 import { deadlineReminder } from "@/inngest/deadline-reminder";
 import { monitorSession } from "@/inngest/monitor-session";
-import { eligibilityRefresh } from "@/inngest/eligibility-refresh";
+import { eligibilityRefresh, eligibilityRefreshRequested } from "@/inngest/eligibility-refresh";
 import { grantDiscovery } from "@/inngest/grant-discovery";
 import { grantFormUrlScout } from "@/inngest/grant-form-url-scout";
 import { grantSourceCrawler } from "@/inngest/grant-source-crawler";
@@ -22,6 +22,7 @@ export const { GET, POST, PUT } = serve({
     deadlineReminder,
     monitorSession,
     eligibilityRefresh,
+    eligibilityRefreshRequested,
     grantDiscovery,
     grantFormUrlScout,
   ],

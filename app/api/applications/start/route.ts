@@ -6,6 +6,7 @@ import { notifyOrgMembers } from "@/lib/notify";
 import { inngest } from "@/inngest/client";
 import { checkUsageLimit, recordUsage } from "@/lib/plan-check";
 import { createDefaultTasksForApplication } from "@/lib/application-tasks";
+import { requestEligibilityRefresh } from "@/lib/eligibility-refresh-trigger";
 
 const startSchema = z.object({
   grantId: z.string().min(1),
@@ -170,6 +171,8 @@ export async function POST(req: Request): Promise<NextResponse> {
       name: "app/session.started",
       data: { applicationId: application.id, sessionPublicId: publicId },
     }).catch(console.error);
+
+    await requestEligibilityRefresh(orgId, "applications.start");
 
     return NextResponse.json({
       applicationId: application.id,

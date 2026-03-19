@@ -15,6 +15,7 @@ import {
   NotificationPreferencesData,
 } from "@/lib/validations/profile";
 import { syncGrantMemoryFromProfile } from "@/lib/grant-memory";
+import { requestEligibilityRefresh } from "@/lib/eligibility-refresh-trigger";
 
 async function getOrgId(): Promise<string> {
   const { orgId } = await getActiveOrg();
@@ -76,6 +77,10 @@ async function syncGrantMemoryForProfile(profileId: string): Promise<void> {
   } catch {
     // non-fatal
   }
+}
+
+async function triggerEligibilityForOrg(organisationId: string, source: string): Promise<void> {
+  await requestEligibilityRefresh(organisationId, source);
 }
 
 async function getOrCreateProfile(organisationId: string) {
@@ -169,6 +174,7 @@ export async function saveStep1(data: Step1Data) {
 
   await recalcAndSaveCompletionScore(profile.id);
   await syncGrantMemoryForProfile(profile.id);
+  await triggerEligibilityForOrg(orgId, "profile.step1.saved");
 
   return { success: true };
 }
@@ -196,6 +202,7 @@ export async function saveStep2(data: Step2Data) {
 
   await recalcAndSaveCompletionScore(profile.id);
   await syncGrantMemoryForProfile(profile.id);
+  await triggerEligibilityForOrg(orgId, "profile.step2.saved");
 
   return { success: true };
 }
@@ -223,6 +230,7 @@ export async function saveStep3(data: Step3Data) {
 
   await recalcAndSaveCompletionScore(profile.id);
   await syncGrantMemoryForProfile(profile.id);
+  await triggerEligibilityForOrg(orgId, "profile.step3.saved");
 
   return { success: true };
 }
@@ -251,6 +259,7 @@ export async function saveStep4(data: Step4Data) {
 
   await recalcAndSaveCompletionScore(profile.id);
   await syncGrantMemoryForProfile(profile.id);
+  await triggerEligibilityForOrg(orgId, "profile.step4.saved");
 
   return { success: true };
 }
@@ -281,6 +290,7 @@ export async function saveDocument(doc: {
   if (error) return { error: error.message };
   await recalcAndSaveCompletionScore(profile.id);
   await syncGrantMemoryForProfile(profile.id);
+  await triggerEligibilityForOrg(orgId, "profile.document.saved");
   return { success: true };
 }
 
@@ -297,6 +307,7 @@ export async function removeDocument(documentId: string) {
 
   await recalcAndSaveCompletionScore(profile.id);
   await syncGrantMemoryForProfile(profile.id);
+  await triggerEligibilityForOrg(orgId, "profile.document.removed");
   return { success: true };
 }
 

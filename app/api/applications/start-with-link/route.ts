@@ -5,6 +5,8 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { notifyOrgMembers } from "@/lib/notify";
 import { inngest } from "@/inngest/client";
 import { checkUsageLimit, recordUsage } from "@/lib/plan-check";
+import { enqueueGrantForScoutIfProgrammeUrl } from "@/lib/enqueue-scout";
+import { requestEligibilityRefresh } from "@/lib/eligibility-refresh-trigger";
 
 const linkEntrySchema = z.object({
   applicationUrl: z.string().url("Please enter a valid grant application URL"),
@@ -137,6 +139,8 @@ export async function POST(req: Request): Promise<NextResponse> {
         continue;
       }
 
+      await enqueueGrantForScoutIfProgrammeUrl(grant.id).catch(() => {});
+
       const { data: application, error: appError } = await supabase
         .from("Application")
         .insert({
@@ -207,6 +211,8 @@ export async function POST(req: Request): Promise<NextResponse> {
         { status: 400 }
       );
     }
+
+    await requestEligibilityRefresh(orgId, "applications.start-with-link");
 
     return NextResponse.json({
       applications: results,

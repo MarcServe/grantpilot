@@ -205,7 +205,21 @@ export default async function ApplicationDetailPage({
                   </p>
                 </>
               )}
-              {pageSituation && !["login_required", "competition_list", "needs_verification"].includes(pageSituation) && (
+              {pageSituation === "page_not_found" && (
+                <>
+                  <p className="font-medium text-amber-900">Application link may be broken (404)</p>
+                  <p className="mt-1 text-amber-800">
+                    The application URL for this grant returns a &quot;page not found&quot; error. Please find the correct application page and update the URL, then retry.
+                  </p>
+                  <Link
+                    href={`/grants/${(application as { grant?: { id?: string } }).grant?.id ?? ""}`}
+                    className="mt-2 inline-block text-sm font-medium text-amber-800 underline hover:no-underline"
+                  >
+                    Edit application URL on grant page
+                  </Link>
+                </>
+              )}
+              {pageSituation && !["login_required", "competition_list", "needs_verification", "page_not_found"].includes(pageSituation) && (
                 <p className="text-amber-800">{pageSituationItem?.extra_data?.notes ?? "This step needs your attention."}</p>
               )}
             </div>

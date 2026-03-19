@@ -329,6 +329,27 @@ async function processGrantApplicationSession(
             }
           }
         }
+        if (
+          (result.situation === "page_not_found" || result.situation === "competition_list") &&
+          item.grant_id
+        ) {
+          const appUrl = process.env.APP_URL;
+          const internalSecret = process.env.INTERNAL_API_SECRET;
+          if (appUrl && internalSecret) {
+            try {
+              await fetch(`${appUrl.replace(/\/$/, "")}/api/internal/enqueue-scout-for-grant`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "x-internal-secret": internalSecret,
+                },
+                body: JSON.stringify({ grantId: item.grant_id }),
+              });
+            } catch (err) {
+              console.error("[worker] enqueue-scout-for-grant failed", err);
+            }
+          }
+        }
         if (result.needsInput && result.missingRequired && result.missingRequired.length > 0 && applicationId) {
           await getSupabase()
             .from("Application")
