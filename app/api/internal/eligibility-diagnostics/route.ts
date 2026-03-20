@@ -55,19 +55,22 @@ export async function GET(req: Request): Promise<NextResponse> {
 
     const since = new Date();
     since.setDate(since.getDate() - days);
-    let { data: members = [] } = await supabase
+
+    type MemberRow = { user_id?: string | null; userId?: string | null };
+    const { data: membersSnake = [] } = await supabase
       .from("OrganisationMember")
       .select("user_id")
       .eq("organisation_id", orgId);
-    if (!members || members.length === 0) {
-      const alt = await supabase
+    let members: MemberRow[] = (membersSnake ?? []) as MemberRow[];
+    if (members.length === 0) {
+      const { data: membersCamel = [] } = await supabase
         .from("OrganisationMember")
         .select("userId")
         .eq("organisationId", orgId);
-      members = alt.data ?? [];
+      members = (membersCamel ?? []) as MemberRow[];
     }
-    const userIds = (members as { user_id?: string }[])
-      .map((m) => m.user_id ?? (m as { userId?: string }).userId)
+    const userIds = members
+      .map((m) => m.user_id ?? m.userId)
       .filter((id): id is string => Boolean(id));
 
     let logs: { channel: string; type: string; status: string; error: string | null }[] = [];
