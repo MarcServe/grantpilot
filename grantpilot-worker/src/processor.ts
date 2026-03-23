@@ -4,7 +4,7 @@ import { extractEmailFromUrl } from "./claude.js";
 import { fetchProfileAndDocuments } from "./profile-data.js";
 import { launchGrantBrowser, newGrantPage } from "./browser.js";
 import { runGrantStep } from "./grant-steps.js";
-import { getNextScoutJob, processScoutJob, ApiCreditError } from "./scout.js";
+import { getNextScoutJob, processScoutJob, ApiCreditError, getScoutMode } from "./scout.js";
 
 const POLL_INTERVAL_MS = 5000;
 const PROGRESS_UPDATE_EVERY = 5;
@@ -495,7 +495,8 @@ export async function processSession(session: CuSession): Promise<void> {
 const IDLE_LOG_EVERY_POLLS = 12; // log every ~60s when no work
 
 export async function runLoop(): Promise<void> {
-  console.log("[worker] Starting poll loop... (Scout + Filer; polling every 5s)");
+  const scoutMode = getScoutMode();
+  console.log(`[worker] Starting poll loop... (Scout=${scoutMode}, Filer; polling every 5s)`);
 
   let idlePolls = 0;
   let apiCreditFailures = 0;
@@ -505,9 +506,10 @@ export async function runLoop(): Promise<void> {
   while (true) {
     try {
       const now = Date.now();
-      const skipScout = now < apiCreditBackoffUntil;
+      const scoutDisabled = scoutMode === "off";
+      const skipScout = scoutDisabled || now < apiCreditBackoffUntil;
 
-      if (skipScout && idlePolls === 0) {
+      if (!scoutDisabled && now < apiCreditBackoffUntil && idlePolls === 0) {
         const waitSec = Math.round((apiCreditBackoffUntil - now) / 1000);
         console.log(`[worker] API credit circuit breaker active — skipping Scout for ${waitSec}s`);
       }

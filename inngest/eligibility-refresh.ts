@@ -99,25 +99,53 @@ export async function runEligibilityRefreshJob(): Promise<{
 
     for (const profile of profilesWithOrg) {
       const orgId = getProfileOrgId(profile as { organisationId?: string; organisation_id?: string })!;
+      const profileId = (profile as { id?: string }).id ?? "unknown";
       try {
         const completionScore = getProfileCompletionScore(profile as Record<string, unknown>);
+        const profileName = (profile as { businessName?: string }).businessName ?? profileId;
+        console.info(`[eligibility-refresh] Processing org=${orgId} profile=${profileId} "${profileName}" completion=${completionScore}%`);
+
         const userFunderLocations = (profile as { funderLocations?: string[] }).funderLocations;
         const grantList = grantsList.filter((g) => grantMatchesFunderLocations(g.funderLocations, userFunderLocations));
-        const matches = await matchGrantsToProfile(
-          profileToMatching(profile as Record<string, unknown>),
-          grantList.map((g) => ({
-            id: g.id,
-            name: g.name,
-            funder: g.funder,
-            amount: g.amount ?? null,
-            eligibility: g.eligibility,
-            description: g.description ?? null,
-            objectives: g.objectives ?? null,
-            applicantTypes: g.applicantTypes ?? [],
-            sectors: g.sectors ?? [],
-            regions: g.regions ?? [],
-          }))
-        );
+        console.info(`[eligibility-refresh]   ${grantList.length} grants match funder locations (of ${grantsList.length} total)`);
+
+        if (grantList.length === 0) {
+          console.info(`[eligibility-refresh]   Skipping: no grants match user funderLocations=${JSON.stringify(userFunderLocations ?? [])}`);
+          continue;
+        }
+
+        let matches: Awaited<ReturnType<typeof matchGrantsToProfile>>;
+        try {
+          matches = await matchGrantsToProfile(
+            profileToMatching(profile as Record<string, unknown>),
+            grantList.map((g) => ({
+              id: g.id,
+              name: g.name,
+              funder: g.funder,
+              amount: g.amount ?? null,
+              eligibility: g.eligibility,
+              description: g.description ?? null,
+              objectives: g.objectives ?? null,
+              applicantTypes: g.applicantTypes ?? [],
+              sectors: g.sectors ?? [],
+              regions: g.regions ?? [],
+            }))
+          );
+        } catch (matchErr) {
+          const errMsg = matchErr instanceof Error ? matchErr.message : String(matchErr);
+          console.error(`[eligibility-refresh]   matchGrantsToProfile FAILED for org=${orgId}: ${errMsg.slice(0, 200)}`);
+          if (/credit balance/i.test(errMsg)) {
+            console.error(`[eligibility-refresh]   Anthropic API credits exhausted — skipping remaining profiles`);
+            break;
+          }
+          continue;
+        }
+
+        console.info(`[eligibility-refresh]   matchGrantsToProfile returned ${matches.length} matches`);
+        if (matches.length > 0) {
+          const topScores = matches.slice(0, 5).map((m) => `${m.grantId?.slice(0, 12)}:${m.score}`);
+          console.info(`[eligibility-refresh]   Top scores: ${topScores.join(", ")}`);
+        }
 
         const topGrants = matches
           .slice(0, TOP_N)
@@ -226,16 +254,22 @@ export async function runEligibilityRefreshJob(): Promise<{
               }
             }
           } catch (err) {
-            console.error(`[eligibility-refresh] grant ${grant.id} for org ${orgId} profile ${profile.id}:`, err);
+            const errMsg = err instanceof Error ? err.message : String(err);
+            console.error(`[eligibility-refresh]   grant ${grant.id} for org ${orgId} profile ${profileId}: ${errMsg.slice(0, 200)}`);
+            if (/credit balance/i.test(errMsg)) {
+              console.error(`[eligibility-refresh]   Anthropic credits exhausted — stopping grant scoring for this profile`);
+              break;
+            }
           }
         }
 
-        // Digest + high-fit WhatsApp only when profile is complete enough (avoids noisy emails for empty profiles).
+        console.info(`[eligibility-refresh]   Digest candidates: ${digestGrants.length} grants, completion=${completionScore}%, threshold=${minCompletionForNotifications}%, email=${sendNotifyEmail}, whatsapp=${sendWhatsApp}`);
+
         if (
           digestGrants.length > 0 &&
           completionScore >= minCompletionForNotifications
         ) {
-          const profileName = (profile as { businessName?: string }).businessName ?? "Your business";
+          console.info(`[eligibility-refresh]   SENDING digest notification for ${digestGrants.length} grants to org ${orgId}`);
           await notifyOrgMembers(orgId, "grant_scan_digest", {
             grants: digestGrants,
             profileName,

@@ -1,13 +1,34 @@
 /**
- * Scout: find application form URL from a grant programme homepage using Playwright + Claude.
- * Vision (screenshot + Claude) is the main and default at every step for reliability; link/button
- * navigation is only used when vision returns NOT_FOUND to move to the next page and try again.
+ * Scout: find application form URL from a grant programme homepage.
+ *
+ * Three modes controlled by SCOUT_MODE env var:
+ *   "off"   — skip all scouting
+ *   "regex" — Playwright + regex/heuristic only (free, no LLM)
+ *   "full"  — regex first, then Gemini Flash for vision+text analysis (free tier)
+ *
+ * Claude is NOT used here — it's reserved for the application process.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenAI } from "@google/genai";
 import type { Page } from "playwright";
 import { launchGrantBrowser, newGrantPage, navigateToGrantUrl } from "./browser.js";
 import { getSupabase } from "./supabase.js";
+
+// ---------------------------------------------------------------------------
+// Scout mode
+// ---------------------------------------------------------------------------
+
+export type ScoutMode = "off" | "regex" | "full";
+
+export function getScoutMode(): ScoutMode {
+  const raw = (process.env.SCOUT_MODE ?? "full").toLowerCase().trim();
+  if (raw === "off" || raw === "regex" || raw === "full") return raw;
+  return "full";
+}
+
+// ---------------------------------------------------------------------------
+// Error helpers
+// ---------------------------------------------------------------------------
 
 export class ApiCreditError extends Error {
   constructor(message: string) {
@@ -22,17 +43,34 @@ function isApiCreditError(err: unknown): boolean {
   return /credit balance is too low/i.test(msg) || /insufficient.{0,20}credits?/i.test(msg);
 }
 
-function requiredEnv(name: string): string {
-  const v = process.env[name];
-  if (!v) throw new Error(`Missing env var: ${name}`);
-  return v;
-}
-
-const anthropic = new Anthropic({ apiKey: requiredEnv("ANTHROPIC_API_KEY") });
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 
 const MAX_SCOUT_HOPS = 3;
-const FORM_HOSTS = ["airtable.com", "typeform.com", "forms.gle", "docs.google.com/forms", "smartsheet.com", "jotform.com"];
+const FORM_HOSTS = [
+  "airtable.com", "typeform.com", "forms.gle", "docs.google.com/forms",
+  "smartsheet.com", "jotform.com", "surveymonkey.com", "wufoo.com",
+  "cognitoforms.com", "formstack.com",
+];
 const APPLY_LINK_TEXT = /apply|start\s*(?:your)?\s*application|begin\s*application|open\s*form|apply\s*now|start\s*application|submit\s*application|apply\s*here|application\s*form/i;
+
+// ---------------------------------------------------------------------------
+// Gemini Flash client (lazy, free tier)
+// ---------------------------------------------------------------------------
+
+let _gemini: GoogleGenAI | null = null;
+function getGemini(): GoogleGenAI | null {
+  if (_gemini) return _gemini;
+  const key = (process.env.GEMINI_API_KEY ?? process.env.GOOGLE_AI_API_KEY)?.trim();
+  if (!key) return null;
+  _gemini = new GoogleGenAI({ apiKey: key });
+  return _gemini;
+}
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 export interface GrantLinkJob {
   id: number;
@@ -43,7 +81,17 @@ export interface GrantLinkJob {
   status: string;
 }
 
-/** Get one pending scout job and mark it running. */
+export interface ApplyButtonCandidate {
+  text: string;
+  id: string | null;
+  name: string | null;
+  tagName: string;
+}
+
+// ---------------------------------------------------------------------------
+// Database helpers
+// ---------------------------------------------------------------------------
+
 export async function getNextScoutJob(): Promise<GrantLinkJob | null> {
   const { data: rows, error } = await getSupabase()
     .from("grant_links")
@@ -54,24 +102,45 @@ export async function getNextScoutJob(): Promise<GrantLinkJob | null> {
 
   if (error || !rows?.length) return null;
 
-  const row = rows[0] as { id: number; grant_id: string; homepage_url: string; grant_name: string | null; funder: string | null; status: string };
+  const row = rows[0] as GrantLinkJob;
   const { error: updateErr } = await getSupabase()
     .from("grant_links")
     .update({ status: "running", updated_at: new Date().toISOString() })
     .eq("id", row.id);
 
   if (updateErr) return null;
-  return {
-    id: row.id,
-    grant_id: row.grant_id,
-    homepage_url: row.homepage_url,
-    grant_name: row.grant_name,
-    funder: row.funder,
-    status: "running",
-  };
+  return { ...row, status: "running" };
 }
 
-/** Extract links (href + text) from the current page. Includes external links (e.g. Airtable, Typeform). */
+export async function markScoutJobResult(
+  jobId: number,
+  status: "found" | "manual_review_needed" | "failed",
+  applicationFormUrl?: string | null,
+  errorMessage?: string | null
+): Promise<void> {
+  const patch: Record<string, unknown> = {
+    status,
+    updated_at: new Date().toISOString(),
+  };
+  if (status === "found" && applicationFormUrl) {
+    patch.application_form_url = applicationFormUrl;
+    patch.discovered_at = new Date().toISOString();
+  }
+  if (errorMessage) patch.error_message = errorMessage;
+  await getSupabase().from("grant_links").update(patch).eq("id", jobId);
+}
+
+export async function updateGrantApplicationUrl(grantId: string, applicationFormUrl: string): Promise<void> {
+  await getSupabase()
+    .from("Grant")
+    .update({ applicationUrl: applicationFormUrl, updatedAt: new Date().toISOString() })
+    .eq("id", grantId);
+}
+
+// ---------------------------------------------------------------------------
+// DOM helpers (Playwright, no LLM)
+// ---------------------------------------------------------------------------
+
 async function getPageLinks(page: Page): Promise<{ href: string; text: string }[]> {
   return page.evaluate(() => {
     const out: { href: string; text: string }[] = [];
@@ -82,9 +151,7 @@ async function getPageLinks(page: Page): Promise<{ href: string; text: string }[
       try {
         const u = new URL(href);
         if (u.protocol !== "http:" && u.protocol !== "https:") return;
-      } catch {
-        return;
-      }
+      } catch { return; }
       const text = (a as HTMLAnchorElement).textContent?.replace(/\s+/g, " ").trim().slice(0, 120) ?? "";
       out.push({ href, text });
     });
@@ -92,45 +159,31 @@ async function getPageLinks(page: Page): Promise<{ href: string; text: string }[
   });
 }
 
-/** Apply-like button descriptor for clicking when the form is not a direct link. */
-export interface ApplyButtonCandidate {
-  text: string;
-  id: string | null;
-  name: string | null;
-  tagName: string;
-}
-
-/** Get links that look like "Apply" and buttons with Apply-like text (so we can click them for multi-step). */
 async function getApplyCandidates(page: Page): Promise<{ links: { href: string; text: string }[]; buttons: ApplyButtonCandidate[] }> {
   const links = await getPageLinks(page);
   const applyLinks = links.filter((l) => APPLY_LINK_TEXT.test(l.text));
   const buttons = await page.evaluate((pattern: string) => {
     const re = new RegExp(pattern, "i");
     const out: { text: string; id: string | null; name: string | null; tagName: string }[] = [];
-    const candidates = document.querySelectorAll("button, input[type='submit'], input[type='button'], a[href], [role='button']");
-    candidates.forEach((el) => {
+    document.querySelectorAll("button, input[type='submit'], input[type='button'], a[href], [role='button']").forEach((el) => {
       const tag = (el as HTMLElement).tagName.toLowerCase();
       const text = ((el as HTMLElement).textContent ?? (el as HTMLInputElement).value ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
       if (!text || !re.test(text)) return;
       if (/\bsubmit\b/i.test(text) && !/apply|start\s*application/i.test(text)) return;
       const href = (el as HTMLAnchorElement).href;
       if (href && (tag === "a" || (el as HTMLAnchorElement).tagName === "A")) return;
-      const id = (el as HTMLElement).id || null;
-      const name = (el as HTMLInputElement).name || null;
-      out.push({ text, id, name, tagName: tag });
+      out.push({ text, id: (el as HTMLElement).id || null, name: (el as HTMLInputElement).name || null, tagName: tag });
     });
     return out;
   }, APPLY_LINK_TEXT.source);
   return { links: applyLinks, buttons };
 }
 
-/** Returns true if the current page looks like an application form (many inputs or known form host). */
 async function isFormLikePage(page: Page): Promise<boolean> {
   const url = page.url().toLowerCase();
   if (FORM_HOSTS.some((h) => url.includes(h))) return true;
   const count = await page.evaluate(() => {
-    const inputs = document.querySelectorAll("input:not([type=hidden]):not([type=submit]):not([type=button]), textarea, select");
-    return inputs.length;
+    return document.querySelectorAll("input:not([type=hidden]):not([type=submit]):not([type=button]), textarea, select").length;
   });
   return count >= 3;
 }
@@ -139,16 +192,13 @@ function escapeCssId(id: string): string {
   return id.replace(/([^a-zA-Z0-9_-])/g, "\\$1");
 }
 
-/** Click an Apply-like button (by id, name, or text). Returns true if a click was performed. */
 async function clickApplyButton(page: Page, button: ApplyButtonCandidate): Promise<boolean> {
   if (button.id) {
     try {
       await page.locator(`#${escapeCssId(button.id)}`).first().click();
       await Promise.race([page.waitForLoadState("domcontentloaded").catch(() => {}), page.waitForTimeout(3000)]);
       return true;
-    } catch {
-      // fallback to text
-    }
+    } catch { /* fallback */ }
   }
   if (button.name && (button.tagName === "input" || button.tagName === "button")) {
     try {
@@ -156,9 +206,7 @@ async function clickApplyButton(page: Page, button: ApplyButtonCandidate): Promi
       await page.locator(`${button.tagName}[name="${nameEsc}"]`).first().click();
       await Promise.race([page.waitForLoadState("domcontentloaded").catch(() => {}), page.waitForTimeout(3000)]);
       return true;
-    } catch {
-      // fallback to text
-    }
+    } catch { /* fallback */ }
   }
   const textSlice = button.text.slice(0, 30);
   try {
@@ -171,136 +219,195 @@ async function clickApplyButton(page: Page, button: ApplyButtonCandidate): Promi
       await page.locator(`button:has-text("${safe}"), input[type="submit"]:has-text("${safe}"), [role="button"]:has-text("${safe}")`).first().click();
       await Promise.race([page.waitForLoadState("domcontentloaded").catch(() => {}), page.waitForTimeout(3000)]);
       return true;
-    } catch {
-      return false;
-    }
+    } catch { return false; }
   }
 }
 
-/** Ask Claude which link is the application form (text-only). Returns URL or null. */
-async function askClaudeForFormUrl(
+// ---------------------------------------------------------------------------
+// Tier 1: Regex-only link scoring (no LLM, free)
+// ---------------------------------------------------------------------------
+
+/**
+ * Score a link by how likely it leads to an application form.
+ * Higher = better. Returns 0 if no signal.
+ */
+function scoreLinkAsFormUrl(href: string, text: string): number {
+  const lhref = href.toLowerCase();
+  const ltext = text.toLowerCase();
+  let score = 0;
+
+  if (FORM_HOSTS.some((h) => lhref.includes(h))) score += 50;
+  if (/\bapply\b/.test(ltext)) score += 20;
+  if (/\bapplication\s*form\b/.test(ltext)) score += 30;
+  if (/\bapply\s*now\b/.test(ltext)) score += 25;
+  if (/\bstart\s*(your\s*)?application\b/.test(ltext)) score += 25;
+  if (/\bapply\s*here\b/.test(ltext)) score += 20;
+  if (/\bopen\s*form\b/.test(ltext)) score += 20;
+  if (/\bapply\s*online\b/.test(ltext)) score += 20;
+  if (/\bsubmit\s*application\b/.test(ltext)) score += 15;
+
+  if (/\/apply(\/|$|\?)/.test(lhref)) score += 15;
+  if (/\/application(\/|$|\?)/.test(lhref)) score += 10;
+  if (/\/register(\/|$|\?)/.test(lhref)) score += 5;
+
+  // Penalise obviously non-form links
+  if (/\b(terms|privacy|contact|about|faq|help|news|blog)\b/.test(ltext)) score -= 30;
+  if (/\b(sign.?in|log.?in|create.?account)\b/.test(ltext)) score -= 10;
+
+  return Math.max(0, score);
+}
+
+/**
+ * Regex-only discovery: find the best "Apply" link using heuristics.
+ * Returns a URL or null.
+ */
+async function regexFindFormUrl(page: Page): Promise<string | null> {
+  const links = await getPageLinks(page);
+  if (links.length === 0) return null;
+
+  const scored = links
+    .map((l) => ({ ...l, score: scoreLinkAsFormUrl(l.href, l.text) }))
+    .filter((l) => l.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  return scored.length > 0 ? scored[0].href : null;
+}
+
+// ---------------------------------------------------------------------------
+// Tier 2: Gemini Flash analysis (free tier, text + vision)
+// ---------------------------------------------------------------------------
+
+async function askGeminiForFormUrl(
   pageUrl: string,
   links: { href: string; text: string }[]
 ): Promise<string | null> {
+  const gemini = getGemini();
+  if (!gemini) return null;
+
   const linkList = links
     .slice(0, 80)
     .map((l) => `${l.href} (text: "${l.text}")`)
     .join("\n");
 
-  const prompt = `You are a grant research agent. This is a grant programme or funding opportunity page.
+  const prompt = `You are a grant research agent. This is a grant programme page.
 
 Page URL: ${pageUrl}
 
-Here are links from the page (href and link text):
+Links from the page:
 ${linkList}
 
-Your task: identify the SINGLE link that goes directly to the application form or "Apply now" page (e.g. Airtable form, Typeform, Google Form, or the funder's application page). Ignore links to general info, terms, contact, or programme overview.
+Identify the SINGLE link that goes to the application form or "Apply now" page (e.g. Airtable, Typeform, Google Form, or the funder's application page). Ignore general info, terms, contact, or overview links.
 
-Reply with ONLY the full application form URL, or the single word NOT_FOUND if no clear application link exists. Do not include quotes or explanation.`;
+Reply with ONLY the full URL, or NOT_FOUND. No quotes or explanation.`;
 
-  const res = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 512,
-    messages: [{ role: "user", content: prompt }],
-  });
-
-  const text = (res.content?.[0]?.type === "text" ? res.content[0].text : "").trim();
-  if (!text || text.toUpperCase() === "NOT_FOUND") return null;
-
-  const url = text.split(/\s/)[0].replace(/^["']|["']$/g, "");
   try {
-    new URL(url);
-    return url;
+    const res = await gemini.models.generateContent({
+      model: "gemini-2.0-flash",
+      contents: prompt,
+    });
+    const text = typeof (res as { text?: string }).text === "string"
+      ? (res as { text: string }).text.trim()
+      : "";
+    if (!text || text.toUpperCase() === "NOT_FOUND") return null;
+    const url = text.split(/\s/)[0].replace(/^["']|["']$/g, "");
+    try { new URL(url); return url; } catch { return null; }
   } catch {
     return null;
   }
 }
 
-/** Vision-first: screenshot + Claude to find the application form link (primary and default). */
-async function askClaudeForFormUrlWithVision(page: Page, pageUrl: string): Promise<string | null> {
+async function askGeminiForFormUrlWithVision(page: Page, pageUrl: string): Promise<string | null> {
+  const gemini = getGemini();
+  if (!gemini) return null;
+
   let screenshotBase64: string;
   try {
-    const buf = await page.screenshot({ type: "png", fullPage: false });
+    const buf = await page.screenshot({ type: "jpeg", fullPage: false, quality: 70 });
     screenshotBase64 = buf.toString("base64");
-  } catch {
-    return null;
-  }
-  const prompt = `Look at this screenshot of a grant programme or funding opportunity webpage (URL: ${pageUrl}).
+  } catch { return null; }
 
-See the page as a user would. Your task: identify the link or button that goes to the APPLICATION FORM or "Apply now" page (e.g. Airtable, Typeform, Google Form, or the funder's application form). Ignore links to general info, terms, contact, or programme overview.
+  const prompt = `Look at this screenshot of a grant programme webpage (URL: ${pageUrl}).
 
-Reply with ONLY one of:
-1. The full URL of that application form link (as it would appear in the page's href), or
-2. The single word NOT_FOUND if you cannot identify a clear application form link.
+Identify the link or button that goes to the APPLICATION FORM or "Apply now" page. Ignore general info, terms, contact, or overview links.
 
-Do not include quotes or explanation.`;
+Reply with ONLY the full URL, or NOT_FOUND. No quotes or explanation.`;
 
-  const res = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 512,
-    messages: [
-      {
-        role: "user",
-        content: [
-          { type: "image", source: { type: "base64", media_type: "image/png", data: screenshotBase64 } },
-          { type: "text", text: prompt },
-        ],
-      },
-    ],
-  });
-
-  const text = (res.content?.[0]?.type === "text" ? res.content[0].text : "").trim();
-  if (!text || text.toUpperCase() === "NOT_FOUND") return null;
-
-  const url = text.split(/\s/)[0].replace(/^["']|["']$/g, "");
   try {
-    new URL(url);
-    return url;
+    const res = await gemini.models.generateContent({
+      model: "gemini-2.0-flash",
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { inlineData: { mimeType: "image/jpeg", data: screenshotBase64 } },
+            { text: prompt },
+          ],
+        },
+      ],
+    });
+    const text = typeof (res as { text?: string }).text === "string"
+      ? (res as { text: string }).text.trim()
+      : "";
+    if (!text || text.toUpperCase() === "NOT_FOUND") return null;
+    const url = text.split(/\s/)[0].replace(/^["']|["']$/g, "");
+    try { new URL(url); return url; } catch { return null; }
   } catch {
     return null;
   }
 }
 
-/** Run Scout discovery: vision-first at every step; only follow Apply link/button when vision says NOT_FOUND. */
-export async function runScoutDiscovery(page: Page, homepageUrl: string): Promise<string | null> {
+// ---------------------------------------------------------------------------
+// Discovery orchestrator
+// ---------------------------------------------------------------------------
+
+export async function runScoutDiscovery(page: Page, homepageUrl: string, mode: ScoutMode): Promise<string | null> {
   const { ok } = await navigateToGrantUrl(page, homepageUrl);
   if (!ok) return null;
 
   let lastFormUrl: string | null = null;
+  const useGemini = mode === "full";
 
   for (let hop = 0; hop < MAX_SCOUT_HOPS; hop++) {
     const currentUrl = page.url();
 
-    if (await isFormLikePage(page)) {
-      return currentUrl;
-    }
+    if (await isFormLikePage(page)) return currentUrl;
 
-    // Vision is the main and default: see the page like a human and identify the application form link.
-    let formUrl: string | null = null;
-    try {
-      formUrl = await askClaudeForFormUrlWithVision(page, currentUrl);
-    } catch {
-      // Only fall back to link-only if vision fails (e.g. API error); grants are sensitive, prefer vision.
-      const links = await getPageLinks(page);
-      if (links.length > 0) formUrl = await askClaudeForFormUrl(currentUrl, links);
-    }
-
-    if (formUrl) {
-      lastFormUrl = formUrl;
-      if (formUrl === currentUrl || formUrl === homepageUrl) {
-        return formUrl;
-      }
+    // --- Tier 1: regex scoring ---
+    const regexUrl = await regexFindFormUrl(page);
+    if (regexUrl) {
+      lastFormUrl = regexUrl;
+      if (regexUrl === currentUrl || regexUrl === homepageUrl) return regexUrl;
       try {
-        const nav = await page.goto(formUrl, { waitUntil: "domcontentloaded", timeout: 300_000 });
-        if (nav && nav.status() >= 400) return formUrl;
+        const nav = await page.goto(regexUrl, { waitUntil: "domcontentloaded", timeout: 300_000 });
+        if (nav && nav.status() >= 400) return regexUrl;
         if (await isFormLikePage(page)) return page.url();
-        return formUrl;
+        return regexUrl;
+      } catch { return regexUrl; }
+    }
+
+    // --- Tier 2: Gemini Flash (only in "full" mode) ---
+    if (useGemini) {
+      let formUrl: string | null = null;
+      try {
+        formUrl = await askGeminiForFormUrlWithVision(page, currentUrl);
       } catch {
-        return formUrl;
+        const links = await getPageLinks(page);
+        if (links.length > 0) formUrl = await askGeminiForFormUrl(currentUrl, links);
+      }
+
+      if (formUrl) {
+        lastFormUrl = formUrl;
+        if (formUrl === currentUrl || formUrl === homepageUrl) return formUrl;
+        try {
+          const nav = await page.goto(formUrl, { waitUntil: "domcontentloaded", timeout: 300_000 });
+          if (nav && nav.status() >= 400) return formUrl;
+          if (await isFormLikePage(page)) return page.url();
+          return formUrl;
+        } catch { return formUrl; }
       }
     }
 
-    // Vision returned NOT_FOUND: move to next page by following an Apply link or clicking Apply button.
+    // --- Fallback: follow Apply links / click Apply buttons ---
     const { links: applyLinks, buttons: applyButtons } = await getApplyCandidates(page);
 
     const applyLink = applyLinks.find((l) => FORM_HOSTS.some((h) => l.href.toLowerCase().includes(h)))
@@ -332,46 +439,20 @@ export async function runScoutDiscovery(page: Page, homepageUrl: string): Promis
   return lastFormUrl;
 }
 
-export async function markScoutJobResult(
-  jobId: number,
-  status: "found" | "manual_review_needed" | "failed",
-  applicationFormUrl?: string | null,
-  errorMessage?: string | null
-): Promise<void> {
-  const patch: Record<string, unknown> = {
-    status,
-    updated_at: new Date().toISOString(),
-  };
-  if (status === "found" && applicationFormUrl) {
-    patch.application_form_url = applicationFormUrl;
-    patch.discovered_at = new Date().toISOString();
-  }
-  if (errorMessage) patch.error_message = errorMessage;
+// ---------------------------------------------------------------------------
+// Main entry: process one scout job
+// ---------------------------------------------------------------------------
 
-  await getSupabase().from("grant_links").update(patch).eq("id", jobId);
-}
-
-/** Update Grant.applicationUrl when Scout finds a form URL. */
-export async function updateGrantApplicationUrl(grantId: string, applicationFormUrl: string): Promise<void> {
-  await getSupabase()
-    .from("Grant")
-    .update({
-      applicationUrl: applicationFormUrl,
-      updatedAt: new Date().toISOString(),
-    })
-    .eq("id", grantId);
-}
-
-/** Process one Scout job: open page, find form URL, update grant_links and Grant. */
 export async function processScoutJob(job: GrantLinkJob): Promise<void> {
-  console.log(`[scout] Processing grant_links id=${job.id} grant_id=${job.grant_id}`);
+  const mode = getScoutMode();
+  console.log(`[scout] Processing grant_links id=${job.id} grant_id=${job.grant_id} mode=${mode}`);
 
   const browser = await launchGrantBrowser();
   const page = await newGrantPage(browser);
-  page.setDefaultTimeout(300_000); // 5 min: same as browser defaults for stability
+  page.setDefaultTimeout(300_000);
 
   try {
-    const formUrl = await runScoutDiscovery(page, job.homepage_url);
+    const formUrl = await runScoutDiscovery(page, job.homepage_url, mode);
 
     if (formUrl && formUrl.trim() !== "") {
       await markScoutJobResult(job.id, "found", formUrl);
@@ -385,9 +466,7 @@ export async function processScoutJob(job: GrantLinkJob): Promise<void> {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[scout] Error for job ${job.id}:`, msg);
     await markScoutJobResult(job.id, "failed", null, msg.slice(0, 1000));
-    if (isApiCreditError(err)) {
-      throw new ApiCreditError(msg);
-    }
+    if (isApiCreditError(err)) throw new ApiCreditError(msg);
   } finally {
     await browser.close();
   }
