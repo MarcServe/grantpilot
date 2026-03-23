@@ -171,6 +171,7 @@ async function processGrantApplicationSession(
       fundingMax: 0,
       fundingPurposes: [],
       fundingDetails: null,
+      websiteIntelligence: null,
     },
     documents: [],
   };

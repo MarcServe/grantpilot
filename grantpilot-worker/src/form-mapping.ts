@@ -107,6 +107,10 @@ async function getFormFillActionsWithVision(
     grant.objectives ? `Objectives: ${String(grant.objectives).slice(0, 1000)}` : "",
   ].filter(Boolean).join("\n");
 
+  const websiteCtx = profile.websiteIntelligence
+    ? `\nAdditional intelligence from the applicant's website (use specific facts, achievements, and capabilities mentioned here to write stronger, more detailed answers):\n${profile.websiteIntelligence}\n`
+    : "";
+
   const prompt = `You are filling a grant application form. You can SEE the form in the screenshot. Use it to understand the tone, theme, and any on-page instructions (word limits, format, focus areas).
 
 Grant context (use this to adapt how you write – match this grant's focus and language):
@@ -117,7 +121,7 @@ ${JSON.stringify(fields, null, 2)}
 
 Applicant profile (${kind}) to draw from:
 ${JSON.stringify(profileSlice, null, 2)}
-${userAnswers && Object.keys(userAnswers).length > 0 ? `\nUser-provided answers for missing fields:\n${JSON.stringify(userAnswers, null, 2)}` : ""}
+${websiteCtx}${userAnswers && Object.keys(userAnswers).length > 0 ? `\nUser-provided answers for missing fields:\n${JSON.stringify(userAnswers, null, 2)}` : ""}
 
 Instructions:
 - Fill each field using the profile data but ADAPT the wording and emphasis to fit THIS grant (its eligibility, objectives, and tone). Do not paste the same generic text for every grant.
@@ -170,6 +174,10 @@ async function getFormFillActionsTextOnly(
           fundingDetails: profile.fundingDetails,
         };
 
+  const websiteCtx = profile.websiteIntelligence
+    ? `\nAdditional intelligence from the applicant's website (use specific facts, achievements, and capabilities mentioned here to write stronger, more detailed answers):\n${profile.websiteIntelligence}\n`
+    : "";
+
   const prompt = `You are mapping business profile data to a grant application form.
 
 Form fields (use name or id for selector, e.g. input[name="company_name"] or #company_name). Each field may include:
@@ -181,7 +189,7 @@ ${JSON.stringify(fields, null, 2)}
 
 Profile data to use (${kind}):
 ${JSON.stringify(profileSlice, null, 2)}
-
+${websiteCtx}
 Return a single JSON object with two keys:
 1. "actions": array of fill actions. Each: { "selector": "css selector", "value": "string", "type": "fill" | "select" | "check" }.
    - Use "select" for dropdowns, "fill" for text/number/email/url, "check" for checkbox/radio.

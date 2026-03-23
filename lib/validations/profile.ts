@@ -7,6 +7,7 @@ export const step1Schema = z.object({
   registrationNumber: z.string().optional(),
   location: z.string().min(2, "Location is required"),
   funderLocations: z.array(z.enum(FUNDER_LOCATION_VALUES)).optional().default([]),
+  websiteUrl: z.string().url("Please enter a valid URL").optional().or(z.literal("")),
 });
 
 export const step2Schema = z.object({

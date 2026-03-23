@@ -36,6 +36,7 @@ export function Step1Basics({ defaultValues, onSubmit, isPending }: Step1Props) 
       registrationNumber: defaultValues.registrationNumber ?? "",
       location: defaultValues.location ?? "",
       funderLocations: defaultValues.funderLocations ?? [],
+      websiteUrl: defaultValues.websiteUrl ?? "",
     },
   });
 
@@ -79,6 +80,23 @@ export function Step1Basics({ defaultValues, onSubmit, isPending }: Step1Props) 
               <FormControl>
                 <Input placeholder="London, UK" {...field} />
               </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="websiteUrl"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Company Website (optional)</FormLabel>
+              <FormControl>
+                <Input placeholder="https://www.yourcompany.com" type="url" {...field} />
+              </FormControl>
+              <p className="text-muted-foreground text-xs">
+                Our AI will analyse your website to better understand your business when filling grant applications.
+              </p>
               <FormMessage />
             </FormItem>
           )}

@@ -30,6 +30,7 @@ interface ProfileData {
   registrationNumber: string | null;
   location: string;
   funderLocations?: string[];
+  websiteUrl?: string | null;
   sector: string;
   missionStatement: string;
   description: string;
@@ -212,6 +213,7 @@ export function ProfileForm({ profile, initialStep = 1 }: { profile: ProfileData
                 registrationNumber: profile.registrationNumber ?? undefined,
                 location: profile.location,
                 funderLocations: (profile.funderLocations ?? []) as Step1Data["funderLocations"],
+                websiteUrl: profile.websiteUrl ?? "",
               }}
               onSubmit={handleStep1}
               isPending={isPending}

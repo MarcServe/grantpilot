@@ -14,6 +14,7 @@ export interface ProfileData {
   fundingMax: number;
   fundingPurposes: string[];
   fundingDetails: string | null;
+  websiteIntelligence: string | null;
 }
 
 export interface DocumentData {
@@ -42,6 +43,7 @@ function normaliseProfile(row: Record<string, unknown>): ProfileData {
     fundingMax: Number(get("fundingMax") ?? get("funding_max") ?? 0),
     fundingPurposes: Array.isArray(row.fundingPurposes) ? row.fundingPurposes as string[] : (Array.isArray(row.funding_purposes) ? row.funding_purposes as string[] : []),
     fundingDetails: row.fundingDetails != null ? String(row.fundingDetails) : (row.funding_details != null ? String(row.funding_details) : null),
+    websiteIntelligence: row.websiteIntelligence != null ? String(row.websiteIntelligence) : (row.website_intelligence != null ? String(row.website_intelligence) : null),
   };
 }
 

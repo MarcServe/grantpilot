@@ -100,6 +100,8 @@ model BusinessProfile {
   fundingDetails     String?       @db.Text
   previousGrants     String?       @db.Text
   funderLocations    String[]      @default([]) // US, UK, EU, Global – which funder regions user wants to see
+  websiteUrl         String?
+  websiteIntelligence String?      @db.Text     // AI-extracted summary from websiteUrl
   documents          Document[]
   applications       Application[]
   completionScore    Int           @default(0)

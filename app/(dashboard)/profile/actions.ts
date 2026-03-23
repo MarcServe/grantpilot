@@ -16,6 +16,7 @@ import {
 } from "@/lib/validations/profile";
 import { syncGrantMemoryFromProfile } from "@/lib/grant-memory";
 import { requestEligibilityRefresh } from "@/lib/eligibility-refresh-trigger";
+import { analyseWebsite } from "@/lib/website-intelligence";
 
 async function getOrgId(): Promise<string> {
   const { orgId } = await getActiveOrg();
@@ -158,6 +159,7 @@ export async function saveStep1(data: Step1Data) {
   const profile = await getOrCreateProfile(orgId);
 
   const supabase = getSupabaseAdmin();
+  const newUrl = parsed.data.websiteUrl?.trim() || null;
   const { data: updated, error: updateError } = await supabase
     .from("BusinessProfile")
     .update({
@@ -165,6 +167,7 @@ export async function saveStep1(data: Step1Data) {
       registrationNumber: parsed.data.registrationNumber ?? null,
       location: parsed.data.location,
       funderLocations: parsed.data.funderLocations ?? [],
+      websiteUrl: newUrl,
     })
     .eq("id", profile.id)
     .select()
@@ -176,7 +179,32 @@ export async function saveStep1(data: Step1Data) {
   await syncGrantMemoryForProfile(profile.id);
   await triggerEligibilityForOrg(orgId, "profile.step1.saved");
 
+  const previousUrl = (profile as Record<string, unknown>).websiteUrl as string | null;
+  if (newUrl && newUrl !== previousUrl) {
+    analyseAndSaveWebsiteIntelligence(profile.id, newUrl).catch((err) =>
+      console.error("[website-intelligence] Background analysis failed:", err)
+    );
+  }
+
   return { success: true };
+}
+
+async function analyseAndSaveWebsiteIntelligence(
+  profileId: string,
+  url: string
+): Promise<void> {
+  try {
+    console.info(`[website-intelligence] Analysing ${url} for profile ${profileId}`);
+    const intelligence = await analyseWebsite(url);
+    const supabase = getSupabaseAdmin();
+    await supabase
+      .from("BusinessProfile")
+      .update({ websiteIntelligence: intelligence })
+      .eq("id", profileId);
+    console.info(`[website-intelligence] Saved ${intelligence.length} chars for profile ${profileId}`);
+  } catch (err) {
+    console.error(`[website-intelligence] Failed for ${url}:`, err);
+  }
 }
 
 export async function saveStep2(data: Step2Data) {
