@@ -4,12 +4,16 @@ import { extractEmailFromUrl } from "./claude.js";
 import { fetchProfileAndDocuments } from "./profile-data.js";
 import { launchGrantBrowser, newGrantPage } from "./browser.js";
 import { runGrantStep } from "./grant-steps.js";
-import { getNextScoutJob, processScoutJob } from "./scout.js";
+import { getNextScoutJob, processScoutJob, ApiCreditError } from "./scout.js";
 
 const POLL_INTERVAL_MS = 5000;
 const PROGRESS_UPDATE_EVERY = 5;
 const MAX_STEP_RETRIES = 2;
 const RETRY_DELAY_MS = 3000;
+
+const API_CREDIT_BACKOFF_BASE_MS = 60_000;
+const API_CREDIT_BACKOFF_MAX_MS = 30 * 60_000;
+const API_CREDIT_RESET_AFTER_SUCCESS = 3;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -494,14 +498,32 @@ export async function runLoop(): Promise<void> {
   console.log("[worker] Starting poll loop... (Scout + Filer; polling every 5s)");
 
   let idlePolls = 0;
+  let apiCreditFailures = 0;
+  let apiCreditBackoffUntil = 0;
+  let successesSinceLastCreditFail = 0;
+
   while (true) {
     try {
-      // Scout: find application form URLs from programme pages (nightly enqueue)
-      const scoutJob = await getNextScoutJob();
-      if (scoutJob) {
-        idlePolls = 0;
-        await processScoutJob(scoutJob);
-        continue;
+      const now = Date.now();
+      const skipScout = now < apiCreditBackoffUntil;
+
+      if (skipScout && idlePolls === 0) {
+        const waitSec = Math.round((apiCreditBackoffUntil - now) / 1000);
+        console.log(`[worker] API credit circuit breaker active — skipping Scout for ${waitSec}s`);
+      }
+
+      if (!skipScout) {
+        const scoutJob = await getNextScoutJob();
+        if (scoutJob) {
+          idlePolls = 0;
+          await processScoutJob(scoutJob);
+          successesSinceLastCreditFail += 1;
+          if (successesSinceLastCreditFail >= API_CREDIT_RESET_AFTER_SUCCESS) {
+            apiCreditFailures = 0;
+            successesSinceLastCreditFail = 0;
+          }
+          continue;
+        }
       }
 
       const session = await getNextRunnableSession();
@@ -519,6 +541,21 @@ export async function runLoop(): Promise<void> {
       idlePolls = 0;
       await processSession(session);
     } catch (err) {
+      if (err instanceof ApiCreditError) {
+        apiCreditFailures += 1;
+        successesSinceLastCreditFail = 0;
+        const backoffMs = Math.min(
+          API_CREDIT_BACKOFF_BASE_MS * Math.pow(2, apiCreditFailures - 1),
+          API_CREDIT_BACKOFF_MAX_MS
+        );
+        apiCreditBackoffUntil = Date.now() + backoffMs;
+        console.warn(
+          `[worker] Anthropic API credit error (${apiCreditFailures} consecutive). ` +
+          `Pausing Scout jobs for ${Math.round(backoffMs / 1000)}s. Top up credits to resume.`
+        );
+        await sleep(POLL_INTERVAL_MS);
+        continue;
+      }
       console.error("[worker] Loop error:", err);
       await sleep(2000);
     }

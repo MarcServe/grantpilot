@@ -1,9 +1,14 @@
-import { config } from "dotenv";
 import { resolve } from "path";
 
-// Load env first (ESM hoists imports; index.ts config runs too late for this module)
-config();
-config({ path: resolve(process.cwd(), "..", ".env.local") });
+if (process.env.NODE_ENV !== "production") {
+  try {
+    const { config } = await import("dotenv");
+    config();
+    config({ path: resolve(process.cwd(), "..", ".env.local") });
+  } catch {
+    // dotenv not available in production (devDependency); env vars are injected by platform
+  }
+}
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 

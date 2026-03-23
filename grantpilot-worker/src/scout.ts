@@ -9,6 +9,19 @@ import type { Page } from "playwright";
 import { launchGrantBrowser, newGrantPage, navigateToGrantUrl } from "./browser.js";
 import { getSupabase } from "./supabase.js";
 
+export class ApiCreditError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ApiCreditError";
+  }
+}
+
+function isApiCreditError(err: unknown): boolean {
+  if (err instanceof ApiCreditError) return true;
+  const msg = err instanceof Error ? err.message : String(err);
+  return /credit balance is too low/i.test(msg) || /insufficient.{0,20}credits?/i.test(msg);
+}
+
 function requiredEnv(name: string): string {
   const v = process.env[name];
   if (!v) throw new Error(`Missing env var: ${name}`);
@@ -63,7 +76,8 @@ async function getPageLinks(page: Page): Promise<{ href: string; text: string }[
   return page.evaluate(() => {
     const out: { href: string; text: string }[] = [];
     document.querySelectorAll("a[href]").forEach((a) => {
-      const href = (a as HTMLAnchorElement).href;
+      const rawHref = (a as HTMLAnchorElement).href;
+      const href = typeof rawHref === "string" ? rawHref : String(rawHref ?? "");
       if (!href || href.startsWith("mailto:") || href.startsWith("javascript:") || href.startsWith("#")) return;
       try {
         const u = new URL(href);
@@ -371,6 +385,9 @@ export async function processScoutJob(job: GrantLinkJob): Promise<void> {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[scout] Error for job ${job.id}:`, msg);
     await markScoutJobResult(job.id, "failed", null, msg.slice(0, 1000));
+    if (isApiCreditError(err)) {
+      throw new ApiCreditError(msg);
+    }
   } finally {
     await browser.close();
   }
