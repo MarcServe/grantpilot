@@ -20,31 +20,35 @@ async function getOrgId(): Promise<string> {
   return orgId;
 }
 
-function calculateCompletionScore(profile: {
-  businessName: string;
-  location: string;
-  sector: string;
-  missionStatement: string;
-  description: string;
-  employeeCount: number | null;
-  annualRevenue: number | null;
-  fundingMin: number;
-  fundingMax: number;
-  fundingPurposes: string[];
-  fundingDetails: string | null;
-}): number {
+function calculateCompletionScore(profile: Record<string, unknown>): number {
+  const get = (camel: string, snake?: string): unknown =>
+    profile[camel] ?? (snake ? profile[snake] : undefined);
+
   let score = 0;
   const total = 10;
-  if (profile.businessName) score++;
-  if (profile.location) score++;
-  if (profile.sector) score++;
-  if (profile.missionStatement) score++;
-  if (profile.description) score++;
-  if (profile.employeeCount) score++;
-  if (profile.annualRevenue) score++;
-  if (profile.fundingMin) score++;
-  if (profile.fundingMax) score++;
-  if (profile.fundingPurposes?.length > 0) score++;
+
+  const businessName = get("businessName", "business_name");
+  const location = get("location");
+  const sector = get("sector");
+  const missionStatement = get("missionStatement", "mission_statement");
+  const description = get("description");
+  const employeeCount = get("employeeCount", "employee_count");
+  const annualRevenue = get("annualRevenue", "annual_revenue");
+  const fundingMin = get("fundingMin", "funding_min");
+  const fundingMax = get("fundingMax", "funding_max");
+  const fundingPurposes = get("fundingPurposes", "funding_purposes");
+
+  if (businessName && String(businessName).trim()) score++;
+  if (location && String(location).trim()) score++;
+  if (sector && String(sector).trim()) score++;
+  if (missionStatement && String(missionStatement).trim()) score++;
+  if (description && String(description).trim()) score++;
+  if (employeeCount != null && Number(employeeCount) > 0) score++;
+  if (annualRevenue != null && Number(annualRevenue) > 0) score++;
+  if (fundingMin != null && Number(fundingMin) > 0) score++;
+  if (fundingMax != null && Number(fundingMax) > 0) score++;
+  if (Array.isArray(fundingPurposes) && fundingPurposes.length > 0) score++;
+
   return Math.round((score / total) * 100);
 }
 
@@ -137,10 +141,10 @@ export async function saveStep1(data: Step1Data) {
 
   if (updateError || !updated) return { error: updateError?.message ?? "Update failed" };
 
-  await supabase
-    .from("BusinessProfile")
-    .update({ completionScore: calculateCompletionScore(updated) })
-    .eq("id", profile.id);
+  const { data: full } = await supabase.from("BusinessProfile").select("*").eq("id", profile.id).single();
+  if (full) {
+    await supabase.from("BusinessProfile").update({ completionScore: calculateCompletionScore(full as Record<string, unknown>) }).eq("id", profile.id);
+  }
 
   return { success: true };
 }
@@ -166,10 +170,10 @@ export async function saveStep2(data: Step2Data) {
 
   if (updateError || !updated) return { error: updateError?.message ?? "Update failed" };
 
-  await supabase
-    .from("BusinessProfile")
-    .update({ completionScore: calculateCompletionScore(updated) })
-    .eq("id", profile.id);
+  const { data: full } = await supabase.from("BusinessProfile").select("*").eq("id", profile.id).single();
+  if (full) {
+    await supabase.from("BusinessProfile").update({ completionScore: calculateCompletionScore(full as Record<string, unknown>) }).eq("id", profile.id);
+  }
 
   return { success: true };
 }
@@ -195,10 +199,10 @@ export async function saveStep3(data: Step3Data) {
 
   if (updateError || !updated) return { error: updateError?.message ?? "Update failed" };
 
-  await supabase
-    .from("BusinessProfile")
-    .update({ completionScore: calculateCompletionScore(updated) })
-    .eq("id", profile.id);
+  const { data: full } = await supabase.from("BusinessProfile").select("*").eq("id", profile.id).single();
+  if (full) {
+    await supabase.from("BusinessProfile").update({ completionScore: calculateCompletionScore(full as Record<string, unknown>) }).eq("id", profile.id);
+  }
 
   return { success: true };
 }
@@ -225,10 +229,10 @@ export async function saveStep4(data: Step4Data) {
 
   if (updateError || !updated) return { error: updateError?.message ?? "Update failed" };
 
-  await supabase
-    .from("BusinessProfile")
-    .update({ completionScore: calculateCompletionScore(updated) })
-    .eq("id", profile.id);
+  const { data: full } = await supabase.from("BusinessProfile").select("*").eq("id", profile.id).single();
+  if (full) {
+    await supabase.from("BusinessProfile").update({ completionScore: calculateCompletionScore(full as Record<string, unknown>) }).eq("id", profile.id);
+  }
 
   return { success: true };
 }
