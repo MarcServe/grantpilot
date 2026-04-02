@@ -3,9 +3,7 @@
 import { useState, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { GrantCard } from "./grant-card";
-import { MatchButton } from "./match-button";
 import { toast } from "sonner";
-import type { GrantMatch } from "@/lib/claude";
 
 const PAGE_SIZE_OPTIONS = [15, 30, 50, 100, 200, 500, 1000] as const;
 const DEFAULT_PAGE_SIZE = 30;
@@ -84,9 +82,7 @@ export function GrantsListClient({
   cachedScores = {},
   savedGrantIds = [],
 }: GrantsListClientProps) {
-  const [matches, setMatches] = useState<Map<string, GrantMatch>>(new Map());
   const [savedSet, setSavedSet] = useState<Set<string>>(() => new Set(savedGrantIds));
-  const [sorted, setSorted] = useState(false);
   const [funderFilter, setFunderFilter] = useState<string>("");
   const [regionFilter, setRegionFilter] = useState<string>(
     userFunderLocations.length > 0 ? "recommended" : ""
@@ -124,39 +120,10 @@ export function GrantsListClient({
     }
   }, []);
 
-  const saveMatchedToList = useCallback(async () => {
-    const grantIds = Array.from(matches.keys());
-    if (grantIds.length === 0) return;
-    const res = await fetch("/api/grants/saved", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ grantIds }),
-    });
-    if (!res.ok) {
-      toast.error("Failed to save matched grants");
-      return;
-    }
-    setSavedSet((prev) => {
-      const next = new Set(prev);
-      grantIds.forEach((id) => next.add(id));
-      return next;
-    });
-    toast.success(`Saved ${grantIds.length} grants to your list. Visit them anytime under My saved grants.`);
-  }, [matches]);
-
   const funders = useMemo(
     () => Array.from(new Set(grants.map((g) => g.funder).filter(Boolean))).sort(),
     [grants]
   );
-
-  function handleMatches(matchResults: GrantMatch[]) {
-    const map = new Map<string, GrantMatch>();
-    for (const m of matchResults) {
-      map.set(m.grantId, m);
-    }
-    setMatches(map);
-    setSorted(true);
-  }
 
   const filteredGrants = useMemo(() => {
     const now = new Date();
@@ -189,16 +156,15 @@ export function GrantsListClient({
       result = result.filter((g) => g.funder === funderFilter);
     }
 
-    if (sorted) {
-      result = [...result].sort((a, b) => {
-        const scoreA = matches.get(a.id)?.score ?? cachedScores[a.id]?.score ?? 0;
-        const scoreB = matches.get(b.id)?.score ?? cachedScores[b.id]?.score ?? 0;
-        return scoreB - scoreA;
-      });
-    }
+    // Always sort by cached score if available
+    result = [...result].sort((a, b) => {
+      const scoreA = cachedScores[a.id]?.score ?? 0;
+      const scoreB = cachedScores[b.id]?.score ?? 0;
+      return scoreB - scoreA;
+    });
 
     return result;
-  }, [grants, regionFilter, funderFilter, sorted, matches, cachedScores, userFunderLocations, hideExpired, hideBroken]);
+  }, [grants, regionFilter, funderFilter, cachedScores, userFunderLocations, hideExpired, hideBroken, savedSet]);
 
   const totalPages = Math.max(1, Math.ceil(filteredGrants.length / pageSize));
   const safePage = Math.min(currentPage, totalPages);
@@ -212,7 +178,6 @@ export function GrantsListClient({
       <div className="mb-6 flex flex-wrap items-center gap-3 gap-y-2">
         <p className="text-sm text-muted-foreground">
           {filteredGrants.length} grant{filteredGrants.length !== 1 ? "s" : ""}
-          {sorted && " (sorted by match score)"}
           {totalPages > 1 && ` \u00b7 Page ${safePage} of ${totalPages}`}
         </p>
         <select
@@ -278,24 +243,6 @@ export function GrantsListClient({
           />
           Hide broken links
         </label>
-        {hasProfile && (
-          <>
-            <MatchButton
-              onMatches={handleMatches}
-              disabled={!profileComplete}
-            />
-            {matches.size > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={saveMatchedToList}
-                className="gap-1"
-              >
-                Save matched to my list
-              </Button>
-            )}
-          </>
-        )}
       </div>
 
       {!hasProfile && (
@@ -306,7 +253,6 @@ export function GrantsListClient({
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         {displayGrants.map((grant) => {
-          const match = matches.get(grant.id);
           const cached = cachedScores[grant.id];
           const isSaved = savedSet.has(grant.id);
           return (
@@ -320,8 +266,8 @@ export function GrantsListClient({
               sectors={grant.sectors}
               regions={grant.regions}
               applicantTypes={grant.applicantTypes}
-              matchScore={match?.score ?? cached?.score}
-              matchReason={match?.reason ?? cached?.summary}
+              matchScore={cached?.score}
+              matchReason={cached?.summary}
               urgencyLevel={grant.urgencyLevel}
               urgencyLabel={grant.urgencyLabel}
               addedAt={grant.createdAt ?? undefined}

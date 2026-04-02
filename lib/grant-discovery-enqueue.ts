@@ -52,7 +52,7 @@ async function fetchSitemapUrls(
     return pageUrls;
   }
 
-  let urls = pathPattern ? all.filter((u) => pathPattern.test(u)) : all;
+  const urls = pathPattern ? all.filter((u) => pathPattern.test(u)) : all;
   const priorityPattern = /\/202[5-9]\/|\/latest\/|\/new\//i;
   urls.sort((a, b) => {
     const aP = priorityPattern.test(a) ? 1 : 0;

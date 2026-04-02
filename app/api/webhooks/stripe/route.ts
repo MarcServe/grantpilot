@@ -93,7 +93,7 @@ export async function POST(req: Request): Promise<NextResponse> {
             .eq("stripeId", customerId)
             .maybeSingle();
 
-          let { data, error } = await supabase
+          const { data, error } = await supabase
             .from("Organisation")
             .update({ plan })
             .eq("stripeId", customerId)
@@ -127,7 +127,7 @@ export async function POST(req: Request): Promise<NextResponse> {
         const subscription = event.data.object as Stripe.Subscription;
         const customerId = subscription.customer as string;
 
-        let { data, error } = await supabase
+        const { data, error } = await supabase
           .from("Organisation")
           .update({ plan: "FREE_TRIAL" })
           .eq("stripeId", customerId)

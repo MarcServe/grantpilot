@@ -2,7 +2,6 @@ import Link from "next/link";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg } from "@/lib/auth";
 import { GrantsListClient } from "@/components/grants/grants-list-client";
-import { DiscoverGrantsButton } from "@/components/grants/discover-grants-button";
 import { computeUrgency } from "@/lib/urgency";
 
 export default async function GrantsPage() {
@@ -51,9 +50,6 @@ export default async function GrantsPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <DiscoverGrantsButton
-            disabled={!hasProfile || (profile?.completionScore ?? 0) < 30}
-          />
           <Link
             href="/grants/apply-by-link"
             className="shrink-0 rounded-md border bg-background px-4 py-2 text-sm font-medium hover:bg-muted"

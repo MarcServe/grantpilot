@@ -51,14 +51,13 @@ export default function SignUpPage() {
             <div className="mx-auto flex justify-center mb-2">
               <div className="relative flex items-center">
                 <Image 
-                  src="/logo.png" 
+                  src="/Newpilot_1.png" 
                   alt="GrantsCopilot Logo" 
                   width={800} 
                   height={200} 
-                  className="h-40 w-auto object-contain mix-blend-multiply grayscale"
+                  className="h-40 w-auto object-contain mix-blend-multiply"
                   priority
                 />
-                <div className="absolute inset-0 bg-primary mix-blend-screen pointer-events-none" />
               </div>
             </div>
             <CardTitle className="text-2xl">Check your email</CardTitle>
@@ -82,17 +81,16 @@ export default function SignUpPage() {
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-2 text-center">
           <div className="mx-auto flex justify-center mb-2">
-            <div className="relative flex items-center">
-              <Image 
-                src="/logo.png" 
-                alt="GrantsCopilot Logo" 
-                width={800} 
-                height={200} 
-                className="h-40 w-auto object-contain mix-blend-multiply grayscale"
-                priority
-              />
-              <div className="absolute inset-0 bg-primary mix-blend-screen pointer-events-none" />
-            </div>
+              <div className="relative flex items-center">
+                <Image 
+                  src="/Newpilot_1.png" 
+                  alt="GrantsCopilot Logo" 
+                  width={800} 
+                  height={200} 
+                  className="h-40 w-auto object-contain mix-blend-multiply"
+                  priority
+                />
+              </div>
           </div>
           <CardTitle className="text-2xl">Create your account</CardTitle>
           <CardDescription>Start your Grants-Copilot journey today</CardDescription>

@@ -50,14 +50,13 @@ export default async function AdminPage() {
           <Link href="/admin" className="flex items-center gap-2">
             <div className="relative flex items-center">
               <Image 
-                src="/logo.png" 
+                src="/logogc.png" 
                 alt="GrantsCopilot Logo" 
                 width={480} 
                 height={120} 
-                className="h-20 w-auto object-contain mix-blend-multiply grayscale"
+                className="h-20 w-auto object-contain"
                 priority
               />
-              <div className="absolute inset-0 bg-primary mix-blend-screen pointer-events-none" />
             </div>
             <span className="text-xl font-bold">Admin</span>
           </Link>
