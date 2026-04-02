@@ -33,14 +33,17 @@ export default function LandingPage() {
         <section className="mx-auto max-w-7xl px-4 py-24 sm:px-6 lg:px-8">
           <div className="mx-auto max-w-3xl text-center">
             <div className="flex justify-center mb-10">
-              <Image 
-                src="/logo.png" 
-                alt="GrantsCopilot Logo" 
-                width={3200} 
-                height={800} 
-                className="h-[512px] w-auto object-contain mix-blend-multiply grayscale"
-                priority
-              />
+              <div className="relative">
+                <Image 
+                  src="/logo.png" 
+                  alt="GrantsCopilot Logo" 
+                  width={3200} 
+                  height={800} 
+                  className="h-[512px] w-auto object-contain mix-blend-multiply grayscale opacity-90"
+                  priority
+                />
+                <div className="absolute inset-0 bg-primary/20 mix-blend-color pointer-events-none" />
+              </div>
             </div>
             <h1 className="text-4xl font-bold tracking-tight text-foreground sm:text-5xl lg:text-6xl">
               Stop searching for grants.
