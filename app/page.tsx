@@ -36,9 +36,9 @@ export default function LandingPage() {
               <Image 
                 src="/logo.png" 
                 alt="GrantsCopilot Logo" 
-                width={1200} 
-                height={300} 
-                className="h-48 w-auto object-contain"
+                width={1600} 
+                height={400} 
+                className="h-64 w-auto object-contain mix-blend-multiply"
                 priority
               />
             </div>
