@@ -48,7 +48,7 @@ export function SubmitSection({ applicationId }: SubmitSectionProps) {
   }
 
   return (
-    <Card className="border-primary/20 bg-primary/5">
+    <Card id="application-submit" className="scroll-mt-24 border-primary/20 bg-primary/5">
       <CardHeader>
         <CardTitle>Ready to Submit</CardTitle>
       </CardHeader>

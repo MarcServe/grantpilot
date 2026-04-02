@@ -12,6 +12,7 @@ import { StopApplicationButton } from "@/components/applications/stop-applicatio
 import { ApplicationTaskList } from "@/components/applications/application-task-list";
 import { EditableSnapshot } from "@/components/applications/editable-snapshot";
 import { NeedsInputForm } from "@/components/applications/needs-input-form";
+import { ApplicationSessionPoller } from "@/components/applications/application-session-poller";
 
 const ITEM_STATUS_ICON: Record<string, React.ReactNode> = {
   done: <CheckCircle className="h-4 w-4 text-green-600" />,
@@ -135,8 +136,16 @@ export default async function ApplicationDetailPage({
     ? (pageSituationItem.extra_data as { needs_direct_url?: boolean }).needs_direct_url
     : false;
 
+  const grantId = (application.grant as { id?: string } | null)?.id ?? "";
+  const pollSession =
+    ["PENDING", "FILLING", "REVIEW_REQUIRED", "NEEDS_INPUT"].includes(String(displayStatus)) &&
+    sessionStatus !== "completed" &&
+    sessionStatus !== "failed" &&
+    (totalItems > 0 ? processedItems < totalItems : true);
+
   return (
     <div className="mx-auto max-w-4xl p-6">
+      {pollSession && <ApplicationSessionPoller />}
       <Link
         href="/applications"
         className="mb-6 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
@@ -147,7 +156,18 @@ export default async function ApplicationDetailPage({
 
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">{application.grant.name}</h1>
+          {grantId ? (
+            <Link
+              href={`/grants/${grantId}`}
+              className="group inline-block rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <h1 className="text-2xl font-bold transition-colors group-hover:text-primary group-hover:underline decoration-primary/40 underline-offset-4">
+                {application.grant.name}
+              </h1>
+            </Link>
+          ) : (
+            <h1 className="text-2xl font-bold">{application.grant.name}</h1>
+          )}
           <p className="text-muted-foreground">{application.grant.funder}</p>
         </div>
         <div className="flex items-center gap-2">
@@ -228,7 +248,11 @@ export default async function ApplicationDetailPage({
       )}
 
       {tasks.length > 0 && (
-        <ApplicationTaskList applicationId={application.id} tasks={tasks} />
+        <ApplicationTaskList
+          applicationId={application.id}
+          grantId={grantId || undefined}
+          tasks={tasks}
+        />
       )}
 
       <Card className="mb-6">
@@ -236,6 +260,10 @@ export default async function ApplicationDetailPage({
           <CardTitle className="text-sm font-medium">
             Execution Progress
           </CardTitle>
+          <p className="text-xs text-muted-foreground">
+            The AI runs on our servers — you can open other pages (grant details, profile, eligibility) and return here;
+            progress is saved automatically. This page refreshes periodically while work is in progress.
+          </p>
         </CardHeader>
         <CardContent>
           <div className="mb-2 flex items-center justify-between text-sm">

@@ -2,10 +2,11 @@
 
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Calendar, CheckCircle, Circle, Loader2, Info } from "lucide-react";
+import { Calendar, CheckCircle, Circle, ExternalLink, Info } from "lucide-react";
 import { updateApplicationTaskStatus } from "@/app/(dashboard)/applications/actions";
 import { toast } from "sonner";
 
@@ -20,6 +21,8 @@ export interface ApplicationTaskRow {
 
 interface ApplicationTaskListProps {
   applicationId: string;
+  /** Grant id for linking to eligibility / grant detail */
+  grantId?: string;
   tasks: ApplicationTaskRow[];
 }
 
@@ -29,7 +32,30 @@ const PRIORITY_LABEL: Record<string, string> = {
   low: "Low",
 };
 
-export function ApplicationTaskList({ applicationId, tasks }: ApplicationTaskListProps) {
+function taskRelatedHref(
+  taskName: string,
+  grantId: string | undefined,
+  applicationId: string
+): { href: string; label: string; external: boolean } | null {
+  const n = taskName.toLowerCase();
+  if ((n.includes("review") && n.includes("eligibility")) || n === "review eligibility") {
+    if (!grantId) return null;
+    return { href: `/grants/${grantId}`, label: "View grant & eligibility", external: true };
+  }
+  if (n.includes("prepare") && n.includes("document")) {
+    return { href: "/profile?step=5", label: "Open documents (profile)", external: true };
+  }
+  if (n.includes("submit")) {
+    return {
+      href: `/applications/${applicationId}#application-submit`,
+      label: "Jump to submit section",
+      external: false,
+    };
+  }
+  return null;
+}
+
+export function ApplicationTaskList({ applicationId, grantId, tasks }: ApplicationTaskListProps) {
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
 
@@ -69,6 +95,10 @@ export function ApplicationTaskList({ applicationId, tasks }: ApplicationTaskLis
               preparation steps to improve your chances of success. Tick each item off as you go
               &mdash; this is <span className="font-medium">optional but strongly advised</span>.
             </p>
+            <p>
+              Use the links below to open the grant page, your profile documents, or the submit section.
+              Your application keeps running in the background &mdash; you are not stuck on this page.
+            </p>
           </div>
         </div>
         {tasks.length > 1 && (
@@ -81,18 +111,20 @@ export function ApplicationTaskList({ applicationId, tasks }: ApplicationTaskLis
         <ul className="space-y-3">
           {tasks.map((task) => {
             const isDone = task.status === "done";
+            const related = taskRelatedHref(task.name, grantId, applicationId);
             return (
               <li
                 key={task.id}
                 className="flex items-center justify-between gap-3 rounded-lg border p-3"
               >
-                <div className="flex items-center gap-3">
+                <div className="flex min-w-0 items-start gap-3">
                   <Checkbox
                     checked={isDone}
                     onCheckedChange={() => handleToggle(task.id, task.status)}
                     disabled={isPending}
+                    className="mt-1"
                   />
-                  <div>
+                  <div className="min-w-0">
                     <span
                       className={`text-sm font-medium ${isDone ? "text-muted-foreground line-through" : ""}`}
                     >
@@ -104,6 +136,22 @@ export function ApplicationTaskList({ applicationId, tasks }: ApplicationTaskLis
                         <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>
                       ) : null;
                     })()}
+                    {related && !isDone && (
+                      <div className="mt-1.5">
+                        <Link
+                          href={related.href}
+                          {...(related.external
+                            ? { target: "_blank", rel: "noopener noreferrer" }
+                            : {})}
+                          className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                        >
+                          {related.label}
+                          {related.external ? (
+                            <ExternalLink className="h-3 w-3 shrink-0 opacity-70" />
+                          ) : null}
+                        </Link>
+                      </div>
+                    )}
                     {task.dueDate && (
                       <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
                         <Calendar className="h-3 w-3" />
@@ -112,7 +160,7 @@ export function ApplicationTaskList({ applicationId, tasks }: ApplicationTaskLis
                     )}
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex shrink-0 items-center gap-2">
                   <Badge variant="outline" className="text-xs">
                     {PRIORITY_LABEL[task.priority] ?? task.priority}
                   </Badge>

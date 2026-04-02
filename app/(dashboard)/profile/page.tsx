@@ -23,14 +23,23 @@ function getFirstIncompleteStep(profile: {
   return 5;
 }
 
-export default async function ProfilePage() {
+export default async function ProfilePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ step?: string }>;
+}) {
+  const sp = await searchParams;
+  const stepParam = sp.step != null ? parseInt(String(sp.step), 10) : NaN;
+  const stepFromQuery =
+    Number.isFinite(stepParam) && stepParam >= 1 && stepParam <= 5 ? stepParam : null;
+
   const [profile, { user }] = await Promise.all([getProfile(), getActiveOrg()]);
 
   const userRow = user as { phoneNumber?: string | null; whatsappOptIn?: boolean };
   const phoneNumber = userRow.phoneNumber ?? null;
   const whatsappOptIn = Boolean(userRow.whatsappOptIn);
 
-  const initialStep = getFirstIncompleteStep({
+  const suggestedStep = getFirstIncompleteStep({
     businessName: profile.businessName,
     location: profile.location,
     sector: profile.sector,
@@ -43,6 +52,8 @@ export default async function ProfilePage() {
     fundingPurposes: profile.fundingPurposes ?? [],
     documents: profile.documents ?? [],
   });
+
+  const initialStep = stepFromQuery ?? suggestedStep;
 
   return (
     <div className="mx-auto max-w-7xl p-6">
