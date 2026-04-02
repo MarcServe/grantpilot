@@ -16,14 +16,17 @@ export default function DashboardLayout({
       <header className="sticky top-0 z-50 border-b bg-white">
         <div className="mx-auto flex h-24 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
           <Link href="/dashboard" className="flex items-center gap-2">
-            <Image 
-              src="/logo.png" 
-              alt="GrantsCopilot Logo" 
-              width={480} 
-              height={120} 
-              className="h-20 w-auto object-contain grayscale"
-              priority
-            />
+            <div className="relative flex items-center">
+              <Image 
+                src="/logo.png" 
+                alt="GrantsCopilot Logo" 
+                width={480} 
+                height={120} 
+                className="h-20 w-auto object-contain mix-blend-multiply grayscale"
+                priority
+              />
+              <div className="absolute inset-0 bg-primary mix-blend-screen pointer-events-none" />
+            </div>
           </Link>
 
           <DashboardNav />

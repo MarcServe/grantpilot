@@ -46,14 +46,17 @@ export function SignInForm() {
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-2 text-center">
           <div className="mx-auto flex justify-center mb-2">
-            <Image 
-              src="/logo.png" 
-              alt="GrantsCopilot Logo" 
-              width={800} 
-              height={200} 
-              className="h-40 w-auto object-contain grayscale"
-              priority
-            />
+            <div className="relative flex items-center">
+              <Image 
+                src="/logo.png" 
+                alt="GrantsCopilot Logo" 
+                width={800} 
+                height={200} 
+                className="h-40 w-auto object-contain mix-blend-multiply grayscale"
+                priority
+              />
+              <div className="absolute inset-0 bg-primary mix-blend-screen pointer-events-none" />
+            </div>
           </div>
           <CardTitle className="text-2xl">Welcome back</CardTitle>
           <CardDescription>Sign in to your Grants-Copilot account</CardDescription>

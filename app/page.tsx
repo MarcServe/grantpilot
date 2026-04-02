@@ -9,14 +9,17 @@ export default function LandingPage() {
       <header className="border-b bg-white">
         <div className="mx-auto flex h-24 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-2">
-            <Image 
-              src="/logo.png" 
-              alt="GrantsCopilot Logo" 
-              width={480} 
-              height={120} 
-              className="h-20 w-auto object-contain grayscale"
-              priority
-            />
+            <div className="relative flex items-center">
+              <Image 
+                src="/logo.png" 
+                alt="GrantsCopilot Logo" 
+                width={480} 
+                height={120} 
+                className="h-20 w-auto object-contain mix-blend-multiply grayscale"
+                priority
+              />
+              <div className="absolute inset-0 bg-primary mix-blend-screen pointer-events-none" />
+            </div>
           </div>
           <div className="flex items-center gap-4">
             <Link href="/sign-in">
@@ -33,16 +36,16 @@ export default function LandingPage() {
         <section className="mx-auto max-w-7xl px-4 py-24 sm:px-6 lg:px-8">
           <div className="mx-auto max-w-3xl text-center">
             <div className="flex justify-center mb-10">
-              <div className="relative">
+              <div className="relative flex items-center">
                 <Image 
                   src="/logo.png" 
                   alt="GrantsCopilot Logo" 
                   width={3200} 
                   height={800} 
-                  className="h-[512px] w-auto object-contain mix-blend-multiply grayscale opacity-90"
+                  className="h-[512px] w-auto object-contain mix-blend-multiply grayscale"
                   priority
                 />
-                <div className="absolute inset-0 bg-primary/20 mix-blend-color pointer-events-none" />
+                <div className="absolute inset-0 bg-primary mix-blend-screen pointer-events-none" />
               </div>
             </div>
             <h1 className="text-4xl font-bold tracking-tight text-foreground sm:text-5xl lg:text-6xl">

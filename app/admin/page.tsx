@@ -48,14 +48,17 @@ export default async function AdminPage() {
       <header className="border-b bg-white">
         <div className="mx-auto flex h-24 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
           <Link href="/admin" className="flex items-center gap-2">
-            <Image 
-              src="/logo.png" 
-              alt="GrantsCopilot Logo" 
-              width={480} 
-              height={120} 
-              className="h-20 w-auto object-contain grayscale"
-              priority
-            />
+            <div className="relative flex items-center">
+              <Image 
+                src="/logo.png" 
+                alt="GrantsCopilot Logo" 
+                width={480} 
+                height={120} 
+                className="h-20 w-auto object-contain mix-blend-multiply grayscale"
+                priority
+              />
+              <div className="absolute inset-0 bg-primary mix-blend-screen pointer-events-none" />
+            </div>
             <span className="text-xl font-bold">Admin</span>
           </Link>
           <div className="flex items-center gap-2">
