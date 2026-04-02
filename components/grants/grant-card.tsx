@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Calendar, Building2, MapPin, ArrowRight, Users, Bookmark } from "lucide-react";
+import { UrlStatusBadge } from "./url-status-badge";
 
 interface GrantCardProps {
   id: string;
@@ -23,6 +24,8 @@ interface GrantCardProps {
   addedAt?: string | null;
   isSaved?: boolean;
   onToggleSave?: () => void;
+  urlStatus?: string | null;
+  urlCheckedAt?: string | null;
 }
 
 const URGENCY_CLASS: Record<string, string> = {
@@ -47,13 +50,20 @@ export function GrantCard({
   addedAt,
   isSaved,
   onToggleSave,
+  urlStatus,
+  urlCheckedAt,
 }: GrantCardProps) {
   return (
     <Card className="transition-shadow hover:shadow-md">
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
-            <CardTitle className="text-lg">{name}</CardTitle>
+            <div className="flex items-center gap-1.5">
+              <CardTitle className="text-lg">{name}</CardTitle>
+              {urlStatus && urlStatus !== "unknown" && (
+                <UrlStatusBadge status={urlStatus} checkedAt={urlCheckedAt} compact />
+              )}
+            </div>
             <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm text-muted-foreground">
               <span className="flex items-center gap-1">
                 <Building2 className="h-3.5 w-3.5 shrink-0" />

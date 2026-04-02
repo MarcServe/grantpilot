@@ -136,6 +136,8 @@ model Grant {
   regions          String[]
   funderLocations  String[]      @default([]) // US, UK, EU, Global – which regions this funder serves
   source           String?                    // default, claude, openai, gemini
+  url_status       String        @default("unknown") // live, dead, expired, unknown
+  url_checked_at   DateTime?     // last time the URL was verified
   applications    Application[]
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt

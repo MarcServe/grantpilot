@@ -37,6 +37,8 @@ interface GrantData {
   urgencyLevel?: "HIGH" | "MEDIUM" | "LOW" | "NONE";
   urgencyLabel?: string;
   createdAt?: string | null;
+  urlStatus?: string | null;
+  urlCheckedAt?: string | null;
 }
 
 interface CachedScore {
@@ -90,6 +92,7 @@ export function GrantsListClient({
     userFunderLocations.length > 0 ? "recommended" : ""
   );
   const [hideExpired, setHideExpired] = useState(true);
+  const [hideBroken, setHideBroken] = useState(false);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -166,6 +169,10 @@ export function GrantsListClient({
       });
     }
 
+    if (hideBroken) {
+      result = result.filter((g) => g.urlStatus !== "dead" && g.urlStatus !== "expired");
+    }
+
     if (regionFilter === "recommended") {
       result = result.filter((g) =>
         matchesFunderLocations(g.funderLocations, userFunderLocations)
@@ -191,7 +198,7 @@ export function GrantsListClient({
     }
 
     return result;
-  }, [grants, regionFilter, funderFilter, sorted, matches, cachedScores, userFunderLocations, hideExpired]);
+  }, [grants, regionFilter, funderFilter, sorted, matches, cachedScores, userFunderLocations, hideExpired, hideBroken]);
 
   const totalPages = Math.max(1, Math.ceil(filteredGrants.length / pageSize));
   const safePage = Math.min(currentPage, totalPages);
@@ -260,6 +267,17 @@ export function GrantsListClient({
           />
           Hide expired
         </label>
+        <label className="flex items-center gap-1.5 text-sm" htmlFor="grants-hide-broken">
+          <input
+            id="grants-hide-broken"
+            name="hideBroken"
+            type="checkbox"
+            checked={hideBroken}
+            onChange={(e) => { setHideBroken(e.target.checked); setCurrentPage(1); }}
+            className="rounded border-input"
+          />
+          Hide broken links
+        </label>
         {hasProfile && (
           <>
             <MatchButton
@@ -309,6 +327,8 @@ export function GrantsListClient({
               addedAt={grant.createdAt ?? undefined}
               isSaved={isSaved}
               onToggleSave={profileComplete ? () => toggleSaved(grant.id, isSaved) : undefined}
+              urlStatus={grant.urlStatus}
+              urlCheckedAt={grant.urlCheckedAt}
             />
           );
         })}

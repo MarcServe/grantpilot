@@ -18,6 +18,7 @@ import { ApplyButton } from "@/components/grants/apply-button";
 import { EditApplicationUrl } from "@/components/grants/edit-application-url";
 import { EligibilityCard } from "@/components/grants/eligibility-card";
 import { EnsureFormLinkScout } from "@/components/grants/ensure-form-link-scout";
+import { UrlStatusBadge } from "@/components/grants/url-status-badge";
 import { computeUrgency } from "@/lib/urgency";
 import { checkRequirementsAgainstDocuments } from "@/lib/grant-requirements";
 import type { RequiredAttachment } from "@/lib/grant-requirements";
@@ -116,6 +117,41 @@ export default async function GrantDetailPage({
         Back to Grants
       </Link>
 
+      {((grant as { url_status?: string }).url_status === "dead" ||
+        (grant as { url_status?: string }).url_status === "expired") && (
+        <div className={`mb-6 flex gap-3 rounded-lg border p-4 ${
+          (grant as { url_status?: string }).url_status === "dead"
+            ? "border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/40"
+            : "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40"
+        }`}>
+          <AlertTriangle className={`h-5 w-5 shrink-0 ${
+            (grant as { url_status?: string }).url_status === "dead"
+              ? "text-red-600 dark:text-red-500"
+              : "text-amber-600 dark:text-amber-500"
+          }`} />
+          <div>
+            <p className={`font-medium ${
+              (grant as { url_status?: string }).url_status === "dead"
+                ? "text-red-800 dark:text-red-200"
+                : "text-amber-800 dark:text-amber-200"
+            }`}>
+              {(grant as { url_status?: string }).url_status === "dead"
+                ? "This grant link appears to be broken"
+                : "This grant programme appears to be closed"}
+            </p>
+            <p className={`mt-1 text-sm ${
+              (grant as { url_status?: string }).url_status === "dead"
+                ? "text-red-700 dark:text-red-300"
+                : "text-amber-700 dark:text-amber-300"
+            }`}>
+              {(grant as { url_status?: string }).url_status === "dead"
+                ? "Our automated check found the application link is broken or returns an error. The grant may have been removed."
+                : "Our automated check detected that this grant programme may no longer be accepting applications."}
+            </p>
+          </div>
+        </div>
+      )}
+
       {missingDocLabels.length > 0 && (
         <div className="mb-6 flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/40">
           <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-500" />
@@ -197,7 +233,13 @@ export default async function GrantDetailPage({
           <Separator />
 
           <div>
-            <h3 className="mb-2 font-semibold">Application link</h3>
+            <div className="mb-2 flex items-center gap-2">
+              <h3 className="font-semibold">Application link</h3>
+              <UrlStatusBadge
+                status={(grant as { url_status?: string }).url_status}
+                checkedAt={(grant as { url_checked_at?: string }).url_checked_at}
+              />
+            </div>
             <EditApplicationUrl grantId={grant.id} applicationUrl={grant.applicationUrl ?? ""} />
           </div>
 

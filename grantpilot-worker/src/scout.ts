@@ -357,12 +357,76 @@ Reply with ONLY the full URL, or NOT_FOUND. No quotes or explanation.`;
 }
 
 // ---------------------------------------------------------------------------
+// Gemini vision page health validation (is this a live grant page?)
+// ---------------------------------------------------------------------------
+
+export type PageHealthStatus = "live" | "dead" | "expired" | "unknown";
+
+export interface GeminiPageHealthResult {
+  status: PageHealthStatus;
+  reason: string;
+}
+
+export async function validatePageWithGeminiVision(
+  page: Page,
+  pageUrl: string
+): Promise<GeminiPageHealthResult> {
+  const gemini = getGemini();
+  if (!gemini) return { status: "unknown", reason: "No Gemini API key configured" };
+
+  let screenshotBase64: string;
+  try {
+    const buf = await page.screenshot({ type: "jpeg", fullPage: false, quality: 60 });
+    screenshotBase64 = buf.toString("base64");
+  } catch {
+    return { status: "unknown", reason: "Failed to capture screenshot" };
+  }
+
+  const prompt = `Analyze this screenshot of a webpage (URL: ${pageUrl}).
+
+Classify the page into exactly ONE category:
+- LIVE_GRANT — This is a real, active grant/funding opportunity page with details about the programme, eligibility, or an application form
+- DEAD — This is a 404 page, "page not found", error page, generic homepage, search results page, or completely unrelated to grants
+- EXPIRED — This page describes a grant that has CLOSED, ended, or is no longer accepting applications (look for "closed", "ended", "deadline passed", etc.)
+
+Reply with ONLY one word: LIVE_GRANT, DEAD, or EXPIRED. No explanation.`;
+
+  try {
+    const res = await gemini.models.generateContent({
+      model: "gemini-2.0-flash",
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { inlineData: { mimeType: "image/jpeg", data: screenshotBase64 } },
+            { text: prompt },
+          ],
+        },
+      ],
+    });
+    const text = (typeof (res as { text?: string }).text === "string"
+      ? (res as { text: string }).text
+      : "").trim().toUpperCase();
+
+    if (text.includes("LIVE_GRANT")) return { status: "live", reason: "Gemini confirmed live grant page" };
+    if (text.includes("EXPIRED")) return { status: "expired", reason: "Gemini detected expired/closed programme" };
+    if (text.includes("DEAD")) return { status: "dead", reason: "Gemini detected dead/404/unrelated page" };
+    return { status: "unknown", reason: `Gemini response unclear: ${text.slice(0, 60)}` };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { status: "unknown", reason: `Gemini error: ${msg.slice(0, 100)}` };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Discovery orchestrator
 // ---------------------------------------------------------------------------
 
-export async function runScoutDiscovery(page: Page, homepageUrl: string, mode: ScoutMode): Promise<string | null> {
-  const { ok } = await navigateToGrantUrl(page, homepageUrl);
-  if (!ok) return null;
+export async function runScoutDiscovery(page: Page, homepageUrl: string, mode: ScoutMode, skipInitialNav = false): Promise<string | null> {
+  if (!skipInitialNav) {
+    const { ok } = await navigateToGrantUrl(page, homepageUrl);
+    if (!ok) return null;
+  }
 
   let lastFormUrl: string | null = null;
   const useGemini = mode === "full";
@@ -443,6 +507,16 @@ export async function runScoutDiscovery(page: Page, homepageUrl: string, mode: S
 // Main entry: process one scout job
 // ---------------------------------------------------------------------------
 
+/**
+ * Update the Grant table's url_status and url_checked_at.
+ */
+async function updateGrantUrlStatus(grantId: string, status: PageHealthStatus): Promise<void> {
+  await getSupabase()
+    .from("Grant")
+    .update({ url_status: status, url_checked_at: new Date().toISOString() })
+    .eq("id", grantId);
+}
+
 export async function processScoutJob(job: GrantLinkJob): Promise<void> {
   const mode = getScoutMode();
   console.log(`[scout] Processing grant_links id=${job.id} grant_id=${job.grant_id} mode=${mode}`);
@@ -452,11 +526,42 @@ export async function processScoutJob(job: GrantLinkJob): Promise<void> {
   page.setDefaultTimeout(300_000);
 
   try {
-    const formUrl = await runScoutDiscovery(page, job.homepage_url, mode);
+    const nav = await navigateToGrantUrl(page, job.homepage_url);
+    if (!nav.ok) {
+      await updateGrantUrlStatus(job.grant_id, "dead");
+      await markScoutJobResult(job.id, "failed", null, `Navigation failed: ${nav.error ?? "unknown"}`);
+      console.log(`[scout] Navigation failed for grant ${job.grant_id}, marked dead`);
+      return;
+    }
+
+    if (nav.status && (nav.status === 404 || nav.status === 410)) {
+      await updateGrantUrlStatus(job.grant_id, "dead");
+      await markScoutJobResult(job.id, "failed", null, `HTTP ${nav.status}`);
+      console.log(`[scout] HTTP ${nav.status} for grant ${job.grant_id}, marked dead`);
+      return;
+    }
+
+    if (mode === "full") {
+      const health = await validatePageWithGeminiVision(page, page.url());
+      console.log(`[scout] Gemini health check for grant ${job.grant_id}: ${health.status} — ${health.reason}`);
+      await updateGrantUrlStatus(job.grant_id, health.status);
+
+      if (health.status === "dead") {
+        await markScoutJobResult(job.id, "failed", null, health.reason);
+        return;
+      }
+      if (health.status === "expired") {
+        await markScoutJobResult(job.id, "manual_review_needed", null, health.reason);
+        return;
+      }
+    }
+
+    const formUrl = await runScoutDiscovery(page, job.homepage_url, mode, true);
 
     if (formUrl && formUrl.trim() !== "") {
       await markScoutJobResult(job.id, "found", formUrl);
       await updateGrantApplicationUrl(job.grant_id, formUrl.trim());
+      if (mode !== "full") await updateGrantUrlStatus(job.grant_id, "live");
       console.log(`[scout] Found form URL for grant ${job.grant_id}: ${formUrl.slice(0, 60)}...`);
     } else {
       await markScoutJobResult(job.id, "manual_review_needed", null, "No application form link identified");
