@@ -41,7 +41,7 @@ export function MatchButton({ onMatches, disabled }: MatchButtonProps) {
       ) : (
         <Sparkles className="h-4 w-4" />
       )}
-      {loading ? "Matching..." : "GrantsCopilot Match Grants"}
+      {loading ? "Matching..." : "GrantsCopilot Auto Match"}
     </Button>
   );
 }
