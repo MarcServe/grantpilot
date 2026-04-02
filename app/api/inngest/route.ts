@@ -1,6 +1,5 @@
 import { serve } from "inngest/next";
 import { inngest } from "@/inngest/client";
-import { grantScanner } from "@/inngest/grant-scanner";
 import { grantSync } from "@/inngest/grant-sync";
 import { deadlineReminder } from "@/inngest/deadline-reminder";
 import { monitorSession } from "@/inngest/monitor-session";
@@ -15,7 +14,6 @@ import { grantUrlHealthSweep } from "@/inngest/grant-url-health-sweep";
 export const { GET, POST, PUT } = serve({
   client: inngest,
   functions: [
-    grantScanner,
     grantSync,
     grantSourceCrawler,
     grantDiscoveryEnqueue,
