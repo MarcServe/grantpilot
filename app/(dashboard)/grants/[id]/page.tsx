@@ -118,39 +118,45 @@ export default async function GrantDetailPage({
       </Link>
 
       {((grant as { url_status?: string }).url_status === "dead" ||
-        (grant as { url_status?: string }).url_status === "expired") && (
-        <div className={`mb-6 flex gap-3 rounded-lg border p-4 ${
-          (grant as { url_status?: string }).url_status === "dead"
-            ? "border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/40"
-            : "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40"
-        }`}>
-          <AlertTriangle className={`h-5 w-5 shrink-0 ${
-            (grant as { url_status?: string }).url_status === "dead"
-              ? "text-red-600 dark:text-red-500"
-              : "text-amber-600 dark:text-amber-500"
-          }`} />
-          <div>
-            <p className={`font-medium ${
-              (grant as { url_status?: string }).url_status === "dead"
-                ? "text-red-800 dark:text-red-200"
-                : "text-amber-800 dark:text-amber-200"
-            }`}>
-              {(grant as { url_status?: string }).url_status === "dead"
-                ? "This grant link appears to be broken"
-                : "This grant programme appears to be closed"}
-            </p>
-            <p className={`mt-1 text-sm ${
-              (grant as { url_status?: string }).url_status === "dead"
-                ? "text-red-700 dark:text-red-300"
-                : "text-amber-700 dark:text-amber-300"
-            }`}>
-              {(grant as { url_status?: string }).url_status === "dead"
-                ? "Our automated check found the application link is broken or returns an error. The grant may have been removed."
-                : "Our automated check detected that this grant programme may no longer be accepting applications."}
-            </p>
+        (grant as { url_status?: string }).url_status === "expired") && (() => {
+        const isDead = (grant as { url_status?: string }).url_status === "dead";
+        const applyByLinkHref = `/grants/apply-by-link?name=${encodeURIComponent(grant.name ?? "")}&funder=${encodeURIComponent(grant.funder ?? "")}`;
+        return (
+          <div className={`mb-6 flex gap-3 rounded-lg border p-4 ${
+            isDead
+              ? "border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/40"
+              : "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40"
+          }`}>
+            <AlertTriangle className={`h-5 w-5 shrink-0 ${
+              isDead ? "text-red-600 dark:text-red-500" : "text-amber-600 dark:text-amber-500"
+            }`} />
+            <div>
+              <p className={`font-medium ${
+                isDead ? "text-red-800 dark:text-red-200" : "text-amber-800 dark:text-amber-200"
+              }`}>
+                {isDead
+                  ? "This grant link appears to be broken"
+                  : "This grant programme appears to be closed"}
+              </p>
+              <p className={`mt-1 text-sm ${
+                isDead ? "text-red-700 dark:text-red-300" : "text-amber-700 dark:text-amber-300"
+              }`}>
+                {isDead
+                  ? "Our automated check found the application link is broken or returns an error. The grant may have been removed or the URL may have changed."
+                  : "Our automated check detected that this programme may no longer be accepting applications."}
+              </p>
+              <Link
+                href={applyByLinkHref}
+                className={`mt-2 inline-block text-sm font-medium underline hover:no-underline ${
+                  isDead ? "text-red-800 dark:text-red-200" : "text-amber-800 dark:text-amber-200"
+                }`}
+              >
+                Have the correct link? Apply with it here &rarr;
+              </Link>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {missingDocLabels.length > 0 && (
         <div className="mb-6 flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/40">

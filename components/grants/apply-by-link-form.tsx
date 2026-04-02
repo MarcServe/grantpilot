@@ -20,12 +20,19 @@ function isValidUrl(s: string): boolean {
   }
 }
 
-export function ApplyByLinkForm({ profileId }: { profileId: string }) {
+interface ApplyByLinkFormProps {
+  profileId: string;
+  prefillUrl?: string;
+  prefillGrantName?: string;
+  prefillFunder?: string;
+}
+
+export function ApplyByLinkForm({ profileId, prefillUrl, prefillGrantName, prefillFunder }: ApplyByLinkFormProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [urlInput, setUrlInput] = useState("");
-  const [grantName, setGrantName] = useState("");
-  const [funder, setFunder] = useState("");
+  const [urlInput, setUrlInput] = useState(prefillUrl ?? "");
+  const [grantName, setGrantName] = useState(prefillGrantName ?? "");
+  const [funder, setFunder] = useState(prefillFunder ?? "");
   const [eligibility, setEligibility] = useState("");
   const [autopilot, setAutopilot] = useState(false);
   const [successApplications, setSuccessApplications] = useState<{ applicationId: string; grantName: string }[] | null>(null);

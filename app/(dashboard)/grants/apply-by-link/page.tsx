@@ -3,8 +3,13 @@ import { getActiveOrg } from "@/lib/auth";
 import { ArrowLeft } from "lucide-react";
 import { ApplyByLinkForm } from "@/components/grants/apply-by-link-form";
 
-export default async function ApplyByLinkPage() {
+export default async function ApplyByLinkPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ url?: string; name?: string; funder?: string }>;
+}) {
   const { org } = await getActiveOrg();
+  const sp = await searchParams;
   const profile = org.profiles?.[0];
   const hasProfile = !!profile;
   const profileComplete = (profile?.completionScore ?? 0) >= 50;
@@ -22,8 +27,10 @@ export default async function ApplyByLinkPage() {
       <div className="mb-8">
         <h1 className="text-2xl font-bold">Apply with your own grant link</h1>
         <p className="mt-1 text-muted-foreground">
-          Have a grant application URL that&apos;s not in our catalog? Paste it here and we&apos;ll
-          auto-fill it from your profile and prepare it for your review.
+          {sp.name
+            ? <>Paste a working application URL for <strong>{sp.name}</strong> and we&apos;ll auto-fill it from your profile.</>
+            : <>Have a grant application URL that&apos;s not in our catalog? Paste it here and we&apos;ll auto-fill it from your profile and prepare it for your review.</>
+          }
         </p>
       </div>
 
@@ -42,7 +49,12 @@ export default async function ApplyByLinkPage() {
           </Link>
         </div>
       ) : (
-        <ApplyByLinkForm profileId={profile!.id} />
+        <ApplyByLinkForm
+          profileId={profile!.id}
+          prefillUrl={sp.url}
+          prefillGrantName={sp.name}
+          prefillFunder={sp.funder}
+        />
       )}
     </div>
   );
