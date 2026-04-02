@@ -32,6 +32,16 @@ export default function LandingPage() {
       <main className="flex-1">
         <section className="mx-auto max-w-7xl px-4 py-24 sm:px-6 lg:px-8">
           <div className="mx-auto max-w-3xl text-center">
+            <div className="flex justify-center mb-10">
+              <Image 
+                src="/logo.png" 
+                alt="GrantsCopilot Logo" 
+                width={1200} 
+                height={300} 
+                className="h-48 w-auto object-contain"
+                priority
+              />
+            </div>
             <h1 className="text-4xl font-bold tracking-tight text-foreground sm:text-5xl lg:text-6xl">
               Stop searching for grants.
               <br />
