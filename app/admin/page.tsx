@@ -46,14 +46,14 @@ export default async function AdminPage() {
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b bg-white">
-        <div className="mx-auto flex h-24 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto flex h-32 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
           <Link href="/admin" className="flex items-center gap-2">
             <Image 
               src="/logo.png" 
               alt="GrantsCopilot Logo" 
-              width={480} 
-              height={120} 
-              className="h-20 w-auto object-contain"
+              width={800} 
+              height={200} 
+              className="h-28 w-auto object-contain"
               priority
             />
             <span className="text-xl font-bold">Admin</span>

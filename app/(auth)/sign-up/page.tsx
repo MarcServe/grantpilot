@@ -52,9 +52,9 @@ export default function SignUpPage() {
               <Image 
                 src="/logo.png" 
                 alt="GrantsCopilot Logo" 
-                width={480} 
-                height={120} 
-                className="h-28 w-auto object-contain"
+                width={800} 
+                height={200} 
+                className="h-40 w-auto object-contain"
                 priority
               />
             </div>
@@ -82,9 +82,9 @@ export default function SignUpPage() {
             <Image 
               src="/logo.png" 
               alt="GrantsCopilot Logo" 
-              width={480} 
-              height={120} 
-              className="h-28 w-auto object-contain"
+              width={800} 
+              height={200} 
+              className="h-40 w-auto object-contain"
               priority
             />
           </div>
