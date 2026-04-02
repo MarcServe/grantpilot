@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Calendar, CheckCircle, Circle, Loader2 } from "lucide-react";
+import { Calendar, CheckCircle, Circle, Loader2, Info } from "lucide-react";
 import { updateApplicationTaskStatus } from "@/app/(dashboard)/applications/actions";
 import { toast } from "sonner";
 
@@ -46,15 +46,36 @@ export function ApplicationTaskList({ applicationId, tasks }: ApplicationTaskLis
     });
   }
 
+  const TASK_HINTS: Record<string, string> = {
+    "review eligibility": "Check that your business meets this grant's criteria before the AI submits on your behalf.",
+    "prepare documents": "Upload any required documents (business plan, financials, pitch deck) to your profile.",
+    "submit application": "Once the AI has filled the form, review the answers and approve the final submission.",
+  };
+
   if (tasks.length === 0) return null;
+
+  const doneCount = tasks.filter((t) => t.status === "done").length;
 
   return (
     <Card className="mb-6">
       <CardHeader>
-        <CardTitle className="text-sm font-medium">Tasks</CardTitle>
-        <p className="text-xs text-muted-foreground">
-          Review eligibility, prepare documents, and submit. Mark items when done.
-        </p>
+        <CardTitle className="text-sm font-medium">Your Preparation Checklist</CardTitle>
+        <div className="mt-1 flex items-start gap-2 rounded-md bg-blue-50 p-3 text-xs text-blue-800">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
+          <div className="space-y-1">
+            <p className="font-medium">These are tasks for you, not the AI.</p>
+            <p>
+              While our AI handles the form filling automatically, we recommend you complete these
+              preparation steps to improve your chances of success. Tick each item off as you go
+              &mdash; this is <span className="font-medium">optional but strongly advised</span>.
+            </p>
+          </div>
+        </div>
+        {tasks.length > 1 && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            {doneCount} of {tasks.length} completed
+          </p>
+        )}
       </CardHeader>
       <CardContent>
         <ul className="space-y-3">
@@ -77,6 +98,12 @@ export function ApplicationTaskList({ applicationId, tasks }: ApplicationTaskLis
                     >
                       {task.name}
                     </span>
+                    {(() => {
+                      const hint = TASK_HINTS[task.name.toLowerCase()];
+                      return hint && !isDone ? (
+                        <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>
+                      ) : null;
+                    })()}
                     {task.dueDate && (
                       <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
                         <Calendar className="h-3 w-3" />
