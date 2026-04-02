@@ -7,14 +7,14 @@ export default function LandingPage() {
   return (
     <div className="flex min-h-screen flex-col">
       <header className="border-b bg-white">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto flex h-24 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-2">
             <Image 
               src="/logo.png" 
               alt="GrantsCopilot Logo" 
-              width={240} 
-              height={60} 
-              className="h-10 w-auto object-contain grayscale"
+              width={480} 
+              height={120} 
+              className="h-20 w-auto object-contain grayscale"
               priority
             />
           </div>
