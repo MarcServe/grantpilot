@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, FileCheck, Search, Shield } from "lucide-react";
@@ -8,12 +9,14 @@ export default function LandingPage() {
       <header className="border-b bg-white">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-              <FileCheck className="h-5 w-5 text-primary-foreground" />
-            </div>
-            <span className="text-xl font-bold text-foreground">
-              Grants-Copilot
-            </span>
+            <Image 
+              src="/logo.png" 
+              alt="GrantsCopilot Logo" 
+              width={160} 
+              height={40} 
+              className="h-8 w-auto object-contain"
+              priority
+            />
           </div>
           <div className="flex items-center gap-4">
             <Link href="/sign-in">
