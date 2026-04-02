@@ -143,6 +143,15 @@ model Grant {
   updatedAt        DateTime      @updatedAt
 }
 
+/// Key/value settings for Fly.io worker (scout_mode). See supabase/migrations/034_worker_settings.sql.
+model WorkerSettings {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("worker_settings")
+}
+
 model Application {
   id             String          @id @default(cuid())
   organisationId String

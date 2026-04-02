@@ -1,7 +1,9 @@
 /**
  * Scout: find application form URL from a grant programme homepage.
  *
- * Three modes controlled by SCOUT_MODE env var:
+ * Three modes — resolved in order:
+ *   1) Database row worker_settings.scout_mode (set from Admin UI), else
+ *   2) SCOUT_MODE env var on the worker (default "full")
  *   "off"   — skip all scouting
  *   "regex" — Playwright + regex/heuristic only (free, no LLM)
  *   "full"  — regex first, then Gemini Flash for vision+text analysis (free tier)
@@ -24,6 +26,35 @@ export function getScoutMode(): ScoutMode {
   const raw = (process.env.SCOUT_MODE ?? "full").toLowerCase().trim();
   if (raw === "off" || raw === "regex" || raw === "full") return raw;
   return "full";
+}
+
+function parseScoutModeDb(raw: string | null | undefined): ScoutMode | null {
+  const v = (raw ?? "").toLowerCase().trim();
+  if (v === "off" || v === "regex" || v === "full") return v;
+  return null;
+}
+
+/**
+ * Effective scout mode: Admin UI (worker_settings) overrides env. Falls back to getScoutMode().
+ */
+export async function resolveScoutMode(): Promise<ScoutMode> {
+  try {
+    const { data, error } = await getSupabase()
+      .from("worker_settings")
+      .select("value")
+      .eq("key", "scout_mode")
+      .maybeSingle();
+    if (error) {
+      console.warn("[scout] worker_settings read:", error.message);
+      return getScoutMode();
+    }
+    const row = data as { value?: string } | null;
+    const parsed = parseScoutModeDb(row?.value);
+    if (parsed) return parsed;
+  } catch (e) {
+    console.warn("[scout] resolveScoutMode:", e);
+  }
+  return getScoutMode();
 }
 
 // ---------------------------------------------------------------------------
@@ -518,7 +549,7 @@ async function updateGrantUrlStatus(grantId: string, status: PageHealthStatus): 
 }
 
 export async function processScoutJob(job: GrantLinkJob): Promise<void> {
-  const mode = getScoutMode();
+  const mode = await resolveScoutMode();
   console.log(`[scout] Processing grant_links id=${job.id} grant_id=${job.grant_id} mode=${mode}`);
 
   const browser = await launchGrantBrowser();

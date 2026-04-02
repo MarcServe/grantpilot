@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { ShieldCheck } from "lucide-react";
 import { GrantImportUploader } from "@/components/admin/grant-import-uploader";
 import { TestNotificationButton } from "@/components/admin/test-notification-button";
+import { ScoutModeSettings } from "@/components/admin/scout-mode-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -65,6 +66,7 @@ export default async function AdminPage() {
           </p>
         </div>
         <GrantImportUploader />
+        <ScoutModeSettings />
         <TestNotificationButton />
         <Card>
           <CardHeader>
