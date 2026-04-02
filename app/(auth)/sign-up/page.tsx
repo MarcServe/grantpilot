@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -8,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
-import { FileCheck, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 export default function SignUpPage() {
   const router = useRouter();
@@ -47,8 +48,15 @@ export default function SignUpPage() {
       <div className="flex min-h-screen items-center justify-center bg-background px-4">
         <Card className="w-full max-w-md">
           <CardHeader className="space-y-2 text-center">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-primary">
-              <FileCheck className="h-7 w-7 text-primary-foreground" />
+            <div className="mx-auto flex justify-center mb-2">
+              <Image 
+                src="/logo.png" 
+                alt="GrantsCopilot Logo" 
+                width={160} 
+                height={40} 
+                className="h-10 w-auto object-contain"
+                priority
+              />
             </div>
             <CardTitle className="text-2xl">Check your email</CardTitle>
             <CardDescription>
@@ -70,8 +78,15 @@ export default function SignUpPage() {
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-2 text-center">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-primary">
-            <FileCheck className="h-7 w-7 text-primary-foreground" />
+          <div className="mx-auto flex justify-center mb-2">
+            <Image 
+              src="/logo.png" 
+              alt="GrantsCopilot Logo" 
+              width={160} 
+              height={40} 
+              className="h-10 w-auto object-contain"
+              priority
+            />
           </div>
           <CardTitle className="text-2xl">Create your account</CardTitle>
           <CardDescription>Start your Grants-Copilot journey today</CardDescription>
