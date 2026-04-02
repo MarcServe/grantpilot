@@ -17,6 +17,7 @@ import {
 import { syncGrantMemoryFromProfile } from "@/lib/grant-memory";
 import { requestEligibilityRefresh } from "@/lib/eligibility-refresh-trigger";
 import { analyseWebsite } from "@/lib/website-intelligence";
+import { generateAndStoreProfileEmbedding } from "@/lib/embeddings";
 
 async function getOrgId(): Promise<string> {
   const { orgId } = await getActiveOrg();
@@ -78,6 +79,12 @@ async function syncGrantMemoryForProfile(profileId: string): Promise<void> {
   } catch {
     // non-fatal
   }
+}
+
+async function refreshProfileEmbedding(profileId: string): Promise<void> {
+  generateAndStoreProfileEmbedding(profileId).catch((err) =>
+    console.error("[profile] Embedding generation failed:", err)
+  );
 }
 
 async function triggerEligibilityForOrg(organisationId: string, source: string): Promise<void> {
@@ -230,6 +237,7 @@ export async function saveStep2(data: Step2Data) {
 
   await recalcAndSaveCompletionScore(profile.id);
   await syncGrantMemoryForProfile(profile.id);
+  await refreshProfileEmbedding(profile.id);
   await triggerEligibilityForOrg(orgId, "profile.step2.saved");
 
   return { success: true };
@@ -287,6 +295,7 @@ export async function saveStep4(data: Step4Data) {
 
   await recalcAndSaveCompletionScore(profile.id);
   await syncGrantMemoryForProfile(profile.id);
+  await refreshProfileEmbedding(profile.id);
   await triggerEligibilityForOrg(orgId, "profile.step4.saved");
 
   return { success: true };

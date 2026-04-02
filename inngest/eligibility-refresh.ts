@@ -1,6 +1,6 @@
 import { inngest } from "./client";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { matchGrantsToProfile, getEligibilityDecision } from "@/lib/claude";
+import { getEligibilityDecision } from "@/lib/claude";
 import { notifyOrgMembers } from "@/lib/notify";
 import { grantMatchesFunderLocations } from "@/lib/constants";
 import { createStartApplicationToken } from "@/lib/start-application-token";
@@ -8,11 +8,24 @@ import { checkRequirementsAgainstDocuments } from "@/lib/grant-requirements";
 import type { DigestGrantItem } from "@/lib/notify";
 import type { RequiredAttachment } from "@/lib/grant-requirements";
 import { getEligibilityNotifyMinCompletion } from "@/lib/eligibility-notify-config";
+import { preFilterGrants } from "@/lib/heuristic-scorer";
+import { rankGrantsByEmbedding, generateAndStoreProfileEmbedding } from "@/lib/embeddings";
 
-const TOP_N = 25;
-/** Default minimum grant match score to include in digest lists (0 = full range per org prefs). */
+/**
+ * 3-Layer Eligibility Pipeline
+ * 
+ * Layer 1 (FREE):  Heuristic pre-filter — deadline, region, sector, funding range, applicant type
+ * Layer 2 (CHEAP): Embedding similarity — OpenAI text-embedding-3-small, cosine ranking
+ * Layer 3 (EXPENSIVE): Claude — only for top 10 candidates, deep eligibility reasoning
+ * 
+ * + Cache: skip grants already scored within CACHE_DAYS
+ */
+
+const LAYER2_TOP_N = 15;
+const LAYER3_TOP_N = 10;
 const DIGEST_SCORE_THRESHOLD = 0;
 const NOTIFY_COOLDOWN_DAYS = 7;
+const CACHE_DAYS = 7;
 
 function scoreToDecision(score: number): "likely_eligible" | "review" | "unlikely" {
   if (score >= 70) return "likely_eligible";
@@ -43,9 +56,7 @@ function getProfileOrgId(p: { organisationId?: string; organisation_id?: string 
 }
 
 function getProfileCompletionScore(profile: Record<string, unknown>): number {
-  const raw =
-    profile.completionScore ??
-    profile.completion_score;
+  const raw = profile.completionScore ?? profile.completion_score;
   const n = typeof raw === "number" ? raw : Number(raw);
   return Number.isFinite(n) ? Math.min(100, Math.max(0, Math.round(n))) : 0;
 }
@@ -56,9 +67,13 @@ export async function runEligibilityRefreshJob(): Promise<{
   profilesProcessed: number;
   notified: number;
   refreshed: number;
+  layer1Filtered: number;
+  layer2Ranked: number;
+  layer3Scored: number;
+  cacheHits: number;
 }> {
     const supabase = getSupabaseAdmin();
-    const { data: grantsData } = await supabase.from("Grant").select("id, name, funder, amount, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, required_attachments");
+    const { data: grantsData } = await supabase.from("Grant").select("id, name, funder, amount, deadline, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, required_attachments");
     const allGrants = grantsData ?? [];
     const diagnostics = {
       totalGrants: allGrants.length,
@@ -66,20 +81,20 @@ export async function runEligibilityRefreshJob(): Promise<{
       profilesProcessed: 0,
       notified: 0,
       refreshed: 0,
+      layer1Filtered: 0,
+      layer2Ranked: 0,
+      layer3Scored: 0,
+      cacheHits: 0,
     };
     if (allGrants.length === 0) {
       console.info("[eligibility-refresh] No grants in DB", diagnostics);
       return { ...diagnostics };
     }
 
-    const { data: profilesData } = await supabase
-      .from("BusinessProfile")
-      .select("*");
+    const { data: profilesData } = await supabase.from("BusinessProfile").select("*");
     const profiles = profilesData ?? [];
 
     const minCompletionForNotifications = getEligibilityNotifyMinCompletion();
-
-    /** Every org-linked profile is processed so multi-profile orgs each get scores; notifications need min completion. */
     const profilesWithOrg = profiles.filter((p) => getProfileOrgId(p as { organisationId?: string; organisation_id?: string }) != null);
     const uniqueOrgs = new Set(
       profilesWithOrg.map((p) => getProfileOrgId(p as { organisationId?: string; organisation_id?: string })!)
@@ -94,8 +109,11 @@ export async function runEligibilityRefreshJob(): Promise<{
 
     let notifiedCount = 0;
 
-    type GrantRow = { id: string; name: string; funder: string; amount?: number; eligibility: string; description?: string; objectives?: string; applicantTypes?: string[]; sectors: string[]; regions: string[]; funderLocations?: string[]; required_attachments?: unknown };
+    type GrantRow = { id: string; name: string; funder: string; amount?: number; deadline?: string; eligibility: string; description?: string; objectives?: string; applicantTypes?: string[]; sectors: string[]; regions: string[]; funderLocations?: string[]; required_attachments?: unknown };
     const grantsList = allGrants as GrantRow[];
+
+    const cacheThreshold = new Date();
+    cacheThreshold.setDate(cacheThreshold.getDate() - CACHE_DAYS);
 
     for (const profile of profilesWithOrg) {
       const orgId = getProfileOrgId(profile as { organisationId?: string; organisation_id?: string })!;
@@ -105,52 +123,88 @@ export async function runEligibilityRefreshJob(): Promise<{
         const profileName = (profile as { businessName?: string }).businessName ?? profileId;
         console.info(`[eligibility-refresh] Processing org=${orgId} profile=${profileId} "${profileName}" completion=${completionScore}%`);
 
+        // ── Funder location pre-filter (existing) ──
         const userFunderLocations = (profile as { funderLocations?: string[] }).funderLocations;
-        const grantList = grantsList.filter((g) => grantMatchesFunderLocations(g.funderLocations, userFunderLocations));
-        console.info(`[eligibility-refresh]   ${grantList.length} grants match funder locations (of ${grantsList.length} total)`);
+        const locationFiltered = grantsList.filter((g) => grantMatchesFunderLocations(g.funderLocations, userFunderLocations));
+        console.info(`[eligibility-refresh]   ${locationFiltered.length} grants match funder locations (of ${grantsList.length} total)`);
 
-        if (grantList.length === 0) {
-          console.info(`[eligibility-refresh]   Skipping: no grants match user funderLocations=${JSON.stringify(userFunderLocations ?? [])}`);
+        if (locationFiltered.length === 0) {
+          console.info(`[eligibility-refresh]   Skipping: no grants match user funderLocations`);
           continue;
         }
 
-        let matches: Awaited<ReturnType<typeof matchGrantsToProfile>>;
-        try {
-          matches = await matchGrantsToProfile(
-            profileToMatching(profile as Record<string, unknown>),
-            grantList.map((g) => ({
-              id: g.id,
-              name: g.name,
-              funder: g.funder,
-              amount: g.amount ?? null,
-              eligibility: g.eligibility,
-              description: g.description ?? null,
-              objectives: g.objectives ?? null,
-              applicantTypes: g.applicantTypes ?? [],
-              sectors: g.sectors ?? [],
-              regions: g.regions ?? [],
-            }))
-          );
-        } catch (matchErr) {
-          const errMsg = matchErr instanceof Error ? matchErr.message : String(matchErr);
-          console.error(`[eligibility-refresh]   matchGrantsToProfile FAILED for org=${orgId}: ${errMsg.slice(0, 200)}`);
-          if (/credit balance/i.test(errMsg)) {
-            console.error(`[eligibility-refresh]   Anthropic API credits exhausted — skipping remaining profiles`);
-            break;
+        // ── LAYER 1: Heuristic pre-filter (FREE) ──
+        const heuristicProfile = {
+          location: String((profile as Record<string, unknown>).location ?? ""),
+          sector: String((profile as Record<string, unknown>).sector ?? ""),
+          fundingMin: Number((profile as Record<string, unknown>).fundingMin ?? (profile as Record<string, unknown>).funding_min ?? 0),
+          fundingMax: Number((profile as Record<string, unknown>).fundingMax ?? (profile as Record<string, unknown>).funding_max ?? 0),
+          fundingPurposes: Array.isArray((profile as Record<string, unknown>).fundingPurposes) ? (profile as Record<string, unknown>).fundingPurposes as string[] : [],
+          employeeCount: (profile as Record<string, unknown>).employeeCount != null ? Number((profile as Record<string, unknown>).employeeCount) : null,
+          annualRevenue: (profile as Record<string, unknown>).annualRevenue != null ? Number((profile as Record<string, unknown>).annualRevenue) : null,
+        };
+
+        const heuristicResults = preFilterGrants(
+          heuristicProfile,
+          locationFiltered.map((g) => ({
+            id: g.id,
+            amount: g.amount,
+            deadline: g.deadline,
+            eligibility: g.eligibility,
+            sectors: g.sectors ?? [],
+            regions: g.regions ?? [],
+            applicantTypes: g.applicantTypes,
+            description: g.description,
+            objectives: g.objectives,
+          }))
+        );
+        diagnostics.layer1Filtered += heuristicResults.length;
+        console.info(`[eligibility-refresh]   LAYER 1 (heuristic): ${locationFiltered.length} → ${heuristicResults.length} passed`);
+
+        if (heuristicResults.length === 0) {
+          console.info(`[eligibility-refresh]   No grants passed heuristic filter`);
+          continue;
+        }
+
+        // ── CACHE CHECK: skip grants already scored recently ──
+        const candidateIds = heuristicResults.map((r) => r.grantId);
+        const { data: cachedRows } = await supabase
+          .from("EligibilityAssessment")
+          .select("grant_id, updated_at, score, decision, summary")
+          .eq("organisation_id", orgId)
+          .eq("profile_id", profileId)
+          .in("grant_id", candidateIds)
+          .gte("updated_at", cacheThreshold.toISOString());
+
+        const cachedGrantIds = new Set((cachedRows ?? []).map((r: { grant_id: string }) => r.grant_id));
+        const uncachedIds = candidateIds.filter((id) => !cachedGrantIds.has(id));
+        diagnostics.cacheHits += cachedGrantIds.size;
+        console.info(`[eligibility-refresh]   CACHE: ${cachedGrantIds.size} already scored (within ${CACHE_DAYS}d), ${uncachedIds.length} need scoring`);
+
+        // ── LAYER 2: Embedding similarity (CHEAP) ──
+        let layer2Candidates: string[];
+        if (uncachedIds.length <= LAYER3_TOP_N) {
+          layer2Candidates = uncachedIds;
+        } else {
+          try {
+            await generateAndStoreProfileEmbedding(profileId);
+            const embeddingRanked = await rankGrantsByEmbedding(profileId, uncachedIds, LAYER2_TOP_N);
+            layer2Candidates = embeddingRanked.map((r) => r.grantId);
+            diagnostics.layer2Ranked += embeddingRanked.length;
+            if (embeddingRanked.length > 0) {
+              const topSims = embeddingRanked.slice(0, 5).map((r) => `${r.grantId.slice(0, 12)}:${r.similarity.toFixed(3)}`);
+              console.info(`[eligibility-refresh]   LAYER 2 (embeddings): ${uncachedIds.length} → ${embeddingRanked.length}, top: ${topSims.join(", ")}`);
+            }
+          } catch (embErr) {
+            console.warn(`[eligibility-refresh]   LAYER 2 failed (falling back to heuristic order): ${embErr instanceof Error ? embErr.message : embErr}`);
+            layer2Candidates = uncachedIds.slice(0, LAYER2_TOP_N);
+            diagnostics.layer2Ranked += layer2Candidates.length;
           }
-          continue;
         }
 
-        console.info(`[eligibility-refresh]   matchGrantsToProfile returned ${matches.length} matches`);
-        if (matches.length > 0) {
-          const topScores = matches.slice(0, 5).map((m) => `${m.grantId?.slice(0, 12)}:${m.score}`);
-          console.info(`[eligibility-refresh]   Top scores: ${topScores.join(", ")}`);
-        }
-
-        const topGrants = matches
-          .slice(0, TOP_N)
-          .map((m) => grantList.find((g) => g.id === m.grantId))
-          .filter(Boolean) as typeof grantList;
+        // ── LAYER 3: Claude deep scoring (EXPENSIVE — only top N) ──
+        const layer3Ids = layer2Candidates.slice(0, LAYER3_TOP_N);
+        console.info(`[eligibility-refresh]   LAYER 3 (Claude): scoring ${layer3Ids.length} grants`);
 
         const { data: prefs } = await supabase
           .from("EligibilityNotificationPreference")
@@ -167,12 +221,9 @@ export async function runEligibilityRefreshJob(): Promise<{
         cooldown.setDate(cooldown.getDate() - NOTIFY_COOLDOWN_DAYS);
         const digestGrants: DigestGrantItem[] = [];
 
-        const { data: profileDocsData } = await supabase
-          .from("Document")
-          .select("name, type, category")
-          .eq("profileId", profile.id);
+        const { data: profileDocsData } = await supabase.from("Document").select("name, type, category").eq("profileId", profileId);
         const profileDocsAlt = !profileDocsData?.length
-          ? await supabase.from("Document").select("name, type, category").eq("profile_id", profile.id)
+          ? await supabase.from("Document").select("name, type, category").eq("profile_id", profileId)
           : { data: profileDocsData };
         const profileDocuments = (profileDocsAlt.data ?? []).map((d: { name: string; type?: string; category?: string }) => ({
           name: d.name,
@@ -180,7 +231,10 @@ export async function runEligibilityRefreshJob(): Promise<{
           category: d.category ?? null,
         }));
 
-        for (const grant of topGrants) {
+        for (const grantId of layer3Ids) {
+          const grant = locationFiltered.find((g) => g.id === grantId);
+          if (!grant) continue;
+
           try {
             const result = await getEligibilityDecision(
               profileToMatching(profile as Record<string, unknown>),
@@ -197,13 +251,15 @@ export async function runEligibilityRefreshJob(): Promise<{
                 regions: grant.regions ?? [],
               }
             );
+            diagnostics.layer3Scored++;
+
             const score = result.score ?? result.confidence;
             const summary = result.summary ?? result.reason ?? undefined;
 
             const { error: upsertErr } = await supabase.from("EligibilityAssessment").upsert(
               {
                 organisation_id: orgId,
-                profile_id: profile.id,
+                profile_id: profileId,
                 grant_id: grant.id,
                 score,
                 decision: result.decision,
@@ -226,7 +282,7 @@ export async function runEligibilityRefreshJob(): Promise<{
                 .from("EligibilityAssessment")
                 .select("notified_at")
                 .eq("organisation_id", orgId)
-                .eq("profile_id", profile.id)
+                .eq("profile_id", profileId)
                 .eq("grant_id", grant.id)
                 .single();
 
@@ -235,7 +291,7 @@ export async function runEligibilityRefreshJob(): Promise<{
               if (includeInDigest) {
                 const startApplicationToken = createStartApplicationToken({
                   grantId: grant.id,
-                  profileId: profile.id,
+                  profileId: profileId,
                   organisationId: orgId,
                 });
                 const rawRequired = (grant as { required_attachments?: unknown }).required_attachments;
@@ -255,20 +311,39 @@ export async function runEligibilityRefreshJob(): Promise<{
             }
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err);
-            console.error(`[eligibility-refresh]   grant ${grant.id} for org ${orgId} profile ${profileId}: ${errMsg.slice(0, 200)}`);
+            console.error(`[eligibility-refresh]   grant ${grantId} for org ${orgId}: ${errMsg.slice(0, 200)}`);
             if (/credit balance/i.test(errMsg)) {
-              console.error(`[eligibility-refresh]   Anthropic credits exhausted — stopping grant scoring for this profile`);
+              console.error(`[eligibility-refresh]   Anthropic credits exhausted — stopping scoring`);
               break;
             }
           }
         }
 
+        // Persist heuristic scores for grants NOT sent to Claude (so grant list still shows something)
+        const scoredByClaudeIds = new Set(layer3Ids);
+        const unscoredHeuristic = heuristicResults.filter(
+          (r) => !scoredByClaudeIds.has(r.grantId) && !cachedGrantIds.has(r.grantId)
+        );
+        for (const h of unscoredHeuristic) {
+          const { error: batchErr } = await supabase.from("EligibilityAssessment").upsert(
+            {
+              organisation_id: orgId,
+              profile_id: profileId,
+              grant_id: h.grantId,
+              score: h.score,
+              decision: scoreToDecision(h.score),
+              summary: `Heuristic match: ${h.reasons.join(", ")}`,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "organisation_id,profile_id,grant_id" }
+          );
+          if (batchErr) console.error("[eligibility-refresh] heuristic upsert", h.grantId, batchErr);
+        }
+
+        // ── Notification ──
         console.info(`[eligibility-refresh]   Digest candidates: ${digestGrants.length} grants, completion=${completionScore}%, threshold=${minCompletionForNotifications}%, email=${sendNotifyEmail}, whatsapp=${sendWhatsApp}`);
 
-        if (
-          digestGrants.length > 0 &&
-          completionScore >= minCompletionForNotifications
-        ) {
+        if (digestGrants.length > 0 && completionScore >= minCompletionForNotifications) {
           console.info(`[eligibility-refresh]   SENDING digest notification for ${digestGrants.length} grants to org ${orgId}`);
           await notifyOrgMembers(orgId, "grant_scan_digest", {
             grants: digestGrants,
@@ -290,49 +365,27 @@ export async function runEligibilityRefreshJob(): Promise<{
               .from("EligibilityAssessment")
               .update({ notified_at: new Date().toISOString() })
               .eq("organisation_id", orgId)
-              .eq("profile_id", profile.id)
+              .eq("profile_id", profileId)
               .eq("grant_id", item.grantId);
           }
           notifiedCount += digestGrants.length;
         } else if (digestGrants.length > 0 && completionScore < minCompletionForNotifications) {
-          console.info(
-            `[eligibility-refresh] Skipping digest for org ${orgId} profile ${profile.id}: completion ${completionScore}% < ${minCompletionForNotifications}%`
-          );
-        }
-
-        // Persist scores for all other grants (beyond top 25) so the grants list shows eligibility for every grant.
-        const restMatches = matches.slice(TOP_N);
-        for (const m of restMatches) {
-          const { error: batchErr } = await supabase.from("EligibilityAssessment").upsert(
-            {
-              organisation_id: orgId,
-              profile_id: profile.id,
-              grant_id: m.grantId,
-              score: m.score,
-              decision: scoreToDecision(m.score),
-              summary: m.reason ?? null,
-              updated_at: new Date().toISOString(),
-            },
-            { onConflict: "organisation_id,profile_id,grant_id" }
-          );
-          if (batchErr) console.error("[eligibility-refresh] batch upsert", m.grantId, batchErr);
+          console.info(`[eligibility-refresh] Skipping digest: completion ${completionScore}% < ${minCompletionForNotifications}%`);
         }
       } catch (err) {
-        console.error(`[eligibility-refresh] org ${orgId} profile ${(profile as { id?: string }).id}:`, err);
+        console.error(`[eligibility-refresh] org ${orgId} profile ${profileId}:`, err);
       }
     }
 
     diagnostics.notified = notifiedCount;
     diagnostics.refreshed = profilesWithOrg.length;
-    if (notifiedCount === 0) {
-      console.info("[eligibility-refresh] No digest/high-fit notifications sent; run output has diagnostics", diagnostics);
-    }
+    console.info("[eligibility-refresh] Complete", diagnostics);
     return { ...diagnostics };
 }
 
 export const eligibilityRefresh = inngest.createFunction(
-  { id: "eligibility-refresh", name: "Eligibility cache refresh & high-fit notifications" },
-  { cron: "*/30 * * * *" }, // every 30 minutes for always-fresh scores and automatic notifications
+  { id: "eligibility-refresh", name: "Eligibility 3-layer pipeline (heuristic → embeddings → Claude)" },
+  { cron: "0 3 * * *" },
   async () => runEligibilityRefreshJob()
 );
 
