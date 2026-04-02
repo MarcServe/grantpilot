@@ -54,7 +54,7 @@ export default function SignUpPage() {
                 alt="GrantsCopilot Logo" 
                 width={800} 
                 height={200} 
-                className="h-40 w-auto object-contain"
+                className="h-40 w-auto object-contain grayscale"
                 priority
               />
             </div>
@@ -84,7 +84,7 @@ export default function SignUpPage() {
               alt="GrantsCopilot Logo" 
               width={800} 
               height={200} 
-              className="h-40 w-auto object-contain"
+              className="h-40 w-auto object-contain grayscale"
               priority
             />
           </div>
