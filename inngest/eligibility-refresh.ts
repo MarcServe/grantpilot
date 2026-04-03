@@ -10,6 +10,7 @@ import type { RequiredAttachment } from "@/lib/grant-requirements";
 import { getEligibilityNotifyMinCompletion } from "@/lib/eligibility-notify-config";
 import { preFilterGrants } from "@/lib/heuristic-scorer";
 import { rankGrantsByEmbedding, generateAndStoreProfileEmbedding } from "@/lib/embeddings";
+import { isEligibilityNotificationTime } from "@/lib/timezone";
 
 /**
  * 3-Layer Eligibility Pipeline
@@ -61,7 +62,9 @@ function getProfileCompletionScore(profile: Record<string, unknown>): number {
   return Number.isFinite(n) ? Math.min(100, Math.max(0, Math.round(n))) : 0;
 }
 
-export async function runEligibilityRefreshJob(): Promise<{
+export async function runEligibilityRefreshJob(options?: {
+  orgIdsFilter?: Set<string>;
+}): Promise<{
   totalGrants: number;
   orgsWithProfile: number;
   profilesProcessed: number;
@@ -72,6 +75,7 @@ export async function runEligibilityRefreshJob(): Promise<{
   layer3Scored: number;
   cacheHits: number;
 }> {
+    const orgIdsFilter = options?.orgIdsFilter;
     const supabase = getSupabaseAdmin();
     const { data: grantsData } = await supabase.from("Grant").select("id, name, funder, amount, deadline, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, required_attachments, url_status");
     const allGrants = (grantsData ?? []).filter((g: { url_status?: string }) => {
@@ -98,7 +102,15 @@ export async function runEligibilityRefreshJob(): Promise<{
     const profiles = profilesData ?? [];
 
     const minCompletionForNotifications = getEligibilityNotifyMinCompletion();
-    const profilesWithOrg = profiles.filter((p) => getProfileOrgId(p as { organisationId?: string; organisation_id?: string }) != null);
+    let profilesWithOrg = profiles.filter((p) => getProfileOrgId(p as { organisationId?: string; organisation_id?: string }) != null);
+
+    if (orgIdsFilter) {
+      profilesWithOrg = profilesWithOrg.filter((p) =>
+        orgIdsFilter.has(getProfileOrgId(p as { organisationId?: string; organisation_id?: string })!)
+      );
+      console.info(`[eligibility-refresh] Timezone filter: processing ${profilesWithOrg.length} profiles for ${orgIdsFilter.size} orgs at 8:30 AM local`);
+    }
+
     const uniqueOrgs = new Set(
       profilesWithOrg.map((p) => getProfileOrgId(p as { organisationId?: string; organisation_id?: string })!)
     );
@@ -387,9 +399,29 @@ export async function runEligibilityRefreshJob(): Promise<{
 }
 
 export const eligibilityRefresh = inngest.createFunction(
-  { id: "eligibility-refresh", name: "Eligibility 3-layer pipeline (heuristic → embeddings → Claude)" },
-  { cron: "0 3 * * *" },
-  async () => runEligibilityRefreshJob()
+  { id: "eligibility-refresh", name: "Eligibility 8:30 AM local (hourly check)" },
+  { cron: "30 * * * *" },
+  async () => {
+    const supabase = getSupabaseAdmin();
+
+    const { data: orgsData } = await supabase
+      .from("Organisation")
+      .select("id, preferredTimezone");
+
+    const allOrgs = (orgsData ?? []) as { id: string; preferredTimezone?: string | null }[];
+    const eligible = allOrgs.filter((o) =>
+      isEligibilityNotificationTime(o.preferredTimezone ?? "UTC")
+    );
+
+    if (eligible.length === 0) {
+      console.info(`[eligibility-refresh] No orgs at 8:30 AM local this hour (checked ${allOrgs.length} orgs)`);
+      return { skipped: true, orgsChecked: allOrgs.length, orgsAtLocalTime: 0 };
+    }
+
+    const orgIds = new Set(eligible.map((o) => o.id));
+    console.info(`[eligibility-refresh] ${eligible.length}/${allOrgs.length} orgs at 8:30 AM local — running pipeline`);
+    return runEligibilityRefreshJob({ orgIdsFilter: orgIds });
+  }
 );
 
 export const eligibilityRefreshRequested = inngest.createFunction(

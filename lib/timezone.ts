@@ -33,3 +33,9 @@ export function getHourInTimezone(timezone: string): number {
 export function isNineAmLocal(timezone: string): boolean {
   return getHourInTimezone(timezone || "UTC") === 9;
 }
+
+/** Return true if it's 8am (8:00–8:59) in the given timezone.
+ *  Cron runs at :30 past each hour, so hour=8 means it's ~8:30 AM local. */
+export function isEligibilityNotificationTime(timezone: string): boolean {
+  return getHourInTimezone(timezone || "UTC") === 8;
+}

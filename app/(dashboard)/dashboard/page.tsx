@@ -199,6 +199,7 @@ export default async function DashboardPage() {
       <DashboardNotificationChannels
         initialWhatsappOptIn={whatsappOptIn}
         initialHasPhone={hasPhone}
+        preferredTimezone={(org as { preferredTimezone?: string | null }).preferredTimezone ?? null}
       />
 
       {upcomingTasks.length > 0 && (

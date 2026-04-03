@@ -48,7 +48,7 @@ export function NotificationTimezone({ preferredTimezone }: NotificationTimezone
       <CardHeader>
         <CardTitle className="text-sm font-medium">Notification time</CardTitle>
         <p className="text-xs font-normal text-muted-foreground">
-          Deadline reminders are sent at 9am in this timezone. Set your local region so we notify you in the morning.
+          Eligibility digests are sent at 8:30 AM and deadline reminders at 9:00 AM in this timezone. Set your local region so we notify you each morning.
         </p>
       </CardHeader>
       <CardContent className="flex flex-wrap items-end gap-3">
