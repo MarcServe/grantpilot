@@ -12,6 +12,7 @@ interface HeuristicProfile {
   fundingPurposes: string[];
   employeeCount: number | null;
   annualRevenue: number | null;
+  businessType: string | null;
 }
 
 interface HeuristicGrant {
@@ -49,6 +50,37 @@ const SECTOR_SYNONYMS: Record<string, string[]> = {
   tourism: ["travel", "hospitality", "leisure", "visitor"],
   defence: ["defense", "military", "security"],
 };
+
+const BUSINESS_TYPE_SYNONYMS: Record<string, string[]> = {
+  "sme": ["sme", "small", "micro", "medium", "business", "limited", "ltd"],
+  "startup": ["startup", "start-up", "early stage", "pre-revenue", "early-stage"],
+  "sole trader": ["sole trader", "sole proprietor", "freelance", "self-employed", "individual"],
+  "charity / non-profit": ["charity", "non-profit", "nonprofit", "ngo", "voluntary", "third sector", "not-for-profit"],
+  "social enterprise": ["social enterprise", "cic", "community interest", "social business"],
+  "university / research": ["university", "research", "academic", "higher education", "institution", "rto"],
+  "public sector": ["public sector", "government", "local authority", "council", "public body", "nhs"],
+  "large enterprise": ["large enterprise", "corporate", "multinational", "plc", "large company", "large business"],
+  "partnership": ["partnership", "llp", "joint venture"],
+};
+
+function businessTypeMatchesGrant(profileType: string | null, grantApplicantTypes: string[]): "match" | "mismatch" | "neutral" {
+  if (!profileType || grantApplicantTypes.length === 0) return "neutral";
+
+  const ptLower = normText(profileType);
+  const synonyms = BUSINESS_TYPE_SYNONYMS[ptLower] ?? [ptLower];
+
+  for (const grantType of grantApplicantTypes) {
+    const gt = normText(grantType);
+    if (/\b(any|all|open|eligible)\b/.test(gt)) return "match";
+    if (synonyms.some((s) => gt.includes(s) || s.includes(gt))) return "match";
+    const grantSynonyms = Object.entries(BUSINESS_TYPE_SYNONYMS).find(
+      ([, syns]) => syns.some((s) => gt.includes(s))
+    );
+    if (grantSynonyms && grantSynonyms[0] === ptLower) return "match";
+  }
+
+  return "mismatch";
+}
 
 function normText(s: string): string {
   return s.toLowerCase().trim();
@@ -165,15 +197,13 @@ export function scoreGrantHeuristic(
     score += 5;
   }
 
-  if (grant.applicantTypes?.length) {
-    const types = grant.applicantTypes.map(normText);
-    const broadMatch = types.some((t) =>
-      /sme|small|micro|startup|business|company|organisation|any|all|open/i.test(t)
-    );
-    if (broadMatch) {
-      score += 10;
-      reasons.push("Applicant type match");
-    }
+  const typeResult = businessTypeMatchesGrant(profile.businessType, grant.applicantTypes ?? []);
+  if (typeResult === "match") {
+    score += 15;
+    reasons.push("Applicant type match");
+  } else if (typeResult === "mismatch") {
+    score -= 20;
+    reasons.push("Applicant type mismatch");
   } else {
     score += 10;
   }

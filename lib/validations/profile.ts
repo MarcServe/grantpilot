@@ -2,8 +2,22 @@ import { z } from "zod";
 
 export const FUNDER_LOCATION_VALUES = ["US", "UK", "EU", "CA", "AU", "Global"] as const;
 
+export const BUSINESS_TYPES = [
+  "SME",
+  "Startup",
+  "Sole Trader",
+  "Charity / Non-profit",
+  "Social Enterprise",
+  "University / Research",
+  "Public Sector",
+  "Large Enterprise",
+  "Partnership",
+  "Other",
+] as const;
+
 export const step1Schema = z.object({
   businessName: z.string().min(2, "Business name is required"),
+  businessType: z.string().optional(),
   registrationNumber: z.string().optional(),
   location: z.string().min(2, "Location is required"),
   funderLocations: z.array(z.enum(FUNDER_LOCATION_VALUES)).optional().default([]),

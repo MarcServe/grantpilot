@@ -87,6 +87,7 @@ model BusinessProfile {
   organisationId     String
   organisation       Organisation  @relation(fields: [organisationId], references: [id])
   businessName       String
+  businessType       String?              // SME, Startup, Charity / Non-profit, etc. — for grant applicant-type matching
   registrationNumber String?
   sector             String
   missionStatement   String        @db.Text

@@ -3,7 +3,7 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { step1Schema, type Step1Data } from "@/lib/validations/profile";
+import { step1Schema, BUSINESS_TYPES, type Step1Data } from "@/lib/validations/profile";
 import { FUNDER_LOCATION_LABELS } from "@/lib/constants";
 import {
   Form,
@@ -33,6 +33,7 @@ export function Step1Basics({ defaultValues, onSubmit, isPending }: Step1Props) 
     resolver: zodResolver(step1Schema),
     defaultValues: {
       businessName: defaultValues.businessName ?? "",
+      businessType: defaultValues.businessType ?? "",
       registrationNumber: defaultValues.registrationNumber ?? "",
       location: defaultValues.location ?? "",
       funderLocations: defaultValues.funderLocations ?? [],
@@ -52,6 +53,33 @@ export function Step1Basics({ defaultValues, onSubmit, isPending }: Step1Props) 
               <FormControl>
                 <Input placeholder="Acme Ltd" {...field} />
               </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="businessType"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Business Type</FormLabel>
+              <FormControl>
+                <select
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={field.value ?? ""}
+                  onChange={field.onChange}
+                  aria-label="Business type"
+                >
+                  <option value="">— Select your business type —</option>
+                  {BUSINESS_TYPES.map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+              </FormControl>
+              <p className="text-muted-foreground text-xs">
+                Used to match you with grants that accept your organisation type.
+              </p>
               <FormMessage />
             </FormItem>
           )}

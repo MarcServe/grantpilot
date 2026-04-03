@@ -48,6 +48,7 @@ function profileToMatching(profile: Record<string, unknown>) {
     fundingMax: Number(get("fundingMax") ?? get("funding_max") ?? 0),
     fundingPurposes: Array.isArray(profile.fundingPurposes) ? profile.fundingPurposes as string[] : (Array.isArray(profile.funding_purposes) ? profile.funding_purposes as string[] : []),
     fundingDetails: profile.fundingDetails != null ? String(profile.fundingDetails) : (profile.funding_details != null ? String(profile.funding_details) : null),
+    businessType: String(get("businessType") ?? get("business_type") ?? ""),
   };
 }
 
@@ -157,6 +158,7 @@ export async function runEligibilityRefreshJob(options?: {
           fundingPurposes: Array.isArray((profile as Record<string, unknown>).fundingPurposes) ? (profile as Record<string, unknown>).fundingPurposes as string[] : [],
           employeeCount: (profile as Record<string, unknown>).employeeCount != null ? Number((profile as Record<string, unknown>).employeeCount) : null,
           annualRevenue: (profile as Record<string, unknown>).annualRevenue != null ? Number((profile as Record<string, unknown>).annualRevenue) : null,
+          businessType: String((profile as Record<string, unknown>).businessType ?? (profile as Record<string, unknown>).business_type ?? "") || null,
         };
 
         const heuristicResults = preFilterGrants(

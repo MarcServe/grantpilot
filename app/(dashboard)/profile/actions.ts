@@ -60,7 +60,7 @@ async function recalcAndSaveCompletionScore(profileId: string): Promise<void> {
   const supabase = getSupabaseAdmin();
   const { data: profile } = await supabase
     .from("BusinessProfile")
-    .select("businessName, location, sector, missionStatement, description, employeeCount, annualRevenue, fundingMin, fundingMax, fundingPurposes, fundingDetails")
+    .select("businessName, businessType, location, sector, missionStatement, description, employeeCount, annualRevenue, fundingMin, fundingMax, fundingPurposes, fundingDetails")
     .eq("id", profileId)
     .single();
   if (!profile) return;
@@ -171,6 +171,7 @@ export async function saveStep1(data: Step1Data) {
     .from("BusinessProfile")
     .update({
       businessName: parsed.data.businessName,
+      businessType: parsed.data.businessType || null,
       registrationNumber: parsed.data.registrationNumber ?? null,
       location: parsed.data.location,
       funderLocations: parsed.data.funderLocations ?? [],
