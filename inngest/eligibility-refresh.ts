@@ -73,8 +73,11 @@ export async function runEligibilityRefreshJob(): Promise<{
   cacheHits: number;
 }> {
     const supabase = getSupabaseAdmin();
-    const { data: grantsData } = await supabase.from("Grant").select("id, name, funder, amount, deadline, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, required_attachments");
-    const allGrants = grantsData ?? [];
+    const { data: grantsData } = await supabase.from("Grant").select("id, name, funder, amount, deadline, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, required_attachments, url_status");
+    const allGrants = (grantsData ?? []).filter((g: { url_status?: string }) => {
+      const status = g.url_status ?? "unknown";
+      return status !== "dead" && status !== "expired";
+    });
     const diagnostics = {
       totalGrants: allGrants.length,
       orgsWithProfile: 0,

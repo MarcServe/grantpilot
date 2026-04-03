@@ -52,11 +52,19 @@ export async function POST(req: Request): Promise<NextResponse> {
 
     const { data: grant } = await supabase
       .from("Grant")
-      .select("id, name, applicationUrl, deadline")
+      .select("id, name, applicationUrl, deadline, url_status")
       .eq("id", grantId)
       .single();
     if (!grant) {
       return NextResponse.json({ error: "Grant not found" }, { status: 404 });
+    }
+
+    const urlStatus = (grant as { url_status?: string }).url_status ?? "unknown";
+    if (urlStatus === "dead" || urlStatus === "expired") {
+      return NextResponse.json(
+        { error: "This grant's application link is broken or expired. Please find an updated link and use 'Apply by link' instead." },
+        { status: 400 }
+      );
     }
 
     const { allowed } = await checkUsageLimit(orgId, "autofill");
