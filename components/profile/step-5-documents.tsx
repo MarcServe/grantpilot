@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Loader2, Upload, FileText, Trash2, CheckCircle, Video } from "lucide-react";
-import { DOCUMENT_CATEGORIES } from "@/lib/document-categories";
+import { DOCUMENT_CATEGORIES, DOCUMENT_CATEGORY_GROUPS } from "@/lib/document-categories";
 
 interface DocumentItem {
   id: string;
@@ -84,21 +84,32 @@ export function Step5Documents({
 
       <div className="rounded-lg border border-dashed p-6">
         <div className="mb-4 flex flex-col gap-2">
-          <Label className="text-xs text-muted-foreground">Type (for grant matching)</Label>
+          <Label className="text-xs text-muted-foreground">What type of document is this?</Label>
           <select
             id="document-upload-category"
             name="uploadCategory"
-            className="w-full max-w-xs rounded-md border border-input bg-background px-3 py-2 text-sm"
+            className="w-full max-w-sm rounded-md border border-input bg-background px-3 py-2 text-sm"
             value={uploadCategory}
             onChange={(e) => setUploadCategory(e.target.value)}
-            aria-label="Document type for grant matching"
+            aria-label="What type of document is this?"
           >
-            <option value="">— Select type —</option>
-            {DOCUMENT_CATEGORIES.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
-              </option>
-            ))}
+            <option value="">— What type of document is this? —</option>
+            {DOCUMENT_CATEGORY_GROUPS.map((group) => {
+              const items = DOCUMENT_CATEGORIES.filter((c) => c.group === group);
+              if (items.length === 0) return null;
+              if (group === "Other") {
+                return <option key="other" value="other">Other</option>;
+              }
+              return (
+                <optgroup key={group} label={group}>
+                  {items.map((c) => (
+                    <option key={c.value} value={c.value}>
+                      {c.label}
+                    </option>
+                  ))}
+                </optgroup>
+              );
+            })}
           </select>
         </div>
         <div className="text-center">
