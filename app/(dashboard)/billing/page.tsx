@@ -2,7 +2,6 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg } from "@/lib/auth";
 import { PLAN_LIMITS } from "@/lib/stripe";
 import { BillingClient } from "@/components/billing/billing-client";
-import { NotificationTimezone } from "@/components/billing/notification-timezone";
 
 interface BillingPageProps {
   searchParams: Promise<{ billing?: string }>;
@@ -36,8 +35,6 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
   const plan = org.plan as keyof typeof PLAN_LIMITS;
   const limits = PLAN_LIMITS[plan];
 
-  const preferredTimezone = (org as { preferredTimezone?: string | null }).preferredTimezone ?? null;
-
   return (
     <div className="mx-auto max-w-7xl p-6">
       <div className="mb-8">
@@ -45,10 +42,6 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
         <p className="mt-1 text-muted-foreground">
           Manage your subscription and view usage.
         </p>
-      </div>
-
-      <div className="mb-8">
-        <NotificationTimezone preferredTimezone={preferredTimezone} />
       </div>
 
       <BillingClient

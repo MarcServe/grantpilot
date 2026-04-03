@@ -287,8 +287,8 @@ export default async function DashboardPage() {
                     </li>
                   ))}
                 </ul>
-                <Link href="/grants" className="mt-3 inline-block text-sm text-primary hover:underline">
-                  View all grants <ArrowRight className="inline h-3 w-3" />
+                <Link href="/grants/eligible" className="mt-3 inline-block text-sm text-primary hover:underline">
+                  View all matches <ArrowRight className="inline h-3 w-3" />
                 </Link>
               </CardContent>
             </Card>
@@ -318,8 +318,8 @@ export default async function DashboardPage() {
                     </li>
                   ))}
                 </ul>
-                <Link href="/grants" className="mt-3 inline-block text-sm text-primary hover:underline">
-                  View all grants <ArrowRight className="inline h-3 w-3" />
+                <Link href="/grants/eligible" className="mt-3 inline-block text-sm text-primary hover:underline">
+                  View all matches <ArrowRight className="inline h-3 w-3" />
                 </Link>
               </CardContent>
             </Card>

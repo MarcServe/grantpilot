@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   Building2,
   Search,
+  Sparkles,
   FileText,
   CreditCard,
   Brain,
@@ -26,6 +27,7 @@ import { cn } from "@/lib/utils";
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/profile", label: "Profile", icon: Building2 },
+  { href: "/grants/eligible", label: "My Matches", icon: Sparkles },
   { href: "/grants", label: "Grants", icon: Search },
   { href: "/applications", label: "Applications", icon: FileText },
   { href: "/intelligence", label: "Intelligence", icon: Brain },
@@ -43,7 +45,7 @@ function NavLinks({ className, onLinkClick }: { className?: string; onLinkClick?
           onClick={onLinkClick}
           className={cn(
             "flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-            pathname === item.href
+            (pathname === item.href || (item.href !== "/grants" && pathname.startsWith(item.href)))
               ? "bg-muted text-foreground"
               : "text-muted-foreground hover:bg-muted hover:text-foreground",
             className

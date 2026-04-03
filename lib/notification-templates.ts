@@ -217,14 +217,14 @@ export function buildEmailHtml(
       const missingReminder = hasAnyMissing
         ? `<p style="margin-top:16px;padding:12px;background:#fef3c7;border-radius:8px;color:#92400e">Some grants may require documents you haven&apos;t uploaded yet. Add them in <a href="${appUrl}/profile" style="color:#1B3A6B;font-weight:600">Profile → Documents</a> so we can auto-attach them when you apply.</p>`
         : "";
-      const body = `<p>New grant opportunities for <strong>${escapeHtml(profileName)}</strong> — review and start an application from the links below.</p>${table}${missingReminder}<p style="margin-top:16px">You can also browse all grants and apply with GrantsCopilot from the app.</p>`;
+      const body = `<p>New grant opportunities for <strong>${escapeHtml(profileName)}</strong> — review and start an application from the links below.</p>${table}${missingReminder}<p style="margin-top:16px">You can also browse all your matches and apply with GrantsCopilot from the app.</p>`;
       return {
         subject: `[Grants-Copilot] New grant opportunities for ${profileName}`,
         html: baseLayout(
           `New grant opportunities for ${escapeHtml(profileName)}`,
           body,
-          `${appUrl}/grants`,
-          "View all in Grants-Copilot"
+          `${appUrl}/grants/eligible`,
+          "View all matches"
         ),
       };
     }
