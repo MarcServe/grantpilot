@@ -24,8 +24,8 @@ import { rankGrantsByEmbedding, generateAndStoreProfileEmbedding } from "@/lib/e
 const LAYER2_TOP_N = 15;
 const LAYER3_TOP_N = 10;
 const DIGEST_SCORE_THRESHOLD = 0;
-const NOTIFY_COOLDOWN_DAYS = 7;
-const CACHE_DAYS = 7;
+const NOTIFY_COOLDOWN_DAYS = 1;
+const CACHE_DAYS = 1;
 
 function scoreToDecision(score: number): "likely_eligible" | "review" | "unlikely" {
   if (score >= 70) return "likely_eligible";

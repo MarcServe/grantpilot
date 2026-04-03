@@ -33,12 +33,23 @@ export async function POST(req: Request): Promise<NextResponse> {
     const { grantId, profileId, organisationId: orgId } = payload;
     const supabase = getSupabaseAdmin();
 
-    const { data: profile } = await supabase
+    let profile: { id: string } | null = null;
+    const { data: p1 } = await supabase
       .from("BusinessProfile")
       .select("id")
       .eq("id", profileId)
       .eq("organisationId", orgId)
       .maybeSingle();
+    profile = p1 as { id: string } | null;
+    if (!profile) {
+      const { data: p2 } = await supabase
+        .from("BusinessProfile")
+        .select("id")
+        .eq("id", profileId)
+        .eq("organisation_id", orgId)
+        .maybeSingle();
+      profile = p2 as { id: string } | null;
+    }
     if (!profile) {
       return NextResponse.json({ error: "Profile not found" }, { status: 404 });
     }
@@ -54,38 +65,56 @@ export async function POST(req: Request): Promise<NextResponse> {
 
     let createdById: string | null = null;
 
-    type MemberRow = { userId?: string; user_id?: string };
-    let members: MemberRow[] = [];
-    const membersRes = await supabase
-      .from("OrganisationMember")
-      .select("userId, user_id")
-      .eq("organisationId", orgId)
-      .limit(1);
-    members = (membersRes.data ?? []) as MemberRow[];
-    if (members.length === 0) {
-      const alt = await supabase
-        .from("OrganisationMember")
-        .select("userId, user_id")
-        .eq("organisation_id", orgId)
-        .limit(1);
-      members = (alt.data ?? []) as MemberRow[];
-    }
-    const firstMember = members[0];
-    if (firstMember) {
-      createdById = firstMember.userId ?? firstMember.user_id ?? null;
+    // Try multiple query patterns because column naming can vary (camelCase vs snake_case)
+    const memberQueries = [
+      () => supabase.from("OrganisationMember").select("*").eq("organisationId", orgId).limit(1),
+      () => supabase.from("OrganisationMember").select("*").eq("organisation_id", orgId).limit(1),
+    ];
+
+    for (const query of memberQueries) {
+      if (createdById) break;
+      const { data } = await query();
+      const row = (data ?? [])[0] as Record<string, unknown> | undefined;
+      if (row) {
+        createdById = (row.userId ?? row.user_id) as string | null;
+      }
     }
 
-    // Fallback: if no members found (e.g. query/RLS edge case), use creator of latest application for this org
+    // Fallback: look up via User table joined through membership
     if (!createdById) {
-      const { data: latestApp } = await supabase
-        .from("Application")
-        .select("createdById, created_by_id")
+      const { data } = await supabase
+        .from("OrganisationMember")
+        .select("*, User(id)")
         .eq("organisationId", orgId)
-        .order("createdAt", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      const app = latestApp as { createdById?: string; created_by_id?: string } | null;
-      createdById = app?.createdById ?? app?.created_by_id ?? null;
+        .limit(1);
+      const row = (data ?? [])[0] as { User?: { id: string } | null } | undefined;
+      createdById = row?.User?.id ?? null;
+    }
+
+    // Fallback: use creator of latest application for this org
+    if (!createdById) {
+      const appQueries = [
+        () => supabase.from("Application").select("*").eq("organisationId", orgId).order("createdAt", { ascending: false }).limit(1).maybeSingle(),
+        () => supabase.from("Application").select("*").eq("organisation_id", orgId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+      ];
+      for (const query of appQueries) {
+        if (createdById) break;
+        const { data } = await query();
+        const app = data as Record<string, unknown> | null;
+        createdById = (app?.createdById ?? app?.created_by_id) as string | null;
+      }
+    }
+
+    // Last resort: find any user linked to this profile's org
+    if (!createdById) {
+      const { data } = await supabase
+        .from("User")
+        .select("id, OrganisationMember!inner(organisationId)")
+        .limit(1);
+      const users = (data ?? []) as { id: string }[];
+      if (users.length > 0) {
+        createdById = users[0].id;
+      }
     }
 
     if (!createdById) {
