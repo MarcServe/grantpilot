@@ -6,7 +6,7 @@ import { ApplyByLinkForm } from "@/components/grants/apply-by-link-form";
 export default async function ApplyByLinkPage({
   searchParams,
 }: {
-  searchParams: Promise<{ url?: string; name?: string; funder?: string }>;
+  searchParams: Promise<{ url?: string; name?: string; funder?: string; fixGrantId?: string }>;
 }) {
   const { org } = await getActiveOrg();
   const sp = await searchParams;
@@ -54,6 +54,7 @@ export default async function ApplyByLinkPage({
           prefillUrl={sp.url}
           prefillGrantName={sp.name}
           prefillFunder={sp.funder}
+          fixGrantId={sp.fixGrantId}
         />
       )}
     </div>

@@ -25,9 +25,10 @@ interface ApplyByLinkFormProps {
   prefillUrl?: string;
   prefillGrantName?: string;
   prefillFunder?: string;
+  fixGrantId?: string;
 }
 
-export function ApplyByLinkForm({ profileId, prefillUrl, prefillGrantName, prefillFunder }: ApplyByLinkFormProps) {
+export function ApplyByLinkForm({ profileId, prefillUrl, prefillGrantName, prefillFunder, fixGrantId }: ApplyByLinkFormProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [urlInput, setUrlInput] = useState(prefillUrl ?? "");
@@ -67,10 +68,12 @@ export function ApplyByLinkForm({ profileId, prefillUrl, prefillGrantName, prefi
         grantName?: string;
         funder?: string;
         eligibility?: string;
+        fixGrantId?: string;
         links?: { applicationUrl: string; grantName?: string; funder?: string; eligibility?: string }[];
       } = {
         profileId,
         autopilot: autopilot || undefined,
+        fixGrantId: fixGrantId || undefined,
       };
       const shared = {
         grantName: grantName.trim() || undefined,

@@ -165,30 +165,53 @@ export async function checkAndUpdateGrantUrl(grantId: string): Promise<HealthChe
 
 /**
  * Batch check grants that haven't been verified recently.
- * Returns count of checked grants.
+ * For newly dead/expired grants, attempts automatic URL recovery.
  */
 export async function sweepGrantUrls(maxAge: number = 7, batchSize: number = 50): Promise<{
   checked: number;
   live: number;
   dead: number;
   expired: number;
+  recovered: number;
 }> {
+  const { attemptUrlRecovery } = await import("./url-recovery");
   const supabase = getSupabaseAdmin();
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - maxAge);
 
   const { data: grants } = await supabase
     .from("Grant")
-    .select("id, applicationUrl")
+    .select("id, applicationUrl, name, funder")
     .or(`url_checked_at.is.null,url_checked_at.lt.${cutoff.toISOString()}`)
     .limit(batchSize);
 
-  const stats = { checked: 0, live: 0, dead: 0, expired: 0 };
+  const stats = { checked: 0, live: 0, dead: 0, expired: 0, recovered: 0 };
   if (!grants?.length) return stats;
 
-  for (const g of grants) {
+  for (const g of grants as { id: string; applicationUrl: string; name: string; funder: string }[]) {
     if (!g.applicationUrl) continue;
     const result = await checkUrlHealth(g.applicationUrl);
+
+    if (result.status === "dead" || result.status === "expired") {
+      const recovery = await attemptUrlRecovery(g.applicationUrl, g.name ?? "", g.funder ?? "");
+      if (recovery.found && recovery.newUrl) {
+        await supabase
+          .from("Grant")
+          .update({
+            applicationUrl: recovery.newUrl,
+            url_status: "live",
+            url_checked_at: new Date().toISOString(),
+          })
+          .eq("id", g.id);
+        stats.recovered++;
+        stats.live++;
+        stats.checked++;
+        console.info(`[url-sweep] Recovered ${g.id}: ${g.applicationUrl} → ${recovery.newUrl} (${recovery.method})`);
+        await new Promise((r) => setTimeout(r, 500));
+        continue;
+      }
+    }
+
     await supabase
       .from("Grant")
       .update({

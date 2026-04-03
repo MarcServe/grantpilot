@@ -5,10 +5,21 @@ import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Loader2 } from "lucide-react";
+import { ArrowRight, Loader2, CheckCircle2, Clock } from "lucide-react";
 import { toast } from "sonner";
 import { updateOrganisationTimezone } from "@/app/(dashboard)/settings/actions";
 import { VALID_TIMEZONES } from "@/lib/timezone";
+
+function formatRelativeTime(isoDate: string): string {
+  const diff = Date.now() - new Date(isoDate).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
 
 const TZ_LABELS: Record<string, string> = {
   UTC: "UTC",
@@ -27,12 +38,16 @@ interface DashboardNotificationChannelsProps {
   initialWhatsappOptIn: boolean;
   initialHasPhone: boolean;
   preferredTimezone: string | null;
+  lastEligibilityRun: string | null;
+  eligibilityGrantCount: number;
 }
 
 export function DashboardNotificationChannels({
   initialWhatsappOptIn,
   initialHasPhone,
   preferredTimezone,
+  lastEligibilityRun,
+  eligibilityGrantCount,
 }: DashboardNotificationChannelsProps) {
   const [whatsappOptIn, setWhatsappOptIn] = useState(initialWhatsappOptIn);
   const [isPending, setIsPending] = useState(false);
@@ -107,6 +122,25 @@ export function DashboardNotificationChannels({
               Save
             </Button>
           </div>
+        </div>
+
+        <div className="flex items-center gap-2 rounded-md border border-border bg-muted/50 px-3 py-2">
+          {lastEligibilityRun ? (
+            <>
+              <CheckCircle2 className="h-4 w-4 text-green-600" />
+              <span className="text-sm text-muted-foreground">
+                Last eligibility scan: <span className="font-medium text-foreground">{formatRelativeTime(lastEligibilityRun)}</span>
+                {eligibilityGrantCount > 0 && <> &middot; {eligibilityGrantCount} grants scored</>}
+              </span>
+            </>
+          ) : (
+            <>
+              <Clock className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm text-muted-foreground">
+                Eligibility scan pending &mdash; runs daily at 8:30 AM in your timezone
+              </span>
+            </>
+          )}
         </div>
 
         <div className="flex items-center justify-between">

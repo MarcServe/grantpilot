@@ -100,6 +100,26 @@ export default async function DashboardPage() {
     }
   );
 
+  let lastEligibilityRun: string | null = null;
+  let eligibilityGrantCount = 0;
+  {
+    const { data: latestAssessment } = await supabase
+      .from("EligibilityAssessment")
+      .select("updated_at")
+      .eq("organisation_id", orgId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (latestAssessment?.updated_at) {
+      lastEligibilityRun = latestAssessment.updated_at as string;
+    }
+    const { count } = await supabase
+      .from("EligibilityAssessment")
+      .select("id", { count: "exact", head: true })
+      .eq("organisation_id", orgId);
+    eligibilityGrantCount = count ?? 0;
+  }
+
   const suggestedGrants: { grantId: string; grantName: string; score: number }[] = [];
   const withinReachGrants: { grantId: string; grantName: string; score: number; summary?: string }[] = [];
   if (profile && completionScore >= 50) {
@@ -200,6 +220,8 @@ export default async function DashboardPage() {
         initialWhatsappOptIn={whatsappOptIn}
         initialHasPhone={hasPhone}
         preferredTimezone={(org as { preferredTimezone?: string | null }).preferredTimezone ?? null}
+        lastEligibilityRun={lastEligibilityRun}
+        eligibilityGrantCount={eligibilityGrantCount}
       />
 
       {upcomingTasks.length > 0 && (

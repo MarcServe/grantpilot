@@ -120,7 +120,7 @@ export default async function GrantDetailPage({
       {((grant as { url_status?: string }).url_status === "dead" ||
         (grant as { url_status?: string }).url_status === "expired") && (() => {
         const isDead = (grant as { url_status?: string }).url_status === "dead";
-        const applyByLinkHref = `/grants/apply-by-link?name=${encodeURIComponent(grant.name ?? "")}&funder=${encodeURIComponent(grant.funder ?? "")}`;
+        const applyByLinkHref = `/grants/apply-by-link?name=${encodeURIComponent(grant.name ?? "")}&funder=${encodeURIComponent(grant.funder ?? "")}&fixGrantId=${grant.id}`;
         return (
           <div className={`mb-6 flex gap-3 rounded-lg border p-4 ${
             isDead

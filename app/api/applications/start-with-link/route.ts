@@ -22,6 +22,7 @@ const startWithLinkSchema = z.object({
   grantName: z.string().max(300).optional(),
   funder: z.string().max(200).optional(),
   eligibility: z.string().max(5000).optional(),
+  fixGrantId: z.string().optional(),
   links: z.array(linkEntrySchema).max(20).optional(),
 }).refine(
   (d) => d.applicationUrl ?? (d.links && d.links.length > 0),
@@ -210,6 +211,21 @@ export async function POST(req: Request): Promise<NextResponse> {
         { error: "Could not start any applications. Check URLs and try again." },
         { status: 400 }
       );
+    }
+
+    if (parsed.data.fixGrantId && results.length > 0) {
+      const correctedUrl = links[0]?.applicationUrl;
+      if (correctedUrl) {
+        await supabase
+          .from("Grant")
+          .update({
+            applicationUrl: correctedUrl,
+            url_status: "live",
+            url_checked_at: new Date().toISOString(),
+          })
+          .eq("id", parsed.data.fixGrantId);
+        console.info(`[start-with-link] Corrected URL for grant ${parsed.data.fixGrantId} → ${correctedUrl}`);
+      }
     }
 
     await requestEligibilityRefresh(orgId, "applications.start-with-link");
