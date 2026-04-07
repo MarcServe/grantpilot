@@ -51,7 +51,7 @@ export function parseJsonArray<T>(raw: string): T[] {
  */
 export function toGrantInput(
   row: DiscoveryGrantRow,
-  source: "claude" | "openai" | "gemini",
+  source: "claude" | "openai" | "gemini" | "perplexity",
   funderLocations?: string[]
 ): GrantInput | null {
   const name = typeof row.name === "string" ? row.name.trim() : "";

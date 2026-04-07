@@ -23,7 +23,8 @@ import {
   buildUploadPlan,
   type RequiredAttachment,
 } from "./required-attachments.js";
-import { detectPageSituation, quickPageCheck, analyzeFormFields, type PageSituation } from "./page-situation.js";
+import { detectPageSituation, quickPageCheck, analyzeFormFields, detectPortalPageSituation, analyzeApplicationSections, type PageSituation, type DetectedSection } from "./page-situation.js";
+import type { PortalRecipeRef, PortalSection } from "./portals/registry.js";
 
 export interface StepResult {
   success: boolean;
@@ -60,6 +61,10 @@ export interface GrantStepOptions {
   grantContext?: GrantContext;
   /** User-provided notes guiding what to emphasise for this specific grant application. */
   focusNotes?: string;
+  /** Portal recipe reference (if the grant URL matched a known portal). */
+  portalRecipe?: PortalRecipeRef | null;
+  /** Decrypted portal credentials for auto-login ({ username, password }). */
+  portalCredentials?: { username: string; password: string } | null;
 }
 
 async function getFileInputSelectors(page: Page): Promise<string[]> {
@@ -136,6 +141,21 @@ export async function runGrantStep(
         }
         return { success: false, notes: nav.error ?? "Navigate failed" };
       }
+
+      // IFS competition overview pages always contain "sign in" in the copy — vision/heuristics
+      // misclassify as login_required. The next step (portal_navigate) dismisses cookies,
+      // signs in with saved credentials, and clicks "Start new application".
+      const finalUrl = (nav.finalUrl ?? page.url() ?? grantUrl).toLowerCase();
+      if (
+        /apply-for-innovation-funding\.service\.gov\.uk\/competition\/\d+\/overview\//i.test(finalUrl) ||
+        /apply-for-innovation-funding\.service\.gov\.uk\/competition\/\d+\/overview\//i.test(grantUrl.toLowerCase())
+      ) {
+        return {
+          success: true,
+          notes: `Opened Innovate UK competition overview; portal_navigate will sign in or start application.`,
+        };
+      }
+
       const { situation, needsDirectUrl } = await detectPageSituation(page, {
         status: nav.status,
         finalUrl: nav.finalUrl,
@@ -492,10 +512,13 @@ export async function runGrantStep(
     case "prepare_review": {
       // Pre-review validation: verify we actually filled substantive form fields
       const fieldAnalysis = await analyzeFormFields(page);
-      if (fieldAnalysis.applicationFieldCount === 0 && fieldAnalysis.totalFields > 0) {
+      if (fieldAnalysis.applicationFieldCount === 0) {
+        const detail = fieldAnalysis.totalFields > 0
+          ? `Page has ${fieldAnalysis.totalFields} inputs but none are application fields (all are search/filter/navigation).`
+          : "Page has no form inputs at all.";
         return {
           success: false,
-          notes: `Page has ${fieldAnalysis.totalFields} inputs but none are application fields (all are search/filter/navigation). This does not appear to be a grant application form.`,
+          notes: `${detail} This does not appear to be a grant application form. Please provide a direct application URL.`,
           situation: "unknown",
           needsDirectUrl: true,
         };
@@ -601,10 +624,473 @@ export async function runGrantStep(
       return { success: false, notes: error ?? "Could not find or click submit" };
     }
 
-    default:
+    default: {
+      // Handle fill_section:<sectionId> dynamic actions
+      if (action.startsWith("fill_section:")) {
+        return runFillSection(page, item, profile, documents, options);
+      }
+      if (action === "portal_navigate") {
+        return runPortalNavigate(page, item, profile, options);
+      }
       return {
         success: false,
         notes: `Unknown action: ${action}`,
       };
+    }
   }
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ *  portal_navigate step
+ *  Follows portal recipe: dismiss interstitials → detect login →
+ *  auto-login (if creds) → navigate to application form.
+ * ──────────────────────────────────────────────────────────────────── */
+const MAX_PORTAL_NAV_ATTEMPTS = 6;
+
+async function runPortalNavigate(
+  page: Page,
+  item: CuSessionItem,
+  _profile: ProfileData,
+  options?: GrantStepOptions
+): Promise<StepResult> {
+  const recipe = options?.portalRecipe ??
+    (item.extra_data as Record<string, unknown> | null)?.portalRecipe as PortalRecipeRef | undefined;
+
+  if (!recipe) {
+    return { success: false, notes: "portal_navigate called but no portal recipe available — falling back." };
+  }
+
+  // Step 1: dismiss interstitials (cookie banners, T&C pages)
+  if (recipe.interstitialDismissSelectors?.length) {
+    for (const sel of recipe.interstitialDismissSelectors) {
+      try {
+        const el = await page.$(sel);
+        if (el) {
+          await el.click().catch(() => {});
+          await page.waitForTimeout(1000);
+        }
+      } catch { /* ignore */ }
+    }
+  }
+
+  // Step 2: check if we're already on the application form
+  if (recipe.applicationUrlPattern) {
+    const currentUrl = page.url();
+    if (new RegExp(recipe.applicationUrlPattern, "i").test(currentUrl)) {
+      return { success: true, notes: `Already on ${recipe.portalName} application form.` };
+    }
+  }
+
+  // Step 3: detect page situation (portal-aware first, then generic)
+  for (let attempt = 0; attempt < MAX_PORTAL_NAV_ATTEMPTS; attempt++) {
+    const currentUrl = page.url();
+    console.log(`[portal_navigate] attempt ${attempt + 1}: url=${currentUrl}`);
+
+    // Check if we've arrived at the application form
+    if (recipe.applicationUrlPattern && new RegExp(recipe.applicationUrlPattern, "i").test(currentUrl)) {
+      return { success: true, notes: `Navigated to ${recipe.portalName} application form.` };
+    }
+
+    // Use portal-specific detection first (fast, no API calls)
+    const portalResult = await detectPortalPageSituation(page, recipe.id);
+    const result = portalResult ?? await detectPageSituation(page);
+
+    // Portal dashboard — look for "Start/Continue application" button
+    if (result.situation === "portal_dashboard") {
+      const applyText = recipe.navigationHints?.applyButtonText;
+      let clicked = false;
+      if (applyText) {
+        for (const text of applyText.split("|")) {
+          try {
+            const btn = page.locator(`a:has-text("${text.trim()}"), button:has-text("${text.trim()}")`).first();
+            if (await btn.isVisible({ timeout: 2000 }).catch(() => false)) {
+              await btn.click();
+              await page.waitForTimeout(3000);
+              clicked = true;
+              break;
+            }
+          } catch { /* try next pattern */ }
+        }
+      }
+      if (clicked) continue;
+      // Fall through to generic Apply button search
+    }
+
+    // Portal section list — we're on the application overview, ready for fill_section steps
+    if (result.situation === "portal_section_list") {
+      return { success: true, notes: `On ${recipe.portalName} application section overview.` };
+    }
+
+    // Portal terms / interstitials — try to dismiss
+    if (result.situation === "portal_terms") {
+      if (recipe.interstitialDismissSelectors?.length) {
+        for (const sel of recipe.interstitialDismissSelectors) {
+          try {
+            const el = await page.$(sel);
+            if (el) { await el.click().catch(() => {}); await page.waitForTimeout(2000); }
+          } catch { /* ignore */ }
+        }
+        continue;
+      }
+    }
+
+    // Login page detected
+    if (result.situation === "login_required") {
+      const creds = options?.portalCredentials;
+      if (!creds) {
+        return {
+          success: false,
+          notes: `${recipe.portalName} requires login. Save your portal credentials in Settings → Portal Credentials, then retry.`,
+          situation: "login_required",
+          needsInput: true,
+        };
+      }
+
+      // Auto-login with stored credentials
+      const loginOk = await attemptPortalLogin(page, recipe, creds);
+      if (!loginOk) {
+        return {
+          success: false,
+          notes: `Auto-login to ${recipe.portalName} failed. Check your portal credentials and try again.`,
+          situation: "login_required",
+        };
+      }
+      await page.waitForTimeout(3000);
+      continue; // re-check after login
+    }
+
+    // Info / marketing page — try to click Apply
+    if (result.situation === "info_page_with_apply" || result.situation === "unknown") {
+      const applyText = recipe.navigationHints?.applyButtonText;
+      let clicked = false;
+
+      // Try portal-specific apply button text patterns
+      if (applyText) {
+        for (const text of applyText.split("|")) {
+          try {
+            const btn = page.locator(`a:has-text("${text.trim()}"), button:has-text("${text.trim()}")`).first();
+            if (await btn.isVisible({ timeout: 2000 }).catch(() => false)) {
+              await btn.click();
+              await Promise.race([
+                page.waitForLoadState("domcontentloaded").catch(() => {}),
+                page.waitForTimeout(5000),
+              ]);
+              clicked = true;
+              break;
+            }
+          } catch { /* try next pattern */ }
+        }
+      }
+
+      if (!clicked) {
+        const { clicked: fallbackClicked } = await findAndClickApplyButton(page, result.applyButtonSelector);
+        clicked = fallbackClicked;
+      }
+
+      if (clicked) {
+        await page.waitForTimeout(3000);
+        continue;
+      }
+
+      if (attempt >= 2) {
+        return {
+          success: false,
+          notes: `Could not navigate to the application form on ${recipe.portalName} after ${attempt + 1} attempts. Please provide a direct application URL.`,
+          situation: "unknown",
+          needsDirectUrl: true,
+        };
+      }
+    }
+
+    if (result.situation === "application_form") {
+      return { success: true, notes: `On ${recipe.portalName} application form.` };
+    }
+
+    if (result.situation === "page_not_found") {
+      return {
+        success: false,
+        notes: "Application link is broken. Update the URL and retry.",
+        situation: "page_not_found",
+        needsDirectUrl: true,
+      };
+    }
+
+    if (result.situation === "competition_list") {
+      return {
+        success: false,
+        notes: `This link goes to a list of competitions on ${recipe.portalName}. Please select the specific grant and provide its URL.`,
+        situation: "competition_list",
+        needsDirectUrl: true,
+      };
+    }
+
+    if (result.situation === "needs_verification") {
+      return {
+        success: false,
+        notes: `${recipe.portalName} requires account verification. Complete verification on the portal site, then retry.`,
+        situation: "needs_verification",
+      };
+    }
+  }
+
+  return {
+    success: false,
+    notes: `Could not reach the application form on ${recipe.portalName} after ${MAX_PORTAL_NAV_ATTEMPTS} attempts.`,
+    situation: "unknown",
+    needsDirectUrl: true,
+  };
+}
+
+/**
+ * Attempt to fill the login form using portal recipe selectors and stored credentials.
+ * Returns true if the form was submitted (doesn't guarantee login succeeded — caller re-checks).
+ */
+async function attemptPortalLogin(
+  page: Page,
+  recipe: PortalRecipeRef,
+  creds: { username: string; password: string }
+): Promise<boolean> {
+  // If recipe has a loginUrl and we're not on it, go there
+  if (recipe.loginUrl) {
+    const currentUrl = page.url();
+    if (!currentUrl.includes(new URL(recipe.loginUrl).hostname)) {
+      try {
+        await page.goto(recipe.loginUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
+        await page.waitForTimeout(2000);
+      } catch {
+        // We may already be on a login page at a different path
+      }
+    }
+  }
+
+  // Try username field
+  const usernameSelectors = [
+    'input[name="j_username"]', 'input#j_username',
+    'input[name="username"]', 'input#username',
+    'input[name="email"]', 'input#email',
+    'input[type="email"]',
+  ];
+  let usernameEl = null;
+  for (const sel of usernameSelectors) {
+    usernameEl = await page.$(sel);
+    if (usernameEl) break;
+  }
+  if (!usernameEl) return false;
+
+  // Try password field
+  const passwordSelectors = [
+    'input[name="j_password"]', 'input#j_password',
+    'input[name="password"]', 'input#password',
+    'input[type="password"]',
+  ];
+  let passwordEl = null;
+  for (const sel of passwordSelectors) {
+    passwordEl = await page.$(sel);
+    if (passwordEl) break;
+  }
+  if (!passwordEl) return false;
+
+  // Fill credentials
+  await usernameEl.fill(creds.username);
+  await passwordEl.fill(creds.password);
+
+  // Click submit
+  const submitSelectors = ['button[type="submit"]', 'input[type="submit"]', 'button:has-text("Sign in")', 'button:has-text("Log in")'];
+  for (const sel of submitSelectors) {
+    const btn = await page.$(sel);
+    if (btn) {
+      await btn.click();
+      await Promise.race([
+        page.waitForLoadState("domcontentloaded").catch(() => {}),
+        page.waitForTimeout(8000),
+      ]);
+      return true;
+    }
+  }
+  return false;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ *  fill_section:<sectionId> step
+ *  Navigates to a specific section in a portal wizard, then fills it
+ *  using section-aware Claude prompts.
+ * ──────────────────────────────────────────────────────────────────── */
+
+async function runFillSection(
+  page: Page,
+  item: CuSessionItem,
+  profile: ProfileData,
+  _documents: DocumentData[],
+  options?: GrantStepOptions
+): Promise<StepResult> {
+  const actionStr = (item.action ?? "").toLowerCase();
+  const sectionId = actionStr.replace("fill_section:", "");
+  const recipe = options?.portalRecipe ??
+    (item.extra_data as Record<string, unknown> | null)?.portalRecipe as PortalRecipeRef | undefined;
+
+  const sectionDef = recipe?.sections?.find((s) => s.id === sectionId);
+  const sectionLabel = sectionDef?.label ?? sectionId.replace(/_/g, " ");
+
+  // Pre-fill page check
+  const pageCheck = await preFillPageCheck(page, `filling ${sectionLabel}`);
+  if (pageCheck) return pageCheck;
+
+  // Try to navigate to the section via sidebar/tab navigation
+  const navClicked = await navigateToSection(page, sectionId, sectionLabel, recipe);
+  if (navClicked) {
+    await page.waitForTimeout(2000);
+  }
+
+  const maxWizardSteps = 10;
+  let totalApplied = 0;
+  const allErrors: string[] = [];
+
+  for (let step = 0; step < maxWizardSteps; step++) {
+    const rawFields = await getFormFields(page);
+    const fields = await filterApplicationFields(rawFields);
+
+    if (fields.length === 0 && step === 0 && rawFields.length === 0) {
+      return { success: true, skipped: true, notes: `No fields found in section "${sectionLabel}"; skipped` };
+    }
+
+    // Use section-aware filling: pass sectionName to form-mapping
+    const fillOptions = options?.grantContext ? {
+      page,
+      grantContext: options.grantContext,
+      focusNotes: options?.focusNotes,
+      sectionName: sectionId,
+      sectionProfileFocus: sectionDef?.profileFocus,
+    } : undefined;
+
+    const { actions, missingRequired } = await getFormFillActionsWithMissing(
+      fields,
+      profile,
+      deriveFillKind(sectionId),
+      options?.needsInputAnswers,
+      fillOptions as import("./form-mapping.js").FormFillOptions | undefined
+    );
+
+    if (missingRequired.length > 0) {
+      return {
+        success: false,
+        notes: `Some required fields are missing for section "${sectionLabel}". Provide them via the link we sent, then resume.`,
+        needsInput: true,
+        missingRequired,
+      };
+    }
+
+    if (actions.length > 0) {
+      const { applied, errors } = await applyFillActions(page, actions);
+      totalApplied += applied;
+      allErrors.push(...errors);
+
+      const postFillCheck = await quickPageCheck(page);
+      if (postFillCheck === "login_required") {
+        return { success: false, notes: "Redirected to sign-in after filling. Sign in and resume.", situation: "login_required" };
+      }
+    }
+
+    // Try section-specific save button first
+    if (recipe?.navigationHints?.saveButtonText) {
+      const saved = await clickButtonByText(page, recipe.navigationHints.saveButtonText);
+      if (saved) {
+        await page.waitForTimeout(2000);
+      }
+    }
+
+    // Try next/continue within the section
+    let clickedNext = false;
+    if (recipe?.navigationHints?.nextButtonText) {
+      clickedNext = await clickButtonByText(page, recipe.navigationHints.nextButtonText);
+    }
+    if (!clickedNext) {
+      clickedNext = await clickNextOrContinueButton(page);
+    }
+    if (!clickedNext) break;
+    await page.waitForTimeout(2000);
+
+    const transitionCheck = await quickPageCheck(page);
+    if (transitionCheck === "login_required") {
+      return { success: false, notes: "Redirected to sign-in after wizard step. Sign in and resume.", situation: "login_required" };
+    }
+  }
+
+  if (totalApplied === 0) {
+    return { success: true, skipped: true, notes: `No fillable fields in section "${sectionLabel}"; skipped` };
+  }
+
+  const note = allErrors.length > 0
+    ? `Filled ${totalApplied} fields in "${sectionLabel}"; errors: ${allErrors.join("; ")}`
+    : `Filled ${totalApplied} fields in "${sectionLabel}"`;
+  return { success: totalApplied > 0, notes: note };
+}
+
+/**
+ * Try to navigate to a section via sidebar nav or tab links.
+ */
+async function navigateToSection(
+  page: Page,
+  sectionId: string,
+  sectionLabel: string,
+  recipe?: PortalRecipeRef | null
+): Promise<boolean> {
+  // 1. Try portal-specific nav selector
+  if (recipe?.navigationHints?.sectionNavSelector) {
+    try {
+      const navLink = page.locator(recipe.navigationHints.sectionNavSelector, {
+        hasText: new RegExp(sectionLabel, "i"),
+      }).first();
+      if (await navLink.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await navLink.click();
+        await Promise.race([
+          page.waitForLoadState("domcontentloaded").catch(() => {}),
+          page.waitForTimeout(5000),
+        ]);
+        return true;
+      }
+    } catch { /* fall through */ }
+  }
+
+  // 2. Generic section nav: look for links/tabs matching section label
+  const searchTerms = [sectionLabel, sectionId.replace(/_/g, " ")];
+  for (const term of searchTerms) {
+    try {
+      const link = page.locator(`nav a:has-text("${term}"), [role="tablist"] button:has-text("${term}"), .sidebar a:has-text("${term}"), a:has-text("${term}")`).first();
+      if (await link.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await link.click();
+        await Promise.race([
+          page.waitForLoadState("domcontentloaded").catch(() => {}),
+          page.waitForTimeout(5000),
+        ]);
+        return true;
+      }
+    } catch { /* try next */ }
+  }
+
+  return false;
+}
+
+/**
+ * Click a button matching one of several text patterns separated by "|".
+ */
+async function clickButtonByText(page: Page, textPatterns: string): Promise<boolean> {
+  for (const text of textPatterns.split("|")) {
+    try {
+      const btn = page.locator(`button:has-text("${text.trim()}"), a:has-text("${text.trim()}")`).first();
+      if (await btn.isVisible({ timeout: 1500 }).catch(() => false)) {
+        await btn.click();
+        return true;
+      }
+    } catch { /* try next pattern */ }
+  }
+  return false;
+}
+
+/**
+ * Map section IDs to "company" or "financial" fill kind for the existing form-mapping.
+ * Sections about money/budget use "financial"; everything else uses "company".
+ */
+function deriveFillKind(sectionId: string): "company" | "financial" {
+  const financialSections = ["finances", "funding_details", "budget", "resources", "costs", "financial"];
+  return financialSections.some((f) => sectionId.includes(f)) ? "financial" : "company";
 }

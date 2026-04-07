@@ -29,17 +29,32 @@ export interface FormFieldInfo {
 export async function launchGrantBrowser(): Promise<Browser> {
   return chromium.launch({
     headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-blink-features=AutomationControlled",
+    ],
   });
 }
+
+const STEALTH_SCRIPT = `
+  Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+  Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+  Object.defineProperty(navigator, 'languages', { get: () => ['en-GB', 'en-US', 'en'] });
+  window.chrome = { runtime: {} };
+`;
 
 export async function newGrantPage(browser: Browser): Promise<Page> {
   const context = await browser.newContext({
     viewport: VIEWPORT,
     userAgent:
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Grants-Copilot/1.0",
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     ignoreHTTPSErrors: true,
+    locale: "en-GB",
+    timezoneId: "Europe/London",
   });
+  await context.addInitScript(STEALTH_SCRIPT);
   const page = await context.newPage();
   page.setDefaultTimeout(ACTION_TIMEOUT_MS);
   return page;
@@ -50,17 +65,20 @@ export async function navigateToGrantUrl(
   url: string
 ): Promise<{ ok: boolean; status?: number; finalUrl?: string; error?: string }> {
   try {
+    console.log(`[browser] Navigating to: ${url}`);
     const res = await page.goto(url, {
       waitUntil: "domcontentloaded",
       timeout: NAV_TIMEOUT_MS,
     });
     const status = res?.status();
     const finalUrl = page.url();
+    console.log(`[browser] Navigation result: status=${status}, finalUrl=${finalUrl}`);
     const ok = status != null ? status < 400 : true;
     if (ok) return { ok: true, status, finalUrl };
     return { ok: false, status, finalUrl, error: `HTTP ${status ?? "unknown"}` };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    console.error(`[browser] Navigation error for ${url}: ${msg}`);
     return { ok: false, error: msg };
   }
 }

@@ -13,13 +13,15 @@ export interface GrantContext {
   objectives?: string;
 }
 
-function requiredEnv(name: string): string {
-  const v = process.env[name];
-  if (!v) throw new Error(`Missing env var: ${name}`);
-  return v;
+let _anthropic: Anthropic | null = null;
+function getAnthropic(): Anthropic {
+  if (!_anthropic) {
+    const key = process.env.ANTHROPIC_API_KEY;
+    if (!key) throw new Error("Missing env var: ANTHROPIC_API_KEY");
+    _anthropic = new Anthropic({ apiKey: key });
+  }
+  return _anthropic;
 }
-
-const anthropic = new Anthropic({ apiKey: requiredEnv("ANTHROPIC_API_KEY") });
 
 export interface MissingRequiredField {
   selector: string;
@@ -45,6 +47,10 @@ export interface FormFillOptions {
   grantContext: GrantContext;
   /** User-provided notes guiding what to emphasise for this specific grant. */
   focusNotes?: string;
+  /** Portal section name (e.g. "business_case", "scope") — tailors Claude's focus per section. */
+  sectionName?: string;
+  /** Profile fields most relevant to this section (from portal recipe). */
+  sectionProfileFocus?: string;
 }
 
 /**
@@ -132,11 +138,15 @@ async function getFormFillActionsWithVision(
     ? `\nAPPLICANT'S FOCUS DIRECTIVE (the applicant specifically wants you to emphasise these aspects for this grant):\n${fillOptions.focusNotes}\n`
     : "";
 
+  const sectionDirective = fillOptions.sectionName
+    ? `\nYou are filling the "${fillOptions.sectionName.replace(/_/g, " ")}" section of a multi-section application wizard.${fillOptions.sectionProfileFocus ? ` Focus on these profile aspects: ${fillOptions.sectionProfileFocus}.` : ""} Tailor every answer to what this specific section expects.\n`
+    : "";
+
   const prompt = `You are an expert grant writer filling an application form. You can SEE the form in the screenshot. Use it to understand the tone, theme, and any on-page instructions (word limits, format, focus areas).
 
 Grant context (use this to adapt how you write – match this grant's focus and language):
 ${grantBlurb}
-${focusDirective}
+${focusDirective}${sectionDirective}
 Form field metadata (use name or id for selector, e.g. input[name="company_name"] or #id). Respect maxLength and instruction:
 ${JSON.stringify(fields, null, 2)}
 
@@ -153,7 +163,7 @@ Instructions:
 - Return a single JSON object with two keys: "actions" (array of { "selector", "value", "type": "fill"|"select"|"check" }) and "missingRequired" (array of { "selector", "label", "hint" } for required fields with no value). Use the exact selectors from the field list.
 - Return ONLY the JSON object, no markdown.`;
 
-  const res = await anthropic.messages.create({
+  const res = await getAnthropic().messages.create({
     model: "claude-sonnet-4-20250514",
     max_tokens: 4000,
     messages: [
@@ -236,7 +246,7 @@ ${userAnswers && Object.keys(userAnswers).length > 0 ? `\nThe user has already p
 
 Return ONLY the JSON object, no markdown.`;
 
-  const res = await anthropic.messages.create({
+  const res = await getAnthropic().messages.create({
     model: "claude-sonnet-4-20250514",
     max_tokens: 4000,
     messages: [{ role: "user", content: prompt }],
@@ -420,7 +430,7 @@ ${documentNames.map((n, i) => `${i}: ${n}`).join("\n")}
 Match each file input (by its visible label/instruction) to the most appropriate document. Return ONLY a JSON array: [ { "selector": "<exact selector from list>", "documentIndex": 0 }, ... ]. One entry per file input. documentIndex must be between 0 and ${documentNames.length - 1}.`;
 
   try {
-    const res = await anthropic.messages.create({
+    const res = await getAnthropic().messages.create({
       model: "claude-sonnet-4-20250514",
       max_tokens: 500,
       messages: [
@@ -484,12 +494,13 @@ ${documentNames.map((n, i) => `${i}: ${n}`).join("\n")}
 
 Return ONLY a JSON array: [ { "selector": "...", "documentIndex": 0 }, ... ]. One entry per file input. documentIndex must be between 0 and ${documentNames.length - 1}.`;
 
-  return anthropic.messages.create({
+  return getAnthropic().messages.create({
     model: "claude-sonnet-4-20250514",
     max_tokens: 500,
     messages: [{ role: "user", content: prompt }],
-  }).then((res) => {
-    const text = res.content?.[0]?.type === "text" ? res.content[0].text : "";
+  }).then((res: { content?: Array<{ type: string; text?: string }> }) => {
+    const text =
+      res.content?.[0]?.type === "text" ? (res.content[0].text ?? "") : "";
     const parsed = parseFileInputMappingResponse(text, fileInputSelectors, documentNames);
     if (parsed.length > 0) return parsed;
     return fileInputSelectors.slice(0, documentNames.length).map((sel, i) => ({
@@ -518,7 +529,7 @@ For each one return: kind ("video" or "document"), label (short label), category
 Return ONLY a JSON array. Example: [{"kind":"document","label":"Business plan","categoryHint":"business_plan"},{"kind":"video","label":"Pitch video","categoryHint":"pitch_video","maxDurationMinutes":5}]. If no clear upload requirements are visible, return []. Do not invent requirements.`;
 
   try {
-    const res = await anthropic.messages.create({
+    const res = await getAnthropic().messages.create({
       model: "claude-sonnet-4-20250514",
       max_tokens: 1024,
       messages: [

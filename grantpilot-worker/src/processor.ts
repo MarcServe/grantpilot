@@ -5,6 +5,7 @@ import { fetchProfileAndDocuments } from "./profile-data.js";
 import { launchGrantBrowser, newGrantPage } from "./browser.js";
 import { runGrantStep } from "./grant-steps.js";
 import { getNextScoutJob, processScoutJob, ApiCreditError, resolveScoutMode } from "./scout.js";
+import { getPortalRecipe, toRecipeRef, type PortalRecipeRef } from "./portals/index.js";
 
 const POLL_INTERVAL_MS = 5000;
 const PROGRESS_UPDATE_EVERY = 5;
@@ -135,6 +136,63 @@ async function fetchGrantContext(grantId: string | null): Promise<{ name: string
   };
 }
 
+/** Resolve a portal recipe for a grant URL. Checks session items' extra_data first, then URL lookup. */
+function resolvePortalRecipe(pending: CuSessionItem[], grantUrl: string | null): PortalRecipeRef | null {
+  for (const item of pending) {
+    const extra = item.extra_data as Record<string, unknown> | null;
+    if (extra?.portalRecipe) return extra.portalRecipe as PortalRecipeRef;
+  }
+  if (grantUrl) {
+    const recipe = getPortalRecipe(grantUrl);
+    if (recipe) return toRecipeRef(recipe);
+  }
+  return null;
+}
+
+/** Fetch encrypted portal credential for an org + portal host, and decrypt it. */
+async function fetchPortalCredentials(
+  orgId: string | null,
+  portalRecipe: PortalRecipeRef | null
+): Promise<{ username: string; password: string } | null> {
+  if (!orgId || !portalRecipe) return null;
+
+  // Derive the host from the portal recipe's loginUrl or id
+  let portalHost = "";
+  if (portalRecipe.loginUrl) {
+    try { portalHost = new URL(portalRecipe.loginUrl).hostname; } catch { /* ignore */ }
+  }
+  if (!portalHost) return null;
+
+  const { data } = await getSupabase()
+    .from("PortalCredential")
+    .select("username, encryptedPassword")
+    .eq("organisationId", orgId)
+    .eq("portalHost", portalHost)
+    .maybeSingle();
+
+  const row = data as { username?: string; encryptedPassword?: string } | null;
+  if (!row?.username || !row?.encryptedPassword) return null;
+
+  try {
+    const { createDecipheriv } = await import("crypto");
+    const keyHex = process.env.PORTAL_ENCRYPTION_KEY;
+    if (!keyHex || keyHex.length !== 64) return null;
+    const key = Buffer.from(keyHex, "hex");
+    const buf = Buffer.from(row.encryptedPassword, "base64");
+    if (buf.length < 29) return null; // iv(12) + min ciphertext(1) + tag(16)
+    const iv = buf.subarray(0, 12);
+    const tag = buf.subarray(buf.length - 16);
+    const ciphertext = buf.subarray(12, buf.length - 16);
+    const decipher = createDecipheriv("aes-256-gcm", key, iv);
+    decipher.setAuthTag(tag);
+    const password = decipher.update(ciphertext) + decipher.final("utf8");
+    return { username: row.username, password };
+  } catch (e) {
+    console.error("[processor] credential decryption failed:", e);
+    return null;
+  }
+}
+
 /**
  * Process all pending grant_application items with one browser session.
  * Opens grant URL once, then runs fill/upload/prepare/submit steps in order.
@@ -182,6 +240,16 @@ async function processGrantApplicationSession(
     documents: [],
   };
 
+  // Resolve portal recipe from session items or grant URL
+  const grantUrl = pending[0]?.grant_url ?? null;
+  const portalRecipe = resolvePortalRecipe(pending, grantUrl);
+  const orgId = session.organisation_id ?? null;
+  const portalCredentials = await fetchPortalCredentials(orgId, portalRecipe);
+
+  if (portalRecipe) {
+    console.log(`[processor] Portal detected: ${portalRecipe.portalName} (${portalRecipe.id}), credentials: ${portalCredentials ? "yes" : "no"}`);
+  }
+
   const browser = await launchGrantBrowser();
   const page = await newGrantPage(browser);
   let processed = 0;
@@ -213,8 +281,26 @@ async function processGrantApplicationSession(
     }
   }
 
+  const NAVIGATION_ACTIONS = new Set(["open_grant_url", "navigate_to_form", "portal_navigate"]);
+
   try {
+    let navigationFailed = false;
+    let navigationFailReason = "";
+
     for (const item of pending) {
+      const action = (item.action ?? "").toLowerCase();
+
+      // If a navigation step already failed, skip all remaining steps
+      if (navigationFailed && !NAVIGATION_ACTIONS.has(action)) {
+        await markItemStatus(item.id, "skipped", {
+          extra_data: { notes: `Skipped: ${navigationFailReason}`, skipped_due_to_nav_failure: true },
+          processed_at: new Date().toISOString(),
+        });
+        await appendLog(session.id, "grant_application", action, `Skipped: navigation failed earlier`, false);
+        processed += 1;
+        continue;
+      }
+
       await markItemStatus(item.id, "processing");
       await appendLog(session.id, "item_processing", "update", `Item ${item.id} -> processing`);
 
@@ -224,13 +310,15 @@ async function processGrantApplicationSession(
 
       try {
         while (attempt < maxAttempts) {
-          const isSubmit = (item.action ?? "").toLowerCase() === "submit_application";
+          const isSubmit = action === "submit_application";
           lastResult = await runGrantStep(page, item, profile, documents, {
             requiredAttachments: requiredAttachments.length > 0 ? requiredAttachments : undefined,
             editedSnapshotFields: isSubmit ? editedSnapshotFields : undefined,
             needsInputAnswers,
             grantContext: grantContext ?? undefined,
             focusNotes,
+            portalRecipe,
+            portalCredentials,
           });
           if (lastResult.success) break;
           if (lastResult.situation) break;
@@ -248,6 +336,12 @@ async function processGrantApplicationSession(
         }
 
         const result = lastResult!;
+
+        // When a navigation step fails, abort all subsequent fill/review steps
+        if (!result.success && NAVIGATION_ACTIONS.has(action)) {
+          navigationFailed = true;
+          navigationFailReason = result.notes;
+        }
         const isNeedsInput = result.needsInput && result.missingRequired && result.missingRequired.length > 0;
         const itemStatus = isNeedsInput
           ? "pending"

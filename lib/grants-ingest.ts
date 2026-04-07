@@ -46,8 +46,8 @@ export interface GrantInput {
   regions?: string[];
   /** Which regions this funder serves: US, UK, EU, Global. Used to match user preference. */
   funderLocations?: string[];
-  /** Origin: default (feed/manual), claude, openai, gemini for multi-agent discovery. */
-  source?: "default" | "claude" | "openai" | "gemini";
+  /** Origin: default (feed/manual), claude, openai, gemini, perplexity for multi-agent discovery; grants-gov for federal sync. */
+  source?: "default" | "claude" | "openai" | "gemini" | "perplexity" | "grants-gov";
 }
 
 function toArray(x: unknown): string[] {
@@ -84,8 +84,9 @@ export function parseGrantRow(row: unknown): GrantInput | null {
 
   const funderLocations = toArray(o.funderLocations ?? o.funder_locations);
   const applicantTypes = toArray(o.applicantTypes ?? o.applicant_types);
-  const source = typeof o.source === "string" && ["default", "claude", "openai", "gemini"].includes(o.source)
-    ? (o.source as "default" | "claude" | "openai" | "gemini")
+  const source = typeof o.source === "string" &&
+    ["default", "claude", "openai", "gemini", "perplexity", "grants-gov"].includes(o.source)
+    ? (o.source as GrantInput["source"])
     : undefined;
   return {
     externalId: externalId || undefined,

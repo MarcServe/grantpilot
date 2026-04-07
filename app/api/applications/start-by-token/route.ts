@@ -6,17 +6,9 @@ import { inngest } from "@/inngest/client";
 import { checkUsageLimit, recordUsage } from "@/lib/plan-check";
 import { verifyStartApplicationToken } from "@/lib/start-application-token";
 import { createDefaultTasksForApplication } from "@/lib/application-tasks";
+import { buildSessionItems, matchPortalRecipe } from "@/lib/session-items";
 
 const bodySchema = z.object({ token: z.string().min(1) });
-
-const SESSION_ITEMS_BASE = [
-  { action: "open_grant_url", task_type: "grant_application" },
-  { action: "navigate_to_form", task_type: "grant_application" },
-  { action: "fill_company_details", task_type: "grant_application" },
-  { action: "fill_financials", task_type: "grant_application" },
-  { action: "upload_documents", task_type: "grant_application" },
-  { action: "prepare_review", task_type: "grant_application" },
-];
 
 export async function POST(req: Request): Promise<NextResponse> {
   try {
@@ -183,13 +175,16 @@ export async function POST(req: Request): Promise<NextResponse> {
     }
 
     const publicId = `grantapp_${application.id}`;
+    const portalRecipe = matchPortalRecipe(grant.applicationUrl ?? "");
+    const sessionItemDefs = buildSessionItems({ portalRecipe });
+
     const { data: session, error: sessionError } = await supabase
       .from("cu_sessions")
       .insert({
         public_id: publicId,
         task_type: "grant_application",
         status: "running",
-        total_items: SESSION_ITEMS_BASE.length,
+        total_items: sessionItemDefs.length,
         processed_items: 0,
         organisation_id: orgId,
         business_profile_id: profileId,
@@ -206,7 +201,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       );
     }
 
-    const items = SESSION_ITEMS_BASE.map((item) => ({
+    const items = sessionItemDefs.map((item) => ({
       session_id: session.id,
       task_type: item.task_type,
       action: item.action,
@@ -214,6 +209,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       grant_name: grant.name,
       grant_url: grant.applicationUrl,
       status: "pending",
+      ...(item.extra_data ? { extra_data: item.extra_data } : {}),
     }));
 
     await supabase.from("cu_session_items").insert(items);

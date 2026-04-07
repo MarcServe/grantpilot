@@ -12,6 +12,7 @@ import {
   FileText,
   CreditCard,
   Brain,
+  Settings,
   Menu,
 } from "lucide-react";
 import {
@@ -32,6 +33,7 @@ const navItems = [
   { href: "/applications", label: "Applications", icon: FileText },
   { href: "/intelligence", label: "Intelligence", icon: Brain },
   { href: "/billing", label: "Billing", icon: CreditCard },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 function NavLinks({ className, onLinkClick }: { className?: string; onLinkClick?: () => void }) {

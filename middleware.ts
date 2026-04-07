@@ -9,6 +9,7 @@ const protectedPaths = [
   "/billing",
   "/intelligence",
   "/admin",
+  "/settings",
 ];
 
 export async function middleware(request: NextRequest) {

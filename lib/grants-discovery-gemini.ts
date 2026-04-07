@@ -15,7 +15,7 @@ function buildPrompt(profile: DiscoveryProfile): string {
   const regions = profile.funderLocations?.length
     ? profile.funderLocations.join(", ")
     : "UK, and if relevant US or EU";
-  return `You are a grant research expert. Given this business profile, list real or representative grants that could fit. Focus on ${regions} funders (e.g. Innovate UK, British Business Bank, UK government schemes, or US/EU equivalents if in scope).
+  return `You are a grant research expert. List REAL grants that currently exist and are open for this business. Focus on ${regions}.
 
 Business profile:
 - Name: ${profile.businessName}
@@ -25,18 +25,34 @@ Business profile:
 - Funding needed: £${profile.fundingMin.toLocaleString("en-GB")} – £${profile.fundingMax.toLocaleString("en-GB")}
 - Purposes: ${profile.fundingPurposes.join(", ")}
 
-Return a JSON array of grant objects. Each object must have:
-- name (string): grant or programme name
-- funder (string): organisation name
-- amount (number or null): max funding amount if known
-- deadline (string or null): ISO date e.g. "2026-06-30"
-- applicationUrl (string): direct URL to the application form or competition apply page (required). Prefer the actual form URL when known (e.g. Airtable, Typeform) so users and automation open the form directly—not the programme info page. Never use only a funder homepage or generic info page. If you only have a programme URL, use it; the app can later discover the form link.
-- eligibility (string): short eligibility summary
-- sectors (string array): e.g. ["Technology", "Healthcare"]
-- regions (string array): e.g. ["England", "UK"]
-- applicantTypes (string array): eligible applicant/entity types if known, e.g. ["Public Sector", "Non-profit", "Private Sector"] — who can apply. Omit or empty array if unknown.
+PRIORITISE these funder types (direct-access grants with public forms):
+- Charity and foundation grants (Wellcome Trust, Esmée Fairbairn, Garfield Weston, Paul Hamlyn, National Lottery Community Fund, Arts Council, Sport England, Heritage Fund, Lloyds Bank Foundation)
+- Local enterprise partnerships and council grants
+- Small business and startup funds
+- Social enterprise and community grants
+- Sector-specific funds (tech, creative industry, green energy)
+- Corporate CSR grants (Google.org, Nesta, Unilever, Barclays)
 
-Use real funder and programme names where possible. Limit to ${MAX_GRANTS} grants. Return only the JSON array, no markdown or explanation.`;
+EXCLUDE (require portal login):
+- Innovate UK IFS portal
+- Find a Grant (gov.uk) portal
+- Grants.gov (US) portal
+- EU funding portal
+
+CRITICAL: Only include grants you are confident actually exist. The applicationUrl must be a real page for that specific grant — not a homepage. Prefer direct application forms (Google Forms, Typeform, Submittable). Do NOT fabricate URLs.
+
+Return a JSON array. Each object must have:
+- name (string): exact grant/programme name
+- funder (string): organisation name
+- amount (number or null): max funding if known
+- deadline (string or null): ISO date e.g. "2026-06-30"
+- applicationUrl (string): real URL for this grant (required)
+- eligibility (string): short summary
+- sectors (string array): e.g. ["Technology"]
+- regions (string array): e.g. ["England", "UK"]
+- applicantTypes (string array): e.g. ["SME", "Charity"]
+
+Limit to ${MAX_GRANTS} grants. Return ONLY the JSON array.`;
 }
 
 export async function discoverGrantsWithGemini(

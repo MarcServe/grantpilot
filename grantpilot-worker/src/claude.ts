@@ -1,12 +1,14 @@
 import Anthropic from "@anthropic-ai/sdk";
 
-function requiredEnv(name: string): string {
-  const v = process.env[name];
-  if (!v) throw new Error(`Missing env var: ${name}`);
-  return v;
+let _anthropic: Anthropic | null = null;
+function getAnthropic(): Anthropic {
+  if (!_anthropic) {
+    const key = process.env.ANTHROPIC_API_KEY;
+    if (!key) throw new Error("Missing env var: ANTHROPIC_API_KEY");
+    _anthropic = new Anthropic({ apiKey: key });
+  }
+  return _anthropic;
 }
-
-const anthropic = new Anthropic({ apiKey: requiredEnv("ANTHROPIC_API_KEY") });
 
 export async function extractEmailFromUrl(
   url: string
@@ -21,7 +23,7 @@ Rules:
 - If none found, return email as null and explain in notes.
 - Do NOT hallucinate emails.`;
 
-  const res = await anthropic.messages.create({
+  const res = await getAnthropic().messages.create({
     model: "claude-sonnet-4-20250514",
     max_tokens: 600,
     messages: [{ role: "user", content: prompt }],

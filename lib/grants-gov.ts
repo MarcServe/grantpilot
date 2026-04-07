@@ -65,6 +65,7 @@ export function mapGrantsGovHitToGrant(hit: GrantsGovOppHit): GrantInput | null 
 
   return {
     externalId: `grants-gov-${id}`,
+    source: "grants-gov" as const,
     name: title,
     funder: agency,
     amount: null,

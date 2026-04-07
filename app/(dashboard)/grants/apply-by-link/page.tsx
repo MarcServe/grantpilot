@@ -12,7 +12,10 @@ export default async function ApplyByLinkPage({
   const sp = await searchParams;
   const profile = org.profiles?.[0];
   const hasProfile = !!profile;
-  const profileComplete = (profile?.completionScore ?? 0) >= 50;
+  const completionScore = (profile as { completionScore?: number; completion_score?: number } | undefined)?.completionScore
+    ?? (profile as { completion_score?: number } | undefined)?.completion_score
+    ?? 0;
+  const profileComplete = completionScore >= 30;
 
   return (
     <div className="mx-auto max-w-2xl p-6">
@@ -43,7 +46,7 @@ export default async function ApplyByLinkPage({
         </div>
       ) : !profileComplete ? (
         <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-          Complete at least 50% of your profile to use auto-fill.
+          Complete at least 30% of your profile to use auto-fill.
           <Link href="/profile" className="ml-1 font-medium text-foreground underline">
             Complete profile
           </Link>

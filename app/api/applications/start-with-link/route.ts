@@ -7,6 +7,7 @@ import { inngest } from "@/inngest/client";
 import { checkUsageLimit, recordUsage } from "@/lib/plan-check";
 import { enqueueGrantForScoutIfProgrammeUrl } from "@/lib/enqueue-scout";
 import { requestEligibilityRefresh } from "@/lib/eligibility-refresh-trigger";
+import { buildSessionItems, matchPortalRecipe } from "@/lib/session-items";
 
 const linkEntrySchema = z.object({
   applicationUrl: z.string().url("Please enter a valid grant application URL"),
@@ -29,19 +30,6 @@ const startWithLinkSchema = z.object({
   (d) => d.applicationUrl ?? (d.links && d.links.length > 0),
   { message: "Provide applicationUrl or at least one link in links", path: ["applicationUrl"] }
 );
-
-const SESSION_ITEMS_BASE = [
-  { action: "open_grant_url", task_type: "grant_application" },
-  { action: "navigate_to_form", task_type: "grant_application" },
-  { action: "fill_company_details", task_type: "grant_application" },
-  { action: "fill_financials", task_type: "grant_application" },
-  { action: "upload_documents", task_type: "grant_application" },
-  { action: "prepare_review", task_type: "grant_application" },
-];
-const SUBMIT_ITEM = { action: "submit_application", task_type: "grant_application" };
-function getSessionItems(autopilot: boolean) {
-  return autopilot ? [...SESSION_ITEMS_BASE, SUBMIT_ITEM] : SESSION_ITEMS_BASE;
-}
 
 function normalizeUrl(url: string): string {
   try {
@@ -106,7 +94,6 @@ export async function POST(req: Request): Promise<NextResponse> {
       );
     }
 
-    const sessionItems = getSessionItems(autopilot);
     const results: { applicationId: string; grantId: string; grantName: string }[] = [];
     const seenUrls = new Set<string>();
 
@@ -164,6 +151,9 @@ export async function POST(req: Request): Promise<NextResponse> {
 
       const publicId = `grantapp_${application.id}`;
 
+      const portalRecipe = matchPortalRecipe(applicationUrl);
+      const sessionItems = buildSessionItems({ autopilot, portalRecipe });
+
       const { data: session, error: sessionError } = await supabase
         .from("cu_sessions")
         .insert({
@@ -191,6 +181,7 @@ export async function POST(req: Request): Promise<NextResponse> {
         grant_name: grant.name,
         grant_url: grant.applicationUrl,
         status: "pending",
+        ...(item.extra_data ? { extra_data: item.extra_data } : {}),
       }));
 
       await supabase.from("cu_session_items").insert(items);

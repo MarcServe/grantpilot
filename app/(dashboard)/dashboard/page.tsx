@@ -132,11 +132,16 @@ export default async function DashboardPage() {
     const assessments = assessmentsData ?? [];
     const grantIds = (assessments as { grant_id: string; score: number; summary: string | null }[]).map((a) => a.grant_id);
     if (grantIds.length > 0) {
-      const { data: grantsListData } = await supabase
-        .from("Grant")
-        .select("id, name, funderLocations")
-        .in("id", grantIds);
-      const grantsList = (grantsListData ?? []) as { id: string; name: string; funderLocations?: string[] }[];
+      const BATCH = 200;
+      const allGrantsList: { id: string; name: string; funderLocations?: string[] }[] = [];
+      for (let i = 0; i < grantIds.length; i += BATCH) {
+        const { data: batch } = await supabase
+          .from("Grant")
+          .select("id, name, funderLocations")
+          .in("id", grantIds.slice(i, i + BATCH));
+        if (batch) allGrantsList.push(...(batch as typeof allGrantsList));
+      }
+      const grantsList = allGrantsList;
       const userFunderLocations = (profile as { funderLocations?: string[] }).funderLocations;
       const nameById = new Map(grantsList.map((g) => [g.id, g.name]));
       const matchesLocation = new Set(grantsList.filter((g) => grantMatchesFunderLocations(g.funderLocations, userFunderLocations)).map((g) => g.id));

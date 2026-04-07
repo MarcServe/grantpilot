@@ -63,6 +63,7 @@ model Organisation {
   profiles           BusinessProfile[]
   applications       Application[]
   usage              Usage[]
+  portalCredentials  PortalCredential[]
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
 }
@@ -142,7 +143,7 @@ model Grant {
   sectors          String[]
   regions          String[]
   funderLocations  String[]      @default([]) // US, UK, EU, Global – which regions this funder serves
-  source           String?                    // default, claude, openai, gemini
+  source           String?                    // default, claude, openai, gemini, perplexity, grants-gov
   url_status       String        @default("unknown") // live, dead, expired, unknown
   url_checked_at   DateTime?     // last time the URL was verified
   applications    Application[]
@@ -197,4 +198,19 @@ model NotificationLog {
   status    String
   error     String?
   createdAt DateTime @default(now())
+}
+
+model PortalCredential {
+  id                String       @id @default(cuid())
+  organisationId    String
+  organisation      Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  portalHost        String
+  portalName        String
+  username          String
+  encryptedPassword String
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@unique([organisationId, portalHost])
+  @@index([organisationId])
 }

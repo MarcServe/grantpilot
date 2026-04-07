@@ -11,8 +11,8 @@ import {
 } from "@/lib/grants-discovery";
 
 export const grantDiscovery = inngest.createFunction(
-  { id: "grant-discovery", name: "Multi-agent grant discovery (OpenAI + Gemini)" },
-  { cron: "30 6 * * *" }, // 6:30 UTC — discover new grants after sync
+  { id: "grant-discovery", name: "AI Web Search Grant Discovery (primary)" },
+  { cron: "30 */6 * * *" }, // every 6 hours — primary grant source via web search
   async () => {
     const supabase = getSupabaseAdmin();
     const { data } = await supabase

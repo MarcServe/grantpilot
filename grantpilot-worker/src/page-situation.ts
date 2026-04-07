@@ -16,6 +16,9 @@ export type PageSituation =
   | "info_page_with_apply"
   | "needs_verification"
   | "page_not_found"
+  | "portal_dashboard"
+  | "portal_section_list"
+  | "portal_terms"
   | "unknown";
 
 export interface PageSituationResult {
@@ -26,6 +29,13 @@ export interface PageSituationResult {
   applyButtonSelector?: string;
   /** Confidence: how sure are we this is the right classification (0-1). */
   confidence?: number;
+}
+
+/** A detected section in a multi-section application wizard. */
+export interface DetectedSection {
+  label: string;
+  selector: string;
+  completed: boolean;
 }
 
 export interface NavigationHints {
@@ -42,6 +52,9 @@ const VALID_SITUATIONS: PageSituation[] = [
   "info_page_with_apply",
   "needs_verification",
   "page_not_found",
+  "portal_dashboard",
+  "portal_section_list",
+  "portal_terms",
   "unknown",
 ];
 
@@ -69,6 +82,9 @@ Classify the page as exactly one of:
 - competition_list: list of schemes, competitions, or funding opportunities (NOT a single grant's application form)
 - info_page_with_apply: an information/description page about a specific grant that has an "Apply", "Start application", "Apply now", "Begin application", or similar button/link to start the actual application. This is NOT the form itself — it describes the grant and has a CTA to begin.
 - application_form: actual grant application form with multiple fillable fields (text inputs, textareas, dropdowns) that ask for applicant details like company name, project description, budget, etc. Must have at least 3 substantive form fields (not just search/filter/login).
+- portal_dashboard: a portal home/dashboard page (e.g. Innovate UK dashboard, Find a Grant applicant dashboard) showing existing applications or "Start new application" option
+- portal_section_list: a multi-section application overview with a list of sections/tasks to complete (e.g. sidebar navigation with section names and completion status)
+- portal_terms: terms and conditions, cookie consent, or legal agreement page that must be accepted before proceeding
 - page_not_found: 404 error, "we can't find that page", "page not found", broken/missing page
 - unknown: none of the above or unclear
 
@@ -76,6 +92,8 @@ IMPORTANT distinctions:
 - A page with just a search bar, filters, or cookie consent is NOT an application_form
 - A grant info page with an "Apply" button is info_page_with_apply, not application_form
 - Only classify as application_form if you can see actual form fields asking for applicant information
+- A portal dashboard with a list of in-progress applications is portal_dashboard, not application_form
+- A page showing application sections/tasks to complete is portal_section_list, not application_form
 
 If the page is info_page_with_apply, provide the best CSS selector for the Apply/Start button.
 If the page is competition_list, page_not_found, or unknown, set needsDirectUrl to true.
@@ -362,7 +380,128 @@ export async function quickPageCheck(page: Page): Promise<PageSituation> {
     if (notFoundPhrases.some((p) => body.includes(p))) {
       return "page_not_found";
     }
+    // Detect portal terms/conditions pages
+    const termsPhrases = ["terms and conditions", "accept the terms", "i agree to the terms", "privacy policy"];
+    if (termsPhrases.some((p) => body.includes(p)) && body.length < 10000) {
+      const hasAcceptBtn = document.querySelector('button:has-text("Accept"), button:has-text("I agree"), a:has-text("Accept")');
+      if (hasAcceptBtn) return "portal_terms";
+    }
     return "application_form";
   });
   return result as PageSituation;
+}
+
+/**
+ * Detect portal-specific page situations using URL patterns and known selectors.
+ * Faster than vision — should be checked first for known portals.
+ */
+export async function detectPortalPageSituation(
+  page: Page,
+  portalId: string
+): Promise<PageSituationResult | null> {
+  const url = page.url().toLowerCase();
+
+  // IFS-specific patterns
+  if (portalId === "innovate-uk-ifs") {
+    if (url.includes("/idp/login") || url.includes("/idp/profile")) {
+      return { situation: "login_required" };
+    }
+    // Competition landing (overview) — "Start new application" / sign-in; not a login form yet
+    if (url.includes("/competition/") && url.includes("/overview")) {
+      return { situation: "info_page_with_apply" };
+    }
+    if (url.includes("/applicant/dashboard") || url.includes("/dashboard")) {
+      return { situation: "portal_dashboard" };
+    }
+    if (url.includes("/application/") && url.includes("/summary")) {
+      return { situation: "portal_section_list" };
+    }
+    if (url.includes("/terms-and-conditions")) {
+      return { situation: "portal_terms" };
+    }
+  }
+
+  // Find a Grant patterns
+  if (portalId === "find-a-grant") {
+    if (url.includes("/apply/applicant") && !url.includes("/section")) {
+      return { situation: "portal_dashboard" };
+    }
+    if (url.includes("/section/")) {
+      return { situation: "application_form" };
+    }
+  }
+
+  // UKRI patterns
+  if (portalId === "ukri-funding") {
+    if (url.includes("/login") || url.includes("/sign-in")) {
+      return { situation: "login_required" };
+    }
+    if (url.includes("/dashboard") || url.includes("/applications")) {
+      return { situation: "portal_dashboard" };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Analyze sidebar/tab navigation on a multi-section application page.
+ * Returns detected sections with their labels, selectors, and completion status.
+ */
+export async function analyzeApplicationSections(page: Page): Promise<DetectedSection[]> {
+  const sections = await page.evaluate(() => {
+    const results: { label: string; selector: string; completed: boolean }[] = [];
+
+    // Strategy 1: Look for sidebar/task-list navigation links
+    const navSelectors = [
+      ".section-nav a", ".task-list a", "[class*='section'] a",
+      "nav a", ".application-nav a", "[role='navigation'] a",
+      ".sidebar a", ".side-nav a", "[class*='sidebar'] a",
+      "[role='tablist'] button", "[role='tablist'] a",
+    ];
+
+    for (const sel of navSelectors) {
+      const links = document.querySelectorAll(sel);
+      if (links.length < 2) continue;
+
+      links.forEach((el, idx) => {
+        const text = (el.textContent?.trim() ?? "").replace(/\s+/g, " ");
+        if (!text || text.length > 100) return;
+
+        // Skip generic nav items
+        const skip = /^(home|dashboard|back|logout|sign out|help|support|profile|settings)$/i;
+        if (skip.test(text)) return;
+
+        const htmlEl = el as HTMLElement;
+        const id = htmlEl.id;
+        let selector = "";
+        if (id) {
+          selector = `#${id}`;
+        } else {
+          const href = (el as HTMLAnchorElement).getAttribute("href");
+          if (href) {
+            selector = `${el.tagName.toLowerCase()}[href="${href}"]`;
+          } else {
+            selector = `${sel}:nth-child(${idx + 1})`;
+          }
+        }
+
+        // Detect completion: check for tick marks, "Complete", green styling
+        const parent = htmlEl.closest("li, div, [class*='task']") ?? htmlEl;
+        const parentText = parent.textContent?.toLowerCase() ?? "";
+        const completed = parentText.includes("complete") ||
+          parentText.includes("✓") ||
+          parentText.includes("✔") ||
+          parent.querySelector('[class*="complete"], [class*="done"], [class*="tick"], svg.complete') != null;
+
+        results.push({ label: text, selector, completed });
+      });
+
+      if (results.length > 0) break; // use the first nav that has sections
+    }
+
+    return results;
+  });
+
+  return sections;
 }

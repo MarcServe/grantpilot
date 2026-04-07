@@ -1,6 +1,6 @@
 /**
- * Grant discovery via OpenAI: given a business profile, ask the model to list
- * relevant grants (UK/US/EU). Results are tagged source "openai" and upserted.
+ * Primary grant discovery via OpenAI Responses API with web_search.
+ * Searches the live internet for real grant opportunities with verified URLs.
  */
 
 import OpenAI from "openai";
@@ -9,13 +9,13 @@ import { parseJsonArray, toGrantInput } from "./grants-discovery-types";
 import type { GrantInput } from "./grants-ingest";
 
 const DISCOVERY_MODEL = "gpt-4o-mini";
-const MAX_GRANTS = 15;
+const MAX_GRANTS = 20;
 
-function buildPrompt(profile: DiscoveryProfile): string {
+function buildSearchPrompt(profile: DiscoveryProfile): string {
   const regions = profile.funderLocations?.length
     ? profile.funderLocations.join(", ")
     : "UK, and if relevant US or EU";
-  return `You are a grant research expert. Given this business profile, list real or representative grants that could fit. Focus on ${regions} funders (e.g. Innovate UK, British Business Bank, UK government schemes, or US/EU equivalents if in scope).
+  return `You are a grant research expert with web search. Search the internet RIGHT NOW to find REAL, currently open grant opportunities for this business.
 
 Business profile:
 - Name: ${profile.businessName}
@@ -25,18 +25,60 @@ Business profile:
 - Funding needed: £${profile.fundingMin.toLocaleString("en-GB")} – £${profile.fundingMax.toLocaleString("en-GB")}
 - Purposes: ${profile.fundingPurposes.join(", ")}
 
-Return a JSON array of grant objects. Each object must have:
-- name (string): grant or programme name
-- funder (string): organisation name
-- amount (number or null): max funding amount if known
-- deadline (string or null): ISO date e.g. "2026-06-30"
-- applicationUrl (string): direct URL to the application form or competition apply page (required). Prefer the actual form URL when known (e.g. Airtable, Typeform) so users and automation open the form directly—not the programme info page. Never use only a funder homepage or generic info page. If you only have a programme URL, use it; the app can later discover the form link.
-- eligibility (string): short eligibility summary
-- sectors (string array): e.g. ["Technology", "Healthcare"]
-- regions (string array): e.g. ["England", "UK"]
-- applicantTypes (string array): eligible applicant/entity types if known, e.g. ["Public Sector", "Non-profit", "Private Sector"] — who can apply. Omit or empty array if unknown.
+Search for grants in: ${regions}
 
-Use real funder and programme names where possible. Limit to ${MAX_GRANTS} grants. Return only the JSON array, no markdown or explanation.`;
+SEARCH THESE TYPES OF FUNDERS (prioritise direct-access grants):
+- Charity and foundation grants (Wellcome Trust, Esmée Fairbairn, Garfield Weston, Paul Hamlyn, Joseph Rowntree, Lloyds Bank Foundation, Big Lottery / National Lottery Community Fund, Arts Council, Sport England, Heritage Fund)
+- Local enterprise partnerships and council grants
+- Small business grants and startup funds
+- Social enterprise and community grants
+- Sector-specific funds (tech accelerators, creative industry funds, green energy grants)
+- Corporate CSR grants (Google.org, Nesta, Unilever, Barclays Eagle Labs)
+- Grant aggregator sites (grantsonline.org.uk, fundingcentral.org.uk, grants4community.org.uk)
+
+PRIORITISE grants where the applicationUrl is a DIRECT application form:
+- Google Forms, Airtable, Typeform, Submittable, JotForm, SurveyMonkey Apply
+- Simple web forms on the funder's website
+- PDF application forms (downloadable)
+
+EXCLUDE these (they require portal login and cannot be automated):
+- Innovate UK IFS portal applications
+- Find a Grant (gov.uk) portal applications requiring sign-in
+- Grants.gov (US) portal applications
+- EU funding portal applications
+- Any URL that leads to a login/registration page
+
+CRITICAL:
+- Every applicationUrl MUST be a real URL you found during this web search
+- Do NOT fabricate, guess, or recall URLs from memory — only use URLs from search results
+- Only include grants that appear currently open for applications
+- If you cannot find the direct application URL, skip that grant entirely
+
+Return a JSON array of grant objects. Each must have:
+- name (string): exact grant name as shown on the website
+- funder (string): organisation name
+- amount (number or null): max funding amount if stated
+- deadline (string or null): ISO date if stated, e.g. "2026-06-30"
+- applicationUrl (string): the REAL URL you found via search (required)
+- eligibility (string): short eligibility summary from the page
+- sectors (string array): e.g. ["Technology", "Healthcare"]
+- regions (string array): e.g. ["England", "UK", "Wales"]
+- applicantTypes (string array): e.g. ["SME", "Charity", "Social Enterprise"]
+
+Find up to ${MAX_GRANTS} grants. Return ONLY the JSON array, no markdown or extra text.`;
+}
+
+function extractText(output: unknown[]): string {
+  for (const item of output as { type: string; content?: { type: string; text?: string }[] }[]) {
+    if (item.type === "message" && item.content) {
+      for (const block of item.content) {
+        if (block.type === "output_text" && block.text) {
+          return block.text;
+        }
+      }
+    }
+  }
+  return "";
 }
 
 export async function discoverGrantsWithOpenAI(
@@ -46,34 +88,53 @@ export async function discoverGrantsWithOpenAI(
   if (!apiKey) return [];
 
   const openai = new OpenAI({ apiKey });
-  const response = await openai.chat.completions.create({
+
+  const userLocation = profile.funderLocations?.includes("UK")
+    ? { type: "approximate" as const, country: "GB" }
+    : profile.funderLocations?.includes("US")
+      ? { type: "approximate" as const, country: "US" }
+      : undefined;
+
+  const webSearchTool: Record<string, unknown> = { type: "web_search_preview" };
+  if (userLocation) {
+    webSearchTool.user_location = userLocation;
+  }
+
+  const response = await openai.responses.create({
     model: DISCOVERY_MODEL,
-    messages: [{ role: "user", content: buildPrompt(profile) }],
-    response_format: { type: "json_object" },
+    tools: [webSearchTool as unknown as OpenAI.Responses.Tool],
+    input: buildSearchPrompt(profile),
   });
 
-  const content = response.choices[0]?.message?.content;
-  if (!content || typeof content !== "string") return [];
+  const text = extractText(response.output as unknown[]);
+  if (!text) {
+    console.warn("[grants-discovery-openai] web search returned no text");
+    return [];
+  }
+
+  const funderLocations = profile.funderLocations ?? [];
 
   try {
-    // API may return {"grants": [...]} or just [...]
-    const parsed = JSON.parse(content) as unknown;
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    const jsonStr = jsonMatch ? jsonMatch[0] : text;
+    const parsed = JSON.parse(jsonStr) as unknown;
     const arr = Array.isArray(parsed)
       ? parsed
       : Array.isArray((parsed as { grants?: unknown }).grants)
         ? (parsed as { grants: unknown[] }).grants
         : [];
     const rows = arr as DiscoveryGrantRow[];
-    const funderLocations = profile.funderLocations ?? [];
     const out: GrantInput[] = [];
     for (const row of rows) {
       const grant = toGrantInput(row, "openai", funderLocations);
       if (grant) out.push(grant);
     }
+    console.log(`[grants-discovery-openai] web search found ${out.length} grants`);
     return out;
   } catch {
-    const fallback = parseJsonArray<DiscoveryGrantRow>(content);
-    const funderLocations = profile.funderLocations ?? [];
-    return fallback.map((row) => toGrantInput(row, "openai", funderLocations)).filter((g): g is GrantInput => g != null);
+    const fallback = parseJsonArray<DiscoveryGrantRow>(text);
+    return fallback
+      .map((row) => toGrantInput(row, "openai", funderLocations))
+      .filter((g): g is GrantInput => g != null);
   }
 }

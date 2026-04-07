@@ -2,19 +2,21 @@ import Link from "next/link";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { grantMatchesFunderLocations } from "@/lib/constants";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Sparkles, Target, ArrowLeft, ArrowRight, Building2 } from "lucide-react";
-import { EligibleGrantCard, type EligibleGrant } from "@/components/grants/eligible-grant-card";
+import { ArrowLeft, ArrowRight, Building2 } from "lucide-react";
+import type { EligibleGrant } from "@/components/grants/eligible-grant-card";
+import { EligibleGrantsList } from "@/components/grants/eligible-grants-list";
 
 export default async function EligibleGrantsPage() {
   const { org, orgId } = await getActiveOrg();
   const supabase = getSupabaseAdmin();
 
   const profile = org.profiles?.[0];
-  const completionScore = profile?.completionScore ?? 0;
-  const profileId = profile?.id;
+  const completionScore = (profile as { completionScore?: number; completion_score?: number } | undefined)?.completionScore
+    ?? (profile as { completion_score?: number } | undefined)?.completion_score
+    ?? 0;
+  const profileId = (profile as { id?: string } | undefined)?.id;
 
   if (!profile || !profileId) {
     return (
@@ -42,12 +44,31 @@ export default async function EligibleGrantsPage() {
     );
   }
 
-  const { data: assessmentsData } = await supabase
+  // First try: filter by both org and profile
+  let { data: assessmentsData, error: assessmentsError } = await supabase
     .from("EligibilityAssessment")
     .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, updated_at")
     .eq("organisation_id", orgId)
     .eq("profile_id", profileId)
     .order("score", { ascending: false });
+
+  // Fallback: if nothing found with profileId, try org-only query
+  // (handles mismatch between profile ID in auth vs eligibility pipeline)
+  if ((!assessmentsData || assessmentsData.length === 0) && !assessmentsError) {
+    const fallback = await supabase
+      .from("EligibilityAssessment")
+      .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, updated_at, profile_id")
+      .eq("organisation_id", orgId)
+      .order("score", { ascending: false });
+    if (fallback.data && fallback.data.length > 0) {
+      console.warn(`[eligible-page] profileId mismatch: page uses "${profileId}" but DB has "${(fallback.data[0] as { profile_id: string }).profile_id}" — using org-only fallback (${fallback.data.length} rows)`);
+      assessmentsData = fallback.data;
+    }
+  }
+
+  if (assessmentsError) {
+    console.error("[eligible-page] assessments query error:", assessmentsError);
+  }
 
   const assessments = (assessmentsData ?? []) as {
     grant_id: string;
@@ -63,31 +84,45 @@ export default async function EligibleGrantsPage() {
   let grantsMap = new Map<string, { id: string; name: string; funder: string; deadline: string | null; funderLocations?: string[] }>();
 
   if (grantIds.length > 0) {
-    const { data: grantsData } = await supabase
-      .from("Grant")
-      .select("id, name, funder, deadline, funderLocations, url_status")
-      .in("id", grantIds);
+    // Batch .in() queries to avoid URL length limits (Supabase/PostgREST caps ~8KB)
+    const BATCH_SIZE = 200;
+    const allGrantsData: { id: string; name: string; funder: string; deadline: string | null; funderLocations?: string[]; url_status?: string }[] = [];
+    for (let i = 0; i < grantIds.length; i += BATCH_SIZE) {
+      const batch = grantIds.slice(i, i + BATCH_SIZE);
+      const { data: batchData, error: grantErr } = await supabase
+        .from("Grant")
+        .select("id, name, funder, deadline, funderLocations, url_status")
+        .in("id", batch);
+      if (grantErr) {
+        console.error("[eligible-page] grants query error:", grantErr);
+      }
+      if (batchData) allGrantsData.push(...(batchData as typeof allGrantsData));
+    }
 
-    const validGrants = (grantsData ?? []).filter(
-      (g: { url_status?: string }) => (g.url_status ?? "unknown") !== "dead" && (g.url_status ?? "unknown") !== "expired"
-    ) as { id: string; name: string; funder: string; deadline: string | null; funderLocations?: string[] }[];
+    const validGrants = allGrantsData.filter(
+      (g) => (g.url_status ?? "unknown") !== "dead" && (g.url_status ?? "unknown") !== "expired"
+    );
 
     const userFunderLocations = (profile as { funderLocations?: string[] }).funderLocations;
     const locationFiltered = validGrants.filter((g) =>
       grantMatchesFunderLocations(g.funderLocations, userFunderLocations)
     );
+
+    console.info(`[eligible-page] org=${orgId} profile=${profileId}: ${assessments.length} assessments, ${allGrantsData.length} grants fetched, ${validGrants.length} not dead/expired, ${locationFiltered.length} pass location filter`);
+
     grantsMap = new Map(locationFiltered.map((g) => [g.id, g]));
   }
 
-  const suggested: EligibleGrant[] = [];
-  const withinReach: EligibleGrant[] = [];
-  const other: EligibleGrant[] = [];
+  const allGrants: EligibleGrant[] = [];
+  let suggestedCount = 0;
+  let withinReachCount = 0;
+  let otherCount = 0;
 
   for (const a of assessments) {
     const grant = grantsMap.get(a.grant_id);
     if (!grant) continue;
 
-    const item: EligibleGrant = {
+    allGrants.push({
       grantId: a.grant_id,
       grantName: grant.name,
       funder: grant.funder,
@@ -97,14 +132,14 @@ export default async function EligibleGrantsPage() {
       summary: a.summary,
       missingCriteria: a.missing_criteria,
       improvementPlan: a.improvement_plan,
-    };
+    });
 
-    if (a.score >= 80) suggested.push(item);
-    else if (a.score >= 50) withinReach.push(item);
-    else other.push(item);
+    if (a.score >= 80) suggestedCount++;
+    else if (a.score >= 50) withinReachCount++;
+    else otherCount++;
   }
 
-  const totalScored = suggested.length + withinReach.length + other.length;
+  const totalScored = allGrants.length;
   const lastUpdated = assessments[0]?.updated_at;
 
   return (
@@ -144,24 +179,10 @@ export default async function EligibleGrantsPage() {
         </Card>
       )}
 
-      <div className="flex flex-wrap gap-3 mb-6">
-        <Badge variant="default" className="gap-1">
-          <Sparkles className="h-3 w-3" />
-          {suggested.length} suggested
-        </Badge>
-        <Badge variant="secondary" className="gap-1">
-          <Target className="h-3 w-3" />
-          {withinReach.length} within reach
-        </Badge>
-        <Badge variant="outline">
-          {other.length} other
-        </Badge>
-      </div>
-
       {totalScored === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-            <Sparkles className="h-10 w-10 text-muted-foreground" />
+            <Building2 className="h-10 w-10 text-muted-foreground" />
             <h2 className="mt-4 text-lg font-semibold">No scored grants yet</h2>
             <p className="mt-1 max-w-md text-sm text-muted-foreground">
               The eligibility pipeline runs daily at 8:30 AM in your timezone.
@@ -178,69 +199,10 @@ export default async function EligibleGrantsPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-8">
-          {suggested.length > 0 && (
-            <section>
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <Sparkles className="h-4 w-4 text-primary" />
-                    Suggested for you
-                  </CardTitle>
-                  <p className="text-sm font-normal text-muted-foreground">
-                    High eligibility — these grants are a strong fit for your business.
-                  </p>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {suggested.map((g) => (
-                    <EligibleGrantCard key={g.grantId} grant={g} />
-                  ))}
-                </CardContent>
-              </Card>
-            </section>
-          )}
-
-          {withinReach.length > 0 && (
-            <section>
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <Target className="h-4 w-4 text-amber-600" />
-                    Within reach
-                  </CardTitle>
-                  <p className="text-sm font-normal text-muted-foreground">
-                    Partial fit — see what you can do to improve your eligibility.
-                  </p>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {withinReach.map((g) => (
-                    <EligibleGrantCard key={g.grantId} grant={g} />
-                  ))}
-                </CardContent>
-              </Card>
-            </section>
-          )}
-
-          {other.length > 0 && (
-            <section>
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base text-muted-foreground">
-                    Other scored grants
-                  </CardTitle>
-                  <p className="text-sm font-normal text-muted-foreground">
-                    Lower fit — these may still be worth reviewing.
-                  </p>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {other.map((g) => (
-                    <EligibleGrantCard key={g.grantId} grant={g} />
-                  ))}
-                </CardContent>
-              </Card>
-            </section>
-          )}
-        </div>
+        <EligibleGrantsList
+          grants={allGrants}
+          counts={{ suggested: suggestedCount, withinReach: withinReachCount, other: otherCount }}
+        />
       )}
     </div>
   );
