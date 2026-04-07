@@ -18,6 +18,7 @@ const linkEntrySchema = z.object({
 const startWithLinkSchema = z.object({
   profileId: z.string().min(1, "Profile is required"),
   autopilot: z.boolean().optional(),
+  focusNotes: z.string().max(2000).optional(),
   applicationUrl: z.string().url().optional(),
   grantName: z.string().max(300).optional(),
   funder: z.string().max(200).optional(),
@@ -150,6 +151,7 @@ export async function POST(req: Request): Promise<NextResponse> {
           createdById: user.id,
           grantId: grant.id,
           profileId,
+          focusNotes: parsed.data.focusNotes?.trim() || null,
           status: "FILLING",
         })
         .select("id")

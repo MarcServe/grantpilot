@@ -15,6 +15,12 @@ export interface ProfileData {
   fundingPurposes: string[];
   fundingDetails: string | null;
   websiteIntelligence: string | null;
+  socialImpact: string | null;
+  innovationCapabilities: string | null;
+  sustainabilityInitiatives: string | null;
+  communityEngagement: string | null;
+  keyAchievements: string | null;
+  teamExpertise: string | null;
 }
 
 export interface DocumentData {
@@ -44,6 +50,12 @@ function normaliseProfile(row: Record<string, unknown>): ProfileData {
     fundingPurposes: Array.isArray(row.fundingPurposes) ? row.fundingPurposes as string[] : (Array.isArray(row.funding_purposes) ? row.funding_purposes as string[] : []),
     fundingDetails: row.fundingDetails != null ? String(row.fundingDetails) : (row.funding_details != null ? String(row.funding_details) : null),
     websiteIntelligence: row.websiteIntelligence != null ? String(row.websiteIntelligence) : (row.website_intelligence != null ? String(row.website_intelligence) : null),
+    socialImpact: row.socialImpact != null ? String(row.socialImpact) : (row.social_impact != null ? String(row.social_impact) : null),
+    innovationCapabilities: row.innovationCapabilities != null ? String(row.innovationCapabilities) : (row.innovation_capabilities != null ? String(row.innovation_capabilities) : null),
+    sustainabilityInitiatives: row.sustainabilityInitiatives != null ? String(row.sustainabilityInitiatives) : (row.sustainability_initiatives != null ? String(row.sustainability_initiatives) : null),
+    communityEngagement: row.communityEngagement != null ? String(row.communityEngagement) : (row.community_engagement != null ? String(row.community_engagement) : null),
+    keyAchievements: row.keyAchievements != null ? String(row.keyAchievements) : (row.key_achievements != null ? String(row.key_achievements) : null),
+    teamExpertise: row.teamExpertise != null ? String(row.teamExpertise) : (row.team_expertise != null ? String(row.team_expertise) : null),
   };
 }
 

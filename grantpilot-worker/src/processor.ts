@@ -172,6 +172,12 @@ async function processGrantApplicationSession(
       fundingPurposes: [],
       fundingDetails: null,
       websiteIntelligence: null,
+      socialImpact: null,
+      innovationCapabilities: null,
+      sustainabilityInitiatives: null,
+      communityEngagement: null,
+      keyAchievements: null,
+      teamExpertise: null,
     },
     documents: [],
   };
@@ -184,21 +190,26 @@ async function processGrantApplicationSession(
 
   let editedSnapshotFields: { label: string; name: string; value: string }[] | undefined;
   let needsInputAnswers: Record<string, string> | undefined;
+  let focusNotes: string | undefined;
   if (applicationId) {
     const { data: appRow } = await getSupabase()
       .from("Application")
-      .select("filled_snapshot, needs_input_answers")
+      .select("filled_snapshot, needs_input_answers, focusNotes")
       .eq("id", applicationId)
       .maybeSingle();
     const row = appRow as {
       filled_snapshot?: { fields?: { label: string; name: string; value: string }[] };
       needs_input_answers?: Record<string, string> | null;
+      focusNotes?: string | null;
     } | null;
     if (row?.filled_snapshot?.fields?.length) {
       editedSnapshotFields = row.filled_snapshot.fields;
     }
     if (row?.needs_input_answers && typeof row.needs_input_answers === "object") {
       needsInputAnswers = row.needs_input_answers as Record<string, string>;
+    }
+    if (row?.focusNotes) {
+      focusNotes = row.focusNotes;
     }
   }
 
@@ -219,6 +230,7 @@ async function processGrantApplicationSession(
             editedSnapshotFields: isSubmit ? editedSnapshotFields : undefined,
             needsInputAnswers,
             grantContext: grantContext ?? undefined,
+            focusNotes,
           });
           if (lastResult.success) break;
           if (lastResult.situation) break;

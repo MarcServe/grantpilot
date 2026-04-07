@@ -43,6 +43,8 @@ export async function getFormFillActions(
 export interface FormFillOptions {
   page: Page;
   grantContext: GrantContext;
+  /** User-provided notes guiding what to emphasise for this specific grant. */
+  focusNotes?: string;
 }
 
 /**
@@ -63,6 +65,23 @@ export async function getFormFillActionsWithMissing(
   return getFormFillActionsTextOnly(fields, profile, kind, userAnswers);
 }
 
+/**
+ * Build rich context sections from the profile for use in fill prompts.
+ * Selectively includes only non-empty sections, keeping the prompt focused.
+ */
+function buildRichProfileContext(profile: ProfileData): string {
+  const sections: string[] = [];
+  if (profile.keyAchievements) sections.push(`KEY ACHIEVEMENTS & MILESTONES:\n${profile.keyAchievements}`);
+  if (profile.socialImpact) sections.push(`SOCIAL IMPACT:\n${profile.socialImpact}`);
+  if (profile.innovationCapabilities) sections.push(`INNOVATION & R&D:\n${profile.innovationCapabilities}`);
+  if (profile.sustainabilityInitiatives) sections.push(`SUSTAINABILITY & ESG:\n${profile.sustainabilityInitiatives}`);
+  if (profile.communityEngagement) sections.push(`COMMUNITY & PARTNERSHIPS:\n${profile.communityEngagement}`);
+  if (profile.teamExpertise) sections.push(`TEAM EXPERTISE:\n${profile.teamExpertise}`);
+  if (profile.websiteIntelligence) sections.push(`WEBSITE INTELLIGENCE (use specific facts and achievements from here):\n${profile.websiteIntelligence}`);
+  if (sections.length === 0) return "";
+  return `\nRich profile sections (selectively use the most relevant sections for THIS grant — do not dump everything):\n${sections.join("\n\n")}\n`;
+}
+
 /** Vision-first: screenshot + grant context so values match the grant's tone and requirements. */
 async function getFormFillActionsWithVision(
   fields: FormFieldInfo[],
@@ -76,7 +95,7 @@ async function getFormFillActionsWithVision(
     const buf = await fillOptions.page.screenshot({ type: "png", fullPage: false });
     screenshotBase64 = buf.toString("base64");
   } catch {
-    return getFormFillActionsTextOnly(fields, profile, kind, userAnswers);
+    return getFormFillActionsTextOnly(fields, profile, kind, userAnswers, fillOptions);
   }
 
   const profileSlice =
@@ -107,31 +126,36 @@ async function getFormFillActionsWithVision(
     grant.objectives ? `Objectives: ${String(grant.objectives).slice(0, 1000)}` : "",
   ].filter(Boolean).join("\n");
 
-  const websiteCtx = profile.websiteIntelligence
-    ? `\nAdditional intelligence from the applicant's website (use specific facts, achievements, and capabilities mentioned here to write stronger, more detailed answers):\n${profile.websiteIntelligence}\n`
+  const richContext = buildRichProfileContext(profile);
+
+  const focusDirective = fillOptions.focusNotes
+    ? `\nAPPLICANT'S FOCUS DIRECTIVE (the applicant specifically wants you to emphasise these aspects for this grant):\n${fillOptions.focusNotes}\n`
     : "";
 
-  const prompt = `You are filling a grant application form. You can SEE the form in the screenshot. Use it to understand the tone, theme, and any on-page instructions (word limits, format, focus areas).
+  const prompt = `You are an expert grant writer filling an application form. You can SEE the form in the screenshot. Use it to understand the tone, theme, and any on-page instructions (word limits, format, focus areas).
 
 Grant context (use this to adapt how you write – match this grant's focus and language):
 ${grantBlurb}
-
+${focusDirective}
 Form field metadata (use name or id for selector, e.g. input[name="company_name"] or #id). Respect maxLength and instruction:
 ${JSON.stringify(fields, null, 2)}
 
-Applicant profile (${kind}) to draw from:
+Core applicant profile (${kind}):
 ${JSON.stringify(profileSlice, null, 2)}
-${websiteCtx}${userAnswers && Object.keys(userAnswers).length > 0 ? `\nUser-provided answers for missing fields:\n${JSON.stringify(userAnswers, null, 2)}` : ""}
+${richContext}${userAnswers && Object.keys(userAnswers).length > 0 ? `\nUser-provided answers for missing fields:\n${JSON.stringify(userAnswers, null, 2)}` : ""}
 
 Instructions:
-- Fill each field using the profile data but ADAPT the wording and emphasis to fit THIS grant (its eligibility, objectives, and tone). Do not paste the same generic text for every grant.
+- You are writing a TAILORED application, not a generic one. Analyse what THIS grant cares about (from its name, funder, eligibility, objectives, description) and emphasise the profile aspects that align best.
+- For descriptive/narrative fields: write compelling, specific answers that connect the applicant's strengths to what this funder values. Use concrete numbers, achievements, and examples from the rich profile sections.
+- If the grant focuses on innovation → emphasise R&D, IP, technical capabilities. If social impact → emphasise community work, beneficiaries, outcomes. If sustainability → emphasise ESG, green initiatives. Adapt accordingly.
+- If the applicant provided focus notes, prioritise what they asked you to emphasise.
 - Respect each field's maxLength and any word/character limits in instruction.
 - Return a single JSON object with two keys: "actions" (array of { "selector", "value", "type": "fill"|"select"|"check" }) and "missingRequired" (array of { "selector", "label", "hint" } for required fields with no value). Use the exact selectors from the field list.
 - Return ONLY the JSON object, no markdown.`;
 
   const res = await anthropic.messages.create({
     model: "claude-sonnet-4-20250514",
-    max_tokens: 2500,
+    max_tokens: 4000,
     messages: [
       {
         role: "user",
@@ -147,12 +171,13 @@ Instructions:
   return parseFormFillResponse(text, fields);
 }
 
-/** Text-only mapping (fallback when no vision or grant context). */
+/** Text-only mapping (fallback when no vision available; still uses grant context if provided). */
 async function getFormFillActionsTextOnly(
   fields: FormFieldInfo[],
   profile: ProfileData,
   kind: "company" | "financial",
-  userAnswers?: Record<string, string>
+  userAnswers?: Record<string, string>,
+  fillOptions?: FormFillOptions
 ): Promise<{ actions: FillAction[]; missingRequired: MissingRequiredField[] }> {
   const profileSlice =
     kind === "company"
@@ -174,12 +199,21 @@ async function getFormFillActionsTextOnly(
           fundingDetails: profile.fundingDetails,
         };
 
-  const websiteCtx = profile.websiteIntelligence
-    ? `\nAdditional intelligence from the applicant's website (use specific facts, achievements, and capabilities mentioned here to write stronger, more detailed answers):\n${profile.websiteIntelligence}\n`
+  const richContext = buildRichProfileContext(profile);
+
+  const grantSection = fillOptions?.grantContext
+    ? (() => {
+        const g = fillOptions.grantContext;
+        return `\nGrant context (adapt your writing to match this grant's focus and language):\nGrant: ${g.name}. Funder: ${g.funder}.\n${g.eligibility ? `Eligibility: ${g.eligibility.slice(0, 1500)}\n` : ""}${g.description ? `Description: ${g.description.slice(0, 1500)}\n` : ""}${g.objectives ? `Objectives: ${String(g.objectives).slice(0, 1000)}\n` : ""}`;
+      })()
     : "";
 
-  const prompt = `You are mapping business profile data to a grant application form.
+  const focusDirective = fillOptions?.focusNotes
+    ? `\nAPPLICANT'S FOCUS DIRECTIVE (emphasise these aspects for this grant):\n${fillOptions.focusNotes}\n`
+    : "";
 
+  const prompt = `You are an expert grant writer mapping business profile data to a grant application form.
+${grantSection}${focusDirective}
 Form fields (use name or id for selector, e.g. input[name="company_name"] or #company_name). Each field may include:
 - maxLength: maximum characters allowed (you MUST not exceed this).
 - instruction: helper text that may specify word/character limits (e.g. "Max 500 words", "200 characters max"). You MUST stay within these limits.
@@ -187,14 +221,15 @@ Form fields (use name or id for selector, e.g. input[name="company_name"] or #co
 
 ${JSON.stringify(fields, null, 2)}
 
-Profile data to use (${kind}):
+Core profile data (${kind}):
 ${JSON.stringify(profileSlice, null, 2)}
-${websiteCtx}
+${richContext}
 Return a single JSON object with two keys:
 1. "actions": array of fill actions. Each: { "selector": "css selector", "value": "string", "type": "fill" | "select" | "check" }.
    - Use "select" for dropdowns, "fill" for text/number/email/url, "check" for checkbox/radio.
    - Only include fields you can fill from the profile. For empty optional values omit the action.
-   - Write values in a natural, human tone. You MUST respect each field's maxLength and any word/character limits in instruction. Truncate or shorten so the value never exceeds the limit. Follow any format or content instructions (e.g. "describe in 3 sentences").
+   - Write TAILORED values that connect the applicant's strengths to what this specific grant/funder values. Use concrete numbers and achievements from the rich profile sections. Do not write generic boilerplate.
+   - You MUST respect each field's maxLength and any word/character limits in instruction.
 2. "missingRequired": array of form fields that appear REQUIRED (required: true, or label suggests mandatory) but for which the profile has no value. Each: { "selector": "css selector", "label": "field label for user", "hint": "short hint what to enter" }.
    - Only include fields that are clearly required and missing from profile. Use empty array if none.
 ${userAnswers && Object.keys(userAnswers).length > 0 ? `\nThe user has already provided these values for previously missing fields (use these to fill the form; do not list them in missingRequired):\n${JSON.stringify(userAnswers, null, 2)}` : ""}
@@ -203,7 +238,7 @@ Return ONLY the JSON object, no markdown.`;
 
   const res = await anthropic.messages.create({
     model: "claude-sonnet-4-20250514",
-    max_tokens: 2500,
+    max_tokens: 4000,
     messages: [{ role: "user", content: prompt }],
   });
 

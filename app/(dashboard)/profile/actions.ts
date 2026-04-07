@@ -7,11 +7,13 @@ import {
   step2Schema,
   step3Schema,
   step4Schema,
+  step6Schema,
   notificationPreferencesSchema,
   Step1Data,
   Step2Data,
   Step3Data,
   Step4Data,
+  Step6Data,
   NotificationPreferencesData,
 } from "@/lib/validations/profile";
 import { syncGrantMemoryFromProfile } from "@/lib/grant-memory";
@@ -298,6 +300,37 @@ export async function saveStep4(data: Step4Data) {
   await syncGrantMemoryForProfile(profile.id);
   await refreshProfileEmbedding(profile.id);
   await triggerEligibilityForOrg(orgId, "profile.step4.saved");
+
+  return { success: true };
+}
+
+export async function saveStep6(data: Step6Data) {
+  const parsed = step6Schema.safeParse(data);
+  if (!parsed.success) return { error: "Invalid data" };
+
+  const orgId = await getOrgId();
+  const profile = await getOrCreateProfile(orgId);
+
+  const supabase = getSupabaseAdmin();
+  const { data: updated, error: updateError } = await supabase
+    .from("BusinessProfile")
+    .update({
+      socialImpact: parsed.data.socialImpact || null,
+      innovationCapabilities: parsed.data.innovationCapabilities || null,
+      sustainabilityInitiatives: parsed.data.sustainabilityInitiatives || null,
+      communityEngagement: parsed.data.communityEngagement || null,
+      keyAchievements: parsed.data.keyAchievements || null,
+      teamExpertise: parsed.data.teamExpertise || null,
+    })
+    .eq("id", profile.id)
+    .select()
+    .single();
+
+  if (updateError || !updated) return { error: updateError?.message ?? "Update failed" };
+
+  await syncGrantMemoryForProfile(profile.id);
+  await refreshProfileEmbedding(profile.id);
+  await triggerEligibilityForOrg(orgId, "profile.step6.saved");
 
   return { success: true };
 }

@@ -36,6 +36,7 @@ export function ApplyByLinkForm({ profileId, prefillUrl, prefillGrantName, prefi
   const [funder, setFunder] = useState(prefillFunder ?? "");
   const [eligibility, setEligibility] = useState("");
   const [autopilot, setAutopilot] = useState(false);
+  const [focusNotes, setFocusNotes] = useState("");
   const [successApplications, setSuccessApplications] = useState<{ applicationId: string; grantName: string }[] | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -64,6 +65,7 @@ export function ApplyByLinkForm({ profileId, prefillUrl, prefillGrantName, prefi
       const body: {
         profileId: string;
         autopilot?: boolean;
+        focusNotes?: string;
         applicationUrl?: string;
         grantName?: string;
         funder?: string;
@@ -73,6 +75,7 @@ export function ApplyByLinkForm({ profileId, prefillUrl, prefillGrantName, prefi
       } = {
         profileId,
         autopilot: autopilot || undefined,
+        focusNotes: focusNotes.trim() || undefined,
         fixGrantId: fixGrantId || undefined,
       };
       const shared = {
@@ -199,6 +202,20 @@ export function ApplyByLinkForm({ profileId, prefillUrl, prefillGrantName, prefi
               className="mt-1 w-full min-h-[80px] rounded-md border border-input bg-background px-3 py-2 text-sm"
               maxLength={5000}
             />
+          </div>
+          <div>
+            <Label htmlFor="focusNotes">Focus notes for AI <span className="text-muted-foreground font-normal">(optional)</span></Label>
+            <textarea
+              id="focusNotes"
+              placeholder="e.g. Emphasise our sustainability work and community partnerships. Mention our NHS pilot results."
+              value={focusNotes}
+              onChange={(e) => setFocusNotes(e.target.value)}
+              className="mt-1 w-full min-h-[60px] rounded-md border border-input bg-background px-3 py-2 text-sm"
+              maxLength={2000}
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Guides the AI on what to emphasise when filling this specific grant application.
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <Checkbox

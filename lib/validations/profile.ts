@@ -72,6 +72,15 @@ export const step5Schema = z.object({
   })).optional(),
 });
 
+export const step6Schema = z.object({
+  socialImpact: z.string().optional(),
+  innovationCapabilities: z.string().optional(),
+  sustainabilityInitiatives: z.string().optional(),
+  communityEngagement: z.string().optional(),
+  keyAchievements: z.string().optional(),
+  teamExpertise: z.string().optional(),
+});
+
 /** Phone for WhatsApp: optional; if provided, must have at least 10 digits. */
 export const notificationPreferencesSchema = z.object({
   phoneNumber: z
@@ -90,6 +99,7 @@ export type Step2Data = z.infer<typeof step2Schema>;
 export type Step3Data = z.infer<typeof step3Schema>;
 export type Step4Data = z.infer<typeof step4Schema>;
 export type Step5Data = z.infer<typeof step5Schema>;
+export type Step6Data = z.infer<typeof step6Schema>;
 export type NotificationPreferencesData = z.infer<typeof notificationPreferencesSchema>;
 
 export const SECTORS = [

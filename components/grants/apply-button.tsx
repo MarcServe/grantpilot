@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
 import { Loader2, FileCheck, AlertTriangle, Zap } from "lucide-react";
 import { toast } from "sonner";
 
@@ -43,6 +44,7 @@ export function ApplyButton({ grantId, profileId, eligibilityScore }: ApplyButto
   const [missing, setMissing] = useState<RequiredAttachment[]>([]);
   const [required, setRequired] = useState<RequiredAttachment[]>([]);
   const [autopilot, setAutopilot] = useState(suggestAutopilot);
+  const [focusNotes, setFocusNotes] = useState("");
   const router = useRouter();
 
   useEffect(() => {
@@ -69,7 +71,7 @@ export function ApplyButton({ grantId, profileId, eligibilityScore }: ApplyButto
       const res = await fetch("/api/applications/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ grantId, profileId, autopilot: autopilot || undefined }),
+        body: JSON.stringify({ grantId, profileId, autopilot: autopilot || undefined, focusNotes: focusNotes.trim() || undefined }),
       });
 
       const data = await res.json();
@@ -131,6 +133,22 @@ export function ApplyButton({ grantId, profileId, eligibilityScore }: ApplyButto
             You&apos;re {eligibilityScore}% eligible — autopilot suggested for this grant (submit without approval).
           </p>
         )}
+        <div className="space-y-1.5">
+          <Label htmlFor="focus-notes" className="text-sm font-medium">
+            Focus notes for this application <span className="text-muted-foreground font-normal">(optional)</span>
+          </Label>
+          <Textarea
+            id="focus-notes"
+            value={focusNotes}
+            onChange={(e) => setFocusNotes(e.target.value)}
+            placeholder="e.g. Emphasise our sustainability work and community partnerships for this grant. Mention our NHS pilot results."
+            rows={2}
+            className="resize-y text-sm"
+          />
+          <p className="text-xs text-muted-foreground">
+            Tell the AI what to emphasise. This guides how your profile is adapted for this specific grant.
+          </p>
+        </div>
         <div className="flex items-center gap-2">
           <Checkbox
             id="autopilot-catalog"

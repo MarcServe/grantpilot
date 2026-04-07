@@ -12,6 +12,7 @@ const startSchema = z.object({
   grantId: z.string().min(1),
   profileId: z.string().min(1),
   autopilot: z.boolean().optional(),
+  focusNotes: z.string().optional(),
 });
 
 const SESSION_ITEMS_BASE = [
@@ -99,6 +100,7 @@ export async function POST(req: Request): Promise<NextResponse> {
         createdById: user.id,
         grantId,
         profileId,
+        focusNotes: parsed.data.focusNotes?.trim() || null,
         status: "FILLING",
         createdAt: now,
         updatedAt: now,

@@ -103,6 +103,12 @@ model BusinessProfile {
   funderLocations    String[]      @default([]) // US, UK, EU, Global – which funder regions user wants to see
   websiteUrl         String?
   websiteIntelligence String?      @db.Text     // AI-extracted summary from websiteUrl
+  socialImpact       String?       @db.Text     // Social impact track record
+  innovationCapabilities String?   @db.Text     // Innovation approach, R&D, IP
+  sustainabilityInitiatives String? @db.Text    // Green/ESG initiatives
+  communityEngagement String?      @db.Text     // Community partnerships, outreach
+  keyAchievements    String?       @db.Text     // Awards, milestones, growth metrics
+  teamExpertise      String?       @db.Text     // Key team skills, qualifications
   documents          Document[]
   applications       Application[]
   completionScore    Int           @default(0)
@@ -162,6 +168,7 @@ model Application {
   grant          Grant           @relation(fields: [grantId], references: [id])
   profileId      String
   profile        BusinessProfile @relation(fields: [profileId], references: [id])
+  focusNotes     String?         @db.Text     // User notes guiding AI for this specific grant
   status         AppStatus       @default(PENDING)
   submittedAt    DateTime?
   createdAt      DateTime        @default(now())

@@ -10,11 +10,13 @@ import { Step2Description } from "./step-2-description";
 import { Step3Financials } from "./step-3-financials";
 import { Step4Funding } from "./step-4-funding";
 import { Step5Documents } from "./step-5-documents";
+import { Step6GrantReadiness } from "./step-6-grant-readiness";
 import {
   saveStep1,
   saveStep2,
   saveStep3,
   saveStep4,
+  saveStep6,
   removeDocument,
 } from "@/app/(dashboard)/profile/actions";
 import type {
@@ -22,6 +24,7 @@ import type {
   Step2Data,
   Step3Data,
   Step4Data,
+  Step6Data,
 } from "@/lib/validations/profile";
 
 interface ProfileData {
@@ -41,6 +44,12 @@ interface ProfileData {
   fundingMax: number;
   fundingPurposes: string[];
   fundingDetails: string | null;
+  socialImpact: string | null;
+  innovationCapabilities: string | null;
+  sustainabilityInitiatives: string | null;
+  communityEngagement: string | null;
+  keyAchievements: string | null;
+  teamExpertise: string | null;
   completionScore: number;
   documents: {
     id: string;
@@ -58,6 +67,7 @@ const STEP_LABELS = [
   "Financials",
   "Funding Goals",
   "Documents",
+  "Grant Readiness",
 ];
 
 export function ProfileForm({ profile, initialStep = 1 }: { profile: ProfileData; initialStep?: number }) {
@@ -182,6 +192,21 @@ export function ProfileForm({ profile, initialStep = 1 }: { profile: ProfileData
     });
   }
 
+  function handleStep6(data: Step6Data) {
+    return new Promise<void>((resolve) => {
+      startTransition(async () => {
+        const result = await saveStep6(data);
+        if (result.error) {
+          toast.error(result.error);
+        } else {
+          toast.success("Grant readiness saved");
+          router.refresh();
+        }
+        resolve();
+      });
+    });
+  }
+
   function handleComplete() {
     toast.success("Profile complete! You can now browse and apply for grants.");
     window.location.href = "/dashboard";
@@ -192,7 +217,7 @@ export function ProfileForm({ profile, initialStep = 1 }: { profile: ProfileData
       <div>
         <div className="mb-2 flex items-center justify-between text-sm">
           <span className="font-medium">
-            Step {step} of 5: {STEP_LABELS[step - 1]}
+            Step {step} of 6: {STEP_LABELS[step - 1]}
           </span>
           <span className="text-muted-foreground">
             {Math.round(progressPercent)}% complete
@@ -270,6 +295,22 @@ export function ProfileForm({ profile, initialStep = 1 }: { profile: ProfileData
               onUpload={handleUpload}
               onRemove={handleRemoveDoc}
               onBack={() => setStep(4)}
+              onComplete={() => setStep(6)}
+              isPending={isPending}
+            />
+          )}
+          {step === 6 && (
+            <Step6GrantReadiness
+              defaultValues={{
+                socialImpact: profile.socialImpact ?? "",
+                innovationCapabilities: profile.innovationCapabilities ?? "",
+                sustainabilityInitiatives: profile.sustainabilityInitiatives ?? "",
+                communityEngagement: profile.communityEngagement ?? "",
+                keyAchievements: profile.keyAchievements ?? "",
+                teamExpertise: profile.teamExpertise ?? "",
+              }}
+              onSubmit={handleStep6}
+              onBack={() => setStep(5)}
               onComplete={handleComplete}
               isPending={isPending}
             />

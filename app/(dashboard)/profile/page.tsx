@@ -31,7 +31,7 @@ export default async function ProfilePage({
   const sp = await searchParams;
   const stepParam = sp.step != null ? parseInt(String(sp.step), 10) : NaN;
   const stepFromQuery =
-    Number.isFinite(stepParam) && stepParam >= 1 && stepParam <= 5 ? stepParam : null;
+    Number.isFinite(stepParam) && stepParam >= 1 && stepParam <= 6 ? stepParam : null;
 
   const [profile, { user }] = await Promise.all([getProfile(), getActiveOrg()]);
 

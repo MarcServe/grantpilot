@@ -58,6 +58,8 @@ export interface GrantStepOptions {
   needsInputAnswers?: Record<string, string>;
   /** Grant context for vision-first, tone-aware filling (name, funder, eligibility, description). */
   grantContext?: GrantContext;
+  /** User-provided notes guiding what to emphasise for this specific grant application. */
+  focusNotes?: string;
 }
 
 async function getFileInputSelectors(page: Page): Promise<string[]> {
@@ -296,7 +298,7 @@ export async function runGrantStep(
           console.log(`[fill_company] Step ${step}: ${rawFields.length} fields on page but all filtered as site chrome`);
         }
 
-        const fillOptions = options?.grantContext ? { page, grantContext: options.grantContext } : undefined;
+        const fillOptions = options?.grantContext ? { page, grantContext: options.grantContext, focusNotes: options?.focusNotes } : undefined;
         const { actions, missingRequired } = await getFormFillActionsWithMissing(
           fields,
           profile,
@@ -370,7 +372,7 @@ export async function runGrantStep(
         const rawFields = await getFormFields(page);
         const fields = await filterApplicationFields(rawFields);
 
-        const fillOptions = options?.grantContext ? { page, grantContext: options.grantContext } : undefined;
+        const fillOptions = options?.grantContext ? { page, grantContext: options.grantContext, focusNotes: options?.focusNotes } : undefined;
         const { actions, missingRequired } = await getFormFillActionsWithMissing(
           fields,
           profile,
@@ -536,7 +538,7 @@ export async function runGrantStep(
       } else {
         const rawFields = await getFormFields(page);
         const fields = await filterApplicationFields(rawFields);
-        const fillOptions = options?.grantContext ? { page, grantContext: options.grantContext } : undefined;
+        const fillOptions = options?.grantContext ? { page, grantContext: options.grantContext, focusNotes: options?.focusNotes } : undefined;
         const { actions: companyActions } = await getFormFillActionsWithMissing(
           fields,
           profile,
