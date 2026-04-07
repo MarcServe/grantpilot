@@ -38,9 +38,8 @@ function formatDeadline(deadline: string | null): string | null {
 
 export function EligibleGrantCard({ grant }: { grant: EligibleGrant }) {
   const deadlineStr = formatDeadline(grant.deadline);
-  const nowMs = new Date().getTime();
   const isDeadlineSoon =
-    grant.deadline && new Date(grant.deadline).getTime() - nowMs < 7 * 86_400_000;
+    grant.deadline && new Date(grant.deadline).getTime() - Date.now() < 7 * 86_400_000;
 
   const actions: string[] = [];
   if (grant.improvementPlan?.actions?.length) actions.push(...grant.improvementPlan.actions);
