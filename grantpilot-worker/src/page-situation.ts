@@ -1,7 +1,9 @@
 /**
  * Detect page situation after opening a grant URL so we can block fill steps
  * when the user must sign in, use a direct application link, or complete verification.
- * Uses vision (screenshot + Claude) first; falls back to DOM heuristics on API failure.
+ *
+ * Two-layer detection: vision (screenshot + Claude) first, DOM heuristics fallback.
+ * Also provides form-field analysis to distinguish real application fields from site chrome.
  */
 
 import Anthropic from "@anthropic-ai/sdk";
@@ -11,6 +13,7 @@ export type PageSituation =
   | "login_required"
   | "competition_list"
   | "application_form"
+  | "info_page_with_apply"
   | "needs_verification"
   | "page_not_found"
   | "unknown";
@@ -19,6 +22,10 @@ export interface PageSituationResult {
   situation: PageSituation;
   /** Set when situation is competition_list or page_not_found; app can prompt user to set direct URL. */
   needsDirectUrl?: boolean;
+  /** CSS selector for an "Apply" / "Start application" button when situation is info_page_with_apply. */
+  applyButtonSelector?: string;
+  /** Confidence: how sure are we this is the right classification (0-1). */
+  confidence?: number;
 }
 
 export interface NavigationHints {
@@ -32,6 +39,7 @@ const VALID_SITUATIONS: PageSituation[] = [
   "login_required",
   "competition_list",
   "application_form",
+  "info_page_with_apply",
   "needs_verification",
   "page_not_found",
   "unknown",
@@ -56,21 +64,28 @@ async function detectPageSituationWithVision(page: Page): Promise<PageSituationR
   const prompt = `Look at this screenshot of a webpage (URL: ${pageUrl}).
 
 Classify the page as exactly one of:
-- login_required: sign-in / log-in form, password field, or gateway
+- login_required: sign-in / log-in form, password field, or gateway requiring authentication
 - needs_verification: email verification, create account, confirm email, check inbox
-- competition_list: list of schemes, competitions, or funding opportunities (user should open a specific grant and use direct application URL)
-- application_form: actual grant application form with multiple fillable fields
-- page_not_found: 404 error, "we can't find that page", "page not found", "doesn't exist", or similar broken/missing page message (application link is broken)
+- competition_list: list of schemes, competitions, or funding opportunities (NOT a single grant's application form)
+- info_page_with_apply: an information/description page about a specific grant that has an "Apply", "Start application", "Apply now", "Begin application", or similar button/link to start the actual application. This is NOT the form itself — it describes the grant and has a CTA to begin.
+- application_form: actual grant application form with multiple fillable fields (text inputs, textareas, dropdowns) that ask for applicant details like company name, project description, budget, etc. Must have at least 3 substantive form fields (not just search/filter/login).
+- page_not_found: 404 error, "we can't find that page", "page not found", broken/missing page
 - unknown: none of the above or unclear
 
-If the page is a competition list or portal, set needsDirectUrl to true. If the page is page_not_found (404/broken link), set needsDirectUrl to true so the user is asked to update the application URL.
+IMPORTANT distinctions:
+- A page with just a search bar, filters, or cookie consent is NOT an application_form
+- A grant info page with an "Apply" button is info_page_with_apply, not application_form
+- Only classify as application_form if you can see actual form fields asking for applicant information
 
-Return ONLY a JSON object with two keys: "situation" (one of the strings above) and "needsDirectUrl" (boolean). No markdown.`;
+If the page is info_page_with_apply, provide the best CSS selector for the Apply/Start button.
+If the page is competition_list, page_not_found, or unknown, set needsDirectUrl to true.
+
+Return ONLY a JSON object: {"situation":"...","needsDirectUrl":false,"applyButtonSelector":null,"confidence":0.9}. No markdown.`;
 
   try {
     const res = await anthropic.messages.create({
       model: "claude-sonnet-4-20250514",
-      max_tokens: 200,
+      max_tokens: 300,
       messages: [
         {
           role: "user",
@@ -84,7 +99,12 @@ Return ONLY a JSON object with two keys: "situation" (one of the strings above) 
     const text = res.content?.[0]?.type === "text" ? res.content[0].text : "";
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     const jsonStr = jsonMatch ? jsonMatch[0] : text;
-    const parsed = JSON.parse(jsonStr) as { situation?: string; needsDirectUrl?: boolean };
+    const parsed = JSON.parse(jsonStr) as {
+      situation?: string;
+      needsDirectUrl?: boolean;
+      applyButtonSelector?: string | null;
+      confidence?: number;
+    };
     const situation = parsed.situation as string | undefined;
     if (!situation || !VALID_SITUATIONS.includes(situation as PageSituation)) {
       return null;
@@ -92,30 +112,91 @@ Return ONLY a JSON object with two keys: "situation" (one of the strings above) 
     return {
       situation: situation as PageSituation,
       ...(parsed.needsDirectUrl === true ? { needsDirectUrl: true } : {}),
+      ...(parsed.applyButtonSelector ? { applyButtonSelector: parsed.applyButtonSelector } : {}),
+      ...(typeof parsed.confidence === "number" ? { confidence: parsed.confidence } : {}),
     };
   } catch {
     return null;
   }
 }
 
+/** Patterns that indicate site chrome / non-application inputs */
+const CHROME_INPUT_PATTERNS = /^(search|q|query|s|keyword|filter|sort|lang|language|locale|cookie|consent|newsletter|subscribe|email_subscribe|signup_email|mc_email)$/i;
+const CHROME_LABEL_PATTERNS = /\b(search|filter|sort by|language|cookie|newsletter|subscribe|sign up for)\b/i;
+
 /**
- * Heuristic detection: login form, competition list, verify/register, or application form.
- * Order: login > verify > list > form > unknown.
+ * Analyze form fields on the page and determine if they are genuine application fields.
+ * Returns { applicationFieldCount, chromeFieldCount, totalFields }.
+ */
+export async function analyzeFormFields(page: Page): Promise<{
+  applicationFieldCount: number;
+  chromeFieldCount: number;
+  totalFields: number;
+}> {
+  const analysis = await page.evaluate(() => {
+    const inputs = document.querySelectorAll(
+      'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="password"]):not([type="file"]), textarea, select'
+    );
+    let appFields = 0;
+    let chromeFields = 0;
+    const chromeNames = /^(search|q|query|s|keyword|filter|sort|lang|language|locale|cookie|consent|newsletter|subscribe|email_subscribe|signup_email|mc_email)$/i;
+    const chromeLabels = /\b(search|filter|sort by|language|cookie|newsletter|subscribe|sign up for)\b/i;
+
+    inputs.forEach((el) => {
+      const name = ((el as HTMLInputElement).name || (el as HTMLInputElement).id || "").toLowerCase();
+      const type = ((el as HTMLInputElement).type || "").toLowerCase();
+      let label = "";
+      const forId = (el as HTMLInputElement).id;
+      if (forId) {
+        const labelEl = document.querySelector(`label[for="${forId}"]`);
+        if (labelEl) label = (labelEl as HTMLLabelElement).textContent?.trim().toLowerCase() ?? "";
+      }
+      if (!label) {
+        const parent = (el as HTMLElement).closest("label");
+        if (parent) label = parent.textContent?.trim().toLowerCase() ?? "";
+      }
+      const placeholder = ((el as HTMLInputElement).placeholder ?? "").toLowerCase();
+
+      if (
+        chromeNames.test(name) ||
+        chromeLabels.test(label) ||
+        chromeLabels.test(placeholder) ||
+        type === "search"
+      ) {
+        chromeFields++;
+      } else {
+        appFields++;
+      }
+    });
+
+    return { applicationFieldCount: appFields, chromeFieldCount: chromeFields, totalFields: appFields + chromeFields };
+  });
+  return analysis;
+}
+
+/** Common Apply / Start Application button patterns */
+const APPLY_BUTTON_TEXT = /\b(apply\s*(now|here|online)?|start\s*application|begin\s*application|start\s*your\s*application|submit\s*an?\s*application|apply\s*for\s*(this|the)\s*(grant|fund|scheme|competition))\b/i;
+
+/**
+ * DOM heuristic detection with field-aware analysis.
  */
 function detectPageSituationHeuristic(raw: {
   situation?: string;
   needsDirectUrl?: boolean;
+  applyButtonSelector?: string | null;
 }): PageSituationResult {
   const situation = (raw?.situation ?? "unknown") as PageSituation;
   const needsDirectUrl = raw?.needsDirectUrl === true;
   return {
     situation: VALID_SITUATIONS.includes(situation) ? situation : "unknown",
     ...(needsDirectUrl ? { needsDirectUrl: true } : {}),
+    ...(raw?.applyButtonSelector ? { applyButtonSelector: raw.applyButtonSelector } : {}),
   };
 }
 
 /**
  * Detect page situation: vision-first, then fall back to DOM heuristics.
+ * Enhanced with field-aware analysis to prevent classifying non-form pages as forms.
  */
 export async function detectPageSituation(page: Page, hints?: NavigationHints): Promise<PageSituationResult> {
   const navStatus = hints?.status;
@@ -138,95 +219,150 @@ export async function detectPageSituation(page: Page, hints?: NavigationHints): 
     const body = document.body?.innerText?.toLowerCase() ?? "";
     const html = document.documentElement?.innerHTML?.toLowerCase() ?? "";
 
-    // Login: password field or strong login signals
     const hasPassword = document.querySelector('input[type="password"]') != null;
     const loginPhrases = [
-      "sign in",
-      "log in",
-      "login",
-      "sign in to your account",
-      "government gateway",
-      "one login",
-      "submit your details to sign in",
+      "sign in", "log in", "login", "sign in to your account",
+      "government gateway", "one login", "submit your details to sign in",
     ];
     const hasLoginPhrase = loginPhrases.some((p) => body.includes(p) || html.includes(p));
     if (hasPassword || (hasLoginPhrase && body.length < 8000)) {
       return { situation: "login_required" };
     }
 
-    // Verification / create account
     const verifyPhrases = [
-      "verify your email",
-      "confirm your email",
-      "verify your e-mail",
-      "create an account",
-      "create your account",
-      "register for an account",
-      "check your inbox",
-      "verification link",
-      "confirm your email address",
+      "verify your email", "confirm your email", "verify your e-mail",
+      "create an account", "create your account", "register for an account",
+      "check your inbox", "verification link", "confirm your email address",
     ];
     if (verifyPhrases.some((p) => body.includes(p) || html.includes(p))) {
       return { situation: "needs_verification" };
     }
 
-    // 404 / page not found / broken link
     const notFoundPhrases = [
-      "we can't find that page",
-      "can't find that page",
-      "page not found",
-      "404",
-      "page you're looking for can't be found",
-      "doesn't exist",
-      "not found",
-      "this page doesn't exist",
+      "we can't find that page", "can't find that page", "page not found",
+      "404", "page you're looking for can't be found", "doesn't exist",
+      "not found", "this page doesn't exist",
     ];
     if (notFoundPhrases.some((p) => body.includes(p) || html.includes(p))) {
       return { situation: "page_not_found", needsDirectUrl: true };
     }
 
-    // Application form: meaningful set of fillable fields (not just search/login)
+    // Analyze inputs — distinguish application fields from site chrome
     const inputs = document.querySelectorAll(
-      'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="password"]), textarea, select'
+      'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="password"]):not([type="file"]), textarea, select'
     );
-    const count = inputs.length;
-    // If we have several form fields, treat as application form (we can fill)
-    if (count >= 3) {
+    const chromeNames = /^(search|q|query|s|keyword|filter|sort|lang|language|locale|cookie|consent|newsletter|subscribe|email_subscribe|signup_email|mc_email)$/i;
+    const chromeLabels = /\b(search|filter|sort by|language|cookie|newsletter|subscribe|sign up for)\b/i;
+    let appFieldCount = 0;
+    inputs.forEach((el) => {
+      const name = ((el as HTMLInputElement).name || (el as HTMLInputElement).id || "").toLowerCase();
+      const type = ((el as HTMLInputElement).type || "").toLowerCase();
+      let label = "";
+      const forId = (el as HTMLInputElement).id;
+      if (forId) {
+        const labelEl = document.querySelector(`label[for="${forId}"]`);
+        if (labelEl) label = (labelEl as HTMLLabelElement).textContent?.trim().toLowerCase() ?? "";
+      }
+      if (!label) {
+        const parent = (el as HTMLElement).closest("label");
+        if (parent) label = parent.textContent?.trim().toLowerCase() ?? "";
+      }
+      const placeholder = ((el as HTMLInputElement).placeholder ?? "").toLowerCase();
+
+      const isChrome =
+        chromeNames.test(name) ||
+        chromeLabels.test(label) ||
+        chromeLabels.test(placeholder) ||
+        type === "search";
+
+      if (!isChrome) appFieldCount++;
+    });
+
+    // Check for Apply/Start buttons on info pages
+    const applyPatterns = /\b(apply\s*(now|here|online)?|start\s*application|begin\s*application|start\s*your\s*application|apply\s*for\s*(this|the)\s*(grant|fund|scheme|competition))\b/i;
+    const buttons = document.querySelectorAll('a[href], button, input[type="submit"], [role="button"]');
+    let applyButtonSelector: string | null = null;
+    buttons.forEach((el) => {
+      if (applyButtonSelector) return;
+      const text = (el.textContent?.trim() ?? "") + " " + ((el as HTMLInputElement).value ?? "");
+      if (applyPatterns.test(text)) {
+        const id = (el as HTMLElement).id;
+        if (id) {
+          applyButtonSelector = `#${id}`;
+        } else {
+          const tag = el.tagName.toLowerCase();
+          const href = (el as HTMLAnchorElement).getAttribute("href");
+          if (href && tag === "a") {
+            applyButtonSelector = `a[href="${href}"]`;
+          } else {
+            const cls = (el as HTMLElement).className?.split(/\s+/).filter(c => c.length > 2).slice(0, 2).join(".");
+            if (cls) applyButtonSelector = `${tag}.${cls}`;
+          }
+        }
+      }
+    });
+
+    // If we found an Apply button and few application fields, it's an info page
+    if (applyButtonSelector && appFieldCount < 3) {
+      return { situation: "info_page_with_apply", applyButtonSelector };
+    }
+
+    // Genuine application form: 3+ non-chrome fields
+    if (appFieldCount >= 3) {
       return { situation: "application_form" };
     }
 
-    // Competition list / portal: list-like content, schemes/competitions wording, few form fields
+    // Competition list / portal detection
     const listPhrases = [
-      "find a grant",
-      "browse competitions",
-      "open competitions",
-      "current competitions",
-      "list of schemes",
-      "funding opportunities",
-      "apply for funding",
-      "view all competitions",
-      "search for funding",
+      "find a grant", "browse competitions", "open competitions",
+      "current competitions", "list of schemes", "funding opportunities",
+      "apply for funding", "view all competitions", "search for funding",
     ];
     const hasListPhrase = listPhrases.some((p) => body.includes(p) || html.includes(p));
     const linkCount = document.querySelectorAll('a[href]').length;
-    if (hasListPhrase && (count <= 2 || linkCount > 8)) {
+    if (hasListPhrase && (appFieldCount <= 2 || linkCount > 8)) {
       return { situation: "competition_list", needsDirectUrl: true };
     }
 
-    // Multiple links that look like grant/competition cards (e.g. repeated structure)
     const links = Array.from(document.querySelectorAll('a[href]'));
     const hrefs = links.map((a) => (a as HTMLAnchorElement).getAttribute("href") ?? "").filter(Boolean);
     const pathLike = hrefs.filter((h) => h.startsWith("/") && h.length > 5).length;
-    if (pathLike >= 5 && count <= 2) {
+    if (pathLike >= 5 && appFieldCount <= 2) {
       return { situation: "competition_list", needsDirectUrl: true };
     }
 
-    // Default: 2+ fillable fields treat as form; 0–1 fields treat as unknown and ask for direct URL
-    if (count >= 2) {
+    // 2 app fields = borderline, ask for direct URL
+    if (appFieldCount >= 2) {
       return { situation: "application_form" };
     }
+
     return { situation: "unknown", needsDirectUrl: true };
   });
 
-  return detectPageSituationHeuristic(raw as { situation?: string; needsDirectUrl?: boolean });
+  return detectPageSituationHeuristic(raw as { situation?: string; needsDirectUrl?: boolean; applyButtonSelector?: string | null });
+}
+
+/**
+ * Quick re-check of page situation (lightweight, no vision).
+ * Use between steps to catch unexpected login redirects or page changes.
+ */
+export async function quickPageCheck(page: Page): Promise<PageSituation> {
+  const result = await page.evaluate(() => {
+    const body = document.body?.innerText?.toLowerCase() ?? "";
+    const hasPassword = document.querySelector('input[type="password"]') != null;
+    const loginPhrases = ["sign in", "log in", "login", "sign in to your account"];
+    if (hasPassword || loginPhrases.some((p) => body.includes(p))) {
+      return "login_required";
+    }
+    const verifyPhrases = ["verify your email", "confirm your email", "create an account", "check your inbox"];
+    if (verifyPhrases.some((p) => body.includes(p))) {
+      return "needs_verification";
+    }
+    const notFoundPhrases = ["page not found", "404", "doesn't exist", "not found"];
+    if (notFoundPhrases.some((p) => body.includes(p))) {
+      return "page_not_found";
+    }
+    return "application_form";
+  });
+  return result as PageSituation;
 }

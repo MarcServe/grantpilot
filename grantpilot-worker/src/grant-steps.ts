@@ -12,6 +12,8 @@ import {
   clickNextOrContinueButton,
   cleanupTempFiles,
   getFilledFormSnapshot,
+  findAndClickApplyButton,
+  filterApplicationFields,
   type FilledFormSnapshot,
   type FilledField,
 } from "./browser.js";
@@ -21,7 +23,7 @@ import {
   buildUploadPlan,
   type RequiredAttachment,
 } from "./required-attachments.js";
-import { detectPageSituation, type PageSituation } from "./page-situation.js";
+import { detectPageSituation, quickPageCheck, analyzeFormFields, type PageSituation } from "./page-situation.js";
 
 export interface StepResult {
   success: boolean;
@@ -70,6 +72,39 @@ async function getFileInputSelectors(page: Page): Promise<string[]> {
     }).filter(Boolean);
   });
 }
+
+/**
+ * Run a pre-fill page situation check. Returns a StepResult if the page
+ * is not suitable for filling (login, verification, 404, etc.), or null if OK.
+ */
+async function preFillPageCheck(page: Page, stepName: string): Promise<StepResult | null> {
+  const situation = await quickPageCheck(page);
+  if (situation === "login_required") {
+    return {
+      success: false,
+      notes: `Page requires sign-in before ${stepName}. Sign in on the funder's site, then resume.`,
+      situation: "login_required",
+    };
+  }
+  if (situation === "needs_verification") {
+    return {
+      success: false,
+      notes: `Page requires account verification before ${stepName}. Complete that on the funder's site, then resume.`,
+      situation: "needs_verification",
+    };
+  }
+  if (situation === "page_not_found") {
+    return {
+      success: false,
+      notes: "Application link appears broken. Update the URL, then retry.",
+      situation: "page_not_found",
+      needsDirectUrl: true,
+    };
+  }
+  return null;
+}
+
+const MAX_NAVIGATE_ATTEMPTS = 3;
 
 export async function runGrantStep(
   page: Page,
@@ -133,23 +168,134 @@ export async function runGrantStep(
           needsDirectUrl: needsDirectUrl ?? true,
         };
       }
-      if (situation === "unknown") {
+      // info_page_with_apply and application_form both continue — navigate_to_form handles the rest
+      // unknown also passes through to let navigate_to_form attempt detection
+      return { success: true, notes: `Opened ${grantUrl} (page: ${situation})` };
+    }
+
+    case "navigate_to_form": {
+      // This step ensures we're on an actual application form before filling begins.
+      // It handles: info pages with Apply buttons, multi-click navigation, login gates.
+      let attempts = 0;
+
+      while (attempts < MAX_NAVIGATE_ATTEMPTS) {
+        const result = await detectPageSituation(page);
+        console.log(`[navigate_to_form] attempt ${attempts + 1}: situation=${result.situation}`);
+
+        if (result.situation === "application_form") {
+          // Verify this really has substantive application fields
+          const fieldAnalysis = await analyzeFormFields(page);
+          if (fieldAnalysis.applicationFieldCount >= 3) {
+            return {
+              success: true,
+              notes: `On application form (${fieldAnalysis.applicationFieldCount} fields, ${fieldAnalysis.chromeFieldCount} chrome fields filtered)`,
+            };
+          }
+          // Few real fields — might be a false positive, but proceed cautiously
+          if (fieldAnalysis.applicationFieldCount >= 1) {
+            return {
+              success: true,
+              notes: `On form with ${fieldAnalysis.applicationFieldCount} application field(s) — may be a wizard with more steps`,
+            };
+          }
+          // Zero application fields despite being classified as form — this is a false positive
+          return {
+            success: false,
+            notes: "Page was classified as a form but has no application fields (only search/filter/navigation inputs). Please provide a direct link to the application form.",
+            situation: "unknown",
+            needsDirectUrl: true,
+          };
+        }
+
+        if (result.situation === "info_page_with_apply") {
+          const { clicked, error } = await findAndClickApplyButton(page, result.applyButtonSelector);
+          if (clicked) {
+            await page.waitForTimeout(3000);
+            attempts++;
+            continue; // re-check after clicking
+          }
+          return {
+            success: false,
+            notes: `Found info page but could not click Apply button: ${error ?? "unknown"}. Please navigate to the form manually and provide the direct application URL.`,
+            situation: "unknown",
+            needsDirectUrl: true,
+          };
+        }
+
+        if (result.situation === "login_required") {
+          return {
+            success: false,
+            notes: "This grant requires you to sign in before accessing the application form. Sign in on the funder's site, then resume.",
+            situation: "login_required",
+          };
+        }
+
+        if (result.situation === "needs_verification") {
+          return {
+            success: false,
+            notes: "This grant requires account creation or email verification. Complete that on the funder's site, then resume.",
+            situation: "needs_verification",
+          };
+        }
+
+        if (result.situation === "competition_list") {
+          return {
+            success: false,
+            notes: "This link goes to a list of grants, not a specific application form. Please provide the direct application URL.",
+            situation: "competition_list",
+            needsDirectUrl: true,
+          };
+        }
+
+        if (result.situation === "page_not_found") {
+          return {
+            success: false,
+            notes: "This application link is broken. Please update the URL, then retry.",
+            situation: "page_not_found",
+            needsDirectUrl: true,
+          };
+        }
+
+        // unknown — try to find an Apply button anyway
+        const { clicked } = await findAndClickApplyButton(page);
+        if (clicked) {
+          await page.waitForTimeout(3000);
+          attempts++;
+          continue;
+        }
+
         return {
           success: false,
-          notes: "This page doesn't look like an application form. Please open the specific grant or application page and update the application URL, then retry.",
+          notes: "Could not find an application form or Apply button on this page. Please provide a direct link to the application form.",
           situation: "unknown",
-          needsDirectUrl: needsDirectUrl ?? true,
+          needsDirectUrl: true,
         };
       }
-      return { success: true, notes: `Opened ${grantUrl}` };
+
+      return {
+        success: false,
+        notes: `Navigated ${MAX_NAVIGATE_ATTEMPTS} times but could not reach an application form. The link may require manual navigation.`,
+        situation: "unknown",
+        needsDirectUrl: true,
+      };
     }
 
     case "fill_company_details": {
+      // Pre-fill page check
+      const pageCheck = await preFillPageCheck(page, "filling company details");
+      if (pageCheck) return pageCheck;
+
       const maxWizardSteps = 10;
       let totalApplied = 0;
       const allErrors: string[] = [];
       for (let step = 0; step < maxWizardSteps; step++) {
-        const fields = await getFormFields(page);
+        const rawFields = await getFormFields(page);
+        const fields = await filterApplicationFields(rawFields);
+
+        if (fields.length === 0 && rawFields.length > 0) {
+          console.log(`[fill_company] Step ${step}: ${rawFields.length} fields on page but all filtered as site chrome`);
+        }
+
         const fillOptions = options?.grantContext ? { page, grantContext: options.grantContext } : undefined;
         const { actions, missingRequired } = await getFormFillActionsWithMissing(
           fields,
@@ -170,41 +316,37 @@ export async function runGrantStep(
           const { applied, errors } = await applyFillActions(page, actions);
           totalApplied += applied;
           allErrors.push(...errors);
-          const { situation } = await detectPageSituation(page);
-          if (situation === "login_required") {
+
+          // Re-check page situation after filling (catch login redirects)
+          const postFillCheck = await quickPageCheck(page);
+          if (postFillCheck === "login_required") {
             return {
               success: false,
-              notes: "Page redirected to sign-in. Sign in on the funder's site, then use the bookmarklet or Resume.",
+              notes: "Page redirected to sign-in after filling. Sign in on the funder's site, then resume.",
               situation: "login_required",
             };
           }
-          if (situation === "needs_verification") {
+          if (postFillCheck === "needs_verification") {
             return {
               success: false,
-              notes: "Page requires account or email verification. Complete that on the funder's site, then use the bookmarklet or Resume.",
+              notes: "Page requires account or email verification. Complete that on the funder's site, then resume.",
               situation: "needs_verification",
-            };
-          }
-          if (situation === "competition_list") {
-            return {
-              success: false,
-              notes: "Page is a list of schemes. Use the direct application URL for this grant, then retry.",
-              situation: "competition_list",
-              needsDirectUrl: true,
-            };
-          }
-          if (situation === "page_not_found") {
-            return {
-              success: false,
-              notes: "Application link is broken (404). Update the application URL for this grant, then retry.",
-              situation: "page_not_found",
-              needsDirectUrl: true,
             };
           }
         }
         const clickedNext = await clickNextOrContinueButton(page);
         if (!clickedNext) break;
         await page.waitForTimeout(2000);
+
+        // Re-check after page transition
+        const transitionCheck = await quickPageCheck(page);
+        if (transitionCheck === "login_required") {
+          return {
+            success: false,
+            notes: "Page redirected to sign-in after wizard step. Sign in and resume.",
+            situation: "login_required",
+          };
+        }
       }
       if (totalApplied === 0) {
         return { success: true, skipped: true, notes: "No company fields on form; skipped" };
@@ -217,11 +359,17 @@ export async function runGrantStep(
     }
 
     case "fill_financials": {
+      // Pre-fill page check
+      const pageCheck = await preFillPageCheck(page, "filling financial details");
+      if (pageCheck) return pageCheck;
+
       const maxWizardSteps = 10;
       let totalApplied = 0;
       const allErrors: string[] = [];
       for (let step = 0; step < maxWizardSteps; step++) {
-        const fields = await getFormFields(page);
+        const rawFields = await getFormFields(page);
+        const fields = await filterApplicationFields(rawFields);
+
         const fillOptions = options?.grantContext ? { page, grantContext: options.grantContext } : undefined;
         const { actions, missingRequired } = await getFormFillActionsWithMissing(
           fields,
@@ -246,6 +394,16 @@ export async function runGrantStep(
         const clickedNext = await clickNextOrContinueButton(page);
         if (!clickedNext) break;
         await page.waitForTimeout(2000);
+
+        // Re-check after page transition
+        const transitionCheck = await quickPageCheck(page);
+        if (transitionCheck === "login_required") {
+          return {
+            success: false,
+            notes: "Page redirected to sign-in. Sign in and resume.",
+            situation: "login_required",
+          };
+        }
       }
       if (totalApplied === 0) {
         return { success: true, skipped: true, notes: "No financial fields on form; skipped" };
@@ -258,6 +416,10 @@ export async function runGrantStep(
     }
 
     case "upload_documents": {
+      // Pre-fill page check
+      const pageCheck = await preFillPageCheck(page, "uploading documents");
+      if (pageCheck) return pageCheck;
+
       const selectors = await getFileInputSelectors(page);
       if (selectors.length === 0) {
         return { success: true, skipped: true, notes: "No file inputs on form; skipped" };
@@ -286,7 +448,7 @@ export async function runGrantStep(
             paths.push(p);
           }
           if (plan.missing.length > 0) {
-            await page.evaluate(() => {}); // no-op, just for consistency
+            await page.evaluate(() => {}); // no-op
           }
           const { set, errors } = await setFileInputs(page, orderedSelectors, paths);
           cleanupTempFiles(tempPaths);
@@ -326,16 +488,43 @@ export async function runGrantStep(
     }
 
     case "prepare_review": {
+      // Pre-review validation: verify we actually filled substantive form fields
+      const fieldAnalysis = await analyzeFormFields(page);
+      if (fieldAnalysis.applicationFieldCount === 0 && fieldAnalysis.totalFields > 0) {
+        return {
+          success: false,
+          notes: `Page has ${fieldAnalysis.totalFields} inputs but none are application fields (all are search/filter/navigation). This does not appear to be a grant application form.`,
+          situation: "unknown",
+          needsDirectUrl: true,
+        };
+      }
+
       await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
       const snapshot = await getFilledFormSnapshot(page);
+
+      // Check that the snapshot has meaningful filled values
+      const filledFields = snapshot.fields.filter((f) => f.value && f.value.trim().length > 0);
+      if (filledFields.length === 0) {
+        return {
+          success: false,
+          notes: "No fields were filled on this page. The application form may require login or a different URL.",
+          situation: "unknown",
+          needsDirectUrl: true,
+        };
+      }
+
       return {
         success: true,
-        notes: "Form ready for review",
+        notes: `Form ready for review (${filledFields.length} fields filled)`,
         snapshot,
       };
     }
 
     case "submit_application": {
+      // Pre-fill page check
+      const pageCheck = await preFillPageCheck(page, "submitting");
+      if (pageCheck) return pageCheck;
+
       if (grantUrl) {
         const { ok, error: navErr } = await navigateToGrantUrl(page, grantUrl);
         if (!ok) return { success: false, notes: navErr ?? "Navigate failed" };
@@ -345,7 +534,8 @@ export async function runGrantStep(
       if (editedFields && editedFields.length > 0) {
         await applySnapshotValues(page, editedFields);
       } else {
-        const fields = await getFormFields(page);
+        const rawFields = await getFormFields(page);
+        const fields = await filterApplicationFields(rawFields);
         const fillOptions = options?.grantContext ? { page, grantContext: options.grantContext } : undefined;
         const { actions: companyActions } = await getFormFillActionsWithMissing(
           fields,

@@ -347,7 +347,7 @@ const NEXT_LABELS = /next|continue|next step|next section|proceed|go to next/i;
  */
 async function getButtonSelectorWithVision(
   page: Page,
-  intent: "next" | "submit"
+  intent: "next" | "submit" | "apply"
 ): Promise<string | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey?.trim()) return null;
@@ -361,7 +361,9 @@ async function getButtonSelectorWithVision(
   const prompt =
     intent === "submit"
       ? `Look at this screenshot of a form. Find the main "Submit" or "Send" or "Submit application" button. Return ONLY a valid CSS selector that targets that button (e.g. button[type="submit"], input[value="Submit"], or a more specific selector). One line, no explanation.`
-      : `Look at this screenshot of a form. Find the "Next" or "Continue" or "Next step" button (NOT the final Submit button). Return ONLY a valid CSS selector that targets that button. One line, no explanation.`;
+      : intent === "apply"
+        ? `Look at this screenshot of a grant information page. Find the "Apply", "Apply now", "Start application", "Begin application", or similar button/link that starts the grant application process. Return ONLY a valid CSS selector that targets that button. One line, no explanation.`
+        : `Look at this screenshot of a form. Find the "Next" or "Continue" or "Next step" button (NOT the final Submit button). Return ONLY a valid CSS selector that targets that button. One line, no explanation.`;
   try {
     const anthropic = new Anthropic({ apiKey });
     const res = await anthropic.messages.create({
@@ -491,4 +493,108 @@ export function cleanupTempFiles(paths: string[]): void {
       // ignore
     }
   }
+}
+
+/** Apply button text patterns */
+const APPLY_BUTTON_TEXT = /\b(apply\s*(now|here|online)?|start\s*(your\s*)?application|begin\s*application|apply\s*for\s*(this|the)\s*(grant|fund|scheme|competition))\b/i;
+
+/**
+ * Find and click an "Apply" / "Start application" button on a grant info page.
+ * Tries the provided selector first (from vision detection), then DOM search, then vision fallback.
+ * Returns true if a button was found and clicked.
+ */
+export async function findAndClickApplyButton(
+  page: Page,
+  selectorHint?: string
+): Promise<{ clicked: boolean; error?: string }> {
+  // 1. Try the selector hint from page-situation vision detection
+  if (selectorHint) {
+    try {
+      const el = await page.$(selectorHint);
+      if (el) {
+        await el.scrollIntoViewIfNeeded();
+        await el.click();
+        await el.dispose();
+        await Promise.race([
+          page.waitForLoadState("domcontentloaded").catch(() => {}),
+          page.waitForTimeout(5000),
+        ]);
+        return { clicked: true };
+      }
+    } catch {
+      // selector didn't work, try other methods
+    }
+  }
+
+  // 2. DOM-based search for Apply buttons
+  const candidates = [
+    page.locator("a", { hasText: APPLY_BUTTON_TEXT }),
+    page.locator("button", { hasText: APPLY_BUTTON_TEXT }),
+    page.locator('input[type="submit"]', { hasText: APPLY_BUTTON_TEXT }),
+    page.locator('[role="button"]', { hasText: APPLY_BUTTON_TEXT }),
+  ];
+  for (const loc of candidates) {
+    try {
+      const count = await loc.count();
+      for (let i = 0; i < count; i++) {
+        const node = loc.nth(i);
+        if (await node.isVisible()) {
+          await node.scrollIntoViewIfNeeded();
+          await node.click();
+          await Promise.race([
+            page.waitForLoadState("domcontentloaded").catch(() => {}),
+            page.waitForTimeout(5000),
+          ]);
+          return { clicked: true };
+        }
+      }
+    } catch {
+      // try next
+    }
+  }
+
+  // 3. Vision fallback: ask Claude for the Apply button selector
+  const visionSelector = await getButtonSelectorWithVision(page, "apply");
+  if (visionSelector) {
+    try {
+      const el = await page.$(visionSelector);
+      if (el) {
+        await el.scrollIntoViewIfNeeded();
+        await el.click();
+        await el.dispose();
+        await Promise.race([
+          page.waitForLoadState("domcontentloaded").catch(() => {}),
+          page.waitForTimeout(5000),
+        ]);
+        return { clicked: true };
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return { clicked: false, error: "No Apply button found" };
+}
+
+/**
+ * Filter form fields to only those that look like genuine application fields,
+ * excluding site chrome (search bars, cookie toggles, newsletter, navigation).
+ */
+export async function filterApplicationFields(fields: FormFieldInfo[]): Promise<FormFieldInfo[]> {
+  const chromeNames = /^(search|q|query|s|keyword|filter|sort|lang|language|locale|cookie|consent|newsletter|subscribe|email_subscribe|signup_email|mc_email|mc-embedded-subscribe-email|__search|_search)$/i;
+  const chromeLabels = /\b(search|filter|sort by|language|cookie|newsletter|subscribe|sign up for|search the site|find a grant)\b/i;
+
+  return fields.filter((f) => {
+    const name = (f.name || "").toLowerCase();
+    const label = (f.label || "").toLowerCase();
+    const placeholder = (f.placeholder || "").toLowerCase();
+    const type = (f.type || "").toLowerCase();
+
+    if (type === "search") return false;
+    if (chromeNames.test(name)) return false;
+    if (chromeLabels.test(label)) return false;
+    if (chromeLabels.test(placeholder)) return false;
+
+    return true;
+  });
 }

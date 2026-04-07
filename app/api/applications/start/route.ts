@@ -16,6 +16,7 @@ const startSchema = z.object({
 
 const SESSION_ITEMS_BASE = [
   { action: "open_grant_url", task_type: "grant_application" },
+  { action: "navigate_to_form", task_type: "grant_application" },
   { action: "fill_company_details", task_type: "grant_application" },
   { action: "fill_financials", task_type: "grant_application" },
   { action: "upload_documents", task_type: "grant_application" },
