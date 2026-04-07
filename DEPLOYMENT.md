@@ -39,6 +39,9 @@ Set these in your host (Vercel, Railway, etc.) or in production `.env`:
 | `CRON_SECRET` | Vercel Cron | Optional; set in Vercel (16+ chars). Used to secure **GET /api/cron/grant-discovery**. Vercel sends it as `Authorization: Bearer <CRON_SECRET>` when invoking the cron. If unset, the route allows the request (set it in production to prevent public triggers). |
 | `STRIPE_*` | Billing | If using paid plans |
 | `RESEND_API_KEY` | Emails | For transactional email |
+| `NEWSLETTER_ENABLED` | Optional | Enable daily public newsletter series cron (`daily-newsletter`). Set to `true`/`1` to send. Default disabled. |
+| `NEWSLETTER_DRY_RUN` | Optional | When enabled, newsletter cron generates issue + logs recipients as `skipped` with `dry_run` (no email). |
+| `NEWSLETTER_RECIPIENTS` | Optional | Comma-separated override recipient emails for the newsletter (ops/testing). If set, it overrides the DB `NewsletterRecipient` list. |
 | `TWILIO_*` | WhatsApp | For WhatsApp notifications (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_NUMBER`) |
 | `TWILIO_WHATSAPP_GRANT_MATCH_CONTENT_SID` | WhatsApp | Optional. Twilio Content Template SID (e.g. `HX...`) for grant-match messages. When set, grant_match and grant_match_high use the approved template. |
 | `TWILIO_WHATSAPP_GRANT_MATCH_VAR_INDEX` | WhatsApp | Optional. Template variable key(s) for the grant link, comma-separated (e.g. `1` or `1,2,3`). Default `1` (template placeholder `{{1}}`). If your template uses `{{3}}` only, set to `3`. Must match your Content Template's variable names exactly. |
