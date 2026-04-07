@@ -45,16 +45,18 @@ export default async function EligibleGrantsPage() {
   }
 
   // First try: filter by both org and profile
-  let { data: assessmentsData, error: assessmentsError } = await supabase
+  const { data: assessmentsData0, error: assessmentsError } = await supabase
     .from("EligibilityAssessment")
     .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, updated_at")
     .eq("organisation_id", orgId)
     .eq("profile_id", profileId)
     .order("score", { ascending: false });
+  let assessmentsData = assessmentsData0;
+  const initialAssessmentsError = assessmentsError;
 
   // Fallback: if nothing found with profileId, try org-only query
   // (handles mismatch between profile ID in auth vs eligibility pipeline)
-  if ((!assessmentsData || assessmentsData.length === 0) && !assessmentsError) {
+  if ((!assessmentsData || assessmentsData.length === 0) && !initialAssessmentsError) {
     const fallback = await supabase
       .from("EligibilityAssessment")
       .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, updated_at, profile_id")
