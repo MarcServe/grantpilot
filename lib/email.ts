@@ -12,8 +12,7 @@ function getResend(): Resend {
 export async function sendEmail(
   to: string,
   subject: string,
-  html: string,
-  text?: string
+  html: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
     if (!process.env.RESEND_API_KEY) {
@@ -27,7 +26,6 @@ export async function sendEmail(
       to,
       subject,
       html,
-      ...(text ? { text } : {}),
     });
 
     if (error) {
