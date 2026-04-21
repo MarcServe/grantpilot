@@ -8,6 +8,7 @@ import { checkUsageLimit, recordUsage } from "@/lib/plan-check";
 import { enqueueGrantForScoutIfProgrammeUrl } from "@/lib/enqueue-scout";
 import { requestEligibilityRefresh } from "@/lib/eligibility-refresh-trigger";
 import { buildSessionItems, matchPortalRecipe } from "@/lib/session-items";
+import { normalizeGrantApplicationUrl } from "@/lib/grant-url";
 
 const linkEntrySchema = z.object({
   applicationUrl: z.string().url("Please enter a valid grant application URL"),
@@ -31,12 +32,28 @@ const startWithLinkSchema = z.object({
   { message: "Provide applicationUrl or at least one link in links", path: ["applicationUrl"] }
 );
 
-function normalizeUrl(url: string): string {
+/** Stable key for deduping URLs in one batch (full URL so query strings differ). */
+function urlDedupKey(url: string): string {
   try {
-    const u = new URL(url);
-    return u.origin + u.pathname;
+    return new URL(url).href;
   } catch {
-    return url;
+    return url.trim();
+  }
+}
+
+function normalizeIncomingBody(body: Record<string, unknown>): void {
+  if (typeof body.applicationUrl === "string") {
+    const n = normalizeGrantApplicationUrl(body.applicationUrl);
+    if (n) body.applicationUrl = n;
+  }
+  if (Array.isArray(body.links)) {
+    for (const entry of body.links) {
+      if (entry && typeof entry === "object" && typeof (entry as { applicationUrl?: unknown }).applicationUrl === "string") {
+        const e = entry as { applicationUrl: string };
+        const n = normalizeGrantApplicationUrl(e.applicationUrl);
+        if (n) e.applicationUrl = n;
+      }
+    }
   }
 }
 
@@ -44,7 +61,8 @@ export async function POST(req: Request): Promise<NextResponse> {
   try {
     const { user, orgId } = await getActiveOrg();
 
-    const body = await req.json();
+    const body = (await req.json()) as Record<string, unknown>;
+    normalizeIncomingBody(body);
     const parsed = startWithLinkSchema.safeParse(body);
     if (!parsed.success) {
       const flat = parsed.error.flatten();
@@ -99,7 +117,7 @@ export async function POST(req: Request): Promise<NextResponse> {
 
     for (let i = 0; i < links.length; i++) {
       const { applicationUrl, grantName: gn, funder: fu, eligibility: el } = links[i];
-      const urlKey = normalizeUrl(applicationUrl);
+      const urlKey = urlDedupKey(applicationUrl);
       if (seenUrls.has(urlKey)) continue;
       seenUrls.add(urlKey);
 

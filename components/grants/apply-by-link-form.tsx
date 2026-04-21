@@ -10,15 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, Link2, Zap } from "lucide-react";
 import { toast } from "sonner";
-
-function isValidUrl(s: string): boolean {
-  try {
-    new URL(s.trim());
-    return true;
-  } catch {
-    return false;
-  }
-}
+import { normalizeGrantApplicationUrl } from "@/lib/grant-url";
 
 interface ApplyByLinkFormProps {
   profileId: string;
@@ -45,14 +37,21 @@ export function ApplyByLinkForm({ profileId, prefillUrl, prefillGrantName, prefi
       .split(/\n/)
       .map((s) => s.trim())
       .filter(Boolean);
-    const urls = lines.filter(isValidUrl);
-    const invalidCount = lines.length - urls.length;
+    const urls: string[] = [];
+    let invalidCount = 0;
+    for (const line of lines) {
+      const normalized = normalizeGrantApplicationUrl(line);
+      if (normalized) urls.push(normalized);
+      else invalidCount += 1;
+    }
     if (lines.length === 0) {
       toast.error("Please enter at least one grant application URL");
       return;
     }
     if (invalidCount > 0) {
-      toast.error(`${invalidCount} invalid URL(s). Enter one URL per line (e.g. https://...).`);
+      toast.error(
+        `${invalidCount} invalid URL(s). Enter one full URL per line — you can omit https:// and we will add it (e.g. www.example.gov/apply).`
+      );
       return;
     }
     if (urls.length > 20) {
@@ -165,7 +164,7 @@ export function ApplyByLinkForm({ profileId, prefillUrl, prefillGrantName, prefi
             <Label htmlFor="urlInput">Application URL(s) * — one per line (max 20)</Label>
             <textarea
               id="urlInput"
-              placeholder={"https://...\nhttps://..."}
+              placeholder={"https://www.example.gov/apply\nwww.another-funder.org/forms/2025 (https:// optional)"}
               value={urlInput}
               onChange={(e) => setUrlInput(e.target.value)}
               className="mt-1 w-full min-h-[100px] rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
