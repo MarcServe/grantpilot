@@ -293,6 +293,44 @@ function normaliseChoiceText(value: string): string {
 async function chooseByOptionLabel(page: Page, selector: string, value: string): Promise<boolean> {
   const wanted = normaliseChoiceText(value);
   const inputs = await page.$$(selector);
+  const explicitYesNo = wanted === "yes" || wanted === "no";
+  const hasOnlyGenericLabels =
+    inputs.length === 2 &&
+    (
+      await Promise.all(
+        inputs.map(async (input) => {
+          try {
+            return await input.evaluate((el) => {
+              const html = el as HTMLElement;
+              const text = `${html.getAttribute("aria-label") ?? ""} ${html.textContent ?? ""} ${(el as HTMLInputElement).value ?? ""}`
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, " ")
+                .trim();
+              return text === "" || text === "option" || text === "option option";
+            });
+          } catch {
+            return false;
+          }
+        })
+      )
+    ).every(Boolean);
+  if (explicitYesNo && hasOnlyGenericLabels) {
+    const input = inputs[wanted === "yes" ? 0 : 1];
+    try {
+      await input.scrollIntoViewIfNeeded();
+      await input.click();
+      const checked = await input.evaluate((el) => {
+        const html = el as HTMLElement;
+        const role = html.getAttribute("role");
+        if (role === "radio" || role === "checkbox") return html.getAttribute("aria-checked") === "true";
+        return (el as HTMLInputElement).checked;
+      });
+      for (const handle of inputs) await handle.dispose().catch(() => {});
+      return checked;
+    } catch {
+      // Fall through to semantic matching below.
+    }
+  }
   for (const input of inputs) {
     try {
       const { inputValue, label, role } = await input.evaluate((el) => {

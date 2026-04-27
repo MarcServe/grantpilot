@@ -76,6 +76,16 @@ export async function POST(
         .from("cu_sessions")
         .update({ status: "resumed", updated_at: new Date().toISOString() })
         .eq("id", (session as { id: number }).id);
+      await supabase
+        .from("cu_session_items")
+        .update({
+          status: "pending",
+          extra_data: null,
+          error_message: null,
+          processed_at: null,
+        })
+        .eq("session_id", (session as { id: number }).id)
+        .eq("action", "fill_current_page");
     }
 
     return NextResponse.json({ success: true });

@@ -2,12 +2,29 @@ import type { Page } from "playwright";
 import type { FormFieldInfo } from "./browser.js";
 
 function mergeFieldKey(field: FormFieldInfo): string {
-  return `${field.type}:${field.label}`.toLowerCase().replace(/\s+/g, " ").trim();
+  const normalizedLabel = (field.label ?? "")
+    .replace(/yes\s*no\s*this question is.*$/gi, " ")
+    .replace(/yesno.*$/gi, " ")
+    .replace(/\b(single|multiple)\s+choice\b/gi, " ")
+    .replace(/\bthis question is\b.*$/gi, " ")
+    .replace(/\b(yes|no|option)\b/gi, " ")
+    .replace(/^\s*\d+\s*[\.)-]?\s*/, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9?]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const normalizedType = (field.type ?? "").replace(/^radio$/, "radio_group").replace(/^checkbox$/, "checkbox_group");
+  return `${normalizedType}:${normalizedLabel}`;
 }
 
 export function mergeOfficeFormsFields(fields: FormFieldInfo[], officeFields: FormFieldInfo[]): FormFieldInfo[] {
-  const seen = new Set(fields.map(mergeFieldKey));
-  const merged = [...fields];
+  const officeKeys = new Set(officeFields.map(mergeFieldKey));
+  const merged = fields.filter((field) => {
+    const type = (field.type ?? "").toLowerCase();
+    const isNativeChoice = type === "radio_group" || type === "checkbox_group";
+    return !isNativeChoice || !officeKeys.has(mergeFieldKey(field));
+  });
+  const seen = new Set(merged.map(mergeFieldKey));
   for (const field of officeFields) {
     const key = mergeFieldKey(field);
     if (!seen.has(key)) {

@@ -35,12 +35,42 @@ function normalizeAnswerText(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
+function normalizeQuestionText(value: string): string {
+  return normalizeAnswerText(
+    value
+      .replace(/yes\s*no\s*this question is.*$/gi, " ")
+      .replace(/yesno.*$/gi, " ")
+      .replace(/\b(single|multiple)\s+choice\b/gi, " ")
+      .replace(/\bthis question is\b.*$/gi, " ")
+      .replace(/\b(yes|no|option)\b/gi, " ")
+      .replace(/^\s*\d+\s*[\.)-]?\s*/, "")
+  );
+}
+
 function optionMatchesAnswer(option: { label: string; value: string }, answer: string): boolean {
   const wanted = normalizeAnswerText(answer);
   const label = normalizeAnswerText(option.label);
   const value = normalizeAnswerText(option.value);
   if (!wanted) return false;
   return label === wanted || value === wanted || label.includes(wanted) || wanted.includes(label);
+}
+
+function optionFromExplicitYesNo(
+  options: Array<{ label: string; value: string }>,
+  answer: string
+): { label: string; value: string } | undefined {
+  const wanted = normalizeAnswerText(answer);
+  if (wanted !== "yes" && wanted !== "no") return undefined;
+  const direct = options.find((option) => optionMatchesAnswer(option, answer));
+  if (direct) return direct;
+  if (options.length !== 2) return undefined;
+  const genericOptions = options.every((option) => {
+    const text = normalizeAnswerText(`${option.label} ${option.value}`);
+    return text === "option" || text === "option option" || text.length === 0;
+  });
+  if (!genericOptions) return undefined;
+  const chosen = wanted === "yes" ? options[0] : options[1];
+  return { ...chosen, label: wanted === "yes" ? "Yes" : "No", value: wanted === "yes" ? "Yes" : "No" };
 }
 
 function directChoiceActionsFromUserAnswers(
@@ -51,7 +81,7 @@ function directChoiceActionsFromUserAnswers(
   const actions: FillAction[] = [];
   const answerEntries = Object.entries(userAnswers)
     .filter(([, value]) => typeof value === "string" && value.trim().length > 0)
-    .map(([label, value]) => ({ key: normalizeAnswerText(label), value: value.trim() }));
+    .map(([label, value]) => ({ key: normalizeQuestionText(label), value: value.trim() }));
 
   for (const field of fields) {
     const type = field.type?.toLowerCase();
@@ -59,10 +89,11 @@ function directChoiceActionsFromUserAnswers(
     const selector = field.selector;
     const options = field.options ?? [];
     if (!selector || options.length === 0) continue;
-    const fieldLabel = normalizeAnswerText(field.label);
+    const fieldLabel = normalizeQuestionText(field.label);
     const answer = answerEntries.find((entry) => fieldLabel.includes(entry.key) || entry.key.includes(fieldLabel));
     if (!answer) continue;
-    const option = options.find((candidate) => optionMatchesAnswer(candidate, answer.value));
+    const option = options.find((candidate) => optionMatchesAnswer(candidate, answer.value)) ??
+      optionFromExplicitYesNo(options, answer.value);
     if (!option) continue;
     actions.push({
       selector,

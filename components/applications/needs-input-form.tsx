@@ -20,8 +20,60 @@ interface NeedsInputFormProps {
   needsInput: NeedsInputField[];
 }
 
+function questionKey(label: string): string {
+  return label
+    .replace(/yes\s*no\s*this question is.*$/gi, " ")
+    .replace(/yesno.*$/gi, " ")
+    .replace(/\b(single|multiple)\s+choice\b/gi, " ")
+    .replace(/\bthis question is\b.*$/gi, " ")
+    .replace(/\b(yes|no|option)\b/gi, " ")
+    .replace(/^\s*\d+\s*[\.)-]?\s*/, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9?]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function displayLabel(label: string): string {
+  const cleaned = label
+    .replace(/yes\s*no\s*this question is.*$/gi, " ")
+    .replace(/yesno.*$/gi, " ")
+    .replace(/\b(single|multiple)\s+choice\b/gi, " ")
+    .replace(/\bthis question is\b.*$/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned || label;
+}
+
+function displayHint(field: NeedsInputField): string | undefined {
+  if (/option,\s*option/i.test(field.hint ?? "") && /yes\s*no|yesno/i.test(field.label)) {
+    return "Choose one of: Yes, No";
+  }
+  return field.hint;
+}
+
+function dedupeNeedsInput(fields: NeedsInputField[]): NeedsInputField[] {
+  const seen = new Map<string, NeedsInputField>();
+  const score = (field: NeedsInputField) => {
+    const genericHint = /\boption\b/i.test(field.hint ?? "");
+    const usefulChoiceHint = /\b(yes|no)\b/i.test(field.hint ?? "");
+    return (usefulChoiceHint ? 10 : 0) - (genericHint ? 5 : 0) + (field.hint?.length ?? 0) / 1000;
+  };
+  for (const field of fields) {
+    const key = questionKey(field.label) || field.selector;
+    const existing = seen.get(key);
+    if (!existing) {
+      seen.set(key, field);
+      continue;
+    }
+    if (score(field) > score(existing)) seen.set(key, field);
+  }
+  return Array.from(seen.values());
+}
+
 export function NeedsInputForm({ applicationId, needsInput }: NeedsInputFormProps) {
   const router = useRouter();
+  const visibleNeedsInput = dedupeNeedsInput(needsInput);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
 
@@ -48,7 +100,7 @@ export function NeedsInputForm({ applicationId, needsInput }: NeedsInputFormProp
     }
   };
 
-  if (needsInput.length === 0) return null;
+  if (visibleNeedsInput.length === 0) return null;
 
   return (
     <Card className="mb-6 border-amber-200 bg-amber-50/50">
@@ -60,13 +112,13 @@ export function NeedsInputForm({ applicationId, needsInput }: NeedsInputFormProp
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
-          {needsInput.map((field) => (
+          {visibleNeedsInput.map((field) => (
             <div key={field.selector} className="space-y-2">
               <Label htmlFor={`need-${field.selector}`} className="text-amber-900">
-                {field.label}
+                {displayLabel(field.label)}
               </Label>
-              {field.hint && (
-                <p className="text-xs text-amber-700">{field.hint}</p>
+              {displayHint(field) && (
+                <p className="text-xs text-amber-700">{displayHint(field)}</p>
               )}
               <Input
                 id={`need-${field.selector}`}
@@ -76,7 +128,7 @@ export function NeedsInputForm({ applicationId, needsInput }: NeedsInputFormProp
                   setAnswers((prev) => ({ ...prev, [field.label]: e.target.value }))
                 }
                 className="bg-white border-amber-200"
-                placeholder={`Enter ${field.label.toLowerCase()}`}
+                placeholder={`Enter ${displayLabel(field.label).toLowerCase()}`}
               />
             </div>
           ))}
