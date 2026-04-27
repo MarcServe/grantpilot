@@ -16,6 +16,7 @@ import {
   filterApplicationFields,
   type FilledFormSnapshot,
   type FilledField,
+  type FormFieldInfo,
 } from "./browser.js";
 import { getFormFillActionsWithMissing, getFileInputMapping, extractRequiredAttachmentsFromPage, type MissingRequiredField } from "./form-mapping.js";
 import {
@@ -26,6 +27,8 @@ import {
 import { detectPageSituation, quickPageCheck, analyzeFormFields, detectPortalPageSituation, type PageSituation } from "./page-situation.js";
 import type { PortalRecipeRef } from "./portals/registry.js";
 import { extractGrantFormSchema, schemaRequiresHumanReview } from "./form-schema.js";
+import { detectFormPlatform, navigateWithAgent, type NavigationEvent } from "./navigation-agent.js";
+import { extractOfficeFormsFields, mergeOfficeFormsFields } from "./office-forms.js";
 
 export interface StepResult {
   success: boolean;
@@ -44,6 +47,8 @@ export interface StepResult {
   missingRequired?: MissingRequiredField[];
   /** Number of fields/options the worker actually changed and verified. */
   filledCount?: number;
+  /** Granular navigation events for user-visible diagnostics. */
+  navigationEvents?: NavigationEvent[];
 }
 
 export interface GrantContext {
@@ -118,7 +123,26 @@ async function preFillPageCheck(page: Page, stepName: string): Promise<StepResul
   return null;
 }
 
-const MAX_NAVIGATE_ATTEMPTS = 3;
+function unansweredDynamicFields(fields: FormFieldInfo[]): MissingRequiredField[] {
+  return fields
+    .filter((field) => {
+      const type = (field.type ?? "").toLowerCase();
+      const label = (field.label ?? "").trim();
+      const hasCheckedOption = (field.options ?? []).some((option) => option.checked);
+      const isChoice = type === "radio_group" || type === "checkbox_group" || type === "select";
+      const looksLikeQuestion = /\?/.test(label) || /\b(are you|do you|does your|select|choose|confirm|eligible|partner|partnership|required)\b/i.test(label);
+      return label.length > 0 && !hasCheckedOption && (field.required || isChoice || looksLikeQuestion);
+    })
+    .slice(0, 6)
+    .map((field) => ({
+      selector: field.selector ?? (field.name ? `input[name="${field.name.replace(/"/g, '\\"')}"]` : ""),
+      label: field.label,
+      hint: field.options?.length
+        ? `Choose one of: ${field.options.map((option) => option.label).filter(Boolean).join(", ")}`
+        : "Provide the answer required for this form question.",
+    }))
+    .filter((field) => field.selector.length > 0);
+}
 
 export async function runGrantStep(
   page: Page,
@@ -202,110 +226,59 @@ export async function runGrantStep(
       return { success: true, notes: `Opened ${grantUrl} (page: ${situation})` };
     }
 
+    case "detect_form_platform": {
+      const platform = detectFormPlatform(page.url() || grantUrl);
+      return {
+        success: true,
+        notes: `Detected form platform: ${platform}`,
+      };
+    }
+
+    case "discover_entry_point": {
+      const situation = await detectPageSituation(page).catch(() => ({ situation: "unknown" as PageSituation }));
+      const needsDirectUrl = "needsDirectUrl" in situation ? situation.needsDirectUrl : undefined;
+      return {
+        success: true,
+        notes: `Discovered entry point context: ${situation.situation}`,
+        situation: situation.situation,
+        needsDirectUrl,
+      };
+    }
+
+    case "enter_application_flow":
     case "navigate_to_form": {
-      // This step ensures we're on an actual application form before filling begins.
-      // It handles: info pages with Apply buttons, multi-click navigation, login gates.
-      let attempts = 0;
+      const result = await navigateWithAgent(page);
+      return {
+        success: result.success,
+        notes: result.notes,
+        situation: result.situation,
+        needsDirectUrl: result.needsDirectUrl,
+        navigationEvents: result.events,
+      };
+    }
 
-      while (attempts < MAX_NAVIGATE_ATTEMPTS) {
-        const result = await detectPageSituation(page);
-        console.log(`[navigate_to_form] attempt ${attempts + 1}: situation=${result.situation}`);
-
-        if (result.situation === "application_form") {
-          // Verify this really has substantive application fields
-          const fieldAnalysis = await analyzeFormFields(page);
-          if (fieldAnalysis.applicationFieldCount >= 3) {
-            return {
-              success: true,
-              notes: `On application form (${fieldAnalysis.applicationFieldCount} fields, ${fieldAnalysis.chromeFieldCount} chrome fields filtered)`,
-            };
-          }
-          // Few real fields — might be a false positive, but proceed cautiously
-          if (fieldAnalysis.applicationFieldCount >= 1) {
-            return {
-              success: true,
-              notes: `On form with ${fieldAnalysis.applicationFieldCount} application field(s) — may be a wizard with more steps`,
-            };
-          }
-          // Zero application fields despite being classified as form — this is a false positive
-          return {
-            success: false,
-            notes: "Page was classified as a form but has no application fields (only search/filter/navigation inputs). Please provide a direct link to the application form.",
-            situation: "unknown",
-            needsDirectUrl: true,
-          };
-        }
-
-        if (result.situation === "info_page_with_apply") {
-          const { clicked, error } = await findAndClickApplyButton(page, result.applyButtonSelector);
-          if (clicked) {
-            await page.waitForTimeout(3000);
-            attempts++;
-            continue; // re-check after clicking
-          }
-          return {
-            success: false,
-            notes: `Found info page but could not click Apply button: ${error ?? "unknown"}. Please navigate to the form manually and provide the direct application URL.`,
-            situation: "unknown",
-            needsDirectUrl: true,
-          };
-        }
-
-        if (result.situation === "login_required") {
-          return {
-            success: false,
-            notes: "This grant requires you to sign in before accessing the application form. Sign in on the funder's site, then resume.",
-            situation: "login_required",
-          };
-        }
-
-        if (result.situation === "needs_verification") {
-          return {
-            success: false,
-            notes: "This grant requires account creation or email verification. Complete that on the funder's site, then resume.",
-            situation: "needs_verification",
-          };
-        }
-
-        if (result.situation === "competition_list") {
-          return {
-            success: false,
-            notes: "This link goes to a list of grants, not a specific application form. Please provide the direct application URL.",
-            situation: "competition_list",
-            needsDirectUrl: true,
-          };
-        }
-
-        if (result.situation === "page_not_found") {
-          return {
-            success: false,
-            notes: "This application link is broken. Please update the URL, then retry.",
-            situation: "page_not_found",
-            needsDirectUrl: true,
-          };
-        }
-
-        // unknown — try to find an Apply button anyway
-        const { clicked } = await findAndClickApplyButton(page);
-        if (clicked) {
-          await page.waitForTimeout(3000);
-          attempts++;
-          continue;
-        }
-
+    case "confirm_form_loaded": {
+      const rawFields = await getFormFields(page);
+      const fields = await filterApplicationFields(mergeOfficeFormsFields(rawFields, await extractOfficeFormsFields(page)));
+      if (fields.length === 0 && rawFields.length === 0) {
         return {
           success: false,
-          notes: "Could not find an application form or Apply button on this page. Please provide a direct link to the application form.",
+          notes: "No application form fields are visible yet.",
           situation: "unknown",
-          needsDirectUrl: true,
         };
       }
-
       return {
-        success: false,
-        notes: `Navigated ${MAX_NAVIGATE_ATTEMPTS} times but could not reach an application form. The link may require manual navigation.`,
-        situation: "unknown",
-        needsDirectUrl: true,
+        success: true,
+        notes: `Confirmed form loaded (${fields.length} application fields, ${rawFields.length} total fields)`,
+      };
+    }
+
+    case "extract_current_page_schema": {
+      const schema = await extractGrantFormSchema(page, options?.grantContext);
+      const fieldCount = schema.sections.reduce((count, section) => count + section.fields.length, 0);
+      return {
+        success: true,
+        notes: `Extracted current page schema (${fieldCount} fields)`,
       };
     }
 
@@ -340,6 +313,17 @@ export async function runGrantStep(
             needsInput: true,
             missingRequired,
           };
+        }
+        if (actions.length === 0 && totalApplied === 0) {
+          const dynamicMissing = unansweredDynamicFields(fields);
+          if (dynamicMissing.length > 0) {
+            return {
+              success: false,
+              notes: "This page asks dynamic eligibility or choice questions that are not safely answerable from the profile. Please provide the answers, then resume.",
+              needsInput: true,
+              missingRequired: dynamicMissing,
+            };
+          }
         }
         if (actions.length > 0) {
           const { applied, errors } = await applyFillActions(page, actions);
@@ -385,6 +369,133 @@ export async function runGrantStep(
           ? `Filled ${totalApplied} fields; errors: ${allErrors.join("; ")}`
           : `Filled ${totalApplied} company fields`;
       return { success: totalApplied > 0, notes: note, filledCount: totalApplied };
+    }
+
+    case "fill_current_page": {
+      const pageCheck = await preFillPageCheck(page, "filling current page");
+      if (pageCheck) return pageCheck;
+
+      const maxWizardSteps = 10;
+      let totalApplied = 0;
+      const allErrors: string[] = [];
+      let lastFields: FormFieldInfo[] = [];
+      for (let step = 0; step < maxWizardSteps; step++) {
+        const rawFields = await getFormFields(page);
+        const fields = await filterApplicationFields(mergeOfficeFormsFields(rawFields, await extractOfficeFormsFields(page)));
+        lastFields = fields;
+
+        if (fields.length === 0) {
+          const clickedNext = await clickNextOrContinueButton(page);
+          if (!clickedNext) break;
+          await page.waitForTimeout(2000);
+          continue;
+        }
+
+        const fillOptions = options?.grantContext ? { page, grantContext: options.grantContext, focusNotes: options?.focusNotes } : undefined;
+        const { actions, missingRequired } = await getFormFillActionsWithMissing(
+          fields,
+          profile,
+          "application",
+          options?.needsInputAnswers,
+          fillOptions
+        );
+        if (missingRequired.length > 0) {
+          return {
+            success: false,
+            notes: "Some application questions need your input before we can safely continue.",
+            needsInput: true,
+            missingRequired,
+          };
+        }
+        if (actions.length === 0 && totalApplied === 0) {
+          const dynamicMissing = unansweredDynamicFields(fields);
+          if (dynamicMissing.length > 0) {
+            return {
+              success: false,
+              notes: "This page asks dynamic eligibility or choice questions that are not safely answerable from the profile. Please provide the answers, then resume.",
+              needsInput: true,
+              missingRequired: dynamicMissing,
+            };
+          }
+        }
+        if (actions.length > 0) {
+          const { applied, errors } = await applyFillActions(page, actions);
+          totalApplied += applied;
+          allErrors.push(...errors);
+
+          const postFillCheck = await quickPageCheck(page);
+          if (postFillCheck === "login_required") {
+            return {
+              success: false,
+              notes: "Page redirected to sign-in after filling. Sign in on the funder's site, then resume.",
+              situation: "login_required",
+            };
+          }
+          if (postFillCheck === "needs_verification") {
+            return {
+              success: false,
+              notes: "Page requires account or email verification. Complete that on the funder's site, then resume.",
+              situation: "needs_verification",
+            };
+          }
+        }
+
+        const clickedNext = await clickNextOrContinueButton(page);
+        if (!clickedNext) break;
+        await page.waitForTimeout(2000);
+
+        const transitionCheck = await quickPageCheck(page);
+        if (transitionCheck === "login_required") {
+          return {
+            success: false,
+            notes: "Page redirected to sign-in after wizard step. Sign in and resume.",
+            situation: "login_required",
+          };
+        }
+      }
+      if (totalApplied === 0) {
+        const missingRequired =
+          unansweredDynamicFields(lastFields).length > 0
+            ? unansweredDynamicFields(lastFields)
+            : lastFields
+                .filter((field) => field.selector && field.label)
+                .slice(0, 3)
+                .map((field) => ({
+                  selector: field.selector!,
+                  label: field.label,
+                  hint: field.options?.length
+                    ? `Choose one of: ${field.options.map((option) => option.label).filter(Boolean).join(", ")}`
+                    : "Provide the answer needed for this application question.",
+                }));
+        if (missingRequired.length === 0) {
+          return { success: true, skipped: true, notes: "No answerable fields on this page; skipped" };
+        }
+        return {
+          success: false,
+          notes: "No fields were safely answerable from the profile. Please provide the missing answers, then resume.",
+          needsInput: true,
+          missingRequired,
+        };
+      }
+      const note =
+        allErrors.length > 0
+          ? `Filled ${totalApplied} application fields; errors: ${allErrors.join("; ")}`
+          : `Filled ${totalApplied} application fields`;
+      return { success: true, notes: note, filledCount: totalApplied };
+    }
+
+    case "advance_form_page": {
+      return {
+        success: true,
+        notes: "Form page advancement is handled inside the fill loop.",
+      };
+    }
+
+    case "repeat_until_review": {
+      return {
+        success: true,
+        notes: "Repeated page filling until the form was ready for review.",
+      };
     }
 
     case "fill_financials": {

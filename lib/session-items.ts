@@ -2,9 +2,9 @@
  * Shared session-item generation for grant application pipelines.
  *
  * When a grant URL matches a known portal recipe, we generate portal-specific
- * steps (portal_navigate + fill_section per wizard section). Otherwise, we fall
- * back to the legacy generic pipeline (navigate_to_form + fill_company_details +
- * fill_financials).
+ * steps (portal_navigate + fill_section per wizard section). Otherwise, we use
+ * the generic agent pipeline, with user-facing steps that match the automation
+ * loop shown in the application dashboard.
  */
 
 export interface SessionItemDef {
@@ -33,10 +33,14 @@ const TASK_TYPE = "grant_application";
 
 const GENERIC_ITEMS: SessionItemDef[] = [
   { action: "open_grant_url", task_type: TASK_TYPE },
-  { action: "navigate_to_form", task_type: TASK_TYPE },
-  { action: "fill_company_details", task_type: TASK_TYPE },
-  { action: "fill_financials", task_type: TASK_TYPE },
-  { action: "upload_documents", task_type: TASK_TYPE },
+  { action: "detect_form_platform", task_type: TASK_TYPE },
+  { action: "discover_entry_point", task_type: TASK_TYPE },
+  { action: "enter_application_flow", task_type: TASK_TYPE },
+  { action: "confirm_form_loaded", task_type: TASK_TYPE },
+  { action: "extract_current_page_schema", task_type: TASK_TYPE },
+  { action: "fill_current_page", task_type: TASK_TYPE },
+  { action: "advance_form_page", task_type: TASK_TYPE },
+  { action: "repeat_until_review", task_type: TASK_TYPE },
   { action: "prepare_review", task_type: TASK_TYPE },
 ];
 

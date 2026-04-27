@@ -25,7 +25,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     const supabase = getSupabaseAdmin();
     const { data: app, error: appError } = await supabase
       .from("Application")
-      .select("id, organisationId, organisation_id, Grant(name)")
+      .select("id, organisationId, needs_input, Grant(name)")
       .eq("id", applicationId)
       .single();
 
@@ -36,10 +36,10 @@ export async function POST(req: Request): Promise<NextResponse> {
     const raw = app as {
       id: string;
       organisationId?: string;
-      organisation_id?: string;
+      needs_input?: unknown;
       Grant?: { name: string } | { name: string }[];
     };
-    const orgId = raw.organisationId ?? raw.organisation_id;
+    const orgId = raw.organisationId;
     if (!orgId) {
       return NextResponse.json({ error: "Application has no organisation" }, { status: 400 });
     }
@@ -47,10 +47,20 @@ export async function POST(req: Request): Promise<NextResponse> {
     const grantObj = raw.Grant;
     const grantName = Array.isArray(grantObj) ? grantObj[0]?.name : grantObj?.name;
     const name = grantName ?? "your grant";
+    const needsInputLabels = Array.isArray(raw.needs_input)
+      ? raw.needs_input
+          .map((field) => {
+            if (!field || typeof field !== "object") return null;
+            const label = (field as { label?: unknown }).label;
+            return typeof label === "string" ? label : null;
+          })
+          .filter((label): label is string => Boolean(label))
+      : [];
 
     await notifyOrgMembers(orgId, "application_needs_info", {
       grantName: name,
       applicationId: raw.id,
+      needsInputLabels,
     });
 
     return NextResponse.json({ success: true });

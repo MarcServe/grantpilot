@@ -28,5 +28,10 @@ export function normalizeFormFieldLabel(label: string, name: string): string {
     return "Form field";
   }
 
+  // Hosted form internals, e.g. Microsoft Forms / Google generated field names.
+  if (/^(ast_gen|customost|entry\.\d+|r[0-9a-f]{20,}|\w+\[\])$/i.test(raw)) {
+    return "Form field";
+  }
+
   return raw;
 }

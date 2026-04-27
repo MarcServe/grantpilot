@@ -41,6 +41,7 @@ export async function launchGrantBrowser(): Promise<Browser> {
 }
 
 const STEALTH_SCRIPT = `
+  window.__name = window.__name || ((fn) => fn);
   Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
   Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
   Object.defineProperty(navigator, 'languages', { get: () => ['en-GB', 'en-US', 'en'] });
@@ -133,16 +134,39 @@ export async function getFormFields(page: Page): Promise<FormFieldInfo[]> {
     function questionLabelFor(input: HTMLInputElement): string {
       const group =
         input.closest("fieldset") ??
-        input.closest('[role="radiogroup"], [role="group"]') ??
-        input.closest('[data-automation-id*="question"], [data-testid*="question"]') ??
-        input.closest("div");
+        input.closest('[data-automation-id*="question"], [data-testid*="question"]');
       const legend = group?.querySelector("legend");
       const heading = group?.querySelector("h1, h2, h3, h4, [role='heading']");
       const text = (legend ?? heading)?.textContent?.trim();
       if (text) return text.replace(/\s+/g, " ").slice(0, 300);
-      const groupText = group?.textContent?.trim().replace(/\s+/g, " ");
+      let inferredGroup = group as Element | null;
+      if (!inferredGroup) {
+        let node = input.parentElement;
+        let firstChoiceGroup: Element | null = null;
+        for (let depth = 0; node && depth < 8; depth++) {
+          const choiceCount = node.querySelectorAll('input[type="radio"], input[type="checkbox"]').length;
+          const nodeText = node.textContent?.trim().replace(/\s+/g, " ") ?? "";
+          if (!firstChoiceGroup && choiceCount > 1) firstChoiceGroup = node;
+          if (nodeText.includes("?") && nodeText.length > 20) {
+            inferredGroup = node;
+            break;
+          }
+          node = node.parentElement;
+        }
+        inferredGroup = inferredGroup ?? firstChoiceGroup;
+      }
+      const groupText = inferredGroup?.textContent?.trim().replace(/\s+/g, " ");
       const optionText = labelFor(input);
-      if (groupText && optionText) return groupText.replace(optionText, "").trim().slice(0, 300);
+      if (groupText && optionText) {
+        let cleaned = groupText;
+        const options = Array.from((inferredGroup ?? document).querySelectorAll<HTMLInputElement>('input[type="radio"], input[type="checkbox"]'))
+          .map((choice) => labelFor(choice) || choice.value)
+          .filter(Boolean);
+        for (const option of options) {
+          cleaned = cleaned.replace(new RegExp(`\\b${option.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi"), " ");
+        }
+        return cleaned.replace(/\s+/g, " ").trim().slice(0, 300) || groupText.slice(0, 300);
+      }
       return optionText || input.name || input.id || "Choice field";
     }
 
@@ -271,9 +295,13 @@ async function chooseByOptionLabel(page: Page, selector: string, value: string):
   const inputs = await page.$$(selector);
   for (const input of inputs) {
     try {
-      const { inputValue, label } = await input.evaluate((el) => {
+      const { inputValue, label, role } = await input.evaluate((el) => {
         const inputEl = el as HTMLInputElement;
+        const role = inputEl.getAttribute("role") ?? "";
         let labelText = "";
+        if (role === "radio" || role === "checkbox") {
+          labelText = inputEl.getAttribute("aria-label") || inputEl.textContent?.trim() || "";
+        }
         if (inputEl.id) {
           const labelEl = document.querySelector(`label[for="${CSS.escape(inputEl.id)}"]`);
           if (labelEl) labelText = labelEl.textContent?.trim() ?? "";
@@ -289,13 +317,22 @@ async function chooseByOptionLabel(page: Page, selector: string, value: string):
               .join(" ");
           }
         }
-        return { inputValue: inputEl.value ?? "", label: labelText.replace(/\s+/g, " ").trim() };
+        return { inputValue: inputEl.value ?? "", label: labelText.replace(/\s+/g, " ").trim(), role };
       });
       const haystack = normaliseChoiceText(`${label} ${inputValue}`);
       if (haystack === wanted || haystack.includes(wanted) || wanted.includes(normaliseChoiceText(label || inputValue))) {
         await input.scrollIntoViewIfNeeded();
-        await input.setChecked(true);
-        const checked = await input.evaluate((el) => (el as HTMLInputElement).checked);
+        if (role === "radio" || role === "checkbox") {
+          await input.click();
+        } else {
+          await input.setChecked(true);
+        }
+        const checked = await input.evaluate((el) => {
+          const html = el as HTMLElement;
+          const role = html.getAttribute("role");
+          if (role === "radio" || role === "checkbox") return html.getAttribute("aria-checked") === "true";
+          return (el as HTMLInputElement).checked;
+        });
         await input.dispose();
         for (const other of inputs) {
           if (other !== input) await other.dispose().catch(() => {});
@@ -317,9 +354,13 @@ async function verifyAction(page: Page, selector: string, expected: string, type
       return await page.$$eval(selector, (els, wantedValue) => {
         const normalise = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
         return els.some((el) => {
+          const html = el as HTMLElement;
+          const role = html.getAttribute("role");
+          if ((role === "radio" || role === "checkbox") && html.getAttribute("aria-checked") !== "true") return false;
           const input = el as HTMLInputElement;
-          if (!input.checked) return false;
+          if (role !== "radio" && role !== "checkbox" && !input.checked) return false;
           let label = "";
+          if (role === "radio" || role === "checkbox") label = html.getAttribute("aria-label") || html.textContent?.trim() || "";
           if (input.id) {
             const labelEl = document.querySelector(`label[for="${CSS.escape(input.id)}"]`);
             if (labelEl) label = labelEl.textContent?.trim() ?? "";
@@ -544,8 +585,91 @@ export interface FilledFormSnapshot {
 export async function getFilledFormSnapshot(page: Page): Promise<FilledFormSnapshot> {
   const result = await page.evaluate(() => {
     const fields: Array<{ label: string; name: string; value: string }> = [];
+    function labelFor(el: Element): string {
+      let label = "";
+      const forId = (el as HTMLInputElement).id;
+      if (forId) {
+        const labelEl = document.querySelector(`label[for="${CSS.escape(forId)}"]`);
+        if (labelEl) label = (labelEl as HTMLLabelElement).textContent?.trim() ?? "";
+      }
+      if (!label) {
+        const parent = (el as HTMLElement).closest("label");
+        if (parent) label = parent.textContent?.trim() ?? "";
+      }
+      if (!label) {
+        const labelledBy = (el as HTMLElement).getAttribute("aria-labelledby");
+        if (labelledBy) {
+          label = labelledBy
+            .split(/\s+/)
+            .map((id) => document.getElementById(id)?.textContent?.trim() ?? "")
+            .filter(Boolean)
+            .join(" ");
+        }
+      }
+      return label.replace(/\s+/g, " ").trim();
+    }
+    function questionLabelFor(input: HTMLInputElement): string {
+      const explicitGroup =
+        input.closest("fieldset") ??
+        input.closest('[data-automation-id*="question"], [data-testid*="question"]');
+      const legend = explicitGroup?.querySelector("legend");
+      const heading = explicitGroup?.querySelector("h1, h2, h3, h4, [role='heading']");
+      const headingText = (legend ?? heading)?.textContent?.trim();
+      if (headingText) return headingText.replace(/\s+/g, " ").slice(0, 300);
+
+      let inferredGroup: Element | null = explicitGroup;
+      if (!inferredGroup) {
+        let node = input.parentElement;
+        let firstChoiceGroup: Element | null = null;
+        for (let depth = 0; node && depth < 8; depth++) {
+          const choiceCount = node.querySelectorAll('input[type="radio"], input[type="checkbox"]').length;
+          const nodeText = node.textContent?.trim().replace(/\s+/g, " ") ?? "";
+          if (!firstChoiceGroup && choiceCount > 1) firstChoiceGroup = node;
+          if (nodeText.includes("?") && nodeText.length > 20) {
+            inferredGroup = node;
+            break;
+          }
+          node = node.parentElement;
+        }
+        inferredGroup = inferredGroup ?? firstChoiceGroup;
+      }
+
+      const groupText = inferredGroup?.textContent?.trim().replace(/\s+/g, " ");
+      if (groupText) {
+        let cleaned = groupText;
+        const options = Array.from((inferredGroup ?? document).querySelectorAll<HTMLInputElement>('input[type="radio"], input[type="checkbox"]'))
+          .map((choice) => labelFor(choice) || choice.value)
+          .filter(Boolean);
+        for (const option of options) {
+          cleaned = cleaned.replace(new RegExp(`\\b${option.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi"), " ");
+        }
+        return cleaned.replace(/\b(single choice|multiple choice|required)\b/gi, " ").replace(/\s+/g, " ").trim().slice(0, 300) || groupText.slice(0, 300);
+      }
+      return labelFor(input) || input.name || input.id || "Choice field";
+    }
+
+    const choiceInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="radio"], input[type="checkbox"]'));
+    const choiceGroups = new Map<string, HTMLInputElement[]>();
+    for (const input of choiceInputs) {
+      const key = input.name || input.id || questionLabelFor(input);
+      if (!key) continue;
+      const existing = choiceGroups.get(key) ?? [];
+      existing.push(input);
+      choiceGroups.set(key, existing);
+    }
+    for (const [name, inputs] of choiceGroups) {
+      const checked = inputs.filter((input) => input.checked);
+      if (checked.length === 0) continue;
+      const label = questionLabelFor(inputs[0]);
+      const value = checked
+        .map((input) => labelFor(input) || input.value || "Selected")
+        .filter(Boolean)
+        .join(", ");
+      fields.push({ label: label.slice(0, 160), name, value: value.slice(0, 500) });
+    }
+
     const inputs = document.querySelectorAll(
-      'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="file"]), textarea, select'
+      'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="file"]):not([type="radio"]):not([type="checkbox"]), textarea, select'
     );
     inputs.forEach((el) => {
       const name = (el as HTMLInputElement).name || (el as HTMLInputElement).id || "";
@@ -555,21 +679,10 @@ export async function getFilledFormSnapshot(page: Page): Promise<FilledFormSnaps
       const type = (el as HTMLInputElement).type?.toLowerCase();
       if (tag === "select") {
         value = (el as HTMLSelectElement).value ?? "";
-      } else if (type === "checkbox" || type === "radio") {
-        value = (el as HTMLInputElement).checked ? "Yes" : "No";
       } else {
         value = ((el as HTMLInputElement).value ?? "").trim();
       }
-      let label = "";
-      const forId = (el as HTMLInputElement).id;
-      if (forId) {
-        const labelEl = document.querySelector(`label[for="${forId}"]`);
-        if (labelEl) label = (labelEl as HTMLLabelElement).textContent?.trim() ?? "";
-      }
-      if (!label) {
-        const parent = (el as HTMLElement).closest("label");
-        if (parent) label = parent.textContent?.trim() ?? "";
-      }
+      let label = labelFor(el);
       if (!label) label = name;
       fields.push({ label: label.slice(0, 80), name, value: value.slice(0, 500) });
     });

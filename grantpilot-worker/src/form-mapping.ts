@@ -29,13 +29,58 @@ export interface MissingRequiredField {
   hint?: string;
 }
 
+type FormFillKind = "company" | "financial" | "application";
+
+function normalizeAnswerText(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function optionMatchesAnswer(option: { label: string; value: string }, answer: string): boolean {
+  const wanted = normalizeAnswerText(answer);
+  const label = normalizeAnswerText(option.label);
+  const value = normalizeAnswerText(option.value);
+  if (!wanted) return false;
+  return label === wanted || value === wanted || label.includes(wanted) || wanted.includes(label);
+}
+
+function directChoiceActionsFromUserAnswers(
+  fields: FormFieldInfo[],
+  userAnswers?: Record<string, string>
+): FillAction[] {
+  if (!userAnswers || Object.keys(userAnswers).length === 0) return [];
+  const actions: FillAction[] = [];
+  const answerEntries = Object.entries(userAnswers)
+    .filter(([, value]) => typeof value === "string" && value.trim().length > 0)
+    .map(([label, value]) => ({ key: normalizeAnswerText(label), value: value.trim() }));
+
+  for (const field of fields) {
+    const type = field.type?.toLowerCase();
+    if (type !== "radio_group" && type !== "checkbox_group" && type !== "select") continue;
+    const selector = field.selector;
+    const options = field.options ?? [];
+    if (!selector || options.length === 0) continue;
+    const fieldLabel = normalizeAnswerText(field.label);
+    const answer = answerEntries.find((entry) => fieldLabel.includes(entry.key) || entry.key.includes(fieldLabel));
+    if (!answer) continue;
+    const option = options.find((candidate) => optionMatchesAnswer(candidate, answer.value));
+    if (!option) continue;
+    actions.push({
+      selector,
+      value: option.label || option.value,
+      type: type === "select" ? "select" : type === "radio_group" ? "choose_radio" : "choose_checkbox",
+    });
+  }
+
+  return actions;
+}
+
 /**
  * Ask Claude to map profile data to form fields. Returns CSS selector + value for each field.
  */
 export async function getFormFillActions(
   fields: FormFieldInfo[],
   profile: ProfileData,
-  kind: "company" | "financial"
+  kind: FormFillKind
 ): Promise<FillAction[]> {
   const { actions } = await getFormFillActionsWithMissing(fields, profile, kind);
   return actions;
@@ -61,10 +106,14 @@ export interface FormFillOptions {
 export async function getFormFillActionsWithMissing(
   fields: FormFieldInfo[],
   profile: ProfileData,
-  kind: "company" | "financial",
+  kind: FormFillKind,
   userAnswers?: Record<string, string>,
   fillOptions?: FormFillOptions
 ): Promise<{ actions: FillAction[]; missingRequired: MissingRequiredField[] }> {
+  const directChoiceActions = directChoiceActionsFromUserAnswers(fields, userAnswers);
+  if (directChoiceActions.length > 0) {
+    return { actions: directChoiceActions, missingRequired: [] };
+  }
   if (fillOptions?.page && fillOptions?.grantContext) {
     return getFormFillActionsWithVision(fields, profile, kind, userAnswers, fillOptions);
   }
@@ -165,7 +214,7 @@ function buildRichProfileContext(profile: ProfileData): string {
 async function getFormFillActionsWithVision(
   fields: FormFieldInfo[],
   profile: ProfileData,
-  kind: "company" | "financial",
+  kind: FormFillKind,
   userAnswers: Record<string, string> | undefined,
   fillOptions: FormFillOptions
 ): Promise<{ actions: FillAction[]; missingRequired: MissingRequiredField[] }> {
@@ -178,24 +227,40 @@ async function getFormFillActionsWithVision(
   }
 
   const profileSlice =
-    kind === "company"
+    kind === "financial"
       ? {
+          employeeCount: profile.employeeCount,
+          annualRevenue: profile.annualRevenue,
+          previousGrants: profile.previousGrants,
+          fundingMin: profile.fundingMin,
+          fundingMax: profile.fundingMax,
+          fundingPurposes: profile.fundingPurposes,
+          fundingDetails: profile.fundingDetails,
+          coFundingAvailable: profile.coFundingAvailable,
+          matchFundingDetails: profile.matchFundingDetails,
+        }
+      : {
           businessName: profile.businessName,
           registrationNumber: profile.registrationNumber,
           location: profile.location,
           sector: profile.sector,
           missionStatement: profile.missionStatement,
           description: profile.description,
+          primaryContactName: profile.primaryContactName,
+          primaryContactEmail: profile.primaryContactEmail,
+          primaryContactPhone: profile.primaryContactPhone,
           directorNames: profile.directorNames,
           directorProfiles: profile.directorProfiles,
           teamMembers: profile.teamMembers,
-        }
-      : {
-          employeeCount: profile.employeeCount,
-          annualRevenue: profile.annualRevenue,
-          previousGrants: profile.previousGrants,
-          fundingMin: profile.fundingMin,
-          fundingMax: profile.fundingMax,
+          projectTitle: profile.projectTitle,
+          projectSummary: profile.projectSummary,
+          problemStatement: profile.problemStatement,
+          proposedSolution: profile.proposedSolution,
+          projectObjectives: profile.projectObjectives,
+          expectedOutcomes: profile.expectedOutcomes,
+          beneficiaryGroups: profile.beneficiaryGroups,
+          partnerOrganisations: profile.partnerOrganisations,
+          collaborationDetails: profile.collaborationDetails,
           fundingPurposes: profile.fundingPurposes,
           fundingDetails: profile.fundingDetails,
         };
@@ -226,12 +291,12 @@ ${focusDirective}${sectionDirective}
 Form schema metadata (use exact selectors. Treat each entry as a schema field, not just a DOM input). Respect type, options, maxLength, required, and instruction:
 ${JSON.stringify(fields, null, 2)}
 
-Core applicant profile (${kind}):
+Core applicant profile (${kind}; use alongside rich profile sections):
 ${JSON.stringify(profileSlice, null, 2)}
 ${richContext}${userAnswers && Object.keys(userAnswers).length > 0 ? `\nUser-provided answers for missing fields:\n${JSON.stringify(userAnswers, null, 2)}` : ""}
 
 Instructions:
-- First decide whether each visible field is safe to answer from the applicant profile, user answers, grant context, documents, or learned memory. Never invent eligibility facts, partnerships, certifications, revenue, awards, directors, or declarations.
+- First decide whether each visible field is safe to answer from the applicant profile, user answers, grant context, documents, or learned memory. Answer every visible application field you can answer safely, not only company fields. Never invent eligibility facts, partnerships, certifications, revenue, awards, directors, or declarations.
 - For radio buttons and checkboxes, treat each question as a choice group. Choose by visible option label using type "choose_radio" or "choose_checkbox"; do not use a raw Yes/No value unless that is the visible option and the profile supports it.
 - For eligibility gate questions, answer truthfully. If the applicant does not meet the gate or the answer is unknown, add the field to missingRequired instead of selecting a convenient answer.
 - You are writing a TAILORED application, not a generic one. Analyse what THIS grant cares about (from its name, funder, eligibility, objectives, description) and emphasise the profile aspects that align best.
@@ -265,29 +330,45 @@ Instructions:
 async function getFormFillActionsTextOnly(
   fields: FormFieldInfo[],
   profile: ProfileData,
-  kind: "company" | "financial",
+  kind: FormFillKind,
   userAnswers?: Record<string, string>,
   fillOptions?: FormFillOptions
 ): Promise<{ actions: FillAction[]; missingRequired: MissingRequiredField[] }> {
   const profileSlice =
-    kind === "company"
+    kind === "financial"
       ? {
+          employeeCount: profile.employeeCount,
+          annualRevenue: profile.annualRevenue,
+          previousGrants: profile.previousGrants,
+          fundingMin: profile.fundingMin,
+          fundingMax: profile.fundingMax,
+          fundingPurposes: profile.fundingPurposes,
+          fundingDetails: profile.fundingDetails,
+          coFundingAvailable: profile.coFundingAvailable,
+          matchFundingDetails: profile.matchFundingDetails,
+        }
+      : {
           businessName: profile.businessName,
           registrationNumber: profile.registrationNumber,
           location: profile.location,
           sector: profile.sector,
           missionStatement: profile.missionStatement,
           description: profile.description,
+          primaryContactName: profile.primaryContactName,
+          primaryContactEmail: profile.primaryContactEmail,
+          primaryContactPhone: profile.primaryContactPhone,
           directorNames: profile.directorNames,
           directorProfiles: profile.directorProfiles,
           teamMembers: profile.teamMembers,
-        }
-      : {
-          employeeCount: profile.employeeCount,
-          annualRevenue: profile.annualRevenue,
-          previousGrants: profile.previousGrants,
-          fundingMin: profile.fundingMin,
-          fundingMax: profile.fundingMax,
+          projectTitle: profile.projectTitle,
+          projectSummary: profile.projectSummary,
+          problemStatement: profile.problemStatement,
+          proposedSolution: profile.proposedSolution,
+          projectObjectives: profile.projectObjectives,
+          expectedOutcomes: profile.expectedOutcomes,
+          beneficiaryGroups: profile.beneficiaryGroups,
+          partnerOrganisations: profile.partnerOrganisations,
+          collaborationDetails: profile.collaborationDetails,
           fundingPurposes: profile.fundingPurposes,
           fundingDetails: profile.fundingDetails,
         };
@@ -314,7 +395,7 @@ Form fields (use name or id for selector, e.g. input[name="company_name"] or #co
 
 ${JSON.stringify(fields, null, 2)}
 
-Core profile data (${kind}):
+Core profile data (${kind}; use alongside rich profile sections):
 ${JSON.stringify(profileSlice, null, 2)}
 ${richContext}
 Return a single JSON object with two keys:
@@ -322,8 +403,8 @@ Return a single JSON object with two keys:
    - Use "select" for dropdowns, "fill" for text/number/email/url, "choose_radio" for radio groups, "choose_checkbox" for checkbox groups, and "check" only for a single boolean checkbox.
    - Use "rich_text" for contenteditable editors. Use "autocomplete" when typing should trigger a suggestion list. Use "date" for date inputs and ISO-style dates when known.
    - For radio/checkbox groups, set "selector" to the group selector in the field metadata and "value" to the visible option label to choose.
+   - Answer every visible application field you can answer safely from the profile, grant context, learned answers, or user-provided answers. For empty optional values omit the action.
    - Answer eligibility declarations truthfully from the profile. If the answer is unknown or would make an unsupported eligibility claim, list it in missingRequired instead of guessing.
-   - Only include fields you can fill from the profile. For empty optional values omit the action.
    - Write TAILORED values that connect the applicant's strengths to what this specific grant/funder values. Use concrete numbers and achievements from the rich profile sections. Do not write generic boilerplate.
    - You MUST respect each field's maxLength and any word/character limits in instruction.
 2. "missingRequired": array of form fields that appear REQUIRED (required: true, or label suggests mandatory) but for which the profile has no value. Each: { "selector": "css selector", "label": "field label for user", "hint": "short hint what to enter" }.

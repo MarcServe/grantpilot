@@ -365,11 +365,61 @@ async function processGrantApplicationSession(
     }
   }
 
-  const NAVIGATION_ACTIONS = new Set(["open_grant_url", "navigate_to_form", "portal_navigate"]);
+  const NAVIGATION_ACTIONS = new Set([
+    "open_grant_url",
+    "detect_form_platform",
+    "discover_entry_point",
+    "enter_application_flow",
+    "confirm_form_loaded",
+    "navigate_to_form",
+    "portal_navigate",
+  ]);
   let executionFailed = false;
   let executionFailReason = "";
 
+  async function replayNavigationForResume(firstPendingAction: string): Promise<void> {
+    const restoreBefore = new Set([
+      "confirm_form_loaded",
+      "extract_current_page_schema",
+      "fill_current_page",
+      "advance_form_page",
+      "repeat_until_review",
+      "prepare_review",
+    ]);
+    if (session.status !== "resumed" || !restoreBefore.has(firstPendingAction) || !grantUrl) return;
+
+    const replayActions = [
+      "open_grant_url",
+      "detect_form_platform",
+      "discover_entry_point",
+      "enter_application_flow",
+      "confirm_form_loaded",
+    ];
+    await appendLog(session.id, "session_resume", "restore_browser", "Restoring browser position before resuming form fill");
+    for (const replayAction of replayActions) {
+      const replayItem = {
+        ...pending[0],
+        id: -1,
+        action: replayAction,
+        grant_url: grantUrl,
+      } satisfies CuSessionItem;
+      const result = await runGrantStep(page, replayItem, profile, documents, {
+        requiredAttachments: requiredAttachments.length > 0 ? requiredAttachments : undefined,
+        grantContext: grantContext ?? undefined,
+        focusNotes,
+        portalRecipe,
+        portalCredentials,
+        priorFilledCount: verifiedFillCount,
+      });
+      await appendLog(session.id, "session_resume", replayAction, result.notes, result.success);
+      if (!result.success) {
+        throw new Error(`Could not restore browser position before resume: ${result.notes}`);
+      }
+    }
+  }
+
   try {
+    await replayNavigationForResume((pending[0]?.action ?? "").toLowerCase());
     for (const item of pending) {
       await throwIfSessionStopped(session.id);
       const action = (item.action ?? "").toLowerCase();
@@ -408,6 +458,7 @@ async function processGrantApplicationSession(
           });
           await throwIfSessionStopped(session.id);
           if (lastResult.success) break;
+          if (lastResult.needsInput && lastResult.missingRequired && lastResult.missingRequired.length > 0) break;
           if (lastResult.situation) break;
           attempt += 1;
           if (attempt < maxAttempts) {
@@ -443,6 +494,7 @@ async function processGrantApplicationSession(
         if (result.needsDirectUrl) extraData.needs_direct_url = result.needsDirectUrl;
         if (result.needsInput) extraData.needs_input = true;
         if (result.missingRequired) extraData.missing_required = result.missingRequired;
+        if (result.navigationEvents) extraData.navigation_events = result.navigationEvents;
         if (!result.success && !isNeedsInput && NAVIGATION_ACTIONS.has(action)) {
           extraData.skipped_due_to_nav_failure = true;
         }
@@ -456,6 +508,17 @@ async function processGrantApplicationSession(
           result.notes,
           result.success
         );
+        if (result.navigationEvents?.length) {
+          for (const navEvent of result.navigationEvents) {
+            await appendLog(
+              session.id,
+              "grant_navigation",
+              navEvent.step,
+              navEvent.detail,
+              navEvent.success
+            );
+          }
+        }
 
         if (!result.success && !isNeedsInput) {
           executionFailed = true;

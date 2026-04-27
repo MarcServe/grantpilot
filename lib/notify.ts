@@ -58,6 +58,8 @@ export interface NotificationPayload {
   profileName?: string;
   /** Subscription plan name for billing notifications */
   planName?: string;
+  /** Labels for details required before the application can continue. */
+  needsInputLabels?: string[];
 }
 
 export interface NotifyOptions {
@@ -94,10 +96,12 @@ export async function notifyUser(
   } else if (user.whatsappOptIn && user.phoneNumber) {
     const grantMatchSid = (process.env.TWILIO_WHATSAPP_GRANT_MATCH_CONTENT_SID ?? "").trim();
     const deadlineSid = (process.env.TWILIO_WHATSAPP_DEADLINE_CONTENT_SID ?? "").trim();
+    const needsInfoSid = (process.env.TWILIO_WHATSAPP_APPLICATION_NEEDS_INFO_CONTENT_SID ?? "").trim();
 
     const useGrantTemplate =
       (type === "grant_match" || type === "grant_match_high") && grantMatchSid.length > 0;
     const useDeadlineTemplate = type === "deadline_reminder" && deadlineSid.length > 0;
+    const useNeedsInfoTemplate = type === "application_needs_info" && needsInfoSid.length > 0;
 
     // WhatsApp business-initiated messages require Content Templates (Twilio 63016). Never use body.
     if (useGrantTemplate) {
@@ -134,6 +138,30 @@ export async function notifyUser(
         "1": payload.grantName ?? "Grant",
         "2": payload.deadline ?? "soon",
         "3": startUrl,
+      });
+      const logPayload: Record<string, unknown> = {
+        userId: user.id,
+        channel: "whatsapp",
+        type,
+        status: result.success ? "sent" : "failed",
+        error: result.error ?? null,
+      };
+      if (result.twilioSid ?? result.twilioStatus) {
+        logPayload.metadata = { twilioSid: result.twilioSid ?? null, twilioStatus: result.twilioStatus ?? null };
+      }
+      await supabase.from("NotificationLog").insert(logPayload);
+    } else if (useNeedsInfoTemplate) {
+      const applicationUrl = payload.applicationId
+        ? `${appUrl}/applications/${payload.applicationId}`
+        : `${appUrl}/applications`;
+      const details = (payload.needsInputLabels ?? [])
+        .filter((label) => typeof label === "string" && label.trim().length > 0)
+        .slice(0, 3)
+        .join("; ") || "a few required details";
+      const result = await sendWhatsAppWithTemplate(user.phoneNumber, needsInfoSid, {
+        "1": payload.grantName ?? "your grant",
+        "2": details,
+        "3": applicationUrl,
       });
       const logPayload: Record<string, unknown> = {
         userId: user.id,

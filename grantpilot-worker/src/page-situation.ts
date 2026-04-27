@@ -269,6 +269,7 @@ export async function detectPageSituation(page: Page, hints?: NavigationHints): 
     if (officeForms?.hasStartButton || officeForms?.looksLikeOfficeForm || officeForms?.hasNextButton) {
       return { situation: "info_page_with_apply", confidence: 0.9 };
     }
+    return { situation: "info_page_with_apply", confidence: 0.7 };
   }
 
   const visionResult = await detectPageSituationWithVision(page);

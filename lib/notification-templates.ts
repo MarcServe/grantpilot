@@ -119,11 +119,17 @@ export function buildEmailHtml(
 
     case "application_needs_info": {
       const applicationUrl = payload.applicationId ? `${appUrl}/applications/${payload.applicationId}` : appUrl;
+      const labels = (payload.needsInputLabels ?? [])
+        .filter((label) => typeof label === "string" && label.trim().length > 0)
+        .slice(0, 5);
+      const detailsList = labels.length > 0
+        ? `<ul style="padding-left:20px">${labels.map((label) => `<li>${escapeHtml(label)}</li>`).join("")}</ul>`
+        : "";
       return {
         subject: `More info needed: ${grant}`,
         html: baseLayout(
           "We need a few details to continue",
-          `<p>Your application for <strong>${grant}</strong> needs a few required details that aren't in your profile.</p><p>Open the application below, fill in the requested fields, and click Resume so GrantsCopilot can continue.</p>`,
+          `<p>Your application for <strong>${grant}</strong> needs a few required details that aren't in your profile.</p>${detailsList}<p>Open the application below, fill in the requested fields, and click Resume so GrantsCopilot can continue.</p>`,
           applicationUrl,
           "Provide Details"
         ),
@@ -316,7 +322,12 @@ export function buildWhatsAppMessage(
 
     case "application_needs_info": {
       const applicationUrl = payload.applicationId ? `${appUrl}/applications/${payload.applicationId}` : appUrl;
-      return `We need a few details to continue your ${grant} application. Open the link, fill in the requested fields, and click Resume.\n\n${applicationUrl}`;
+      const details = (payload.needsInputLabels ?? [])
+        .filter((label) => typeof label === "string" && label.trim().length > 0)
+        .slice(0, 3)
+        .join("; ");
+      const detailLine = details ? `\n\nNeeded: ${details}` : "";
+      return `We need a few details to continue your ${grant} application.${detailLine}\n\nOpen the link, fill in the requested fields, and click Resume.\n\n${applicationUrl}`;
     }
 
     case "deadline_reminder": {

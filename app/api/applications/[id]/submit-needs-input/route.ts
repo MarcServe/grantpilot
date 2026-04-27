@@ -27,7 +27,7 @@ export async function POST(
     const supabase = getSupabaseAdmin();
     const { data: app, error: appError } = await supabase
       .from("Application")
-      .select("id, organisationId, organisation_id, status")
+      .select("id, organisationId, status")
       .eq("id", applicationId)
       .single();
 
@@ -35,8 +35,8 @@ export async function POST(
       return NextResponse.json({ error: "Application not found" }, { status: 404 });
     }
 
-    const raw = app as { id: string; organisationId?: string; organisation_id?: string; status: string };
-    const appOrgId = raw.organisationId ?? raw.organisation_id;
+    const raw = app as { id: string; organisationId?: string; status: string };
+    const appOrgId = raw.organisationId;
     if (appOrgId !== orgId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }

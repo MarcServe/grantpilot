@@ -132,10 +132,41 @@ export default async function ApplicationDetailPage({
     action: string | null;
     status: string;
     error_message: string | null;
-    extra_data?: { page_situation?: string; needs_direct_url?: boolean; notes?: string };
+    extra_data?: {
+      page_situation?: string;
+      needs_direct_url?: boolean;
+      notes?: string;
+      navigation_events?: {
+        step: string;
+        detail: string;
+        success: boolean;
+        metadata?: Record<string, unknown>;
+      }[];
+      missing_required?: unknown;
+    };
   }[];
+  const needsInputFromSession = sessionItems
+    .flatMap((item) => {
+      const missing = item.extra_data?.missing_required;
+      return Array.isArray(missing) ? missing : [];
+    })
+    .filter((field): field is { selector: string; label: string; hint?: string } =>
+      field != null &&
+      typeof field === "object" &&
+      typeof (field as { selector?: unknown }).selector === "string" &&
+      typeof (field as { label?: unknown }).label === "string"
+    );
+  const navigationReachedForm = sessionItems.some(
+    (item) =>
+      (item.action === "navigate_to_form" || item.action === "enter_application_flow") &&
+      item.status === "done" &&
+      item.extra_data?.page_situation === "application_form"
+  );
   const pageSituationItem = sessionItems.find(
-    (i) => i.extra_data && typeof (i.extra_data as { page_situation?: string }).page_situation === "string"
+    (i) =>
+      !navigationReachedForm &&
+      i.extra_data &&
+      typeof (i.extra_data as { page_situation?: string }).page_situation === "string"
   );
   const pageSituation = pageSituationItem
     ? (pageSituationItem.extra_data as { page_situation?: string }).page_situation
@@ -191,9 +222,9 @@ export default async function ApplicationDetailPage({
         </div>
       </div>
 
-      {application.status === "NEEDS_INPUT" && (() => {
+      {(application.status === "NEEDS_INPUT" || needsInputFromSession.length > 0) && (() => {
         const needsInput = (application as { needs_input?: { selector: string; label: string; hint?: string }[] }).needs_input;
-        const list = Array.isArray(needsInput) ? needsInput : [];
+        const list = Array.isArray(needsInput) && needsInput.length > 0 ? needsInput : needsInputFromSession;
         if (list.length === 0) return null;
         return <NeedsInputForm applicationId={application.id} needsInput={list} />;
       })()}
@@ -302,29 +333,95 @@ export default async function ApplicationDetailPage({
                   action: string | null;
                   status: string;
                   error_message: string | null;
-                }) => (
-                  <div
-                    key={item.id}
-                    className="flex items-center justify-between rounded-lg border p-3"
-                  >
-                    <div className="flex items-center gap-3">
-                      {ITEM_STATUS_ICON[item.status] ?? (
-                        <Clock className="h-4 w-4 text-muted-foreground" />
+                  extra_data?: {
+                    notes?: string;
+                    navigation_events?: {
+                      step: string;
+                      detail: string;
+                      success: boolean;
+                    }[];
+                  };
+                }) => {
+                  const navigationEvents = item.extra_data?.navigation_events ?? [];
+                  const itemNeedsInput = Array.isArray((item.extra_data as { missing_required?: unknown })?.missing_required);
+                  const recoveredNavigationProbe =
+                    navigationReachedForm &&
+                    item.action === "open_grant_url" &&
+                    item.status === "failed";
+                  const statusLabel = itemNeedsInput && item.status === "pending"
+                    ? "Needs input"
+                    : recoveredNavigationProbe
+                      ? "Recovered"
+                    : item.status === "skipped"
+                      ? "Skipped"
+                      : item.status;
+                  const statusIcon = recoveredNavigationProbe
+                    ? <CheckCircle className="h-4 w-4 shrink-0 text-green-600" />
+                    : ITEM_STATUS_ICON[item.status] ?? (
+                        <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      );
+                  const notes = recoveredNavigationProbe
+                    ? "The first page check was too strict, but the navigation step later reached the form."
+                    : item.extra_data?.notes;
+                  return (
+                    <div key={item.id} className="rounded-lg border p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-3">
+                          {statusIcon}
+                          <div className="min-w-0">
+                            <span className="text-sm font-medium">
+                              {(item.action ?? "Unknown step")
+                                .replace(/_/g, " ")
+                                .replace(/\b\w/g, (l: string) => l.toUpperCase())}
+                            </span>
+                            {notes && (
+                              <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+                                {notes}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <Badge
+                          variant="outline"
+                          className={`shrink-0 text-xs ${
+                            item.status === "skipped"
+                              ? "border-amber-200 bg-amber-50 text-amber-800"
+                              : recoveredNavigationProbe
+                                ? "border-green-200 bg-green-50 text-green-800"
+                                : ""
+                          }`}
+                        >
+                          {statusLabel}
+                        </Badge>
+                      </div>
+
+                      {navigationEvents.length > 0 && (
+                        <div className="mt-3 border-t pt-3">
+                          <p className="mb-2 text-xs font-medium text-muted-foreground">
+                            Navigation brain
+                          </p>
+                          <div className="space-y-1.5">
+                            {navigationEvents.map((event, index) => (
+                              <div key={`${event.step}-${index}`} className="flex items-start gap-2 text-xs">
+                                {event.success ? (
+                                  <CheckCircle className="mt-0.5 h-3 w-3 shrink-0 text-green-600" />
+                                ) : (
+                                  <XCircle className="mt-0.5 h-3 w-3 shrink-0 text-red-600" />
+                                )}
+                                <div className="min-w-0">
+                                  <span className="font-medium">
+                                    {event.step.replace(/_/g, " ")}
+                                  </span>
+                                  <p className="text-muted-foreground">{event.detail}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                       )}
-                      <span className="text-sm font-medium">
-                        {(item.action ?? "Unknown step")
-                          .replace(/_/g, " ")
-                          .replace(/\b\w/g, (l: string) => l.toUpperCase())}
-                      </span>
                     </div>
-                    <Badge
-                      variant="outline"
-                      className={`text-xs ${item.status === "skipped" ? "border-amber-200 bg-amber-50 text-amber-800" : ""}`}
-                    >
-                      {item.status === "skipped" ? "Skipped" : item.status}
-                    </Badge>
-                  </div>
-                )
+                  );
+                }
               )}
             </div>
           ) : (

@@ -26,7 +26,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     const supabase = getSupabaseAdmin();
     const { data: app, error: appError } = await supabase
       .from("Application")
-      .select("id, organisationId, organisation_id, login_required_notified_at, Grant(name)")
+      .select("id, organisationId, login_required_notified_at, Grant(name)")
       .eq("id", applicationId)
       .single();
 
@@ -37,11 +37,10 @@ export async function POST(req: Request): Promise<NextResponse> {
     const raw = app as {
       id: string;
       organisationId?: string;
-      organisation_id?: string;
       login_required_notified_at?: string | null;
       Grant?: { name: string } | { name: string }[];
     };
-    const orgId = raw.organisationId ?? raw.organisation_id;
+    const orgId = raw.organisationId;
     if (!orgId) {
       return NextResponse.json({ error: "Application has no organisation" }, { status: 400 });
     }
