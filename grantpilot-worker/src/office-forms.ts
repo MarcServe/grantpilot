@@ -40,7 +40,25 @@ export async function extractOfficeFormsFields(page: Page): Promise<FormFieldInf
       return `${tag}:nth-of-type(${index})`;
     }
 
-    function questionFor(el: Element): string {
+    function questionContainerFor(el: Element, role: "radio" | "checkbox"): Element | null {
+      let cur: Element | null = el.parentElement;
+      for (let depth = 0; cur && depth < 8; depth++) {
+        const text = clean(cur.textContent);
+        const choiceCount = cur.querySelectorAll(`[role="${role}"]`).length;
+        if (text.includes("?") && choiceCount > 0 && text.length <= 900) return cur;
+        cur = cur.parentElement;
+      }
+      return null;
+    }
+
+    function questionFor(el: Element, role?: "radio" | "checkbox"): string {
+      const container = role ? questionContainerFor(el, role) : null;
+      if (container) {
+        const clone = container.cloneNode(true) as HTMLElement;
+        clone.querySelectorAll('[role="radio"], [role="checkbox"], button, input').forEach((node) => node.remove());
+        const text = clean(clone.textContent);
+        if (text) return clean(text.replace(/\b(Yes|No|Next|Back|Submit|Required)\b/gi, " ")).slice(0, 240);
+      }
       const candidates: string[] = [];
       let cur: Element | null = el;
       for (let depth = 0; cur && depth < 6; depth++) {
@@ -57,43 +75,73 @@ export async function extractOfficeFormsFields(page: Page): Promise<FormFieldInf
     const radios = Array.from(document.querySelectorAll<HTMLElement>('[role="radio"]'))
       .filter((el) => el.offsetParent != null);
     if (radios.length > 0) {
-      const label = questionFor(radios[0]);
-      fields.push({
-        name: `office_radio_${fields.length + 1}`,
-        id: null,
-        selector: '[role="radio"]',
-        type: "radio_group",
-        label,
-        placeholder: "",
-        required: /required/i.test(document.body?.innerText ?? ""),
-        options: radios.map((el) => ({
-          label: clean(el.getAttribute("aria-label") || el.textContent) || "Option",
-          value: clean(el.getAttribute("aria-label") || el.textContent) || "Option",
-          selector: selectorFor(el),
-          checked: el.getAttribute("aria-checked") === "true",
-        })),
-      });
+      const groups = new Map<string, HTMLElement[]>();
+      for (const el of radios) {
+        const label = questionFor(el, "radio");
+        const existing = groups.get(label) ?? [];
+        existing.push(el);
+        groups.set(label, existing);
+      }
+      let groupIndex = 0;
+      for (const [label, elements] of groups) {
+        groupIndex += 1;
+        const groupId = `office_radio_${groupIndex}`;
+        elements.forEach((el, optionIndex) => {
+          el.setAttribute("data-gp-office-group", groupId);
+          el.setAttribute("data-gp-office-option", `${groupId}_${optionIndex}`);
+        });
+        fields.push({
+          name: groupId,
+          id: null,
+          selector: `[role="radio"][data-gp-office-group="${groupId}"]`,
+          type: "radio_group",
+          label,
+          placeholder: "",
+          required: true,
+          options: elements.map((el) => ({
+            label: clean(el.getAttribute("aria-label") || el.textContent) || "Option",
+            value: clean(el.getAttribute("aria-label") || el.textContent) || "Option",
+            selector: selectorFor(el),
+            checked: el.getAttribute("aria-checked") === "true",
+          })),
+        });
+      }
     }
 
     const checkboxes = Array.from(document.querySelectorAll<HTMLElement>('[role="checkbox"]'))
       .filter((el) => el.offsetParent != null);
     if (checkboxes.length > 0) {
-      const label = questionFor(checkboxes[0]);
-      fields.push({
-        name: `office_checkbox_${fields.length + 1}`,
-        id: null,
-        selector: '[role="checkbox"]',
-        type: "checkbox_group",
-        label,
-        placeholder: "",
-        required: /required/i.test(document.body?.innerText ?? ""),
-        options: checkboxes.map((el) => ({
-          label: clean(el.getAttribute("aria-label") || el.textContent) || "Option",
-          value: clean(el.getAttribute("aria-label") || el.textContent) || "Option",
-          selector: selectorFor(el),
-          checked: el.getAttribute("aria-checked") === "true",
-        })),
-      });
+      const groups = new Map<string, HTMLElement[]>();
+      for (const el of checkboxes) {
+        const label = questionFor(el, "checkbox");
+        const existing = groups.get(label) ?? [];
+        existing.push(el);
+        groups.set(label, existing);
+      }
+      let groupIndex = 0;
+      for (const [label, elements] of groups) {
+        groupIndex += 1;
+        const groupId = `office_checkbox_${groupIndex}`;
+        elements.forEach((el, optionIndex) => {
+          el.setAttribute("data-gp-office-group", groupId);
+          el.setAttribute("data-gp-office-option", `${groupId}_${optionIndex}`);
+        });
+        fields.push({
+          name: groupId,
+          id: null,
+          selector: `[role="checkbox"][data-gp-office-group="${groupId}"]`,
+          type: "checkbox_group",
+          label,
+          placeholder: "",
+          required: true,
+          options: elements.map((el) => ({
+            label: clean(el.getAttribute("aria-label") || el.textContent) || "Option",
+            value: clean(el.getAttribute("aria-label") || el.textContent) || "Option",
+            selector: selectorFor(el),
+            checked: el.getAttribute("aria-checked") === "true",
+          })),
+        });
+      }
     }
 
     Array.from(document.querySelectorAll<HTMLElement>('[role="textbox"], textarea, input[type="text"], input[type="email"], input[type="tel"], input[type="number"]'))

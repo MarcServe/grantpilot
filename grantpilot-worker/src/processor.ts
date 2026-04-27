@@ -96,6 +96,17 @@ async function updateSessionProgress(
   if (error) throw error;
 }
 
+async function countTerminalSessionItems(sessionId: number): Promise<number> {
+  const { data, error } = await getSupabase()
+    .from("cu_session_items")
+    .select("status")
+    .eq("session_id", sessionId);
+  if (error) throw error;
+  return (data ?? []).filter((item: { status?: string | null }) =>
+    item.status != null && !["pending", "processing"].includes(item.status)
+  ).length;
+}
+
 async function getSessionState(sessionId: number): Promise<{ status: string | null; errorLog: string | null }> {
   const { data, error } = await getSupabase()
     .from("cu_sessions")
@@ -691,7 +702,7 @@ export async function processSession(session: CuSession): Promise<void> {
 
       if (session.task_type === "grant_application") {
         const result = await processGrantApplicationSession(session, pending);
-        processed += result.processed;
+        processed = Math.max(processed + result.processed, await countTerminalSessionItems(session.id));
         if (processed % PROGRESS_UPDATE_EVERY === 0) {
           await updateSessionProgress(session.id, processed, `processed_${processed}`);
         }
@@ -764,6 +775,7 @@ export async function processSession(session: CuSession): Promise<void> {
       await appendLog(session.id, "session_paused", "pause", `Paused ${session.public_id}`);
       return;
     }
+    processed = Math.max(processed, await countTerminalSessionItems(session.id));
     await updateSessionProgress(session.id, processed, `final_${processed}`);
     await completeSession(session.id);
     await appendLog(session.id, "session_complete", "complete", `Completed ${session.public_id}`);

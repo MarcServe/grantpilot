@@ -105,8 +105,12 @@ export default async function ApplicationDetailPage({
     slug: t.slug ?? null,
   }));
 
-  const totalItems = session?.total_items ?? 0;
-  const processedItems = session?.processed_items ?? 0;
+  const itemRows = (items ?? []) as { status?: string | null }[];
+  const terminalItemCount = itemRows.filter(
+    (item) => item.status != null && !["pending", "processing"].includes(item.status)
+  ).length;
+  const totalItems = session?.total_items ?? itemRows.length;
+  const processedItems = Math.max(session?.processed_items ?? 0, terminalItemCount);
   const progressPercent = totalItems > 0 ? (processedItems / totalItems) * 100 : 0;
   const sessionStatus = (session?.status as string) ?? "unknown";
   const isComplete = sessionStatus === "completed";

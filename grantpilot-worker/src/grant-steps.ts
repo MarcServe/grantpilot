@@ -12,6 +12,7 @@ import {
   clickNextOrContinueButton,
   cleanupTempFiles,
   getFilledFormSnapshot,
+  getValidationErrors,
   findAndClickApplyButton,
   filterApplicationFields,
   type FilledFormSnapshot,
@@ -443,6 +444,21 @@ export async function runGrantStep(
         const clickedNext = await clickNextOrContinueButton(page);
         if (!clickedNext) break;
         await page.waitForTimeout(2000);
+        const validationErrors = await getValidationErrors(page);
+        if (validationErrors.length > 0) {
+          const currentFields = await filterApplicationFields(
+            mergeOfficeFormsFields(await getFormFields(page), await extractOfficeFormsFields(page))
+          );
+          const missingRequired = unansweredDynamicFields(currentFields);
+          if (missingRequired.length > 0) {
+            return {
+              success: false,
+              notes: `The form needs more answers before continuing: ${validationErrors.join("; ")}`,
+              needsInput: true,
+              missingRequired,
+            };
+          }
+        }
 
         const transitionCheck = await quickPageCheck(page);
         if (transitionCheck === "login_required") {
