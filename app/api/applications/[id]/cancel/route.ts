@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
-const STOPPABLE_STATUSES = ["PENDING", "FILLING", "REVIEW_REQUIRED"];
+const STOPPABLE_STATUSES = ["PENDING", "FILLING", "REVIEW_REQUIRED", "NEEDS_INPUT"];
 
 /**
  * POST /api/applications/[id]/cancel
@@ -54,14 +54,29 @@ export async function POST(
       .eq("id", applicationId);
 
     const publicId = `grantapp_${applicationId}`;
-    await supabase
+    const { data: session } = await supabase
       .from("cu_sessions")
       .update({
         status: "failed",
         error_log: "Stopped by user",
         updated_at: now,
       })
-      .eq("public_id", publicId);
+      .eq("public_id", publicId)
+      .select("id")
+      .maybeSingle();
+
+    const sessionId = (session as { id?: number } | null)?.id;
+    if (sessionId != null) {
+      await supabase
+        .from("cu_session_items")
+        .update({
+          status: "skipped",
+          extra_data: { notes: "Skipped: stopped by user" },
+          processed_at: now,
+        })
+        .eq("session_id", sessionId)
+        .in("status", ["pending", "processing"]);
+    }
 
     return NextResponse.json({ ok: true });
   } catch (e) {

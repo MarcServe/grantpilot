@@ -1,8 +1,13 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { getApplicantTypeGate } from "@/lib/eligibility-hard-gates";
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))];
+}
 
 /**
  * Strip markdown code fences and leading/trailing whitespace from a model response
@@ -28,6 +33,7 @@ interface ProfileForMatching {
   fundingMax: number;
   fundingPurposes: string[];
   fundingDetails: string | null;
+  businessType?: string | null;
 }
 
 interface GrantForMatching {
@@ -102,6 +108,7 @@ export async function getEligibilityDecision(
         content: `You are a UK grant eligibility expert. Given this business and this grant, give an eligibility assessment.
 
 Business: ${profile.businessName} (${profile.sector}). Location: ${profile.location}. Employees: ${profile.employeeCount ?? "N/A"}. Revenue: ${profile.annualRevenue ? `£${profile.annualRevenue.toLocaleString("en-GB")}` : "N/A"}. Funding sought: £${profile.fundingMin.toLocaleString("en-GB")}–£${profile.fundingMax.toLocaleString("en-GB")}. Purposes: ${profile.fundingPurposes.join(", ")}. ${profile.missionStatement ? `Mission: ${profile.missionStatement}.` : ""} ${profile.description ? `Description: ${profile.description}` : ""}
+Business type: ${profile.businessType || "N/A"}.
 
 Grant: ${grant.name} (${grant.funder}). Amount: ${grant.amount != null ? `£${grant.amount.toLocaleString("en-GB")}` : "Varies"}. Eligibility: ${grant.eligibility}.${grant.description ? ` Description: ${grant.description.slice(0, 800)}.` : ""}${grant.objectives ? ` Objectives: ${grant.objectives.slice(0, 400)}.` : ""}${grant.applicantTypes?.length ? ` Applicant types: ${grant.applicantTypes.join(", ")}.` : ""} Sectors: ${(grant.sectors ?? []).join(", ")}. Regions: ${(grant.regions ?? []).join(", ")}.
 
@@ -121,6 +128,7 @@ Return ONLY valid JSON. No markdown. Use this exact shape:
 
 Rules:
 - score and confidence should match (0-100). likely_eligible => score >= 75, review => 40-74, unlikely => < 40.
+- Treat legal applicant type as a hard gate. If the grant is only for charities, non-profits, CICs, or social enterprises and the business type does not match, decision must be unlikely and score must be below 30 even if sector, region, and purpose align.
 - reasons: 3-5 short bullets. For high score explain why they're eligible; for low/medium explain what doesn't match or is missing.
 - alignment: only when score >= 70, 2-4 bullets on how this grant fits their business.
 - improvementPlan: only when score < 75. gaps = what's missing or misaligned; actions = concrete steps to improve fit; timeline optional (e.g. "0-3 months"). Use null when score >= 75.
@@ -146,6 +154,24 @@ Rules:
     if (parsed.score >= 75 && parsed.improvementPlan) parsed.improvementPlan = undefined;
     if (!Array.isArray(parsed.met)) parsed.met = [];
     if (!Array.isArray(parsed.missing)) parsed.missing = [];
+    const applicantGate = getApplicantTypeGate(profile.businessType, grant);
+    if (applicantGate && !applicantGate.profileMatches) {
+      return {
+        ...parsed,
+        decision: "unlikely",
+        score: Math.min(parsed.score ?? 25, 25),
+        confidence: Math.min(parsed.confidence, 25),
+        summary: `Unlikely eligible: ${applicantGate.reason}, which does not match your business type.`,
+        reason: `This grant appears restricted by applicant type. ${applicantGate.reason}, but your profile is not marked as one of those organisation types.`,
+        alignment: [],
+        improvementPlan: {
+          gaps: [applicantGate.reason],
+          actions: ["Only apply if your organisation is registered under one of the required applicant types."],
+          timeline: "Before applying",
+        },
+        missing: uniqueStrings([...(parsed.missing ?? []), applicantGate.reason]),
+      };
+    }
     return parsed;
   } catch {
     return {

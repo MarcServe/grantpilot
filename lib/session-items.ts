@@ -40,7 +40,7 @@ const GENERIC_ITEMS: SessionItemDef[] = [
   { action: "prepare_review", task_type: TASK_TYPE },
 ];
 
-const SUBMIT_ITEM: SessionItemDef = { action: "submit_application", task_type: TASK_TYPE };
+// Final submission is only queued by /api/applications/submit after explicit user approval.
 
 /**
  * Build session items for a grant application. If a portal recipe is provided,
@@ -83,15 +83,12 @@ export function buildSessionItems(opts: {
     items.push({ action: "upload_documents", task_type: TASK_TYPE });
     items.push({ action: "prepare_review", task_type: TASK_TYPE });
 
-    if (autopilot) {
-      items.push(SUBMIT_ITEM);
-    }
-
     return items;
   }
 
   // Generic pipeline
-  return autopilot ? [...GENERIC_ITEMS, SUBMIT_ITEM] : [...GENERIC_ITEMS];
+  void autopilot;
+  return [...GENERIC_ITEMS];
 }
 
 /**

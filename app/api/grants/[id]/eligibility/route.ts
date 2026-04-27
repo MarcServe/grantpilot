@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getEligibilityDecision, getConfidenceBand } from "@/lib/claude";
+import { getApplicantTypeGate } from "@/lib/eligibility-hard-gates";
 
 function profileToMatching(profile: Record<string, unknown>) {
   const get = (key: string) => profile[key] ?? profile[key.replace(/([A-Z])/g, "_$1").toLowerCase()];
@@ -17,6 +18,7 @@ function profileToMatching(profile: Record<string, unknown>) {
     fundingMax: Number(get("fundingMax") ?? get("funding_max") ?? 0),
     fundingPurposes: Array.isArray(profile.fundingPurposes) ? profile.fundingPurposes as string[] : (Array.isArray(profile.funding_purposes) ? profile.funding_purposes as string[] : []),
     fundingDetails: profile.fundingDetails != null ? String(profile.fundingDetails) : (profile.funding_details != null ? String(profile.funding_details) : null),
+    businessType: String(get("businessType") ?? get("business_type") ?? ""),
   };
 }
 
@@ -82,6 +84,30 @@ export async function GET(
           missing_criteria: unknown;
         };
         const score = c.score;
+        const applicantGate = getApplicantTypeGate(
+          String((profile as Record<string, unknown>).businessType ?? (profile as Record<string, unknown>).business_type ?? ""),
+          g
+        );
+        if (applicantGate && !applicantGate.profileMatches) {
+          const gatedScore = Math.min(score, 25);
+          return NextResponse.json({
+            decision: "unlikely",
+            reason: `This grant appears restricted by applicant type. ${applicantGate.reason}, but your profile is not marked as one of those organisation types.`,
+            confidence: gatedScore,
+            score: gatedScore,
+            summary: `Unlikely eligible: ${applicantGate.reason}, which does not match your business type.`,
+            reasons: [`Applicant type mismatch: ${applicantGate.reason}`],
+            alignment: [],
+            improvementPlan: {
+              gaps: [applicantGate.reason],
+              actions: ["Only apply if your organisation is registered under one of the required applicant types."],
+              timeline: "Before applying",
+            },
+            met: [],
+            missing: [applicantGate.reason],
+            confidenceBand: getConfidenceBand(gatedScore),
+          });
+        }
         return NextResponse.json({
           decision: c.decision,
           reason: c.summary ?? "",

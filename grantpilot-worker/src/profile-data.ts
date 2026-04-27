@@ -2,18 +2,67 @@ import { getSupabase } from "./supabase.js";
 
 export interface ProfileData {
   businessName: string;
+  tradingName: string | null;
   registrationNumber: string | null;
+  charityNumber: string | null;
+  vatNumber: string | null;
+  yearEstablished: number | null;
   location: string;
+  registeredAddress: string | null;
+  operatingAddress: string | null;
+  postcode: string | null;
+  country: string | null;
+  region: string | null;
+  primaryContactName: string | null;
+  primaryContactRole: string | null;
+  primaryContactEmail: string | null;
+  primaryContactPhone: string | null;
+  primaryContactLinkedIn: string | null;
+  preferredContactMethod: string | null;
   sector: string;
   missionStatement: string;
   description: string;
   employeeCount: number | null;
+  contractorCount: number | null;
   annualRevenue: number | null;
+  profitLoss: string | null;
+  cashReserves: string | null;
+  financialProjections: string | null;
   previousGrants: string | null;
   fundingMin: number;
   fundingMax: number;
   fundingPurposes: string[];
   fundingDetails: string | null;
+  coFundingAvailable: string | null;
+  matchFundingDetails: string | null;
+  directorNames: string | null;
+  directorProfiles: string | null;
+  teamMembers: string | null;
+  boardMembers: string | null;
+  founderBackground: string | null;
+  projectTitle: string | null;
+  projectSummary: string | null;
+  problemStatement: string | null;
+  proposedSolution: string | null;
+  projectObjectives: string | null;
+  expectedOutcomes: string | null;
+  projectStartDate: string | null;
+  projectEndDate: string | null;
+  beneficiaryGroups: string | null;
+  beneficiaryCount: number | null;
+  geographicImpact: string | null;
+  diversityInclusionImpact: string | null;
+  jobsCreated: number | null;
+  revenueGrowthExpected: string | null;
+  co2Reduction: string | null;
+  productivityImprovements: string | null;
+  milestones: string | null;
+  deliverables: string | null;
+  partnerOrganisations: string | null;
+  collaborationDetails: string | null;
+  risksMitigation: string | null;
+  exitStrategy: string | null;
+  projectSustainabilityPlan: string | null;
   websiteIntelligence: string | null;
   socialImpact: string | null;
   innovationCapabilities: string | null;
@@ -21,6 +70,7 @@ export interface ProfileData {
   communityEngagement: string | null;
   keyAchievements: string | null;
   teamExpertise: string | null;
+  learnedApplicationAnswers: Record<string, string> | null;
 }
 
 export interface DocumentData {
@@ -35,27 +85,87 @@ export interface DocumentData {
 function normaliseProfile(row: Record<string, unknown>): ProfileData {
   const get = (key: string) =>
     row[key] ?? row[key.replace(/([A-Z])/g, "_$1").toLowerCase()];
+  const str = (key: string): string | null => {
+    const value = get(key);
+    return value != null && value !== "" ? String(value) : null;
+  };
+  const num = (key: string): number | null => {
+    const value = get(key);
+    if (value == null || value === "") return null;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  };
   return {
     businessName: String(get("businessName") ?? ""),
-    registrationNumber: row.registrationNumber != null ? String(row.registrationNumber) : (row.registration_number != null ? String(row.registration_number) : null),
+    tradingName: str("tradingName"),
+    registrationNumber: str("registrationNumber"),
+    charityNumber: str("charityNumber"),
+    vatNumber: str("vatNumber"),
+    yearEstablished: num("yearEstablished"),
     location: String(get("location") ?? ""),
+    registeredAddress: str("registeredAddress"),
+    operatingAddress: str("operatingAddress"),
+    postcode: str("postcode"),
+    country: str("country"),
+    region: str("region"),
+    primaryContactName: str("primaryContactName"),
+    primaryContactRole: str("primaryContactRole"),
+    primaryContactEmail: str("primaryContactEmail"),
+    primaryContactPhone: str("primaryContactPhone"),
+    primaryContactLinkedIn: str("primaryContactLinkedIn"),
+    preferredContactMethod: str("preferredContactMethod"),
     sector: String(get("sector") ?? ""),
     missionStatement: String(get("missionStatement") ?? get("mission_statement") ?? ""),
     description: String(get("description") ?? ""),
-    employeeCount: row.employeeCount != null ? Number(row.employeeCount) : (row.employee_count != null ? Number(row.employee_count) : null),
-    annualRevenue: row.annualRevenue != null ? Number(row.annualRevenue) : (row.annual_revenue != null ? Number(row.annual_revenue) : null),
-    previousGrants: row.previousGrants != null ? String(row.previousGrants) : (row.previous_grants != null ? String(row.previous_grants) : null),
+    employeeCount: num("employeeCount"),
+    contractorCount: num("contractorCount"),
+    annualRevenue: num("annualRevenue"),
+    profitLoss: str("profitLoss"),
+    cashReserves: str("cashReserves"),
+    financialProjections: str("financialProjections"),
+    previousGrants: str("previousGrants"),
     fundingMin: Number(get("fundingMin") ?? get("funding_min") ?? 0),
     fundingMax: Number(get("fundingMax") ?? get("funding_max") ?? 0),
     fundingPurposes: Array.isArray(row.fundingPurposes) ? row.fundingPurposes as string[] : (Array.isArray(row.funding_purposes) ? row.funding_purposes as string[] : []),
-    fundingDetails: row.fundingDetails != null ? String(row.fundingDetails) : (row.funding_details != null ? String(row.funding_details) : null),
-    websiteIntelligence: row.websiteIntelligence != null ? String(row.websiteIntelligence) : (row.website_intelligence != null ? String(row.website_intelligence) : null),
-    socialImpact: row.socialImpact != null ? String(row.socialImpact) : (row.social_impact != null ? String(row.social_impact) : null),
-    innovationCapabilities: row.innovationCapabilities != null ? String(row.innovationCapabilities) : (row.innovation_capabilities != null ? String(row.innovation_capabilities) : null),
-    sustainabilityInitiatives: row.sustainabilityInitiatives != null ? String(row.sustainabilityInitiatives) : (row.sustainability_initiatives != null ? String(row.sustainability_initiatives) : null),
-    communityEngagement: row.communityEngagement != null ? String(row.communityEngagement) : (row.community_engagement != null ? String(row.community_engagement) : null),
-    keyAchievements: row.keyAchievements != null ? String(row.keyAchievements) : (row.key_achievements != null ? String(row.key_achievements) : null),
-    teamExpertise: row.teamExpertise != null ? String(row.teamExpertise) : (row.team_expertise != null ? String(row.team_expertise) : null),
+    fundingDetails: str("fundingDetails"),
+    coFundingAvailable: str("coFundingAvailable"),
+    matchFundingDetails: str("matchFundingDetails"),
+    directorNames: str("directorNames"),
+    directorProfiles: str("directorProfiles"),
+    teamMembers: str("teamMembers"),
+    boardMembers: str("boardMembers"),
+    founderBackground: str("founderBackground"),
+    projectTitle: str("projectTitle"),
+    projectSummary: str("projectSummary"),
+    problemStatement: str("problemStatement"),
+    proposedSolution: str("proposedSolution"),
+    projectObjectives: str("projectObjectives"),
+    expectedOutcomes: str("expectedOutcomes"),
+    projectStartDate: str("projectStartDate"),
+    projectEndDate: str("projectEndDate"),
+    beneficiaryGroups: str("beneficiaryGroups"),
+    beneficiaryCount: num("beneficiaryCount"),
+    geographicImpact: str("geographicImpact"),
+    diversityInclusionImpact: str("diversityInclusionImpact"),
+    jobsCreated: num("jobsCreated"),
+    revenueGrowthExpected: str("revenueGrowthExpected"),
+    co2Reduction: str("co2Reduction"),
+    productivityImprovements: str("productivityImprovements"),
+    milestones: str("milestones"),
+    deliverables: str("deliverables"),
+    partnerOrganisations: str("partnerOrganisations"),
+    collaborationDetails: str("collaborationDetails"),
+    risksMitigation: str("risksMitigation"),
+    exitStrategy: str("exitStrategy"),
+    projectSustainabilityPlan: str("projectSustainabilityPlan"),
+    websiteIntelligence: str("websiteIntelligence"),
+    socialImpact: str("socialImpact"),
+    innovationCapabilities: str("innovationCapabilities"),
+    sustainabilityInitiatives: str("sustainabilityInitiatives"),
+    communityEngagement: str("communityEngagement"),
+    keyAchievements: str("keyAchievements"),
+    teamExpertise: str("teamExpertise"),
+    learnedApplicationAnswers: null,
   };
 }
 
@@ -75,10 +185,11 @@ function normaliseDocument(row: Record<string, unknown>): DocumentData {
 
 function mergeGrantMemoryIntoProfile(
   profile: ProfileData,
-  payload: { company?: Record<string, unknown>; financials?: Record<string, unknown> }
+  payload: { company?: Record<string, unknown>; financials?: Record<string, unknown>; team?: Record<string, unknown>; pitchSnippets?: Record<string, string> }
 ): ProfileData {
   const company = payload.company ?? {};
   const financials = payload.financials ?? {};
+  const team = payload.team ?? {};
   return {
     ...profile,
     businessName: (company.businessName as string) ?? profile.businessName,
@@ -94,6 +205,10 @@ function mergeGrantMemoryIntoProfile(
     fundingMax: financials.fundingMax != null ? Number(financials.fundingMax) : profile.fundingMax,
     fundingPurposes: Array.isArray(financials.fundingPurposes) ? (financials.fundingPurposes as string[]) : profile.fundingPurposes,
     fundingDetails: (financials.fundingDetails as string | null) ?? profile.fundingDetails,
+    directorNames: (team.directorNames as string | null) ?? profile.directorNames,
+    directorProfiles: (team.directorProfiles as string | null) ?? profile.directorProfiles,
+    teamMembers: (team.teamMembers as string | null) ?? profile.teamMembers,
+    learnedApplicationAnswers: payload.pitchSnippets ?? profile.learnedApplicationAnswers,
   };
 }
 
@@ -127,7 +242,7 @@ export async function fetchProfileAndDocuments(
     .maybeSingle();
 
   if (memoryRow?.payload && typeof memoryRow.payload === "object") {
-    const payload = memoryRow.payload as { company?: Record<string, unknown>; financials?: Record<string, unknown> };
+    const payload = memoryRow.payload as { company?: Record<string, unknown>; financials?: Record<string, unknown>; team?: Record<string, unknown>; pitchSnippets?: Record<string, string> };
     profile = mergeGrantMemoryIntoProfile(profile, payload);
   }
 

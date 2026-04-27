@@ -62,7 +62,7 @@ async function recalcAndSaveCompletionScore(profileId: string): Promise<void> {
   const supabase = getSupabaseAdmin();
   const { data: profile } = await supabase
     .from("BusinessProfile")
-    .select("businessName, businessType, location, sector, missionStatement, description, employeeCount, annualRevenue, fundingMin, fundingMax, fundingPurposes, fundingDetails")
+    .select("businessName, businessType, location, sector, missionStatement, description, employeeCount, annualRevenue, fundingMin, fundingMax, fundingPurposes, fundingDetails, directorNames, directorProfiles, teamMembers")
     .eq("id", profileId)
     .single();
   if (!profile) return;
@@ -91,6 +91,12 @@ async function refreshProfileEmbedding(profileId: string): Promise<void> {
 
 async function triggerEligibilityForOrg(organisationId: string, source: string): Promise<void> {
   await requestEligibilityRefresh(organisationId, source);
+}
+
+function optionalNumber(value: unknown): number | null {
+  if (value === "" || value == null) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
 }
 
 async function getOrCreateProfile(organisationId: string) {
@@ -173,9 +179,24 @@ export async function saveStep1(data: Step1Data) {
     .from("BusinessProfile")
     .update({
       businessName: parsed.data.businessName,
+      tradingName: parsed.data.tradingName || null,
       businessType: parsed.data.businessType || null,
       registrationNumber: parsed.data.registrationNumber ?? null,
+      charityNumber: parsed.data.charityNumber || null,
+      vatNumber: parsed.data.vatNumber || null,
+      yearEstablished: optionalNumber(parsed.data.yearEstablished),
       location: parsed.data.location,
+      registeredAddress: parsed.data.registeredAddress || null,
+      operatingAddress: parsed.data.operatingAddress || null,
+      postcode: parsed.data.postcode || null,
+      country: parsed.data.country || null,
+      region: parsed.data.region || null,
+      primaryContactName: parsed.data.primaryContactName || null,
+      primaryContactRole: parsed.data.primaryContactRole || null,
+      primaryContactEmail: parsed.data.primaryContactEmail || null,
+      primaryContactPhone: parsed.data.primaryContactPhone || null,
+      primaryContactLinkedIn: parsed.data.primaryContactLinkedIn || null,
+      preferredContactMethod: parsed.data.preferredContactMethod || null,
       funderLocations: parsed.data.funderLocations ?? [],
       websiteUrl: newUrl,
     })
@@ -258,7 +279,11 @@ export async function saveStep3(data: Step3Data) {
     .from("BusinessProfile")
     .update({
       employeeCount: parsed.data.employeeCount ?? null,
+      contractorCount: optionalNumber(parsed.data.contractorCount),
       annualRevenue: parsed.data.annualRevenue ?? null,
+      profitLoss: parsed.data.profitLoss || null,
+      cashReserves: parsed.data.cashReserves || null,
+      financialProjections: parsed.data.financialProjections || null,
       previousGrants: parsed.data.previousGrants ?? null,
     })
     .eq("id", profile.id)
@@ -289,6 +314,8 @@ export async function saveStep4(data: Step4Data) {
       fundingMax: parsed.data.fundingMax,
       fundingPurposes: parsed.data.fundingPurposes,
       fundingDetails: parsed.data.fundingDetails ?? null,
+      coFundingAvailable: parsed.data.coFundingAvailable || null,
+      matchFundingDetails: parsed.data.matchFundingDetails || null,
     })
     .eq("id", profile.id)
     .select()
@@ -315,6 +342,34 @@ export async function saveStep6(data: Step6Data) {
   const { data: updated, error: updateError } = await supabase
     .from("BusinessProfile")
     .update({
+      directorNames: parsed.data.directorNames || null,
+      directorProfiles: parsed.data.directorProfiles || null,
+      teamMembers: parsed.data.teamMembers || null,
+      boardMembers: parsed.data.boardMembers || null,
+      founderBackground: parsed.data.founderBackground || null,
+      projectTitle: parsed.data.projectTitle || null,
+      projectSummary: parsed.data.projectSummary || null,
+      problemStatement: parsed.data.problemStatement || null,
+      proposedSolution: parsed.data.proposedSolution || null,
+      projectObjectives: parsed.data.projectObjectives || null,
+      expectedOutcomes: parsed.data.expectedOutcomes || null,
+      projectStartDate: parsed.data.projectStartDate || null,
+      projectEndDate: parsed.data.projectEndDate || null,
+      beneficiaryGroups: parsed.data.beneficiaryGroups || null,
+      beneficiaryCount: optionalNumber(parsed.data.beneficiaryCount),
+      geographicImpact: parsed.data.geographicImpact || null,
+      diversityInclusionImpact: parsed.data.diversityInclusionImpact || null,
+      jobsCreated: optionalNumber(parsed.data.jobsCreated),
+      revenueGrowthExpected: parsed.data.revenueGrowthExpected || null,
+      co2Reduction: parsed.data.co2Reduction || null,
+      productivityImprovements: parsed.data.productivityImprovements || null,
+      milestones: parsed.data.milestones || null,
+      deliverables: parsed.data.deliverables || null,
+      partnerOrganisations: parsed.data.partnerOrganisations || null,
+      collaborationDetails: parsed.data.collaborationDetails || null,
+      risksMitigation: parsed.data.risksMitigation || null,
+      exitStrategy: parsed.data.exitStrategy || null,
+      projectSustainabilityPlan: parsed.data.projectSustainabilityPlan || null,
       socialImpact: parsed.data.socialImpact || null,
       innovationCapabilities: parsed.data.innovationCapabilities || null,
       sustainabilityInitiatives: parsed.data.sustainabilityInitiatives || null,

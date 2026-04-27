@@ -7,8 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Link2, Zap } from "lucide-react";
+import { Loader2, Link2 } from "lucide-react";
 import { toast } from "sonner";
 import { normalizeGrantApplicationUrl } from "@/lib/grant-url";
 
@@ -27,7 +26,6 @@ export function ApplyByLinkForm({ profileId, prefillUrl, prefillGrantName, prefi
   const [grantName, setGrantName] = useState(prefillGrantName ?? "");
   const [funder, setFunder] = useState(prefillFunder ?? "");
   const [eligibility, setEligibility] = useState("");
-  const [autopilot, setAutopilot] = useState(false);
   const [focusNotes, setFocusNotes] = useState("");
   const [successApplications, setSuccessApplications] = useState<{ applicationId: string; grantName: string }[] | null>(null);
 
@@ -63,7 +61,6 @@ export function ApplyByLinkForm({ profileId, prefillUrl, prefillGrantName, prefi
     try {
       const body: {
         profileId: string;
-        autopilot?: boolean;
         focusNotes?: string;
         applicationUrl?: string;
         grantName?: string;
@@ -73,7 +70,6 @@ export function ApplyByLinkForm({ profileId, prefillUrl, prefillGrantName, prefi
         links?: { applicationUrl: string; grantName?: string; funder?: string; eligibility?: string }[];
       } = {
         profileId,
-        autopilot: autopilot || undefined,
         focusNotes: focusNotes.trim() || undefined,
         fixGrantId: fixGrantId || undefined,
       };
@@ -104,7 +100,7 @@ export function ApplyByLinkForm({ profileId, prefillUrl, prefillGrantName, prefi
       if (apps && apps.length > 0) {
         setSuccessApplications(apps);
         if (apps.length === 1) {
-          toast.success(autopilot ? "Application started. AI will fill and submit." : "Application started. AI is filling the form.");
+          toast.success("Application started. AI will fill it and pause for review.");
           router.push(`/applications/${apps[0].applicationId}`);
           return;
         }
@@ -215,17 +211,6 @@ export function ApplyByLinkForm({ profileId, prefillUrl, prefillGrantName, prefi
             <p className="mt-1 text-xs text-muted-foreground">
               Guides the AI on what to emphasise when filling this specific grant application.
             </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="autopilot"
-              checked={autopilot}
-              onCheckedChange={(c) => setAutopilot(c === true)}
-            />
-            <Label htmlFor="autopilot" className="flex items-center gap-1.5 cursor-pointer font-normal">
-              <Zap className="h-4 w-4 text-amber-500" />
-              Autopilot: submit without asking for approval
-            </Label>
           </div>
           <Button type="submit" disabled={loading} className="gap-2">
             {loading && <Loader2 className="h-4 w-4 animate-spin" />}

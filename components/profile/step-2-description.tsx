@@ -109,13 +109,13 @@ export function Step2Description({
           )}
         />
 
-        <div className="flex justify-between">
-          <Button type="button" variant="outline" onClick={onBack}>
+        <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <Button type="button" variant="outline" onClick={onBack} disabled={isPending}>
             Back
           </Button>
           <Button type="submit" disabled={isPending}>
             {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Save &amp; Continue
+            Save &amp; Next
           </Button>
         </div>
       </form>

@@ -22,6 +22,7 @@ import { UrlStatusBadge } from "@/components/grants/url-status-badge";
 import { computeUrgency } from "@/lib/urgency";
 import { checkRequirementsAgainstDocuments } from "@/lib/grant-requirements";
 import type { RequiredAttachment } from "@/lib/grant-requirements";
+import { getApplicantTypeGate } from "@/lib/eligibility-hard-gates";
 
 export default async function GrantDetailPage({
   params,
@@ -61,6 +62,16 @@ export default async function GrantDetailPage({
       .eq("grant_id", grant.id)
       .maybeSingle();
     eligibilityScore = (assessment as { score?: number } | null)?.score ?? null;
+    const applicantGate = getApplicantTypeGate(
+      String((profile as Record<string, unknown>).businessType ?? (profile as Record<string, unknown>).business_type ?? ""),
+      {
+        eligibility: (grant as { eligibility?: string | null }).eligibility,
+        applicantTypes: (grant as { applicantTypes?: string[] | null }).applicantTypes,
+      }
+    );
+    if (applicantGate && !applicantGate.profileMatches) {
+      eligibilityScore = eligibilityScore == null ? 25 : Math.min(eligibilityScore, 25);
+    }
   }
 
   const { data: allGrantsData } = await supabase

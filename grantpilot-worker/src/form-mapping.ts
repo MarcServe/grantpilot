@@ -77,6 +77,72 @@ export async function getFormFillActionsWithMissing(
  */
 function buildRichProfileContext(profile: ProfileData): string {
   const sections: string[] = [];
+  const legalAndContact = [
+    profile.tradingName ? `Trading name: ${profile.tradingName}` : "",
+    profile.charityNumber ? `Charity number: ${profile.charityNumber}` : "",
+    profile.vatNumber ? `VAT number: ${profile.vatNumber}` : "",
+    profile.yearEstablished ? `Year established: ${profile.yearEstablished}` : "",
+    profile.registeredAddress ? `Registered address: ${profile.registeredAddress}` : "",
+    profile.operatingAddress ? `Operating address: ${profile.operatingAddress}` : "",
+    profile.postcode ? `Postcode: ${profile.postcode}` : "",
+    profile.country ? `Country: ${profile.country}` : "",
+    profile.region ? `Region: ${profile.region}` : "",
+    profile.primaryContactName ? `Primary contact: ${profile.primaryContactName}` : "",
+    profile.primaryContactRole ? `Contact role: ${profile.primaryContactRole}` : "",
+    profile.primaryContactEmail ? `Contact email: ${profile.primaryContactEmail}` : "",
+    profile.primaryContactPhone ? `Contact phone: ${profile.primaryContactPhone}` : "",
+    profile.primaryContactLinkedIn ? `Contact LinkedIn: ${profile.primaryContactLinkedIn}` : "",
+    profile.preferredContactMethod ? `Preferred contact: ${profile.preferredContactMethod}` : "",
+  ].filter(Boolean).join("\n");
+  if (legalAndContact) sections.push(`LEGAL, ADDRESS & CONTACT DETAILS:\n${legalAndContact}`);
+  const financials = [
+    profile.contractorCount != null ? `Contractors: ${profile.contractorCount}` : "",
+    profile.profitLoss ? `Profit/loss: ${profile.profitLoss}` : "",
+    profile.cashReserves ? `Cash reserves/runway: ${profile.cashReserves}` : "",
+    profile.financialProjections ? `Financial projections: ${profile.financialProjections}` : "",
+    profile.coFundingAvailable ? `Co-funding available: ${profile.coFundingAvailable}` : "",
+    profile.matchFundingDetails ? `Match funding: ${profile.matchFundingDetails}` : "",
+  ].filter(Boolean).join("\n");
+  if (financials) sections.push(`DETAILED FINANCIALS & MATCH FUNDING:\n${financials}`);
+  if (profile.directorNames || profile.directorProfiles) {
+    sections.push(`DIRECTORS / FOUNDERS:\n${[profile.directorNames, profile.directorProfiles].filter(Boolean).join("\n")}`);
+  }
+  if (profile.teamMembers) {
+    sections.push(`TEAM MEMBERS / KEY STAFF (one person per line; use all relevant people when asked about team capability):\n${profile.teamMembers}`);
+  }
+  if (profile.boardMembers || profile.founderBackground) {
+    sections.push(`GOVERNANCE & FOUNDER BACKGROUND:\n${[profile.boardMembers, profile.founderBackground].filter(Boolean).join("\n")}`);
+  }
+  const project = [
+    profile.projectTitle ? `Project title: ${profile.projectTitle}` : "",
+    profile.projectSummary ? `Summary: ${profile.projectSummary}` : "",
+    profile.problemStatement ? `Problem: ${profile.problemStatement}` : "",
+    profile.proposedSolution ? `Solution: ${profile.proposedSolution}` : "",
+    profile.projectObjectives ? `Objectives: ${profile.projectObjectives}` : "",
+    profile.expectedOutcomes ? `Expected outcomes: ${profile.expectedOutcomes}` : "",
+    profile.projectStartDate ? `Start: ${profile.projectStartDate}` : "",
+    profile.projectEndDate ? `End: ${profile.projectEndDate}` : "",
+    profile.milestones ? `Milestones: ${profile.milestones}` : "",
+    profile.deliverables ? `Deliverables: ${profile.deliverables}` : "",
+  ].filter(Boolean).join("\n");
+  if (project) sections.push(`PROJECT BRIEF:\n${project}`);
+  const impact = [
+    profile.beneficiaryGroups ? `Beneficiaries: ${profile.beneficiaryGroups}` : "",
+    profile.beneficiaryCount != null ? `Beneficiary count: ${profile.beneficiaryCount}` : "",
+    profile.geographicImpact ? `Geographic impact: ${profile.geographicImpact}` : "",
+    profile.diversityInclusionImpact ? `Diversity and inclusion: ${profile.diversityInclusionImpact}` : "",
+    profile.jobsCreated != null ? `Jobs created/safeguarded: ${profile.jobsCreated}` : "",
+    profile.revenueGrowthExpected ? `Revenue growth expected: ${profile.revenueGrowthExpected}` : "",
+    profile.co2Reduction ? `CO2 reduction: ${profile.co2Reduction}` : "",
+    profile.productivityImprovements ? `Productivity improvements: ${profile.productivityImprovements}` : "",
+  ].filter(Boolean).join("\n");
+  if (impact) sections.push(`IMPACT, BENEFICIARIES & KPIS:\n${impact}`);
+  if (profile.partnerOrganisations || profile.collaborationDetails) {
+    sections.push(`PARTNERSHIPS & COLLABORATION:\n${[profile.partnerOrganisations, profile.collaborationDetails].filter(Boolean).join("\n")}`);
+  }
+  if (profile.risksMitigation || profile.exitStrategy || profile.projectSustainabilityPlan) {
+    sections.push(`RISK, EXIT & SUSTAINABILITY:\n${[profile.risksMitigation, profile.exitStrategy, profile.projectSustainabilityPlan].filter(Boolean).join("\n")}`);
+  }
   if (profile.keyAchievements) sections.push(`KEY ACHIEVEMENTS & MILESTONES:\n${profile.keyAchievements}`);
   if (profile.socialImpact) sections.push(`SOCIAL IMPACT:\n${profile.socialImpact}`);
   if (profile.innovationCapabilities) sections.push(`INNOVATION & R&D:\n${profile.innovationCapabilities}`);
@@ -84,6 +150,13 @@ function buildRichProfileContext(profile: ProfileData): string {
   if (profile.communityEngagement) sections.push(`COMMUNITY & PARTNERSHIPS:\n${profile.communityEngagement}`);
   if (profile.teamExpertise) sections.push(`TEAM EXPERTISE:\n${profile.teamExpertise}`);
   if (profile.websiteIntelligence) sections.push(`WEBSITE INTELLIGENCE (use specific facts and achievements from here):\n${profile.websiteIntelligence}`);
+  if (profile.learnedApplicationAnswers && Object.keys(profile.learnedApplicationAnswers).length > 0) {
+    const learned = Object.entries(profile.learnedApplicationAnswers)
+      .slice(0, 20)
+      .map(([label, value]) => `- ${label}: ${String(value).slice(0, 800)}`)
+      .join("\n");
+    sections.push(`LEARNED ANSWERS FROM PREVIOUS APPLICATIONS (reuse only when the new question asks for the same facts; adapt wording to this grant):\n${learned}`);
+  }
   if (sections.length === 0) return "";
   return `\nRich profile sections (selectively use the most relevant sections for THIS grant — do not dump everything):\n${sections.join("\n\n")}\n`;
 }
@@ -113,6 +186,9 @@ async function getFormFillActionsWithVision(
           sector: profile.sector,
           missionStatement: profile.missionStatement,
           description: profile.description,
+          directorNames: profile.directorNames,
+          directorProfiles: profile.directorProfiles,
+          teamMembers: profile.teamMembers,
         }
       : {
           employeeCount: profile.employeeCount,
@@ -142,12 +218,12 @@ async function getFormFillActionsWithVision(
     ? `\nYou are filling the "${fillOptions.sectionName.replace(/_/g, " ")}" section of a multi-section application wizard.${fillOptions.sectionProfileFocus ? ` Focus on these profile aspects: ${fillOptions.sectionProfileFocus}.` : ""} Tailor every answer to what this specific section expects.\n`
     : "";
 
-  const prompt = `You are an expert grant writer filling an application form. You can SEE the form in the screenshot. Use it to understand the tone, theme, and any on-page instructions (word limits, format, focus areas).
+  const prompt = `You are an autonomous browser grant-application agent working through Playwright. You can SEE the form in the screenshot, but Playwright will execute only the JSON actions you return.
 
 Grant context (use this to adapt how you write – match this grant's focus and language):
 ${grantBlurb}
 ${focusDirective}${sectionDirective}
-Form field metadata (use name or id for selector, e.g. input[name="company_name"] or #id). Respect maxLength and instruction:
+Form schema metadata (use exact selectors. Treat each entry as a schema field, not just a DOM input). Respect type, options, maxLength, required, and instruction:
 ${JSON.stringify(fields, null, 2)}
 
 Core applicant profile (${kind}):
@@ -155,12 +231,16 @@ ${JSON.stringify(profileSlice, null, 2)}
 ${richContext}${userAnswers && Object.keys(userAnswers).length > 0 ? `\nUser-provided answers for missing fields:\n${JSON.stringify(userAnswers, null, 2)}` : ""}
 
 Instructions:
+- First decide whether each visible field is safe to answer from the applicant profile, user answers, grant context, documents, or learned memory. Never invent eligibility facts, partnerships, certifications, revenue, awards, directors, or declarations.
+- For radio buttons and checkboxes, treat each question as a choice group. Choose by visible option label using type "choose_radio" or "choose_checkbox"; do not use a raw Yes/No value unless that is the visible option and the profile supports it.
+- For eligibility gate questions, answer truthfully. If the applicant does not meet the gate or the answer is unknown, add the field to missingRequired instead of selecting a convenient answer.
 - You are writing a TAILORED application, not a generic one. Analyse what THIS grant cares about (from its name, funder, eligibility, objectives, description) and emphasise the profile aspects that align best.
 - For descriptive/narrative fields: write compelling, specific answers that connect the applicant's strengths to what this funder values. Use concrete numbers, achievements, and examples from the rich profile sections.
 - If the grant focuses on innovation → emphasise R&D, IP, technical capabilities. If social impact → emphasise community work, beneficiaries, outcomes. If sustainability → emphasise ESG, green initiatives. Adapt accordingly.
 - If the applicant provided focus notes, prioritise what they asked you to emphasise.
 - Respect each field's maxLength and any word/character limits in instruction.
-- Return a single JSON object with two keys: "actions" (array of { "selector", "value", "type": "fill"|"select"|"check" }) and "missingRequired" (array of { "selector", "label", "hint" } for required fields with no value). Use the exact selectors from the field list.
+- For contenteditable/rich text editors, use type "rich_text". For address/company lookup fields that show suggestions, use type "autocomplete". For date and range fields, use type "date" or "range".
+- Return a single JSON object with two keys: "actions" (array of { "selector", "value", "type": "fill"|"select"|"check"|"choose_radio"|"choose_checkbox"|"rich_text"|"autocomplete"|"date"|"range" }) and "missingRequired" (array of { "selector", "label", "hint" } for required fields with no value). Use the exact selectors from the field list.
 - Return ONLY the JSON object, no markdown.`;
 
   const res = await getAnthropic().messages.create({
@@ -198,6 +278,9 @@ async function getFormFillActionsTextOnly(
           sector: profile.sector,
           missionStatement: profile.missionStatement,
           description: profile.description,
+          directorNames: profile.directorNames,
+          directorProfiles: profile.directorProfiles,
+          teamMembers: profile.teamMembers,
         }
       : {
           employeeCount: profile.employeeCount,
@@ -235,8 +318,11 @@ Core profile data (${kind}):
 ${JSON.stringify(profileSlice, null, 2)}
 ${richContext}
 Return a single JSON object with two keys:
-1. "actions": array of fill actions. Each: { "selector": "css selector", "value": "string", "type": "fill" | "select" | "check" }.
-   - Use "select" for dropdowns, "fill" for text/number/email/url, "check" for checkbox/radio.
+1. "actions": array of fill actions. Each: { "selector": "css selector", "value": "string", "type": "fill" | "select" | "check" | "choose_radio" | "choose_checkbox" | "rich_text" | "autocomplete" | "date" | "range" }.
+   - Use "select" for dropdowns, "fill" for text/number/email/url, "choose_radio" for radio groups, "choose_checkbox" for checkbox groups, and "check" only for a single boolean checkbox.
+   - Use "rich_text" for contenteditable editors. Use "autocomplete" when typing should trigger a suggestion list. Use "date" for date inputs and ISO-style dates when known.
+   - For radio/checkbox groups, set "selector" to the group selector in the field metadata and "value" to the visible option label to choose.
+   - Answer eligibility declarations truthfully from the profile. If the answer is unknown or would make an unsupported eligibility claim, list it in missingRequired instead of guessing.
    - Only include fields you can fill from the profile. For empty optional values omit the action.
    - Write TAILORED values that connect the applicant's strengths to what this specific grant/funder values. Use concrete numbers and achievements from the rich profile sections. Do not write generic boilerplate.
    - You MUST respect each field's maxLength and any word/character limits in instruction.
@@ -276,7 +362,7 @@ function parseFormFillResponse(
       .map((a) => ({
         selector: (a as FillAction).selector,
         value: String((a as FillAction).value),
-        type: ((a as FillAction).type as "fill" | "select" | "check") || "fill",
+        type: ((a as FillAction).type as FillAction["type"]) || "fill",
       }));
     const missingRequired: MissingRequiredField[] = [];
     const missingArr = Array.isArray(parsed.missingRequired) ? parsed.missingRequired : [];
@@ -329,6 +415,7 @@ function buildSelectorToFieldMap(fields: FormFieldInfo[]): Map<string, FormField
     if (f.name) map.set(f.name.toLowerCase(), f);
     if (f.name) map.set(`[name="${f.name}"]`, f);
     if (f.name) map.set(`input[name="${f.name}"]`, f);
+    if (f.selector) map.set(f.selector.toLowerCase(), f);
     if (f.id) map.set(f.id.toLowerCase(), f);
     if (f.id) map.set(`#${f.id}`, f);
   }

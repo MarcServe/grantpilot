@@ -14,6 +14,9 @@ export function normalizeGrantApplicationUrl(raw: string): string | null {
   try {
     const u = new URL(candidate);
     if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    if (u.hostname.toLowerCase() === "www.forms.office.com") {
+      u.hostname = "forms.office.com";
+    }
     return u.href;
   } catch {
     return null;

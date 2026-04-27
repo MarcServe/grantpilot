@@ -4,6 +4,8 @@
  * Pure logic, zero cost.
  */
 
+import { getApplicantTypeGate } from "@/lib/eligibility-hard-gates";
+
 interface HeuristicProfile {
   location: string;
   sector: string;
@@ -159,6 +161,16 @@ export function scoreGrantHeuristic(
 
   if (!deadlineIsValid(grant.deadline)) {
     return { grantId: grant.id, score: 0, passed: false, reasons: ["Deadline passed"] };
+  }
+
+  const applicantGate = getApplicantTypeGate(profile.businessType, grant);
+  if (applicantGate && !applicantGate.profileMatches) {
+    return {
+      grantId: grant.id,
+      score: 10,
+      passed: false,
+      reasons: [`Applicant type mismatch: ${applicantGate.reason}`],
+    };
   }
 
   if (regionMatches(profile.location, grant.regions)) {

@@ -16,6 +16,13 @@ const API_CREDIT_BACKOFF_BASE_MS = 60_000;
 const API_CREDIT_BACKOFF_MAX_MS = 30 * 60_000;
 const API_CREDIT_RESET_AFTER_SUCCESS = 3;
 
+class SessionStoppedError extends Error {
+  constructor() {
+    super("Stopped by user");
+    this.name = "SessionStoppedError";
+  }
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -87,6 +94,29 @@ async function updateSessionProgress(
     .update(patch)
     .eq("id", sessionId);
   if (error) throw error;
+}
+
+async function getSessionState(sessionId: number): Promise<{ status: string | null; errorLog: string | null }> {
+  const { data, error } = await getSupabase()
+    .from("cu_sessions")
+    .select("status, error_log")
+    .eq("id", sessionId)
+    .maybeSingle();
+  if (error) throw error;
+  const row = data as { status?: string; error_log?: string | null } | null;
+  return { status: row?.status ?? null, errorLog: row?.error_log ?? null };
+}
+
+async function throwIfSessionStopped(sessionId: number): Promise<void> {
+  const { status, errorLog } = await getSessionState(sessionId);
+  if (status === "failed" && /stopped by user/i.test(errorLog ?? "")) {
+    throw new SessionStoppedError();
+  }
+}
+
+async function isSessionPaused(sessionId: number): Promise<boolean> {
+  const { status } = await getSessionState(sessionId);
+  return status === "paused";
 }
 
 async function completeSession(sessionId: number): Promise<void> {
@@ -200,7 +230,7 @@ async function fetchPortalCredentials(
 async function processGrantApplicationSession(
   session: CuSession,
   pending: CuSessionItem[]
-): Promise<number> {
+): Promise<{ processed: number; failed: boolean; failReason?: string }> {
   const profileId = session.business_profile_id ?? "";
   const grantId = pending[0]?.grant_id ?? null;
   const requiredAttachmentsRaw = await fetchGrantRequiredAttachments(grantId);
@@ -217,18 +247,67 @@ async function processGrantApplicationSession(
   const { profile, documents } = (await fetchProfileAndDocuments(profileId, applicationIdForProfile)) ?? {
     profile: {
       businessName: "",
+      tradingName: null,
       registrationNumber: null,
+      charityNumber: null,
+      vatNumber: null,
+      yearEstablished: null,
       location: "",
+      registeredAddress: null,
+      operatingAddress: null,
+      postcode: null,
+      country: null,
+      region: null,
+      primaryContactName: null,
+      primaryContactRole: null,
+      primaryContactEmail: null,
+      primaryContactPhone: null,
+      primaryContactLinkedIn: null,
+      preferredContactMethod: null,
       sector: "",
       missionStatement: "",
       description: "",
       employeeCount: null,
+      contractorCount: null,
       annualRevenue: null,
+      profitLoss: null,
+      cashReserves: null,
+      financialProjections: null,
       previousGrants: null,
       fundingMin: 0,
       fundingMax: 0,
       fundingPurposes: [],
       fundingDetails: null,
+      coFundingAvailable: null,
+      matchFundingDetails: null,
+      directorNames: null,
+      directorProfiles: null,
+      teamMembers: null,
+      boardMembers: null,
+      founderBackground: null,
+      projectTitle: null,
+      projectSummary: null,
+      problemStatement: null,
+      proposedSolution: null,
+      projectObjectives: null,
+      expectedOutcomes: null,
+      projectStartDate: null,
+      projectEndDate: null,
+      beneficiaryGroups: null,
+      beneficiaryCount: null,
+      geographicImpact: null,
+      diversityInclusionImpact: null,
+      jobsCreated: null,
+      revenueGrowthExpected: null,
+      co2Reduction: null,
+      productivityImprovements: null,
+      milestones: null,
+      deliverables: null,
+      partnerOrganisations: null,
+      collaborationDetails: null,
+      risksMitigation: null,
+      exitStrategy: null,
+      projectSustainabilityPlan: null,
       websiteIntelligence: null,
       socialImpact: null,
       innovationCapabilities: null,
@@ -236,6 +315,7 @@ async function processGrantApplicationSession(
       communityEngagement: null,
       keyAchievements: null,
       teamExpertise: null,
+      learnedApplicationAnswers: null,
     },
     documents: [],
   };
@@ -259,17 +339,21 @@ async function processGrantApplicationSession(
   let editedSnapshotFields: { label: string; name: string; value: string }[] | undefined;
   let needsInputAnswers: Record<string, string> | undefined;
   let focusNotes: string | undefined;
+  let applicationStatus: string | undefined;
+  let verifiedFillCount = 0;
   if (applicationId) {
     const { data: appRow } = await getSupabase()
       .from("Application")
-      .select("filled_snapshot, needs_input_answers, focusNotes")
+      .select("filled_snapshot, needs_input_answers, focusNotes, status")
       .eq("id", applicationId)
       .maybeSingle();
     const row = appRow as {
       filled_snapshot?: { fields?: { label: string; name: string; value: string }[] };
       needs_input_answers?: Record<string, string> | null;
       focusNotes?: string | null;
+      status?: string | null;
     } | null;
+    applicationStatus = row?.status ?? undefined;
     if (row?.filled_snapshot?.fields?.length) {
       editedSnapshotFields = row.filled_snapshot.fields;
     }
@@ -282,21 +366,21 @@ async function processGrantApplicationSession(
   }
 
   const NAVIGATION_ACTIONS = new Set(["open_grant_url", "navigate_to_form", "portal_navigate"]);
+  let executionFailed = false;
+  let executionFailReason = "";
 
   try {
-    let navigationFailed = false;
-    let navigationFailReason = "";
-
     for (const item of pending) {
+      await throwIfSessionStopped(session.id);
       const action = (item.action ?? "").toLowerCase();
 
-      // If a navigation step already failed, skip all remaining steps
-      if (navigationFailed && !NAVIGATION_ACTIONS.has(action)) {
+      // If a terminal step already failed, skip all remaining steps.
+      if (executionFailed) {
         await markItemStatus(item.id, "skipped", {
-          extra_data: { notes: `Skipped: ${navigationFailReason}`, skipped_due_to_nav_failure: true },
+          extra_data: { notes: `Skipped: ${executionFailReason}`, skipped_due_to_failure: true },
           processed_at: new Date().toISOString(),
         });
-        await appendLog(session.id, "grant_application", action, `Skipped: navigation failed earlier`, false);
+        await appendLog(session.id, "grant_application", action, `Skipped: terminal failure earlier`, false);
         processed += 1;
         continue;
       }
@@ -319,7 +403,10 @@ async function processGrantApplicationSession(
             focusNotes,
             portalRecipe,
             portalCredentials,
+            priorFilledCount: verifiedFillCount,
+            allowSubmit: isSubmit && applicationStatus === "APPROVED",
           });
+          await throwIfSessionStopped(session.id);
           if (lastResult.success) break;
           if (lastResult.situation) break;
           attempt += 1;
@@ -336,12 +423,10 @@ async function processGrantApplicationSession(
         }
 
         const result = lastResult!;
-
-        // When a navigation step fails, abort all subsequent fill/review steps
-        if (!result.success && NAVIGATION_ACTIONS.has(action)) {
-          navigationFailed = true;
-          navigationFailReason = result.notes;
+        if (result.success && result.filledCount && result.filledCount > 0) {
+          verifiedFillCount += result.filledCount;
         }
+
         const isNeedsInput = result.needsInput && result.missingRequired && result.missingRequired.length > 0;
         const itemStatus = isNeedsInput
           ? "pending"
@@ -358,6 +443,9 @@ async function processGrantApplicationSession(
         if (result.needsDirectUrl) extraData.needs_direct_url = result.needsDirectUrl;
         if (result.needsInput) extraData.needs_input = true;
         if (result.missingRequired) extraData.missing_required = result.missingRequired;
+        if (!result.success && !isNeedsInput && NAVIGATION_ACTIONS.has(action)) {
+          extraData.skipped_due_to_nav_failure = true;
+        }
         const statusPatch: Record<string, unknown> = { extra_data: extraData };
         if (!isNeedsInput) statusPatch.processed_at = new Date().toISOString();
         await markItemStatus(item.id, itemStatus, statusPatch);
@@ -368,6 +456,11 @@ async function processGrantApplicationSession(
           result.notes,
           result.success
         );
+
+        if (!result.success && !isNeedsInput) {
+          executionFailed = true;
+          executionFailReason = result.notes;
+        }
 
         if (result.success && result.snapshot && applicationId) {
           await getSupabase()
@@ -494,6 +587,7 @@ async function processGrantApplicationSession(
         }
         processed += 1;
       } catch (err) {
+        if (err instanceof SessionStoppedError) throw err;
         const msg = err instanceof Error ? err.message : String(err);
         await appendLog(session.id, "item_failed", "error", `Item ${item.id}: ${msg}`, false);
         await markItemStatus(item.id, "failed", {
@@ -506,7 +600,11 @@ async function processGrantApplicationSession(
     await browser.close();
   }
 
-  return processed;
+  return {
+    processed,
+    failed: executionFailed,
+    ...(executionFailReason ? { failReason: executionFailReason } : {}),
+  };
 }
 
 export async function processSession(session: CuSession): Promise<void> {
@@ -524,20 +622,30 @@ export async function processSession(session: CuSession): Promise<void> {
 
   try {
     while (true) {
+      await throwIfSessionStopped(session.id);
       const pending = await getPendingItems(session.id, 25);
       if (pending.length === 0) break;
 
       if (session.task_type === "grant_application") {
-        const n = await processGrantApplicationSession(session, pending);
-        processed += n;
+        const result = await processGrantApplicationSession(session, pending);
+        processed += result.processed;
         if (processed % PROGRESS_UPDATE_EVERY === 0) {
           await updateSessionProgress(session.id, processed, `processed_${processed}`);
+        }
+        if (result.failed) {
+          await updateSessionProgress(session.id, processed, `failed_${processed}`);
+          throw new Error(result.failReason ?? "Grant application navigation failed");
+        }
+        if (await isSessionPaused(session.id)) {
+          await appendLog(session.id, "session_paused", "pause", `Paused ${session.public_id}`);
+          return;
         }
         continue;
       }
 
       for (const item of pending) {
         try {
+          await throwIfSessionStopped(session.id);
           await markItemStatus(item.id, "processing");
           await appendLog(session.id, "item_processing", "update", `Item ${item.id} -> processing`);
 
@@ -573,6 +681,7 @@ export async function processSession(session: CuSession): Promise<void> {
             await updateSessionProgress(session.id, processed, `processed_${processed}`);
           }
         } catch (err) {
+          if (err instanceof SessionStoppedError) throw err;
           const msg = err instanceof Error ? err.message : String(err);
           console.error(`[worker] Item ${item.id} failed:`, msg);
           await appendLog(session.id, "item_failed", "error", `Item ${item.id}: ${msg}`, false);
@@ -587,12 +696,22 @@ export async function processSession(session: CuSession): Promise<void> {
       }
     }
 
+    await throwIfSessionStopped(session.id);
+    if (await isSessionPaused(session.id)) {
+      await appendLog(session.id, "session_paused", "pause", `Paused ${session.public_id}`);
+      return;
+    }
     await updateSessionProgress(session.id, processed, `final_${processed}`);
     await completeSession(session.id);
     await appendLog(session.id, "session_complete", "complete", `Completed ${session.public_id}`);
     console.log(`[worker] Session ${session.public_id} completed (${processed} items)`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    if (err instanceof SessionStoppedError) {
+      console.log(`[worker] Session ${session.public_id} stopped by user`);
+      await appendLog(session.id, "session_stopped", "stop", msg, false).catch(() => {});
+      return;
+    }
     console.error(`[worker] Session ${session.public_id} failed:`, msg);
     await failSession(session.id, msg).catch(() => {});
     await appendLog(session.id, "session_failed", "error", msg, false).catch(() => {});

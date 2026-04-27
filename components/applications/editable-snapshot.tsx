@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { FileText, Save, Loader2, Pencil, X, Code, Check, Bookmark } from "lucide-react";
+import { FileText, Save, Loader2, Pencil, X, Code, Check, Bookmark, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { normalizeFormFieldLabel } from "@/lib/form-field-labels";
 
@@ -22,6 +22,8 @@ interface EditableSnapshotProps {
   capturedAt?: string;
   screenshotBase64?: string;
   grantUrl?: string;
+  automationRisks?: string[];
+  humanReviewRequired?: boolean;
   editable: boolean;
 }
 
@@ -32,6 +34,8 @@ export function EditableSnapshot({
   capturedAt,
   screenshotBase64,
   grantUrl,
+  automationRisks = [],
+  humanReviewRequired,
   editable,
 }: EditableSnapshotProps) {
   const [fields, setFields] = useState(initialFields);
@@ -156,6 +160,19 @@ export function EditableSnapshot({
               <li>When ready, tick the confirmation and click &quot;Submit Application&quot;.</li>
             </ol>
           </div>
+
+          {(humanReviewRequired || automationRisks.length > 0) && (
+            <div className="flex gap-2 rounded-md border border-amber-200 bg-amber-50/70 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <p className="font-medium">Human review required before submission</p>
+                <p className="mt-1 text-xs">
+                  The form schema detected declarations, consent/final submit controls, or other automation risks
+                  {automationRisks.length > 0 ? `: ${automationRisks.join(", ")}` : "."}
+                </p>
+              </div>
+            </div>
+          )}
 
           {fields.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">

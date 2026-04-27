@@ -173,17 +173,17 @@ export function Step5Documents({
         </div>
       )}
 
-      <div className="flex justify-between">
-        <Button type="button" variant="outline" onClick={onBack}>
+      <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <Button type="button" variant="outline" onClick={onBack} disabled={isPending || uploading}>
           Back
         </Button>
-        <Button onClick={onComplete} disabled={isPending}>
+        <Button onClick={onComplete} disabled={isPending || uploading}>
           {isPending ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           ) : (
             <CheckCircle className="mr-2 h-4 w-4" />
           )}
-          Complete Profile
+          Next: Grant Readiness
         </Button>
       </div>
     </div>

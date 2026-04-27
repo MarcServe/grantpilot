@@ -5,6 +5,7 @@ import * as os from "os";
 import * as https from "https";
 import * as http from "http";
 import Anthropic from "@anthropic-ai/sdk";
+import type { GrantFormSchema } from "./types/grant-form-schema.js";
 
 const VIEWPORT = { width: 1280, height: 720 };
 /** 5 min: stability over speed; users can wait ~10 min for submitted/review/needs info/login. */
@@ -14,10 +15,11 @@ const ACTION_TIMEOUT_MS = 300_000;
 export interface FormFieldInfo {
   name: string;
   id: string | null;
+  selector?: string;
   type: string;
   label: string;
   placeholder: string;
-  options?: string[];
+  options?: { label: string; value: string; selector: string; checked?: boolean }[];
   /** HTML maxlength (characters). */
   maxLength?: number;
   /** Whether the field is required. */
@@ -89,29 +91,20 @@ export async function navigateToGrantUrl(
  */
 export async function getFormFields(page: Page): Promise<FormFieldInfo[]> {
   const fields = await page.evaluate(() => {
-    const result: Array<{
-      name: string;
-      id: string | null;
-      type: string;
-      label: string;
-      placeholder: string;
-      options?: string[];
-      maxLength?: number;
-      required?: boolean;
-      instruction?: string;
-    }> = [];
-    const inputs = document.querySelectorAll(
-      'input:not([type="hidden"]):not([type="submit"]):not([type="button"]), textarea, select'
-    );
-    inputs.forEach((el) => {
-      const name = (el as HTMLInputElement).name || (el as HTMLInputElement).id || "";
-      if (!name) return;
-      const id = (el as HTMLInputElement).id || null;
-      const type = ((el as HTMLInputElement).type || el.tagName.toLowerCase()) as string;
+    function selectorFor(el: Element): string {
+      const input = el as HTMLInputElement;
+      if (input.id) return `#${CSS.escape(input.id)}`;
+      if (input.name) return `${el.tagName.toLowerCase()}[name="${CSS.escape(input.name)}"]`;
+      const dataId = (el as HTMLElement).getAttribute("data-automation-id");
+      if (dataId) return `${el.tagName.toLowerCase()}[data-automation-id="${CSS.escape(dataId)}"]`;
+      return el.tagName.toLowerCase();
+    }
+
+    function labelFor(el: Element): string {
       let label = "";
       const forId = (el as HTMLInputElement).id;
       if (forId) {
-        const labelEl = document.querySelector(`label[for="${forId}"]`);
+        const labelEl = document.querySelector(`label[for="${CSS.escape(forId)}"]`);
         if (labelEl) label = (labelEl as HTMLLabelElement).textContent?.trim() ?? "";
       }
       if (!label) {
@@ -119,28 +112,43 @@ export async function getFormFields(page: Page): Promise<FormFieldInfo[]> {
         if (parent) label = parent.textContent?.trim() ?? "";
       }
       if (!label) {
+        const labelledBy = (el as HTMLElement).getAttribute("aria-labelledby");
+        if (labelledBy) {
+          label = labelledBy
+            .split(/\s+/)
+            .map((id) => document.getElementById(id)?.textContent?.trim() ?? "")
+            .filter(Boolean)
+            .join(" ");
+        }
+      }
+      if (!label) {
         const prev = (el as HTMLElement).previousElementSibling;
-        if (prev && /label|span|p|div/i.test(prev.tagName))
+        if (prev && /label|span|p|div/i.test(prev.tagName)) {
           label = prev.textContent?.trim() ?? "";
+        }
       }
-      const placeholder = ((el as HTMLInputElement).placeholder ?? "").trim();
-      let options: string[] | undefined;
-      if (el.tagName.toLowerCase() === "select") {
-        options = Array.from((el as HTMLSelectElement).options)
-          .map((o) => o.value)
-          .filter((v) => v);
-      }
-      let maxLength: number | undefined;
-      const maxLenAttr = (el as HTMLInputElement).getAttribute("maxlength");
-      if (maxLenAttr != null) {
-        const n = parseInt(maxLenAttr, 10);
-        if (!isNaN(n) && n > 0) maxLength = n;
-      }
-      if (maxLength == null && typeof (el as HTMLInputElement).maxLength === "number" && (el as HTMLInputElement).maxLength > 0)
-        maxLength = (el as HTMLInputElement).maxLength;
-      const required = (el as HTMLInputElement).hasAttribute("required") || (el as HTMLInputElement).required;
+      return label.replace(/\s+/g, " ").trim();
+    }
+
+    function questionLabelFor(input: HTMLInputElement): string {
+      const group =
+        input.closest("fieldset") ??
+        input.closest('[role="radiogroup"], [role="group"]') ??
+        input.closest('[data-automation-id*="question"], [data-testid*="question"]') ??
+        input.closest("div");
+      const legend = group?.querySelector("legend");
+      const heading = group?.querySelector("h1, h2, h3, h4, [role='heading']");
+      const text = (legend ?? heading)?.textContent?.trim();
+      if (text) return text.replace(/\s+/g, " ").slice(0, 300);
+      const groupText = group?.textContent?.trim().replace(/\s+/g, " ");
+      const optionText = labelFor(input);
+      if (groupText && optionText) return groupText.replace(optionText, "").trim().slice(0, 300);
+      return optionText || input.name || input.id || "Choice field";
+    }
+
+    function instructionFor(el: Element): string | undefined {
       let instructionText = "";
-      const describedBy = (el as HTMLInputElement).getAttribute("aria-describedby");
+      const describedBy = (el as HTMLElement).getAttribute("aria-describedby");
       if (describedBy) {
         const parts = describedBy.trim().split(/\s+/);
         for (const idRef of parts) {
@@ -153,8 +161,93 @@ export async function getFormFields(page: Page): Promise<FormFieldInfo[]> {
         const t = next.textContent?.trim() ?? "";
         if (t.length > 0 && t.length <= 300) instructionText += t + " ";
       }
-      const instruction = instructionText.trim().slice(0, 500) || undefined;
-      result.push({ name, id, type, label, placeholder, options, maxLength, required, instruction });
+      return instructionText.trim().slice(0, 500) || undefined;
+    }
+
+    const result: Array<{
+      name: string;
+      id: string | null;
+      selector?: string;
+      type: string;
+      label: string;
+      placeholder: string;
+      options?: { label: string; value: string; selector: string; checked?: boolean }[];
+      maxLength?: number;
+      required?: boolean;
+      instruction?: string;
+    }> = [];
+
+    const choiceInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="radio"], input[type="checkbox"]'));
+    const groups = new Map<string, HTMLInputElement[]>();
+    for (const input of choiceInputs) {
+      const key = input.name || input.id || labelFor(input);
+      if (!key) continue;
+      const existing = groups.get(key) ?? [];
+      existing.push(input);
+      groups.set(key, existing);
+    }
+    for (const [name, inputs] of groups) {
+      const first = inputs[0];
+      const type = first.type === "radio" ? "radio_group" : "checkbox_group";
+      result.push({
+        name,
+        id: null,
+        selector: first.name ? `input[name="${CSS.escape(first.name)}"]` : selectorFor(first),
+        type,
+        label: questionLabelFor(first),
+        placeholder: "",
+        options: inputs.map((input) => ({
+          label: labelFor(input) || input.value || input.id || input.name,
+          value: input.value || labelFor(input) || "on",
+          selector: selectorFor(input),
+          checked: input.checked,
+        })),
+        required: inputs.some((input) => input.required || input.hasAttribute("required")),
+        instruction: instructionFor(first),
+      });
+    }
+
+    const inputs = document.querySelectorAll(
+      'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="radio"]):not([type="checkbox"]), textarea, select'
+    );
+    inputs.forEach((el) => {
+      const name = (el as HTMLInputElement).name || (el as HTMLInputElement).id || "";
+      if (!name) return;
+      const id = (el as HTMLInputElement).id || null;
+      const type = ((el as HTMLInputElement).type || el.tagName.toLowerCase()) as string;
+      const label = labelFor(el);
+      const placeholder = ((el as HTMLInputElement).placeholder ?? "").trim();
+      let options: { label: string; value: string; selector: string; checked?: boolean }[] | undefined;
+      if (el.tagName.toLowerCase() === "select") {
+        options = Array.from((el as HTMLSelectElement).options)
+          .map((o) => ({ label: o.textContent?.trim() || o.value, value: o.value, selector: `${selectorFor(el)} option[value="${CSS.escape(o.value)}"]`, checked: o.selected }))
+          .filter((o) => o.value || o.label);
+      }
+      let maxLength: number | undefined;
+      const maxLenAttr = (el as HTMLInputElement).getAttribute("maxlength");
+      if (maxLenAttr != null) {
+        const n = parseInt(maxLenAttr, 10);
+        if (!isNaN(n) && n > 0) maxLength = n;
+      }
+      if (maxLength == null && typeof (el as HTMLInputElement).maxLength === "number" && (el as HTMLInputElement).maxLength > 0)
+        maxLength = (el as HTMLInputElement).maxLength;
+      const required = (el as HTMLInputElement).hasAttribute("required") || (el as HTMLInputElement).required;
+      const instruction = instructionFor(el);
+      result.push({ name, id, selector: selectorFor(el), type, label, placeholder, options, maxLength, required, instruction });
+    });
+    document.querySelectorAll<HTMLElement>('[contenteditable="true"], [role="textbox"][contenteditable]').forEach((el, idx) => {
+      const name = el.getAttribute("name") || el.id || el.getAttribute("aria-label") || `rich_text_${idx + 1}`;
+      const label = labelFor(el) || el.getAttribute("aria-label") || name;
+      result.push({
+        name,
+        id: el.id || null,
+        selector: selectorFor(el),
+        type: "contenteditable",
+        label,
+        placeholder: el.getAttribute("data-placeholder") ?? "",
+        required: el.getAttribute("aria-required") === "true",
+        instruction: instructionFor(el),
+      });
     });
     return result;
   });
@@ -164,10 +257,100 @@ export async function getFormFields(page: Page): Promise<FormFieldInfo[]> {
 export interface FillAction {
   selector: string;
   value: string;
-  type?: "fill" | "select" | "check";
+  type?: "fill" | "select" | "check" | "choose_radio" | "choose_checkbox" | "rich_text" | "autocomplete" | "date" | "range";
 }
 
 const FILL_DELAY_MS = 150;
+
+function normaliseChoiceText(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+async function chooseByOptionLabel(page: Page, selector: string, value: string): Promise<boolean> {
+  const wanted = normaliseChoiceText(value);
+  const inputs = await page.$$(selector);
+  for (const input of inputs) {
+    try {
+      const { inputValue, label } = await input.evaluate((el) => {
+        const inputEl = el as HTMLInputElement;
+        let labelText = "";
+        if (inputEl.id) {
+          const labelEl = document.querySelector(`label[for="${CSS.escape(inputEl.id)}"]`);
+          if (labelEl) labelText = labelEl.textContent?.trim() ?? "";
+        }
+        if (!labelText) labelText = inputEl.closest("label")?.textContent?.trim() ?? "";
+        if (!labelText) {
+          const labelledBy = inputEl.getAttribute("aria-labelledby");
+          if (labelledBy) {
+            labelText = labelledBy
+              .split(/\s+/)
+              .map((id) => document.getElementById(id)?.textContent?.trim() ?? "")
+              .filter(Boolean)
+              .join(" ");
+          }
+        }
+        return { inputValue: inputEl.value ?? "", label: labelText.replace(/\s+/g, " ").trim() };
+      });
+      const haystack = normaliseChoiceText(`${label} ${inputValue}`);
+      if (haystack === wanted || haystack.includes(wanted) || wanted.includes(normaliseChoiceText(label || inputValue))) {
+        await input.scrollIntoViewIfNeeded();
+        await input.setChecked(true);
+        const checked = await input.evaluate((el) => (el as HTMLInputElement).checked);
+        await input.dispose();
+        for (const other of inputs) {
+          if (other !== input) await other.dispose().catch(() => {});
+        }
+        return checked;
+      }
+    } catch {
+      // try next option
+    }
+  }
+  for (const input of inputs) await input.dispose().catch(() => {});
+  return false;
+}
+
+async function verifyAction(page: Page, selector: string, expected: string, type: FillAction["type"]): Promise<boolean> {
+  try {
+    if (type === "choose_radio" || type === "choose_checkbox") {
+      const wanted = normaliseChoiceText(expected);
+      return await page.$$eval(selector, (els, wantedValue) => {
+        const normalise = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+        return els.some((el) => {
+          const input = el as HTMLInputElement;
+          if (!input.checked) return false;
+          let label = "";
+          if (input.id) {
+            const labelEl = document.querySelector(`label[for="${CSS.escape(input.id)}"]`);
+            if (labelEl) label = labelEl.textContent?.trim() ?? "";
+          }
+          if (!label) label = input.closest("label")?.textContent?.trim() ?? "";
+          const text = normalise(`${label} ${input.value ?? ""}`);
+          return text.includes(wantedValue) || wantedValue.includes(normalise(label || input.value || ""));
+        });
+      }, wanted);
+    }
+    const el = await page.$(selector);
+    if (!el) return false;
+    const tag = await el.evaluate((e) => (e as HTMLElement).tagName.toLowerCase());
+    const inputType = await el.evaluate((e) => (e as HTMLInputElement).type?.toLowerCase());
+    const actual = await el.evaluate((e) => {
+      const html = e as HTMLElement;
+      if (html.isContentEditable) return html.textContent ?? "";
+      const element = e as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
+      if ((element as HTMLInputElement).type === "checkbox" || (element as HTMLInputElement).type === "radio") {
+        return (element as HTMLInputElement).checked ? "true" : "false";
+      }
+      return element.value ?? "";
+    });
+    await el.dispose();
+    if (tag === "select") return actual === expected || normaliseChoiceText(actual).includes(normaliseChoiceText(expected));
+    if (inputType === "checkbox" || inputType === "radio") return /^(1|true|yes|on)$/i.test(expected) === (actual === "true");
+    return actual.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
 
 export async function applyFillActions(
   page: Page,
@@ -189,23 +372,96 @@ export async function applyFillActions(
       await el.scrollIntoViewIfNeeded();
       const tag = await el.evaluate((e) => (e as HTMLElement).tagName.toLowerCase());
       const type = await el.evaluate((e) => (e as HTMLInputElement).type?.toLowerCase());
-      if (tag === "select") {
-        await el.selectOption(a.value).catch(() => el.selectOption({ value: a.value }));
-        applied++;
+      await el.dispose();
+
+      if (a.type === "choose_radio" || a.type === "choose_checkbox") {
+        const chosen = await chooseByOptionLabel(page, a.selector, a.value);
+        if (!chosen) {
+          errors.push(`${a.selector}: option not found or not selected for "${a.value}"`);
+          continue;
+        }
+      } else if (tag === "select") {
+        const selectEl = await page.$(a.selector);
+        if (!selectEl) {
+          errors.push(`Element not found: ${a.selector}`);
+          continue;
+        }
+        await selectEl.selectOption(a.value).catch(() => selectEl.selectOption({ label: a.value }));
+        await selectEl.dispose();
       } else if (type === "checkbox" || type === "radio") {
         const checked = /^(1|true|yes|on)$/i.test(a.value);
-        await el.setChecked(checked);
+        const inputEl = await page.$(a.selector);
+        if (!inputEl) {
+          errors.push(`Element not found: ${a.selector}`);
+          continue;
+        }
+        await inputEl.setChecked(checked);
+        await inputEl.dispose();
+      } else if (a.type === "rich_text" || tag === "div" || tag === "span") {
+        const ok = await page.evaluate(({ selector, value }) => {
+          const el = document.querySelector(selector) as HTMLElement | null;
+          if (!el) return false;
+          el.focus();
+          el.textContent = value;
+          el.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: value }));
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+          return true;
+        }, { selector: a.selector, value: a.value });
+        if (!ok) {
+          errors.push(`Element not found: ${a.selector}`);
+          continue;
+        }
+      } else if (a.type === "autocomplete") {
+        const inputEl = await page.$(a.selector);
+        if (!inputEl) {
+          errors.push(`Element not found: ${a.selector}`);
+          continue;
+        }
+        await inputEl.fill(a.value);
+        await page.waitForTimeout(750);
+        await inputEl.press("ArrowDown").catch(() => {});
+        await inputEl.press("Enter").catch(() => {});
+        await inputEl.dispose();
+      } else {
+        const inputEl = await page.$(a.selector);
+        if (!inputEl) {
+          errors.push(`Element not found: ${a.selector}`);
+          continue;
+        }
+        await inputEl.fill(a.value);
+        await inputEl.dispose();
+      }
+
+      const verified = await verifyAction(page, a.selector, a.value, a.type);
+      if (verified) {
         applied++;
       } else {
-        await el.fill(a.value);
-        applied++;
+        errors.push(`${a.selector}: action did not verify after applying`);
       }
-      await el.dispose();
     } catch (e) {
       errors.push(`${a.selector}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
+  const validationErrors = await getValidationErrors(page);
+  errors.push(...validationErrors);
   return { applied, errors };
+}
+
+export async function getValidationErrors(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const messages = new Set<string>();
+    document.querySelectorAll('[aria-invalid="true"], .error, .field-error, .validation-error, [role="alert"]').forEach((el) => {
+      const text = el.textContent?.trim().replace(/\s+/g, " ");
+      if (text && text.length <= 300) messages.add(text);
+    });
+    document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input, textarea, select").forEach((el) => {
+      if (!el.checkValidity() && el.validationMessage) {
+        const label = el.labels?.[0]?.textContent?.trim() || el.name || el.id || "Field";
+        messages.add(`${label}: ${el.validationMessage}`);
+      }
+    });
+    return Array.from(messages).slice(0, 10);
+  }).catch(() => []);
 }
 
 /**
@@ -280,6 +536,9 @@ export interface FilledFormSnapshot {
   fileNames: string[];
   capturedAt: string;
   screenshotBase64?: string;
+  formSchema?: GrantFormSchema;
+  automationRisks?: string[];
+  humanReviewRequired?: boolean;
 }
 
 export async function getFilledFormSnapshot(page: Page): Promise<FilledFormSnapshot> {
@@ -357,7 +616,7 @@ export async function applySnapshotValues(
 }
 
 /** Text that indicates a "next step" wizard button (not final Submit). */
-const NEXT_LABELS = /next|continue|next step|next section|proceed|go to next/i;
+const NEXT_LABELS = /next|continue|next step|next section|proceed|go to next|siguiente|continuar/i;
 
 /**
  * Vision fallback: ask Claude for a CSS selector for the Next/Continue or Submit button.
@@ -381,7 +640,7 @@ async function getButtonSelectorWithVision(
       ? `Look at this screenshot of a form. Find the main "Submit" or "Send" or "Submit application" button. Return ONLY a valid CSS selector that targets that button (e.g. button[type="submit"], input[value="Submit"], or a more specific selector). One line, no explanation.`
       : intent === "apply"
         ? `Look at this screenshot of a grant information page. Find the "Apply", "Apply now", "Start application", "Begin application", or similar button/link that starts the grant application process. Return ONLY a valid CSS selector that targets that button. One line, no explanation.`
-        : `Look at this screenshot of a form. Find the "Next" or "Continue" or "Next step" button (NOT the final Submit button). Return ONLY a valid CSS selector that targets that button. One line, no explanation.`;
+        : `Look at this screenshot of a form. Find the "Next", "Continue", "Siguiente", or "Continuar" button (NOT the final Submit/Enviar button). Return ONLY a valid CSS selector that targets that button. One line, no explanation.`;
   try {
     const anthropic = new Anthropic({ apiKey });
     const res = await anthropic.messages.create({
@@ -514,7 +773,7 @@ export function cleanupTempFiles(paths: string[]): void {
 }
 
 /** Apply button text patterns */
-const APPLY_BUTTON_TEXT = /\b(apply\s*(now|here|online)?|start\s*(your\s*)?application|begin\s*application|apply\s*for\s*(this|the)\s*(grant|fund|scheme|competition))\b/i;
+const APPLY_BUTTON_TEXT = /\b(apply\s*(now|here|online)?|start\s*(now|your\s*application|application|form)?|begin\s*(now|application|form)?|apply\s*for\s*(this|the)\s*(grant|fund|scheme|competition)|empezar\s*ahora|comenzar|iniciar|start)\b/i;
 
 /**
  * Find and click an "Apply" / "Start application" button on a grant info page.
@@ -525,6 +784,34 @@ export async function findAndClickApplyButton(
   page: Page,
   selectorHint?: string
 ): Promise<{ clicked: boolean; error?: string }> {
+  const isOfficeForms = /forms\.office\.com|forms\.microsoft\.com/i.test(page.url());
+  if (isOfficeForms) {
+    const officeCandidates = [
+      page.getByRole("button", { name: /empezar|start|begin|comenzar|iniciar/i }),
+      page.locator("button", { hasText: /empezar|start|begin|comenzar|iniciar/i }),
+      page.locator('[role="button"]', { hasText: /empezar|start|begin|comenzar|iniciar/i }),
+      page.locator('input[type="button"], input[type="submit"]').filter({ hasText: /empezar|start|begin|comenzar|iniciar/i }),
+    ];
+    for (const loc of officeCandidates) {
+      try {
+        const count = await loc.count();
+        for (let i = 0; i < count; i++) {
+          const node = loc.nth(i);
+          if (!(await node.isVisible())) continue;
+          await node.scrollIntoViewIfNeeded();
+          await node.click();
+          await Promise.race([
+            page.waitForLoadState("networkidle").catch(() => {}),
+            page.waitForTimeout(5000),
+          ]);
+          return { clicked: true };
+        }
+      } catch {
+        // try next Office Forms candidate
+      }
+    }
+  }
+
   // 1. Try the selector hint from page-situation vision detection
   if (selectorHint) {
     try {

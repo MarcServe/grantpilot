@@ -22,6 +22,24 @@ const FUNDER_LOCATION_OPTIONS = (Object.keys(FUNDER_LOCATION_LABELS) as (keyof t
   (value) => ({ value, label: FUNDER_LOCATION_LABELS[value] })
 );
 
+const EXTRA_BASICS_FIELDS: { name: keyof Step1Data; label: string; placeholder: string; type?: string }[] = [
+  { name: "tradingName", label: "Trading name", placeholder: "Optional trading name" },
+  { name: "charityNumber", label: "Charity number", placeholder: "If applicable" },
+  { name: "vatNumber", label: "VAT number", placeholder: "GB123456789" },
+  { name: "yearEstablished", label: "Year established", placeholder: "2021", type: "number" },
+  { name: "registeredAddress", label: "Registered address", placeholder: "Registered office address" },
+  { name: "operatingAddress", label: "Operating address", placeholder: "If different from registered address" },
+  { name: "postcode", label: "Postcode / ZIP", placeholder: "SW1A 1AA" },
+  { name: "country", label: "Country", placeholder: "United Kingdom" },
+  { name: "region", label: "Region", placeholder: "England, Scotland, Wales, Northern Ireland..." },
+  { name: "primaryContactName", label: "Primary contact name", placeholder: "Jane Smith" },
+  { name: "primaryContactRole", label: "Primary contact role", placeholder: "Managing Director" },
+  { name: "primaryContactEmail", label: "Primary contact email", placeholder: "jane@example.com", type: "email" },
+  { name: "primaryContactPhone", label: "Primary contact phone", placeholder: "+44 7123 456789", type: "tel" },
+  { name: "primaryContactLinkedIn", label: "Primary contact LinkedIn", placeholder: "https://www.linkedin.com/in/...", type: "url" },
+  { name: "preferredContactMethod", label: "Preferred contact method", placeholder: "Email, phone, WhatsApp..." },
+];
+
 interface Step1Props {
   defaultValues: Partial<z.input<typeof step1Schema>>;
   onSubmit: (data: Step1Data) => Promise<void>;
@@ -33,9 +51,24 @@ export function Step1Basics({ defaultValues, onSubmit, isPending }: Step1Props) 
     resolver: zodResolver(step1Schema),
     defaultValues: {
       businessName: defaultValues.businessName ?? "",
+      tradingName: defaultValues.tradingName ?? "",
       businessType: defaultValues.businessType ?? "",
       registrationNumber: defaultValues.registrationNumber ?? "",
+      charityNumber: defaultValues.charityNumber ?? "",
+      vatNumber: defaultValues.vatNumber ?? "",
+      yearEstablished: defaultValues.yearEstablished ?? "",
       location: defaultValues.location ?? "",
+      registeredAddress: defaultValues.registeredAddress ?? "",
+      operatingAddress: defaultValues.operatingAddress ?? "",
+      postcode: defaultValues.postcode ?? "",
+      country: defaultValues.country ?? "",
+      region: defaultValues.region ?? "",
+      primaryContactName: defaultValues.primaryContactName ?? "",
+      primaryContactRole: defaultValues.primaryContactRole ?? "",
+      primaryContactEmail: defaultValues.primaryContactEmail ?? "",
+      primaryContactPhone: defaultValues.primaryContactPhone ?? "",
+      primaryContactLinkedIn: defaultValues.primaryContactLinkedIn ?? "",
+      preferredContactMethod: defaultValues.preferredContactMethod ?? "",
       funderLocations: defaultValues.funderLocations ?? [],
       websiteUrl: defaultValues.websiteUrl ?? "",
     },
@@ -57,6 +90,32 @@ export function Step1Basics({ defaultValues, onSubmit, isPending }: Step1Props) 
             </FormItem>
           )}
         />
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          {EXTRA_BASICS_FIELDS.slice(0, 5).map((item) => (
+            <FormField
+              key={item.name}
+              control={form.control}
+              name={item.name}
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{item.label}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type={item.type ?? "text"}
+                      placeholder={item.placeholder}
+                      value={typeof field.value === "string" || typeof field.value === "number" ? field.value : ""}
+                      onChange={field.onChange}
+                      onBlur={field.onBlur}
+                      name={field.name}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          ))}
+        </div>
 
         <FormField
           control={form.control}
@@ -84,6 +143,32 @@ export function Step1Basics({ defaultValues, onSubmit, isPending }: Step1Props) 
             </FormItem>
           )}
         />
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          {EXTRA_BASICS_FIELDS.slice(5).map((item) => (
+            <FormField
+              key={item.name}
+              control={form.control}
+              name={item.name}
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{item.label}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type={item.type ?? "text"}
+                      placeholder={item.placeholder}
+                      value={typeof field.value === "string" || typeof field.value === "number" ? field.value : ""}
+                      onChange={field.onChange}
+                      onBlur={field.onBlur}
+                      name={field.name}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          ))}
+        </div>
 
         <FormField
           control={form.control}
@@ -174,7 +259,7 @@ export function Step1Basics({ defaultValues, onSubmit, isPending }: Step1Props) 
         <div className="flex justify-end">
           <Button type="submit" disabled={isPending}>
             {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Save &amp; Continue
+            Save &amp; Next
           </Button>
         </div>
       </form>

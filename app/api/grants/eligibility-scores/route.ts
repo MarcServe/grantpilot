@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { getApplicantTypeGate } from "@/lib/eligibility-hard-gates";
 
 /**
  * GET /api/grants/eligibility-scores
@@ -22,13 +23,29 @@ export async function GET(): Promise<NextResponse> {
       .eq("organisation_id", orgId)
       .eq("profile_id", profile.id);
 
+    const grantIds = (rows ?? []).map((row: { grant_id: string }) => row.grant_id);
+    const { data: grants = [] } = grantIds.length > 0
+      ? await supabase
+          .from("Grant")
+          .select("id, eligibility, applicantTypes")
+          .in("id", grantIds)
+      : { data: [] };
+    const grantsById = new Map(
+      (grants as { id: string; eligibility?: string | null; applicantTypes?: string[] | null }[]).map((grant) => [grant.id, grant])
+    );
+    const profileBusinessType = String(
+      (profile as Record<string, unknown>).businessType ?? (profile as Record<string, unknown>).business_type ?? ""
+    );
+
     const scores: Record<
       string,
       { score: number; summary?: string; reasons?: string[]; alignment?: string[]; improvementPlan?: unknown; met?: string[]; missing?: string[] }
     > = {};
     for (const row of rows as { grant_id: string; score: number; summary: string | null; reasons: unknown; alignment: unknown; improvement_plan: unknown; met_criteria: unknown; missing_criteria: unknown }[]) {
+      const applicantGate = getApplicantTypeGate(profileBusinessType, grantsById.get(row.grant_id) ?? {});
+      const score = applicantGate && !applicantGate.profileMatches ? Math.min(row.score, 25) : row.score;
       scores[row.grant_id] = {
-        score: row.score,
+        score,
         summary: row.summary ?? undefined,
         reasons: (row.reasons as string[]) ?? undefined,
         alignment: (row.alignment as string[]) ?? undefined,

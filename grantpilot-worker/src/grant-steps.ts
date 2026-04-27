@@ -17,14 +17,15 @@ import {
   type FilledFormSnapshot,
   type FilledField,
 } from "./browser.js";
-import { getFormFillActions, getFormFillActionsWithMissing, getFileInputMapping, extractRequiredAttachmentsFromPage, type MissingRequiredField } from "./form-mapping.js";
+import { getFormFillActionsWithMissing, getFileInputMapping, extractRequiredAttachmentsFromPage, type MissingRequiredField } from "./form-mapping.js";
 import {
   matchDocumentsToRequirements,
   buildUploadPlan,
   type RequiredAttachment,
 } from "./required-attachments.js";
-import { detectPageSituation, quickPageCheck, analyzeFormFields, detectPortalPageSituation, analyzeApplicationSections, type PageSituation, type DetectedSection } from "./page-situation.js";
-import type { PortalRecipeRef, PortalSection } from "./portals/registry.js";
+import { detectPageSituation, quickPageCheck, analyzeFormFields, detectPortalPageSituation, type PageSituation } from "./page-situation.js";
+import type { PortalRecipeRef } from "./portals/registry.js";
+import { extractGrantFormSchema, schemaRequiresHumanReview } from "./form-schema.js";
 
 export interface StepResult {
   success: boolean;
@@ -41,6 +42,8 @@ export interface StepResult {
   needsInput?: boolean;
   /** List of required fields to ask the user for (when needsInput is true). */
   missingRequired?: MissingRequiredField[];
+  /** Number of fields/options the worker actually changed and verified. */
+  filledCount?: number;
 }
 
 export interface GrantContext {
@@ -65,6 +68,10 @@ export interface GrantStepOptions {
   portalRecipe?: PortalRecipeRef | null;
   /** Decrypted portal credentials for auto-login ({ username, password }). */
   portalCredentials?: { username: string; password: string } | null;
+  /** Verified fill actions already applied earlier in this browser session. */
+  priorFilledCount?: number;
+  /** True only after explicit user approval. Autopilot/new sessions must not submit. */
+  allowSubmit?: boolean;
 }
 
 async function getFileInputSelectors(page: Page): Promise<string[]> {
@@ -377,7 +384,7 @@ export async function runGrantStep(
         allErrors.length > 0
           ? `Filled ${totalApplied} fields; errors: ${allErrors.join("; ")}`
           : `Filled ${totalApplied} company fields`;
-      return { success: totalApplied > 0, notes: note };
+      return { success: totalApplied > 0, notes: note, filledCount: totalApplied };
     }
 
     case "fill_financials": {
@@ -434,7 +441,7 @@ export async function runGrantStep(
         allErrors.length > 0
           ? `Filled ${totalApplied} fields; errors: ${allErrors.join("; ")}`
           : `Filled ${totalApplied} financial fields`;
-      return { success: totalApplied >= 0, notes: note };
+      return { success: totalApplied > 0, notes: note, filledCount: totalApplied };
     }
 
     case "upload_documents": {
@@ -510,6 +517,15 @@ export async function runGrantStep(
     }
 
     case "prepare_review": {
+      if ((options?.priorFilledCount ?? 0) <= 0) {
+        return {
+          success: false,
+          notes: "No fields were successfully filled by the automation, so there is nothing ready for review. Please update the profile/application answers or provide a more direct form URL.",
+          situation: "unknown",
+          needsDirectUrl: true,
+        };
+      }
+
       // Pre-review validation: verify we actually filled substantive form fields
       const fieldAnalysis = await analyzeFormFields(page);
       if (fieldAnalysis.applicationFieldCount === 0) {
@@ -526,6 +542,10 @@ export async function runGrantStep(
 
       await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
       const snapshot = await getFilledFormSnapshot(page);
+      const formSchema = await extractGrantFormSchema(page, options?.grantContext);
+      snapshot.formSchema = formSchema;
+      snapshot.automationRisks = formSchema.automation_risks ?? [];
+      snapshot.humanReviewRequired = schemaRequiresHumanReview(formSchema);
 
       // Check that the snapshot has meaningful filled values
       const filledFields = snapshot.fields.filter((f) => f.value && f.value.trim().length > 0);
@@ -546,6 +566,13 @@ export async function runGrantStep(
     }
 
     case "submit_application": {
+      if (!options?.allowSubmit) {
+        return {
+          success: false,
+          notes: "Final submission is blocked until the user explicitly reviews and approves the filled application.",
+          needsInput: true,
+        };
+      }
       // Pre-fill page check
       const pageCheck = await preFillPageCheck(page, "submitting");
       if (pageCheck) return pageCheck;
@@ -553,6 +580,15 @@ export async function runGrantStep(
       if (grantUrl) {
         const { ok, error: navErr } = await navigateToGrantUrl(page, grantUrl);
         if (!ok) return { success: false, notes: navErr ?? "Navigate failed" };
+      }
+
+      const submitSchema = await extractGrantFormSchema(page, options?.grantContext);
+      const blockingRisks = (submitSchema.automation_risks ?? []).filter((risk) => /captcha|otp|login/i.test(risk));
+      if (blockingRisks.length > 0) {
+        return {
+          success: false,
+          notes: `Final submission is blocked because the form requires human intervention: ${blockingRisks.join(", ")}.`,
+        };
       }
 
       const editedFields = options?.editedSnapshotFields;
@@ -1022,7 +1058,7 @@ async function runFillSection(
   const note = allErrors.length > 0
     ? `Filled ${totalApplied} fields in "${sectionLabel}"; errors: ${allErrors.join("; ")}`
     : `Filled ${totalApplied} fields in "${sectionLabel}"`;
-  return { success: totalApplied > 0, notes: note };
+  return { success: totalApplied > 0, notes: note, filledCount: totalApplied };
 }
 
 /**

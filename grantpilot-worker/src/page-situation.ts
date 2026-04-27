@@ -187,13 +187,20 @@ export async function analyzeFormFields(page: Page): Promise<{
       }
     });
 
+    const choiceGroups = new Set<string>();
+    document.querySelectorAll<HTMLInputElement>('input[type="radio"], input[type="checkbox"]').forEach((input) => {
+      const group = input.name || input.closest("fieldset")?.textContent?.trim() || input.id || input.value || "choice";
+      choiceGroups.add(group);
+    });
+    appFields += choiceGroups.size;
+
     return { applicationFieldCount: appFields, chromeFieldCount: chromeFields, totalFields: appFields + chromeFields };
   });
   return analysis;
 }
 
-/** Common Apply / Start Application button patterns */
-const APPLY_BUTTON_TEXT = /\b(apply\s*(now|here|online)?|start\s*application|begin\s*application|start\s*your\s*application|submit\s*an?\s*application|apply\s*for\s*(this|the)\s*(grant|fund|scheme|competition))\b/i;
+/** Common Apply / Start Application button patterns, including Microsoft Forms localized starts. */
+const APPLY_BUTTON_TEXT = /\b(apply\s*(now|here|online)?|start\s*(now|application|form)?|begin\s*(now|application|form)?|start\s*your\s*application|submit\s*an?\s*application|apply\s*for\s*(this|the)\s*(grant|fund|scheme|competition)|empezar\s*ahora|comenzar|iniciar|start)\b/i;
 
 /**
  * DOM heuristic detection with field-aware analysis.
@@ -228,6 +235,40 @@ export async function detectPageSituation(page: Page, hints?: NavigationHints): 
   const finalUrl = (hints?.finalUrl ?? page.url() ?? "").toLowerCase();
   if (/(\/404(?:[/?#]|$))|(\/not-found(?:[/?#]|$))|[?&](?:error|status)=404/.test(finalUrl)) {
     return { situation: "page_not_found", needsDirectUrl: true };
+  }
+
+  if (/forms\.office\.com|forms\.microsoft\.com/i.test(finalUrl)) {
+    const officeForms = await page.evaluate(() => {
+      const body = document.body?.innerText?.toLowerCase() ?? "";
+      const inputs = document.querySelectorAll(
+        'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="password"]):not([type="file"]), textarea, select'
+      );
+      const choiceGroups = new Set<string>();
+      document.querySelectorAll<HTMLInputElement>('input[type="radio"], input[type="checkbox"]').forEach((input) => {
+        choiceGroups.add(input.name || input.id || input.value || "choice");
+      });
+      const buttons = Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"], input[type="button"], input[type="submit"]'));
+      const startButton = buttons.find((el) => {
+        const text = `${el.textContent ?? ""} ${(el as HTMLInputElement).value ?? ""} ${el.getAttribute("aria-label") ?? ""}`.toLowerCase();
+        return /\b(start|begin|empezar|comenzar|iniciar)\b/.test(text);
+      });
+      const nextButton = buttons.find((el) => {
+        const text = `${el.textContent ?? ""} ${(el as HTMLInputElement).value ?? ""} ${el.getAttribute("aria-label") ?? ""}`.toLowerCase();
+        return /\b(next|continue|siguiente|continuar)\b/.test(text);
+      });
+      return {
+        fieldCount: inputs.length + choiceGroups.size,
+        hasStartButton: Boolean(startButton),
+        hasNextButton: Boolean(nextButton),
+        looksLikeOfficeForm: body.includes("application form") || body.includes("open call") || body.includes("microsoft forms") || body.includes("empezar"),
+      };
+    }).catch(() => null);
+    if (officeForms?.fieldCount && officeForms.fieldCount >= 1) {
+      return { situation: "application_form", confidence: 0.95 };
+    }
+    if (officeForms?.hasStartButton || officeForms?.looksLikeOfficeForm || officeForms?.hasNextButton) {
+      return { situation: "info_page_with_apply", confidence: 0.9 };
+    }
   }
 
   const visionResult = await detectPageSituationWithVision(page);
@@ -295,9 +336,14 @@ export async function detectPageSituation(page: Page, hints?: NavigationHints): 
 
       if (!isChrome) appFieldCount++;
     });
+    const choiceGroups = new Set<string>();
+    document.querySelectorAll<HTMLInputElement>('input[type="radio"], input[type="checkbox"]').forEach((input) => {
+      choiceGroups.add(input.name || input.closest("fieldset")?.textContent?.trim() || input.id || input.value || "choice");
+    });
+    appFieldCount += choiceGroups.size;
 
     // Check for Apply/Start buttons on info pages
-    const applyPatterns = /\b(apply\s*(now|here|online)?|start\s*application|begin\s*application|start\s*your\s*application|apply\s*for\s*(this|the)\s*(grant|fund|scheme|competition))\b/i;
+    const applyPatterns = /\b(apply\s*(now|here|online)?|start\s*(now|application|form)?|begin\s*(now|application|form)?|start\s*your\s*application|apply\s*for\s*(this|the)\s*(grant|fund|scheme|competition)|empezar\s*ahora|comenzar|iniciar|start)\b/i;
     const buttons = document.querySelectorAll('a[href], button, input[type="submit"], [role="button"]');
     let applyButtonSelector: string | null = null;
     buttons.forEach((el) => {

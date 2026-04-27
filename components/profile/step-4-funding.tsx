@@ -434,17 +434,53 @@ export function Step4Funding({
           )}
         />
 
+        <FormField
+          control={form.control}
+          name="coFundingAvailable"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Co-funding Available (optional)</FormLabel>
+              <FormControl>
+                <Textarea
+                  placeholder="e.g. We can contribute £20,000 from retained earnings, or 30% match funding is secured."
+                  rows={3}
+                  {...field}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="matchFundingDetails"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Match Funding Details (optional)</FormLabel>
+              <FormControl>
+                <Textarea
+                  placeholder="Describe confirmed or planned match funding, investor contributions, partner cash/in-kind support..."
+                  rows={3}
+                  {...field}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
         <p className="text-xs text-muted-foreground">
           Grants-Copilot uses this information to match your business with the most relevant grants and prepare stronger applications automatically.
         </p>
 
-        <div className="flex justify-between">
-          <Button type="button" variant="outline" onClick={onBack}>
+        <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <Button type="button" variant="outline" onClick={onBack} disabled={isPending}>
             Back
           </Button>
           <Button type="submit" disabled={isPending}>
             {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Save Funding Strategy &rarr;
+            Save &amp; Next
           </Button>
         </div>
       </form>

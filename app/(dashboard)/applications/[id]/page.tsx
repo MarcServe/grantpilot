@@ -114,7 +114,15 @@ export default async function ApplicationDetailPage({
     isComplete &&
     (application.status === "FILLING" || application.status === "REVIEW_REQUIRED");
 
-  const filledSnapshot = (application as { filled_snapshot?: { fields?: { label: string; name: string; value: string }[]; fileNames?: string[]; capturedAt?: string } }).filled_snapshot;
+  const filledSnapshot = (application as {
+    filled_snapshot?: {
+      fields?: { label: string; name: string; value: string }[];
+      fileNames?: string[];
+      capturedAt?: string;
+      automationRisks?: string[];
+      humanReviewRequired?: boolean;
+    };
+  }).filled_snapshot;
   const showFilledSummary =
     filledSnapshot &&
     (application.status === "FILLING" || application.status === "REVIEW_REQUIRED" || application.status === "APPROVED");
@@ -382,6 +390,8 @@ export default async function ApplicationDetailPage({
             capturedAt={filledSnapshot.capturedAt}
             screenshotBase64={(filledSnapshot as { screenshotBase64?: string }).screenshotBase64}
             grantUrl={(application.grant as { applicationUrl?: string })?.applicationUrl}
+            automationRisks={filledSnapshot.automationRisks ?? []}
+            humanReviewRequired={filledSnapshot.humanReviewRequired}
             editable={["FILLING", "REVIEW_REQUIRED"].includes(application.status)}
           />
         </div>

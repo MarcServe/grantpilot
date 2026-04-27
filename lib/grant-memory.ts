@@ -8,7 +8,22 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 export interface GrantMemoryPayload {
   company?: {
     businessName?: string;
+    tradingName?: string | null;
     registrationNumber?: string | null;
+    charityNumber?: string | null;
+    vatNumber?: string | null;
+    yearEstablished?: number | null;
+    registeredAddress?: string | null;
+    operatingAddress?: string | null;
+    postcode?: string | null;
+    country?: string | null;
+    region?: string | null;
+    primaryContactName?: string | null;
+    primaryContactRole?: string | null;
+    primaryContactEmail?: string | null;
+    primaryContactPhone?: string | null;
+    primaryContactLinkedIn?: string | null;
+    preferredContactMethod?: string | null;
     location?: string;
     sector?: string;
     missionStatement?: string;
@@ -17,13 +32,28 @@ export interface GrantMemoryPayload {
   };
   financials?: {
     employeeCount?: number | null;
+    contractorCount?: number | null;
     annualRevenue?: number | null;
+    profitLoss?: string | null;
+    cashReserves?: string | null;
+    financialProjections?: string | null;
     previousGrants?: string | null;
     fundingMin?: number;
     fundingMax?: number;
     fundingPurposes?: string[];
     fundingDetails?: string | null;
+    coFundingAvailable?: string | null;
+    matchFundingDetails?: string | null;
   };
+  team?: {
+    directorNames?: string | null;
+    directorProfiles?: string | null;
+    teamMembers?: string | null;
+    teamExpertise?: string | null;
+    boardMembers?: string | null;
+    founderBackground?: string | null;
+  };
+  applicationBrief?: Record<string, unknown>;
   documentsSummary?: { name: string; type: string; category?: string | null }[];
   pitchSnippets?: Record<string, string>;
 }
@@ -37,7 +67,22 @@ function buildPayloadFromProfile(profile: Record<string, unknown>): GrantMemoryP
   return {
     company: {
       businessName: profile.businessName as string,
+      tradingName: (profile.tradingName as string | null) ?? null,
       registrationNumber: (profile.registrationNumber as string | null) ?? null,
+      charityNumber: (profile.charityNumber as string | null) ?? null,
+      vatNumber: (profile.vatNumber as string | null) ?? null,
+      yearEstablished: (profile.yearEstablished as number | null) ?? null,
+      registeredAddress: (profile.registeredAddress as string | null) ?? null,
+      operatingAddress: (profile.operatingAddress as string | null) ?? null,
+      postcode: (profile.postcode as string | null) ?? null,
+      country: (profile.country as string | null) ?? null,
+      region: (profile.region as string | null) ?? null,
+      primaryContactName: (profile.primaryContactName as string | null) ?? null,
+      primaryContactRole: (profile.primaryContactRole as string | null) ?? null,
+      primaryContactEmail: (profile.primaryContactEmail as string | null) ?? null,
+      primaryContactPhone: (profile.primaryContactPhone as string | null) ?? null,
+      primaryContactLinkedIn: (profile.primaryContactLinkedIn as string | null) ?? null,
+      preferredContactMethod: (profile.preferredContactMethod as string | null) ?? null,
       location: profile.location as string,
       sector: profile.sector as string,
       missionStatement: profile.missionStatement as string,
@@ -46,12 +91,51 @@ function buildPayloadFromProfile(profile: Record<string, unknown>): GrantMemoryP
     },
     financials: {
       employeeCount: profile.employeeCount as number | null,
+      contractorCount: (profile.contractorCount as number | null) ?? null,
       annualRevenue: profile.annualRevenue as number | null,
+      profitLoss: (profile.profitLoss as string | null) ?? null,
+      cashReserves: (profile.cashReserves as string | null) ?? null,
+      financialProjections: (profile.financialProjections as string | null) ?? null,
       previousGrants: (profile.previousGrants as string | null) ?? null,
       fundingMin: Number(profile.fundingMin ?? profile.funding_min ?? 0),
       fundingMax: Number(profile.fundingMax ?? profile.funding_max ?? 0),
       fundingPurposes: (profile.fundingPurposes as string[]) ?? [],
       fundingDetails: (profile.fundingDetails as string | null) ?? (profile.funding_details as string | null) ?? null,
+      coFundingAvailable: (profile.coFundingAvailable as string | null) ?? null,
+      matchFundingDetails: (profile.matchFundingDetails as string | null) ?? null,
+    },
+    team: {
+      directorNames: (profile.directorNames as string | null) ?? (profile.director_names as string | null) ?? null,
+      directorProfiles: (profile.directorProfiles as string | null) ?? (profile.director_profiles as string | null) ?? null,
+      teamMembers: (profile.teamMembers as string | null) ?? (profile.team_members as string | null) ?? null,
+      teamExpertise: (profile.teamExpertise as string | null) ?? (profile.team_expertise as string | null) ?? null,
+      boardMembers: (profile.boardMembers as string | null) ?? null,
+      founderBackground: (profile.founderBackground as string | null) ?? null,
+    },
+    applicationBrief: {
+      projectTitle: profile.projectTitle,
+      projectSummary: profile.projectSummary,
+      problemStatement: profile.problemStatement,
+      proposedSolution: profile.proposedSolution,
+      projectObjectives: profile.projectObjectives,
+      expectedOutcomes: profile.expectedOutcomes,
+      projectStartDate: profile.projectStartDate,
+      projectEndDate: profile.projectEndDate,
+      beneficiaryGroups: profile.beneficiaryGroups,
+      beneficiaryCount: profile.beneficiaryCount,
+      geographicImpact: profile.geographicImpact,
+      diversityInclusionImpact: profile.diversityInclusionImpact,
+      jobsCreated: profile.jobsCreated,
+      revenueGrowthExpected: profile.revenueGrowthExpected,
+      co2Reduction: profile.co2Reduction,
+      productivityImprovements: profile.productivityImprovements,
+      milestones: profile.milestones,
+      deliverables: profile.deliverables,
+      partnerOrganisations: profile.partnerOrganisations,
+      collaborationDetails: profile.collaborationDetails,
+      risksMitigation: profile.risksMitigation,
+      exitStrategy: profile.exitStrategy,
+      projectSustainabilityPlan: profile.projectSustainabilityPlan,
     },
     documentsSummary,
     pitchSnippets: {},
