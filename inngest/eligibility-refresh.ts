@@ -11,6 +11,7 @@ import { getEligibilityNotifyMinCompletion } from "@/lib/eligibility-notify-conf
 import { preFilterGrants } from "@/lib/heuristic-scorer";
 import { rankGrantsByEmbedding, generateAndStoreProfileEmbedding } from "@/lib/embeddings";
 import { isEligibilityNotificationTime } from "@/lib/timezone";
+import { isGrantLinkUsable } from "@/lib/grant-freshness";
 
 /**
  * 3-Layer Eligibility Pipeline
@@ -79,10 +80,7 @@ export async function runEligibilityRefreshJob(options?: {
     const orgIdsFilter = options?.orgIdsFilter;
     const supabase = getSupabaseAdmin();
     const { data: grantsData } = await supabase.from("Grant").select("id, name, funder, amount, deadline, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, required_attachments, url_status");
-    const allGrants = (grantsData ?? []).filter((g: { url_status?: string }) => {
-      const status = g.url_status ?? "unknown";
-      return status !== "dead" && status !== "expired";
-    });
+    const allGrants = (grantsData ?? []).filter(isGrantLinkUsable);
     const diagnostics = {
       totalGrants: allGrants.length,
       orgsWithProfile: 0,

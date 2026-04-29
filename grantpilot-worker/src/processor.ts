@@ -138,11 +138,42 @@ async function completeSession(sessionId: number): Promise<void> {
   if (error) throw error;
 }
 
+async function markApplicationReadyForReview(publicId: string): Promise<void> {
+  const applicationId = publicId.startsWith("grantapp_") ? publicId.replace(/^grantapp_/, "") : "";
+  if (!applicationId) return;
+
+  const { data } = await getSupabase()
+    .from("Application")
+    .select("status")
+    .eq("id", applicationId)
+    .maybeSingle();
+  const status = (data as { status?: string } | null)?.status;
+  if (status === "FILLING") {
+    const { error } = await getSupabase()
+      .from("Application")
+      .update({ status: "REVIEW_REQUIRED", updatedAt: new Date().toISOString() })
+      .eq("id", applicationId);
+    if (error) throw error;
+  }
+}
+
 async function failSession(sessionId: number, errorLog: string): Promise<void> {
   const { error } = await getSupabase()
     .from("cu_sessions")
     .update({ status: "failed", error_log: errorLog })
     .eq("id", sessionId);
+  if (error) throw error;
+}
+
+async function markApplicationFailed(publicId: string): Promise<void> {
+  const applicationId = publicId.startsWith("grantapp_") ? publicId.replace(/^grantapp_/, "") : "";
+  if (!applicationId) return;
+
+  const { error } = await getSupabase()
+    .from("Application")
+    .update({ status: "FAILED", updatedAt: new Date().toISOString() })
+    .eq("id", applicationId)
+    .in("status", ["PENDING", "FILLING", "REVIEW_REQUIRED", "APPROVED"]);
   if (error) throw error;
 }
 
@@ -778,6 +809,9 @@ export async function processSession(session: CuSession): Promise<void> {
     processed = Math.max(processed, await countTerminalSessionItems(session.id));
     await updateSessionProgress(session.id, processed, `final_${processed}`);
     await completeSession(session.id);
+    if (session.task_type === "grant_application") {
+      await markApplicationReadyForReview(session.public_id);
+    }
     await appendLog(session.id, "session_complete", "complete", `Completed ${session.public_id}`);
     console.log(`[worker] Session ${session.public_id} completed (${processed} items)`);
   } catch (err) {
@@ -789,6 +823,9 @@ export async function processSession(session: CuSession): Promise<void> {
     }
     console.error(`[worker] Session ${session.public_id} failed:`, msg);
     await failSession(session.id, msg).catch(() => {});
+    if (session.task_type === "grant_application") {
+      await markApplicationFailed(session.public_id).catch(() => {});
+    }
     await appendLog(session.id, "session_failed", "error", msg, false).catch(() => {});
   }
 }

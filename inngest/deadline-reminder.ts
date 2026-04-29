@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { notifyOrgMembers } from "@/lib/notify";
 import { createStartApplicationToken } from "@/lib/start-application-token";
 import { isNineAmLocal } from "@/lib/timezone";
+import { isGrantLinkUsable } from "@/lib/grant-freshness";
 
 export const deadlineReminder = inngest.createFunction(
   { id: "deadline-reminder", name: "Grant Deadline Reminder" },
@@ -79,7 +80,8 @@ export const deadlineReminder = inngest.createFunction(
         .gte("deadline", startOfDay.toISOString())
         .lte("deadline", endOfDay.toISOString());
 
-      const grantCount = (grants ?? []).length;
+      const currentGrants = (grants ?? []).filter(isGrantLinkUsable);
+      const grantCount = currentGrants.length;
       diagnostics.grantsByDay[days] = grantCount;
       if (grantCount === 0) continue;
 
@@ -87,7 +89,7 @@ export const deadlineReminder = inngest.createFunction(
         .filter(([id]) => notifyOrgIds.has(id))
         .map(([id, profile]) => ({ id, profiles: [profile] }));
 
-      for (const grant of grants ?? []) {
+      for (const grant of currentGrants) {
         for (const org of orgs) {
           if (!org.profiles[0]) continue;
 

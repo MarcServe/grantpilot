@@ -9,6 +9,7 @@ import { looksLikeGenericOrListUrl } from "@/lib/grant-url-validation";
 import { enqueueGrantForScoutIfProgrammeUrl } from "@/lib/enqueue-scout";
 import { generateAndStoreGrantEmbedding } from "@/lib/embeddings";
 import { checkUrlHealth } from "@/lib/url-health-check";
+import { isPastGrantDeadline } from "@/lib/grant-freshness";
 
 /** Normalize string for hashing: lowercase, trim, collapse whitespace. */
 function normalizeForHash(s: string): string {
@@ -81,6 +82,8 @@ export function parseGrantRow(row: unknown): GrantInput | null {
 
   const amount = typeof o.amount === "number" ? o.amount : typeof o.amount === "string" ? parseFloat(o.amount) : null;
   const externalId = typeof o.externalId === "string" ? o.externalId : typeof o.id === "string" ? o.id : undefined;
+  const parsedDeadline = parseDeadline(o.deadline);
+  if (isPastGrantDeadline(parsedDeadline)) return null;
 
   const funderLocations = toArray(o.funderLocations ?? o.funder_locations);
   const applicantTypes = toArray(o.applicantTypes ?? o.applicant_types);
@@ -110,6 +113,9 @@ export function parseGrantRow(row: unknown): GrantInput | null {
 export async function upsertGrant(input: GrantInput): Promise<{ id: string; created: boolean }> {
   const supabase = getSupabaseAdmin();
   const deadline = parseDeadline(input.deadline);
+  if (isPastGrantDeadline(deadline)) {
+    throw new Error(`Grant deadline has passed: ${input.name}`);
+  }
   const sectors = input.sectors?.length ? input.sectors : ["Other"];
   const regions = input.regions?.length ? input.regions : ["England"];
   const funderLocations = input.funderLocations?.length ? input.funderLocations : [];
@@ -145,6 +151,16 @@ export async function upsertGrant(input: GrantInput): Promise<{ id: string; crea
 
     if (existing) {
       await supabase.from("Grant").update(data).eq("id", existing.id);
+      if (input.applicationUrl) {
+        checkUrlHealth(input.applicationUrl)
+          .then(async (result) => {
+            await getSupabaseAdmin()
+              .from("Grant")
+              .update({ url_status: result.status, url_checked_at: new Date().toISOString() })
+              .eq("id", existing.id);
+          })
+          .catch(() => {});
+      }
       generateAndStoreGrantEmbedding(existing.id).catch(() => {});
       return { id: existing.id, created: false };
     }

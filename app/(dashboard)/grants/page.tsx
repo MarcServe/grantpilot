@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg } from "@/lib/auth";
 import { GrantsListClient } from "@/components/grants/grants-list-client";
 import { computeUrgency } from "@/lib/urgency";
+import { isGrantLinkUsable } from "@/lib/grant-freshness";
 
 export default async function GrantsPage() {
   const { org, orgId } = await getActiveOrg();
@@ -12,7 +13,7 @@ export default async function GrantsPage() {
     .from("Grant")
     .select("*")
     .order("createdAt", { ascending: false });
-  const allGrants = Array.isArray(grantsData) ? grantsData : [];
+  const allGrants = Array.isArray(grantsData) ? grantsData.filter(isGrantLinkUsable) : [];
 
   const profile = org.profiles?.[0];
   const hasProfile = !!profile;

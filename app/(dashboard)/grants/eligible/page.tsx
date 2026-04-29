@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft, ArrowRight, Building2 } from "lucide-react";
 import type { EligibleGrant } from "@/components/grants/eligible-grant-card";
 import { EligibleGrantsList } from "@/components/grants/eligible-grants-list";
+import { isGrantLinkUsable } from "@/lib/grant-freshness";
 
 export default async function EligibleGrantsPage() {
   const { org, orgId } = await getActiveOrg();
@@ -45,12 +46,14 @@ export default async function EligibleGrantsPage() {
   }
 
   // First try: filter by both org and profile
-  let { data: assessmentsData, error: assessmentsError } = await supabase
+  const assessmentsResult = await supabase
     .from("EligibilityAssessment")
     .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, updated_at")
     .eq("organisation_id", orgId)
     .eq("profile_id", profileId)
     .order("score", { ascending: false });
+  let assessmentsData = assessmentsResult.data;
+  const assessmentsError = assessmentsResult.error;
 
   // Fallback: if nothing found with profileId, try org-only query
   // (handles mismatch between profile ID in auth vs eligibility pipeline)
@@ -99,9 +102,7 @@ export default async function EligibleGrantsPage() {
       if (batchData) allGrantsData.push(...(batchData as typeof allGrantsData));
     }
 
-    const validGrants = allGrantsData.filter(
-      (g) => (g.url_status ?? "unknown") !== "dead" && (g.url_status ?? "unknown") !== "expired"
-    );
+    const validGrants = allGrantsData.filter(isGrantLinkUsable);
 
     const userFunderLocations = (profile as { funderLocations?: string[] }).funderLocations;
     const locationFiltered = validGrants.filter((g) =>

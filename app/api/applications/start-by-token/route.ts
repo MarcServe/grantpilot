@@ -7,6 +7,7 @@ import { checkUsageLimit, recordUsage } from "@/lib/plan-check";
 import { verifyStartApplicationToken } from "@/lib/start-application-token";
 import { createDefaultTasksForApplication } from "@/lib/application-tasks";
 import { buildSessionItems, matchPortalRecipe } from "@/lib/session-items";
+import { isGrantLinkUsable } from "@/lib/grant-freshness";
 
 const bodySchema = z.object({ token: z.string().min(1) });
 
@@ -56,10 +57,9 @@ export async function POST(req: Request): Promise<NextResponse> {
       return NextResponse.json({ error: "Grant not found" }, { status: 404 });
     }
 
-    const urlStatus = (grant as { url_status?: string }).url_status ?? "unknown";
-    if (urlStatus === "dead" || urlStatus === "expired") {
+    if (!isGrantLinkUsable(grant as { deadline?: string | null; url_status?: string | null })) {
       return NextResponse.json(
-        { error: "This grant's application link is broken or expired. Please find an updated link and use 'Apply by link' instead." },
+        { error: "This grant's application link is broken or the deadline has passed. Please choose a current grant or use 'Apply by link' with an updated URL." },
         { status: 400 }
       );
     }
