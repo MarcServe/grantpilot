@@ -77,7 +77,7 @@ export default function LandingPage() {
                   AI Grant Matching
                 </h3>
                 <p className="mt-2 text-muted-foreground">
-                  Claude analyses your business profile against hundreds of
+                  OpenAI analyses your business profile against hundreds of
                   grants and ranks the best matches with clear reasoning.
                 </p>
               </div>

@@ -32,7 +32,7 @@ const FIELDS: { name: keyof Step6Data; label: string; placeholder: string; hint:
     name: "teamMembers",
     label: "Team Members / Key Staff",
     placeholder: "One per line, e.g. Ahmed Khan - Technical Lead - ex-NHS data engineer, owns integrations and data security\nPriya Patel - Operations Manager - 8 years delivering public-sector programmes",
-    hint: "Add all non-director team members who may strengthen grant applications. Claude uses every person listed when forms ask about team, capability, delivery roles, or key personnel.",
+    hint: "Add all non-director team members who may strengthen grant applications. The AI uses every person listed when forms ask about team, capability, delivery roles, or key personnel.",
   },
   {
     name: "boardMembers",
@@ -50,7 +50,7 @@ const FIELDS: { name: keyof Step6Data; label: string; placeholder: string; hint:
     name: "projectTitle",
     label: "Default Project Title",
     placeholder: "e.g. AI-enabled grant readiness platform for underserved SMEs",
-    hint: "A reusable project title Claude can adapt per grant.",
+    hint: "A reusable project title the AI can adapt per grant.",
   },
   {
     name: "projectSummary",
@@ -74,7 +74,7 @@ const FIELDS: { name: keyof Step6Data; label: string; placeholder: string; hint:
     name: "projectObjectives",
     label: "Project Objectives",
     placeholder: "List 3-5 objectives with measurable targets...",
-    hint: "Helps Claude answer objectives, deliverables, and success criteria.",
+    hint: "Helps the AI answer objectives, deliverables, and success criteria.",
   },
   {
     name: "expectedOutcomes",
@@ -86,7 +86,7 @@ const FIELDS: { name: keyof Step6Data; label: string; placeholder: string; hint:
     name: "projectStartDate",
     label: "Typical Project Start Date",
     placeholder: "e.g. 2026-06-01 or 'within 8 weeks of award'",
-    hint: "Used for timeline/date questions; Claude will avoid exact dates if uncertain.",
+    hint: "Used for timeline/date questions; the AI will avoid exact dates if uncertain.",
   },
   {
     name: "projectEndDate",

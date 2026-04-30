@@ -1,8 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+import { cleanJsonResponse, completeJson } from "@/lib/openai-client";
 
 /**
  * One required attachment for a grant (video or document with optional constraints).
@@ -29,20 +25,18 @@ export async function parseRequiredAttachmentsFromText(
 ): Promise<RequiredAttachment[]> {
   if (!text?.trim()) return [];
 
-  const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 1024,
-    messages: [
-      {
-        role: "user",
-        content: `Extract required uploads/attachments from this grant text. Focus on:
+  const raw = await completeJson(
+    `Extract required uploads/attachments from this grant text. Focus on:
 - Video requirements (e.g. "pitch video", "5 minute video", "max 50MB video")
 - Document requirements (e.g. "financial statement", "business plan PDF", "accounts", "project proposal", "CVs")
 
 Grant text:
 ${text.slice(0, 8000)}
 
-Return ONLY a JSON array. Each item:
+Return ONLY valid JSON with this shape:
+{ "attachments": [] }
+
+Each attachment item:
 { "kind": "video" or "document", "label": "short label", "categoryHint": "<value>", "maxDurationMinutes": number or omit, "maxSizeMB": number or omit, "accept": "video/*" or "application/pdf" or omit }
 
 Valid categoryHint values:
@@ -60,20 +54,18 @@ Gov: vat_tax_id, duns_sam, charity_registration, procurement_eligibility
 Identity: founder_director_id, proof_of_address, company_address_verification
 Fallback: other
 
-If no clear requirements found, return []. Do not invent requirements.`,
-      },
-    ],
-  });
-
-  const raw =
-    response.content[0].type === "text" ? response.content[0].text : "";
-  const match = raw.match(/\[[\s\S]*\]/);
-  const jsonStr = match ? match[0] : raw;
+If no clear requirements found, return { "attachments": [] }. Do not invent requirements.`,
+    1024
+  );
 
   try {
-    const parsed = JSON.parse(jsonStr) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed
+    const parsed = JSON.parse(cleanJsonResponse(raw)) as unknown;
+    const list = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray((parsed as { attachments?: unknown }).attachments)
+        ? (parsed as { attachments: unknown[] }).attachments
+        : [];
+    return list
       .filter(
         (a): a is RequiredAttachment =>
           a != null &&

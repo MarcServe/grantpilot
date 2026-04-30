@@ -19,7 +19,7 @@ import { getAppliedGrantIds } from "@/lib/applied-grants";
  * 
  * Layer 1 (FREE):  Heuristic pre-filter — deadline, region, sector, funding range, applicant type
  * Layer 2 (CHEAP): Embedding similarity — OpenAI text-embedding-3-small, cosine ranking
- * Layer 3 (EXPENSIVE): Claude — only for top 10 candidates, deep eligibility reasoning
+ * Layer 3 (EXPENSIVE): OpenAI — only for top 10 candidates, deep eligibility reasoning
  * 
  * + Cache: skip grants already scored within CACHE_DAYS
  */
@@ -222,9 +222,9 @@ export async function runEligibilityRefreshJob(options?: {
           }
         }
 
-        // ── LAYER 3: Claude deep scoring (EXPENSIVE — only top N) ──
+        // ── LAYER 3: OpenAI deep scoring (EXPENSIVE — only top N) ──
         const layer3Ids = layer2Candidates.slice(0, LAYER3_TOP_N);
-        console.info(`[eligibility-refresh]   LAYER 3 (Claude): scoring ${layer3Ids.length} grants`);
+        console.info(`[eligibility-refresh]   LAYER 3 (OpenAI): scoring ${layer3Ids.length} grants`);
 
         const { data: prefs } = await supabase
           .from("EligibilityNotificationPreference")
@@ -332,17 +332,17 @@ export async function runEligibilityRefreshJob(options?: {
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err);
             console.error(`[eligibility-refresh]   grant ${grantId} for org ${orgId}: ${errMsg.slice(0, 200)}`);
-            if (/credit balance/i.test(errMsg)) {
-              console.error(`[eligibility-refresh]   Anthropic credits exhausted — stopping scoring`);
+            if (/credit balance|quota|billing/i.test(errMsg)) {
+              console.error(`[eligibility-refresh]   OpenAI billing or quota issue — stopping scoring`);
               break;
             }
           }
         }
 
-        // Persist heuristic scores for grants NOT sent to Claude (so grant list still shows something)
-        const scoredByClaudeIds = new Set(layer3Ids);
+        // Persist heuristic scores for grants not sent to OpenAI (so grant list still shows something)
+        const scoredByOpenAIIds = new Set(layer3Ids);
         const unscoredHeuristic = heuristicResults.filter(
-          (r) => !scoredByClaudeIds.has(r.grantId) && !cachedGrantIds.has(r.grantId)
+          (r) => !scoredByOpenAIIds.has(r.grantId) && !cachedGrantIds.has(r.grantId)
         );
         for (const h of unscoredHeuristic) {
           const { error: batchErr } = await supabase.from("EligibilityAssessment").upsert(

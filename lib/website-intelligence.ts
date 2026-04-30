@@ -1,6 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
-
-const anthropic = new Anthropic();
+import { completeText } from "@/lib/openai-client";
 
 const MAX_HTML_CHARS = 40_000;
 const MAX_INTELLIGENCE_CHARS = 5_000;
@@ -52,13 +50,8 @@ export async function analyseWebsite(url: string): Promise<string> {
     );
   }
 
-  const res = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 2000,
-    messages: [
-      {
-        role: "user",
-        content: `Analyse this company/organisation website content and extract a structured intelligence summary that would help fill grant applications. Be specific and factual — only include information actually present on the page.
+  const text = await completeText(
+    `Analyse this company/organisation website content and extract a structured intelligence summary that would help fill grant applications. Be specific and factual — only include information actually present on the page.
 
 Website URL: ${url}
 
@@ -77,10 +70,8 @@ Extract the following (skip sections if not found on the page):
 8. **Key differentiators** — what makes them unique, competitive advantages
 
 Write a concise summary (max 800 words) in plain text. Use bullet points within sections. This will be fed to an AI filling grant applications, so focus on facts that grant evaluators care about: impact, innovation, capability, track record.`,
-      },
-    ],
-  });
+    2000
+  );
 
-  const text = res.content?.[0]?.type === "text" ? res.content[0].text : "";
   return text.slice(0, MAX_INTELLIGENCE_CHARS);
 }

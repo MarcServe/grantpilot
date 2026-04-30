@@ -8,7 +8,7 @@ This document describes how the application works: features, user actions, backg
 
 **Grants-Copilot** (codebase: GrantPilot) is an AI-powered grant discovery, matching, and application platform.
 
-- **Stack:** Next.js 16 (App Router, Turbopack), TypeScript, Supabase (Postgres, Auth, Storage). Optional worker: Playwright + Claude for form filling.
+- **Stack:** Next.js 16 (App Router, Turbopack), TypeScript, Supabase (Postgres, Auth, Storage). Optional worker: Playwright-based form filling.
 - **Package manager:** npm.
 - **Main app:** `npm run dev` → http://localhost:3000. Worker: `npm run dev` in `grantpilot-worker/`.
 
@@ -91,7 +91,7 @@ Data for suggested/within-reach is filled by the **eligibility-refresh** Inngest
   - Optional: Find application form (Playwright Scout), auto-improve eligibility (GrantsCopilot).
 - **Apply by link:** User pastes URL(s) on `/grants/apply-by-link` → `POST /api/applications/start-with-link` creates Grant(s) and starts application(s) (same flow as catalog grants; optional autopilot).
 - **APIs:**  
-  - `POST /api/grants/discover` — manual discovery (Claude + optional OpenAI/Gemini).  
+  - `POST /api/grants/discover` — manual discovery (OpenAI + optional Perplexity/Gemini).
   - `GET /api/grants/eligibility-scores`, `GET /api/grants/[id]/eligibility` — eligibility data.  
   - `GET /api/grants/[id]`, `PATCH /api/grants/[id]` — grant CRUD.  
   - `POST /api/grants/[id]/scout-form-link` (enqueue Playwright Scout for form URL), `POST /api/grants/[id]/parse-requirements` — AI.  
@@ -161,8 +161,8 @@ Templates and copy live in `lib/notification-templates.ts`; sending in `lib/noti
 | Job | Schedule / trigger | Purpose |
 |-----|--------------------|---------|
 | **grant-sync** | 6:00 UTC | Sync grants from JSON feed, Grants.gov, UK, EU sources |
-| **grant-discovery** | 6:30 UTC | Multi-agent discovery (Claude + optional OpenAI/Gemini) for orgs with profile ≥ 30% |
-| **grant-scanner** | 7:00 UTC | Match grants to profiles (Claude), send `grant_match` |
+| **grant-discovery** | 6:30 UTC | OpenAI discovery with optional Perplexity/Gemini fallbacks for orgs with profile ≥ 30% |
+| **grant-scanner** | 7:00 UTC | Match grants to profiles, send `grant_match` |
 | **eligibility-refresh** | 7:30 UTC | Score grants per profile, upsert `EligibilityAssessment`, send digest and high-match (`grant_match_high`) with start-application tokens |
 | **deadline-reminder** | Hourly | At 9am local (org timezone), send reminders for 7/3/1 day deadlines; include start-application link when token present |
 | **monitor-session** | Event `app/session.started` | Poll worker session status, update Application, send review_required when done |
@@ -243,7 +243,7 @@ Supabase migrations in `supabase/migrations/` define the actual schema (includin
 
 ## 18. Environment and run order
 
-- **Required env (main app):** `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_KEY`, `NEXT_PUBLIC_APP_URL`, `ANTHROPIC_API_KEY`. Optional: Stripe, Resend, Twilio, OpenAI, Gemini keys for full functionality.
+- **Required env (main app):** `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_KEY`, `NEXT_PUBLIC_APP_URL`, `OPENAI_API_KEY`. Optional: Stripe, Resend, Twilio, Gemini keys for full functionality.
 - **Full local stack:**  
   1. `npm run dev` (Next.js).  
   2. `cd grantpilot-worker && npm run dev` (worker).  

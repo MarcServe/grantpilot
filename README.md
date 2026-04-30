@@ -1,6 +1,6 @@
 # Grants-Copilot (GrantPilot)
 
-AI-powered grant discovery, matching, and application platform. Find grants, get eligibility scores, and use **Apply with GrantsCopilot** to auto-fill application forms (Playwright + Claude).
+AI-powered grant discovery, matching, and application platform. Find grants, get eligibility scores, and use **Apply with GrantsCopilot** to auto-fill application forms.
 
 **Stack:** Next.js 16 (App Router, Turbopack), TypeScript, Supabase (Postgres, Auth, Storage). Optional worker: `grantpilot-worker/` for Playwright-based form filling.
 
@@ -32,7 +32,7 @@ Create a `.env` file (or use `.env.local`). Required for the app to run:
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key |
 | `SUPABASE_SERVICE_KEY` | Supabase service role key |
 | `NEXT_PUBLIC_APP_URL` | App URL (e.g. `http://localhost:3000`) |
-| `ANTHROPIC_API_KEY` | For AI features (matching, eligibility, form filling) |
+| `OPENAI_API_KEY` | For app AI features: discovery, matching, eligibility, website intelligence, requirements parsing, and profile autofill |
 
 Optional: `RESEND_API_KEY`, `EMAIL_FROM`, Stripe keys, Twilio (WhatsApp). See [DEPLOYMENT.md](./DEPLOYMENT.md) for the full list.
 
@@ -56,7 +56,7 @@ Optional: `RESEND_API_KEY`, `EMAIL_FROM`, Stripe keys, Twilio (WhatsApp). See [D
 ## Optional: full system
 
 - **Worker** (form filling): `cd grantpilot-worker && npm install && npm run dev`  
-  Needs its own `.env` with `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ANTHROPIC_API_KEY`.
+  Needs its own `.env` with `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and the worker AI provider keys.
 
 - **Inngest** (cron jobs: grant sync, scanner, eligibility refresh, reminders):  
   `npx inngest-cli@latest dev`  

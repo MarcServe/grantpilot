@@ -1,12 +1,11 @@
 /**
  * AI-powered extraction of grant opportunities from unstructured HTML or page text.
- * Uses Claude to map content to a fixed schema; caller upserts with hash dedup.
+ * Uses OpenAI to map content to a fixed schema; caller upserts with hash dedup.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
 import type { GrantInput } from "@/lib/grants-ingest";
+import { cleanJsonResponse, completeJson, completeText } from "@/lib/openai-client";
 
-const MODEL = "claude-sonnet-4-20250514";
 const MAX_TOKENS = 8192;
 const MAX_PAGE_CHARS = 80_000;
 
@@ -25,7 +24,7 @@ function stripHtmlToText(html: string): string {
  * Prefer yes if the text mentions deadline/closing date or funding amounts (£, €, $).
  */
 export async function isGrantPage(htmlOrText: string): Promise<boolean> {
-  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) return true;
 
   const text = htmlOrText.length > 20_000 ? htmlOrText.slice(0, 20_000) + "…" : htmlOrText;
@@ -34,23 +33,14 @@ export async function isGrantPage(htmlOrText: string): Promise<boolean> {
   const hasDeadlineSignal = /\b(deadline|closing\s+date|applications\s+close|call\s+opens|submission\s+deadline)\b/i.test(clean);
   const hasCurrencySignal = /[£€$]|\bfunding\s+up\s+to\b|\bgrant\s+value\b/i.test(clean);
 
-  const anthropic = new Anthropic({ apiKey });
-  const response = await anthropic.messages.create({
-    model: MODEL,
-    max_tokens: 64,
-    messages: [
-      {
-        role: "user",
-        content: `Is this web page announcing or listing a grant, funding programme, or call for proposals (e.g. funding opportunity, innovation competition, award)? Answer only: yes or no.
+  const out = await completeText(
+    `Is this web page announcing or listing a grant, funding programme, or call for proposals (e.g. funding opportunity, innovation competition, award)? Answer only: yes or no.
 Prefer yes if the text mentions an application deadline, closing date, or funding amount (£, €, $). Exclude general blog posts or news that only mention grants in passing.
 
 ${clean}`,
-      },
-    ],
-  });
-  const out =
-    response.content[0].type === "text" ? response.content[0].text.trim().toLowerCase() : "";
-  if (out.startsWith("yes")) return true;
+    64
+  );
+  if (out.trim().toLowerCase().startsWith("yes")) return true;
   if (hasDeadlineSignal && hasCurrencySignal) return true;
   return false;
 }
@@ -68,38 +58,42 @@ const EXTRACT_SYSTEM = `You extract grant and funding opportunities from web pag
 If the page lists multiple opportunities, include each as a separate object. If you find none, return []. Return only the JSON array, no markdown or explanation.`;
 
 /**
- * Extract grant opportunities from HTML or plain text using Claude. Uses pageUrl as fallback for application_link.
+ * Extract grant opportunities from HTML or plain text using OpenAI. Uses pageUrl as fallback for application_link.
  */
 export async function extractGrantsFromPage(
   htmlOrText: string,
   pageUrl: string
 ): Promise<GrantInput[]> {
-  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) return [];
 
   const isHtml = /<[a-z][\s\S]*>/i.test(htmlOrText);
   const text = isHtml ? stripHtmlToText(htmlOrText) : htmlOrText.slice(0, MAX_PAGE_CHARS);
   if (!text.trim()) return [];
 
-  const anthropic = new Anthropic({ apiKey });
-  const response = await anthropic.messages.create({
-    model: MODEL,
-    max_tokens: MAX_TOKENS,
-    system: EXTRACT_SYSTEM,
-    messages: [
-      {
-        role: "user",
-        content: `Page URL: ${pageUrl}\n\nExtract all grant or funding opportunities from this content:\n\n${text}`,
-      },
-    ],
-  });
+  const raw = await completeJson(
+    `${EXTRACT_SYSTEM}
 
-  const raw = response.content[0].type === "text" ? response.content[0].text : "";
+Return valid JSON with this shape:
+{ "grants": [] }
+
+Page URL: ${pageUrl}
+
+Extract all grant or funding opportunities from this content:
+
+${text}`,
+    MAX_TOKENS
+  );
+
   let arr: unknown[] = [];
   try {
-    const cleaned = raw.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?\s*```$/, "").trim();
+    const cleaned = cleanJsonResponse(raw);
     const parsed = JSON.parse(cleaned) as unknown;
-    arr = Array.isArray(parsed) ? parsed : [];
+    arr = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray((parsed as { grants?: unknown }).grants)
+        ? (parsed as { grants: unknown[] }).grants
+        : [];
   } catch {
     const match = raw.match(/\[[\s\S]*\]/);
     if (match) {

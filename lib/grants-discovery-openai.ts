@@ -41,18 +41,18 @@ PRIORITISE grants where the applicationUrl is a DIRECT application form:
 - Simple web forms on the funder's website
 - PDF application forms (downloadable)
 
-EXCLUDE these (they require portal login and cannot be automated):
+ALSO INCLUDE login-required government or portal grants when they are live and relevant:
 - Innovate UK IFS portal applications
 - Find a Grant (gov.uk) portal applications requiring sign-in
 - Grants.gov (US) portal applications
 - EU funding portal applications
-- Any URL that leads to a login/registration page
+For these, use the real grant/application page URL and mention in eligibility that sign-in is required.
 
 CRITICAL:
 - Every applicationUrl MUST be a real URL you found during this web search
 - Do NOT fabricate, guess, or recall URLs from memory — only use URLs from search results
 - Only include grants that appear currently open for applications
-- If you cannot find the direct application URL, skip that grant entirely
+- If you cannot find a direct form URL, use the official grant detail/apply page URL only when it clearly belongs to this specific open grant
 
 Return a JSON array of grant objects. Each must have:
 - name (string): exact grant name as shown on the website

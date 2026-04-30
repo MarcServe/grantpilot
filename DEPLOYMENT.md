@@ -26,8 +26,9 @@ Set these in your host (Vercel, Railway, etc.) or in production `.env`:
 
 | Variable | Required | Notes |
 |----------|----------|--------|
-| `ANTHROPIC_API_KEY` | Yes | Grant matching and eligibility (Claude) |
-| `OPENAI_API_KEY` | Optional | For multi-agent grant discovery (when implemented) |
+| `OPENAI_API_KEY` | Yes | App AI: grant discovery, matching, eligibility, website intelligence, requirements parsing, and profile autofill |
+| `OPENAI_MODEL` | Optional | Defaults to `gpt-4o-mini` for app AI helper calls |
+| `ANTHROPIC_API_KEY` | Worker only | Legacy worker form-filling paths still use Claude until the worker is migrated |
 | `GEMINI_API_KEY` | Optional | For multi-agent grant discovery (when implemented); or `GOOGLE_AI_API_KEY` |
 | `DATABASE_URL` | Yes | Supabase Postgres; use pooler: `...:6543/postgres?pgbouncer=true` |
 | `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL |
@@ -50,7 +51,7 @@ Set these in your host (Vercel, Railway, etc.) or in production `.env`:
 
 ### Multi-agent grant discovery (optional)
 
-Claude, OpenAI, and Gemini discovery modules run from **“Find grants”** and from the **grant-discovery** Inngest job. Set **`OPENAI_API_KEY`** and **`GEMINI_API_KEY`** (or **`GOOGLE_AI_API_KEY`**) in production if you want those sources; Claude uses **`ANTHROPIC_API_KEY`** (required).
+OpenAI is the primary discovery source for **“Find grants”** and the **grant-discovery** Inngest job. Perplexity and Gemini can still act as optional fallback sources when their keys are configured.
 
 ## 2. Storage (profile documents)
 
@@ -137,7 +138,7 @@ Apply the **Grant schema change** (add `externalId` column) in Supabase SQL Edit
 - **With Vercel**: Install [Inngest for Vercel](https://inngest.com/docs/deploy/vercel); each deploy syncs your app and sets `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY`.
 - **Without Vercel**: In [Inngest Cloud](https://app.inngest.com), add an app with serve URL `https://<your-domain>/api/inngest`. Set `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY` in your host env.
 
-Functions (grant scanner, **grant-sync** from feed, deadline reminders, session monitor) run in Inngest Cloud; they call your app and use `ANTHROPIC_API_KEY` and `DATABASE_URL` from the deploy environment.
+Functions (grant scanner, **grant-sync** from feed, deadline reminders, session monitor) run in Inngest Cloud; they call your app and use `OPENAI_API_KEY` and the Supabase service credentials from the deploy environment.
 
 ## 7. Health check
 

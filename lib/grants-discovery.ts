@@ -1,11 +1,9 @@
 /**
- * Multi-agent grant discovery: OpenAI (web search), Perplexity Sonar, Claude, Gemini
- * in parallel; merge with preference OpenAI > Perplexity > Claude > Gemini;
+ * Multi-agent grant discovery: OpenAI web search first, Perplexity and Gemini as fallbacks;
  * validate every URL before upserting.
  */
 
 import type { DiscoveryProfile } from "./grants-discovery-types";
-import { discoverGrantsWithClaude } from "./grants-discovery-claude";
 import { discoverGrantsWithOpenAI } from "./grants-discovery-openai";
 import { discoverGrantsWithPerplexity } from "./grants-discovery-perplexity";
 import { discoverGrantsWithGemini } from "./grants-discovery-gemini";
@@ -60,7 +58,7 @@ async function isLoginWalled(url: string): Promise<boolean> {
 }
 
 /**
- * Run OpenAI (web search, primary), Claude, and Gemini in parallel.
+ * Run OpenAI (web search, primary), Perplexity, and Gemini in parallel.
  * Merge, dedupe, validate URLs, then upsert only verified grants.
  */
 export async function runDiscoveryAndUpsert(profile: DiscoveryProfile): Promise<{
@@ -78,18 +76,18 @@ export async function runDiscoveryAndUpsert(profile: DiscoveryProfile): Promise<
       return [] as T[];
     });
 
-  const [openaiGrants, perplexityGrants, claudeGrants, geminiGrants] = await Promise.all([
+  const [openaiGrants, perplexityGrants, geminiGrants] = await Promise.all([
     safe(() => discoverGrantsWithOpenAI(profile), "openai"),
     safe(() => discoverGrantsWithPerplexity(profile), "perplexity"),
-    safe(() => discoverGrantsWithClaude(profile), "claude"),
     safe(() => discoverGrantsWithGemini(profile), "gemini"),
   ]);
+  const claudeGrants: GrantInput[] = [];
 
   console.log(
-    `[grants-discovery] raw results: openai=${openaiGrants.length}, perplexity=${perplexityGrants.length}, claude=${claudeGrants.length}, gemini=${geminiGrants.length}`
+    `[grants-discovery] raw results: openai=${openaiGrants.length}, perplexity=${perplexityGrants.length}, gemini=${geminiGrants.length}`
   );
 
-  // Prefer OpenAI > Perplexity (web-grounded) > Claude > Gemini
+  // Prefer OpenAI > Perplexity (web-grounded) > Gemini.
   const byKey = new Map<string, GrantInput>();
   for (const g of openaiGrants) {
     const key = normaliseKey(g);
@@ -131,9 +129,7 @@ export async function runDiscoveryAndUpsert(profile: DiscoveryProfile): Promise<
 
       const loginWalled = await isLoginWalled(g.applicationUrl);
       if (loginWalled) {
-        console.warn(`[grants-discovery] REJECTED (login required): ${g.name} — ${g.applicationUrl}`);
-        rejected++;
-        continue;
+        g.eligibility = `${g.eligibility}\n\nApplication access: sign-in or portal account required. GrantsCopilot can prepare the profile, documents, reminders, and draft answers, then pause for the user to sign in.`;
       }
 
       const { created: c } = await upsertGrant(g);

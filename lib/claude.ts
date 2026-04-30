@@ -1,24 +1,8 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { getApplicantTypeGate } from "@/lib/eligibility-hard-gates";
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+import { cleanJsonResponse, completeJson } from "@/lib/openai-client";
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))];
-}
-
-/**
- * Strip markdown code fences and leading/trailing whitespace from a model response
- * so JSON.parse succeeds even when the model wraps output in ```json ... ```.
- */
-function cleanJsonResponse(raw: string): string {
-  let text = raw.trim();
-  // Remove ```json ... ``` or ``` ... ``` wrappers
-  const fenceMatch = text.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
-  if (fenceMatch) text = fenceMatch[1].trim();
-  return text;
 }
 
 interface ProfileForMatching {
@@ -99,13 +83,8 @@ export async function getEligibilityDecision(
   profile: ProfileForMatching,
   grant: GrantForMatching
 ): Promise<EligibilityResult> {
-  const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 1200,
-    messages: [
-      {
-        role: "user",
-        content: `You are a UK grant eligibility expert. Given this business and this grant, give an eligibility assessment.
+  const rawText = await completeJson(
+    `You are a UK grant eligibility expert. Given this business and this grant, give an eligibility assessment.
 
 Business: ${profile.businessName} (${profile.sector}). Location: ${profile.location}. Employees: ${profile.employeeCount ?? "N/A"}. Revenue: ${profile.annualRevenue ? `£${profile.annualRevenue.toLocaleString("en-GB")}` : "N/A"}. Funding sought: £${profile.fundingMin.toLocaleString("en-GB")}–£${profile.fundingMax.toLocaleString("en-GB")}. Purposes: ${profile.fundingPurposes.join(", ")}. ${profile.missionStatement ? `Mission: ${profile.missionStatement}.` : ""} ${profile.description ? `Description: ${profile.description}` : ""}
 Business type: ${profile.businessType || "N/A"}.
@@ -134,11 +113,9 @@ Rules:
 - improvementPlan: only when score < 75. gaps = what's missing or misaligned; actions = concrete steps to improve fit; timeline optional (e.g. "0-3 months"). Use null when score >= 75.
 - met: 2-6 short labels (one line each) for criteria the business clearly satisfies. Use checkmark-friendly phrasing.
 - missing: 0-6 short labels for criteria that are missing, weak, or unclear. Use warning-friendly phrasing. Use [] when score >= 85.`,
-      },
-    ],
-  });
+    1200
+  );
 
-  const rawText = response.content[0].type === "text" ? response.content[0].text : "";
   const text = cleanJsonResponse(rawText);
   try {
     const jsonStr = text.startsWith("{") ? text : (text.match(/\{[\s\S]*\}/)?.[0] ?? text);
@@ -200,13 +177,8 @@ export async function suggestProfileImprovements(
   grant: GrantForMatching,
   eligibilityContext: { missing?: string[]; improvementPlan?: ImprovementPlan; summary?: string }
 ): Promise<ProfileImprovementSuggestions> {
-  const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 1500,
-    messages: [
-      {
-        role: "user",
-        content: `You are a grant application expert. Rewrite the business profile sections below to better align with this grant, addressing the missing or weak criteria. Keep the same tone and facts; improve clarity and emphasis to match the grant.
+  const text = await completeJson(
+    `You are a grant application expert. Rewrite the business profile sections below to better align with this grant, addressing the missing or weak criteria. Keep the same tone and facts; improve clarity and emphasis to match the grant.
 
 Grant: ${grant.name} (${grant.funder}). Eligibility focus: ${grant.eligibility.slice(0, 400)}.
 
@@ -220,13 +192,11 @@ What to address: ${(eligibilityContext.missing ?? []).join("; ")}. ${eligibility
 Return ONLY valid JSON. No markdown. Use this exact shape (only include keys you are rewriting):
 { "missionStatement": "rewritten mission if needed", "description": "rewritten description if needed", "fundingDetails": "rewritten funding narrative if needed" }
 Omit a key if no change suggested. Keep each value concise and human; do not exceed 2-3 paragraphs for description.`,
-      },
-    ],
-  });
+    1500
+  );
 
-  const text = response.content[0].type === "text" ? response.content[0].text : "";
   try {
-    const parsed = JSON.parse(text) as ProfileImprovementSuggestions;
+    const parsed = JSON.parse(cleanJsonResponse(text)) as ProfileImprovementSuggestions;
     return {
       ...(parsed.missionStatement && { missionStatement: parsed.missionStatement }),
       ...(parsed.description && { description: parsed.description }),

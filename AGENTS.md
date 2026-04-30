@@ -40,13 +40,13 @@ curl -X POST "${NEXT_PUBLIC_SUPABASE_URL}/auth/v1/admin/users" \
 ### Non-obvious caveats
 
 - **No Prisma at runtime, no DATABASE_URL needed.** The Prisma schema (`prisma/schema.prisma`) exists for documentation only. The app uses `@supabase/supabase-js` and `@supabase/ssr` for all DB access. There is no `@prisma/client` dependency. Do not run `prisma generate` and do not set `DATABASE_URL`.
-- **The `.env` file must exist** with `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_KEY`, `NEXT_PUBLIC_APP_URL`, and `ANTHROPIC_API_KEY`. These are injected from Cursor Cloud secrets.
+- **The `.env` file must exist** with `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_KEY`, `NEXT_PUBLIC_APP_URL`, and `OPENAI_API_KEY`. These are injected from Cursor Cloud secrets.
 - **Auth-protected routes** (`/dashboard`, `/profile`, `/grants`, `/applications`, `/billing`, `/intelligence`) redirect to `/sign-in` via middleware when no Supabase session exists. The landing page (`/`), sign-in, sign-up, and `/api/*` routes are public.
 - **User auto-provisioning:** On first access to a protected route after auth, `lib/auth.ts` (`getCurrentUser`) automatically creates a `User` row, `Organisation`, and `OrganisationMember` (role: OWNER) in the database via the Supabase service key. No separate user-creation webhook is needed. The Supabase select query must include `OrganisationMember(*, Organisation(...))` (note the `*,` inside) to fetch membership columns like `role`; without it, role defaults to MEMBER and billing/admin features break.
 - **ESLint config** uses flat config format (`eslint.config.mjs`) with `eslint-config-next`. Run with `npx eslint .`. There are some pre-existing unused-var warnings (not errors).
-- **Anthropic API credits:** The `ANTHROPIC_API_KEY` must have sufficient credits for AI features (grant matching, eligibility checks, form filling). If the key has no credits, AI features return 400 errors but the rest of the app works.
+- **OpenAI API credits:** The `OPENAI_API_KEY` must have sufficient credits for app AI features (grant discovery, matching, eligibility checks, website intelligence, requirements parsing, profile autofill). If the key has no credits, AI features return errors but the rest of the app works.
 - **No automated test suite.** The codebase has no test files, test framework (jest/vitest), or `npm test` script. Testing is manual: start the dev server, sign up, and exercise the UI/API. The health check (`GET /api/health`) and lint (`npx eslint .`) are the only automated checks.
-- **External services** (Anthropic, Stripe, Resend, Twilio) require real API keys set in `.env`. See `DEPLOYMENT.md` for the full env var reference. The app functions for basic UI flows without these keys.
+- **External services** (OpenAI, Stripe, Resend, Twilio) require real API keys set in `.env`. See `DEPLOYMENT.md` for the full env var reference. The app functions for basic UI flows without these keys.
 
 ### Full system architecture
 
@@ -65,18 +65,18 @@ curl -X POST "${NEXT_PUBLIC_SUPABASE_URL}/auth/v1/admin/users" \
 3. Supports up to 20 URLs at once, with optional autopilot
 
 #### Grant discovery (internet search)
-- **API:** `POST /api/grants/discover` — runs Claude, OpenAI, and Gemini in parallel
+- **API:** `POST /api/grants/discover` — runs OpenAI first with optional Perplexity/Gemini fallbacks
 - **Cron:** `grant-discovery` Inngest job runs daily at 4:00 UTC for orgs with profile ≥ 30%
 - Discovered grants are upserted with `externalId` for deduplication
-- Requires `ANTHROPIC_API_KEY`; `OPENAI_API_KEY` and `GEMINI_API_KEY` are optional extra sources
+- Requires `OPENAI_API_KEY`; `GEMINI_API_KEY` and Perplexity are optional extra sources
 
 #### Inngest background jobs (cron schedules)
 | Job | Schedule | What it does | Needs |
 |-----|----------|-------------|-------|
 | `grant-sync` | 3:00 UTC | Syncs from JSON feed, Grants.gov, UK, EU sources | Feed URLs |
-| `grant-scanner` | 2:00 UTC | Matches grants to profiles (Claude), sends `grant_match` notifications | Anthropic |
-| `grant-discovery` | 4:00 UTC | Multi-agent search (Claude + OpenAI + Gemini) | Anthropic (+ optional OpenAI/Gemini) |
-| `eligibility-refresh` | Every 30 min (cron) | Scores grants per profile, upserts `EligibilityAssessment`; digest/WhatsApp only if profile completion ≥ `ELIGIBILITY_NOTIFY_MIN_COMPLETION` (default 60%) | Anthropic |
+| `grant-scanner` | 2:00 UTC | Matches grants to profiles, sends `grant_match` notifications | OpenAI |
+| `grant-discovery` | 4:00 UTC | OpenAI web search with optional Perplexity/Gemini fallbacks | OpenAI |
+| `eligibility-refresh` | Every 30 min (cron) | Scores grants per profile, upserts `EligibilityAssessment`; digest/WhatsApp only if profile completion ≥ `ELIGIBILITY_NOTIFY_MIN_COMPLETION` (default 60%) | OpenAI |
 | `deadline-reminder` | Every hour | At 9am local time per org, sends reminders for 7/3/1 day deadlines | Resend/Twilio |
 | `monitor-session` | Event-driven | Polls worker session status, updates Application, sends notifications | — |
 
