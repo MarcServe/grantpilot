@@ -8,6 +8,7 @@ import { ArrowLeft, ArrowRight, Building2 } from "lucide-react";
 import type { EligibleGrant } from "@/components/grants/eligible-grant-card";
 import { EligibleGrantsList } from "@/components/grants/eligible-grants-list";
 import { isGrantLinkUsable } from "@/lib/grant-freshness";
+import { getAppliedGrantIds } from "@/lib/applied-grants";
 
 export default async function EligibleGrantsPage() {
   const { org, orgId } = await getActiveOrg();
@@ -87,6 +88,7 @@ export default async function EligibleGrantsPage() {
   let grantsMap = new Map<string, { id: string; name: string; funder: string; deadline: string | null; funderLocations?: string[] }>();
 
   if (grantIds.length > 0) {
+    const appliedGrantIds = await getAppliedGrantIds(supabase, orgId, profileId);
     // Batch .in() queries to avoid URL length limits (Supabase/PostgREST caps ~8KB)
     const BATCH_SIZE = 200;
     const allGrantsData: { id: string; name: string; funder: string; deadline: string | null; funderLocations?: string[]; url_status?: string }[] = [];
@@ -102,14 +104,16 @@ export default async function EligibleGrantsPage() {
       if (batchData) allGrantsData.push(...(batchData as typeof allGrantsData));
     }
 
-    const validGrants = allGrantsData.filter(isGrantLinkUsable);
+    const validGrants = allGrantsData.filter((grant) =>
+      isGrantLinkUsable(grant) && !appliedGrantIds.has(grant.id)
+    );
 
     const userFunderLocations = (profile as { funderLocations?: string[] }).funderLocations;
     const locationFiltered = validGrants.filter((g) =>
       grantMatchesFunderLocations(g.funderLocations, userFunderLocations)
     );
 
-    console.info(`[eligible-page] org=${orgId} profile=${profileId}: ${assessments.length} assessments, ${allGrantsData.length} grants fetched, ${validGrants.length} not dead/expired, ${locationFiltered.length} pass location filter`);
+    console.info(`[eligible-page] org=${orgId} profile=${profileId}: ${assessments.length} assessments, ${allGrantsData.length} grants fetched, ${appliedGrantIds.size} already applied, ${validGrants.length} fresh/unapplied, ${locationFiltered.length} pass location filter`);
 
     grantsMap = new Map(locationFiltered.map((g) => [g.id, g]));
   }

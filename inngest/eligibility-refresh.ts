@@ -12,6 +12,7 @@ import { preFilterGrants } from "@/lib/heuristic-scorer";
 import { rankGrantsByEmbedding, generateAndStoreProfileEmbedding } from "@/lib/embeddings";
 import { isEligibilityNotificationTime } from "@/lib/timezone";
 import { isGrantLinkUsable } from "@/lib/grant-freshness";
+import { getAppliedGrantIds } from "@/lib/applied-grants";
 
 /**
  * 3-Layer Eligibility Pipeline
@@ -137,10 +138,14 @@ export async function runEligibilityRefreshJob(options?: {
         const profileName = (profile as { businessName?: string }).businessName ?? profileId;
         console.info(`[eligibility-refresh] Processing org=${orgId} profile=${profileId} "${profileName}" completion=${completionScore}%`);
 
+        const appliedGrantIds = await getAppliedGrantIds(supabase, orgId, profileId);
+        const unappliedGrants = grantsList.filter((g) => !appliedGrantIds.has(g.id));
+        console.info(`[eligibility-refresh]   Excluding ${appliedGrantIds.size} grants with existing applications`);
+
         // ── Funder location pre-filter (existing) ──
         const userFunderLocations = (profile as { funderLocations?: string[] }).funderLocations;
-        const locationFiltered = grantsList.filter((g) => grantMatchesFunderLocations(g.funderLocations, userFunderLocations));
-        console.info(`[eligibility-refresh]   ${locationFiltered.length} grants match funder locations (of ${grantsList.length} total)`);
+        const locationFiltered = unappliedGrants.filter((g) => grantMatchesFunderLocations(g.funderLocations, userFunderLocations));
+        console.info(`[eligibility-refresh]   ${locationFiltered.length} grants match funder locations (of ${unappliedGrants.length} unapplied, ${grantsList.length} total)`);
 
         if (locationFiltered.length === 0) {
           console.info(`[eligibility-refresh]   Skipping: no grants match user funderLocations`);

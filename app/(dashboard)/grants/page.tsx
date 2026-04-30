@@ -4,6 +4,7 @@ import { getActiveOrg } from "@/lib/auth";
 import { GrantsListClient } from "@/components/grants/grants-list-client";
 import { computeUrgency } from "@/lib/urgency";
 import { isGrantLinkUsable } from "@/lib/grant-freshness";
+import { getAppliedGrantIds } from "@/lib/applied-grants";
 
 export default async function GrantsPage() {
   const { org, orgId } = await getActiveOrg();
@@ -19,7 +20,8 @@ export default async function GrantsPage() {
   const hasProfile = !!profile;
   const profileComplete = (profile?.completionScore ?? 0) >= 50;
   const userFunderLocations = (profile as { funderLocations?: string[] } | undefined)?.funderLocations ?? [];
-  const grants = allGrants;
+  const appliedGrantIds = profile ? await getAppliedGrantIds(supabase, orgId, profile.id) : new Set<string>();
+  const grants = allGrants.filter((grant) => !appliedGrantIds.has(grant.id));
 
   const cachedScores: Record<string, { score: number; summary?: string }> = {};
   let savedGrantIds: string[] = [];
@@ -31,6 +33,7 @@ export default async function GrantsPage() {
       .eq("profile_id", profile.id);
     const rows = Array.isArray(rowsData) ? rowsData : [];
     for (const row of rows as { grant_id: string; score: number; summary: string | null }[]) {
+      if (appliedGrantIds.has(row.grant_id)) continue;
       cachedScores[row.grant_id] = { score: row.score, summary: row.summary ?? undefined };
     }
     const { data: savedData } = await supabase

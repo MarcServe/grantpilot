@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { ApplicationCardWithDelete } from "@/components/dashboard/application-card-with-delete";
 import { DashboardNotificationChannels } from "@/components/dashboard/notification-channels-card";
+import { getAppliedGrantIds } from "@/lib/applied-grants";
 
 const STATUS_COLORS: Record<string, string> = {
   PENDING: "bg-yellow-100 text-yellow-800",
@@ -123,6 +124,7 @@ export default async function DashboardPage() {
   const suggestedGrants: { grantId: string; grantName: string; score: number }[] = [];
   const withinReachGrants: { grantId: string; grantName: string; score: number; summary?: string }[] = [];
   if (profile && completionScore >= 50) {
+    const appliedGrantIds = await getAppliedGrantIds(supabase, orgId, profile.id);
     const { data: assessmentsData } = await supabase
       .from("EligibilityAssessment")
       .select("grant_id, score, summary")
@@ -146,6 +148,7 @@ export default async function DashboardPage() {
       const nameById = new Map(grantsList.map((g) => [g.id, g.name]));
       const matchesLocation = new Set(grantsList.filter((g) => grantMatchesFunderLocations(g.funderLocations, userFunderLocations)).map((g) => g.id));
       for (const a of assessments as { grant_id: string; score: number; summary: string | null }[]) {
+        if (appliedGrantIds.has(a.grant_id)) continue;
         if (!matchesLocation.has(a.grant_id)) continue;
         const name = nameById.get(a.grant_id) ?? "Grant";
         if (a.score >= 80) suggestedGrants.push({ grantId: a.grant_id, grantName: name, score: a.score });
