@@ -11,6 +11,7 @@ import { Step3Financials } from "./step-3-financials";
 import { Step4Funding } from "./step-4-funding";
 import { Step5Documents } from "./step-5-documents";
 import { Step6GrantReadiness } from "./step-6-grant-readiness";
+import { CompanyDnaAutofill } from "./company-dna-autofill";
 import {
   saveStep1,
   saveStep2,
@@ -50,6 +51,7 @@ interface ProfileData {
   preferredContactMethod?: string | null;
   funderLocations?: string[];
   websiteUrl?: string | null;
+  websiteIntelligence?: string | null;
   sector: string;
   missionStatement: string;
   description: string;
@@ -289,6 +291,11 @@ export function ProfileForm({ profile, initialStep = 1 }: { profile: ProfileData
         </div>
         <Progress value={Math.min(100, Math.max(0, progressPercent))} className="h-2" />
       </div>
+
+      <CompanyDnaAutofill
+        hasWebsiteUrl={Boolean(profile.websiteUrl?.trim())}
+        hasWebsiteIntelligence={Boolean(profile.websiteIntelligence?.trim())}
+      />
 
       <Card>
         <CardHeader>
