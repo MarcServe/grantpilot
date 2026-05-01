@@ -21,32 +21,32 @@ function shouldHandleAnchor(anchor: HTMLAnchorElement): boolean {
 export function NavigationFeedback() {
   const pathname = usePathname();
   const [pending, setPending] = useState(false);
+  const [pendingTarget, setPendingTarget] = useState<string | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    setPending(false);
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-  }, [pathname]);
-
-  useEffect(() => {
-    function startPending() {
+    function startPending(targetPath: string | null) {
+      setPendingTarget(targetPath);
       setPending(true);
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      timeoutRef.current = setTimeout(() => setPending(false), 8000);
+      timeoutRef.current = setTimeout(() => {
+        setPending(false);
+        setPendingTarget(null);
+      }, 8000);
     }
 
     function onClick(event: MouseEvent) {
       if (event.defaultPrevented || isModifiedClick(event)) return;
       const target = event.target instanceof Element ? event.target : null;
       const anchor = target?.closest("a[href]") as HTMLAnchorElement | null;
-      if (anchor && shouldHandleAnchor(anchor)) startPending();
+      if (anchor && shouldHandleAnchor(anchor)) {
+        const url = new URL(anchor.href, window.location.href);
+        startPending(url.pathname);
+      }
     }
 
     function onSubmit(event: SubmitEvent) {
-      if (!event.defaultPrevented) startPending();
+      if (!event.defaultPrevented) startPending(null);
     }
 
     document.addEventListener("click", onClick, true);
@@ -58,7 +58,7 @@ export function NavigationFeedback() {
     };
   }, []);
 
-  if (!pending) return null;
+  if (!pending || pendingTarget === pathname) return null;
 
   return (
     <div className="pointer-events-none fixed inset-x-0 top-0 z-[100] h-1 overflow-hidden bg-primary/10">

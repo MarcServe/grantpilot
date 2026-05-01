@@ -56,16 +56,16 @@ export default async function ProfilePage({
   const initialStep = stepFromQuery ?? suggestedStep;
 
   return (
-    <div className="mx-auto max-w-7xl p-6">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold">Business Profile</h1>
-        <p className="mt-1 text-muted-foreground">
+    <div className="mx-auto w-full max-w-5xl space-y-6 px-0 sm:px-2">
+      <div className="rounded-2xl bg-white p-5 shadow-[0_18px_45px_rgba(7,26,58,0.07)] sm:p-6">
+        <h1 className="text-2xl font-black text-[#071a3a]">Business Profile</h1>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground sm:text-base">
           Complete your business profile to get matched with relevant grants.
           Your information is saved at each step.
         </p>
       </div>
 
-      <div className="mx-auto max-w-2xl space-y-6">
+      <div className="mx-auto w-full max-w-3xl space-y-5 sm:space-y-6">
         <NotificationPreferences
           defaultValues={{
             phoneNumber,

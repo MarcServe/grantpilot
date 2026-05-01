@@ -17,6 +17,9 @@ export interface EligibleGrant {
   improvementPlan: { gaps?: string[]; actions?: string[] } | null;
 }
 
+const ONE_WEEK_MS = 7 * 86_400_000;
+const pageLoadedAt = Date.now();
+
 function scoreBadgeVariant(score: number): "default" | "secondary" | "outline" {
   if (score >= 80) return "default";
   if (score >= 50) return "secondary";
@@ -39,7 +42,7 @@ function formatDeadline(deadline: string | null): string | null {
 export function EligibleGrantCard({ grant }: { grant: EligibleGrant }) {
   const deadlineStr = formatDeadline(grant.deadline);
   const isDeadlineSoon =
-    grant.deadline && new Date(grant.deadline).getTime() - Date.now() < 7 * 86_400_000;
+    grant.deadline && new Date(grant.deadline).getTime() - pageLoadedAt < ONE_WEEK_MS;
 
   const actions: string[] = [];
   if (grant.improvementPlan?.actions?.length) actions.push(...grant.improvementPlan.actions);

@@ -18,10 +18,64 @@ async function fetchPageText(url: string): Promise<string> {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const html = await res.text();
-    return stripHtml(html).slice(0, MAX_HTML_CHARS);
+    return extractWebsiteSignals(html, url).slice(0, MAX_HTML_CHARS);
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function decodeHtml(value: string): string {
+  return value
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'")
+    .replace(/&#\d+;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractMetaContent(html: string, name: string): string | null {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const patterns = [
+    new RegExp(`<meta[^>]+(?:name|property)=["']${escaped}["'][^>]+content=["']([^"']+)["'][^>]*>`, "i"),
+    new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+(?:name|property)=["']${escaped}["'][^>]*>`, "i"),
+  ];
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (match?.[1]) return decodeHtml(match[1]);
+  }
+  return null;
+}
+
+function extractWebsiteSignals(html: string, url: string): string {
+  const signals: string[] = [`Website URL: ${url}`];
+  const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1];
+  if (title) signals.push(`Title: ${decodeHtml(title)}`);
+
+  for (const [label, key] of [
+    ["Description", "description"],
+    ["Open Graph title", "og:title"],
+    ["Open Graph description", "og:description"],
+    ["Twitter description", "twitter:description"],
+  ] as const) {
+    const value = extractMetaContent(html, key);
+    if (value) signals.push(`${label}: ${value}`);
+  }
+
+  const jsonLdBlocks = [...html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)]
+    .map((match) => decodeHtml(match[1] ?? ""))
+    .filter(Boolean)
+    .slice(0, 3);
+  if (jsonLdBlocks.length > 0) {
+    signals.push(`Structured data: ${jsonLdBlocks.join(" ")}`);
+  }
+
+  const bodyText = stripHtml(html);
+  if (bodyText) signals.push(`Page text: ${bodyText}`);
+  return signals.join("\n\n");
 }
 
 function stripHtml(html: string): string {
@@ -32,22 +86,17 @@ function stripHtml(html: string): string {
     .replace(/<footer[\s\S]*?<\/footer>/gi, " ")
     .replace(/<header[\s\S]*?<\/header>/gi, " ")
     .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&#\d+;/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  return text;
+  return decodeHtml(text);
 }
 
 export async function analyseWebsite(url: string): Promise<string> {
   const pageText = await fetchPageText(url);
   if (pageText.length < 50) {
-    throw new Error(
-      "Could not extract meaningful content from the website. It may require JavaScript to render."
-    );
+    return `Website URL: ${url}
+
+The website returned very little server-rendered content. It may require JavaScript to render, so treat this as weak website evidence and rely only on the current business profile unless specific facts are present elsewhere.`;
   }
 
   const text = await completeText(

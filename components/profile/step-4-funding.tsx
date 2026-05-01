@@ -232,17 +232,17 @@ export function Step4Funding({
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+      <form onSubmit={form.handleSubmit(onSubmit)} className="min-w-0 space-y-6">
 
         {profileContext?.businessName && (
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
             <Button
               type="button"
               variant="outline"
               size="sm"
               onClick={handleGetRecommendations}
               disabled={!!loadingAI}
-              className="gap-2"
+              className="w-full gap-2 whitespace-normal sm:w-auto"
             >
               {loadingAI === "recommend" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
               GrantsCopilot Funding Strategy
@@ -302,7 +302,7 @@ export function Step4Funding({
           <p className="text-xs text-muted-foreground">
             Most early-stage innovation grants fall between £25,000 – £250,000. Choose a range aligned with your development stage.
           </p>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <FormField
               control={form.control}
               name="fundingMin"
@@ -339,11 +339,11 @@ export function Step4Funding({
             <FormItem>
               <FormLabel>How will you use the funding?</FormLabel>
               <p className="text-sm text-muted-foreground">Select all that apply</p>
-              <div className="space-y-5 mt-3">
+              <div className="mt-3 space-y-5">
                 {PURPOSE_GROUPS.map((group) => (
                   <div key={group.label}>
                     <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">{group.label}</p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                       {group.items.filter((p) => FUNDING_PURPOSES.includes(p as typeof FUNDING_PURPOSES[number])).map((purpose) => {
                         const isRecommended = aiRecommendation?.recommendedPurposes?.includes(purpose);
                         return (
@@ -352,7 +352,7 @@ export function Step4Funding({
                             control={form.control}
                             name="fundingPurposes"
                             render={({ field }) => (
-                              <FormItem className={`flex items-center gap-2 space-y-0 rounded-md border p-2 transition-colors ${isRecommended ? "border-blue-200 bg-blue-50/50 dark:border-blue-800" : ""} ${field.value?.includes(purpose) ? "border-primary/50 bg-primary/5" : ""}`}>
+                              <FormItem className={`flex min-w-0 items-center gap-2 space-y-0 rounded-md border p-2 transition-colors ${isRecommended ? "border-blue-200 bg-blue-50/50 dark:border-blue-800" : ""} ${field.value?.includes(purpose) ? "border-primary/50 bg-primary/5" : ""}`}>
                                 <FormControl>
                                   <Checkbox
                                     checked={field.value?.includes(purpose)}
@@ -367,7 +367,7 @@ export function Step4Funding({
                                   />
                                 </FormControl>
                                 <span className="text-muted-foreground">{PURPOSE_ICONS[purpose]}</span>
-                                <FormLabel className="flex-1 text-sm font-normal cursor-pointer">
+                                <FormLabel className="min-w-0 flex-1 cursor-pointer text-sm font-normal leading-snug">
                                   {purpose}
                                 </FormLabel>
                                 {isRecommended && (
@@ -392,19 +392,19 @@ export function Step4Funding({
           name="fundingDetails"
           render={({ field }) => (
             <FormItem>
-              <div className="flex items-center justify-between">
-                <FormLabel>
+              <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <FormLabel className="leading-snug">
                   Funding Use Summary{" "}
                   <span className="text-muted-foreground font-normal">(optional)</span>
                 </FormLabel>
-                <div className="flex gap-1.5">
+                <div className="grid grid-cols-1 gap-1.5 min-[430px]:grid-cols-2 sm:flex sm:shrink-0">
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
                     onClick={handleGenerateSummary}
                     disabled={!!loadingAI || watchedPurposes.length === 0}
-                    className="gap-1.5 text-xs h-7"
+                    className="h-auto min-h-8 w-full gap-1.5 whitespace-normal px-2 py-1.5 text-xs sm:w-auto"
                   >
                     {loadingAI === "generate_summary" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
                     Generate Summary
@@ -415,7 +415,7 @@ export function Step4Funding({
                     size="sm"
                     onClick={handleGeneratePlan}
                     disabled={!!loadingAI || watchedPurposes.length === 0}
-                    className="gap-1.5 text-xs h-7"
+                    className="h-auto min-h-8 w-full gap-1.5 whitespace-normal px-2 py-1.5 text-xs sm:w-auto"
                   >
                     {loadingAI === "generate_plan" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Brain className="h-3 w-3" />}
                     Generate Plan
@@ -426,6 +426,7 @@ export function Step4Funding({
                 <Textarea
                   placeholder={"Example:\n• Build product v1 platform\n• Deploy pilot with 3 organisations\n• Complete testing and validation\n• Launch scalable SaaS platform"}
                   rows={6}
+                  className="max-w-full resize-y overflow-x-hidden text-base leading-7 sm:text-sm"
                   {...field}
                 />
               </FormControl>
@@ -444,6 +445,7 @@ export function Step4Funding({
                 <Textarea
                   placeholder="e.g. We can contribute £20,000 from retained earnings, or 30% match funding is secured."
                   rows={3}
+                  className="max-w-full resize-y overflow-x-hidden text-base leading-7 sm:text-sm"
                   {...field}
                 />
               </FormControl>
@@ -462,6 +464,7 @@ export function Step4Funding({
                 <Textarea
                   placeholder="Describe confirmed or planned match funding, investor contributions, partner cash/in-kind support..."
                   rows={3}
+                  className="max-w-full resize-y overflow-x-hidden text-base leading-7 sm:text-sm"
                   {...field}
                 />
               </FormControl>
@@ -475,10 +478,10 @@ export function Step4Funding({
         </p>
 
         <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <Button type="button" variant="outline" onClick={onBack} disabled={isPending}>
+          <Button type="button" variant="outline" onClick={onBack} disabled={isPending} className="w-full sm:w-auto">
             Back
           </Button>
-          <Button type="submit" disabled={isPending}>
+          <Button type="submit" disabled={isPending} className="w-full sm:w-auto">
             {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Save &amp; Next
           </Button>

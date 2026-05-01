@@ -4,17 +4,17 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  FileCheck,
-  LayoutDashboard,
-  Building2,
-  Search,
-  Sparkles,
-  FileText,
-  CreditCard,
-  Brain,
-  Settings,
-  Menu,
+  BarChart3,
   BriefcaseBusiness,
+  CreditCard,
+  Database,
+  FileText,
+  Gauge,
+  LayoutDashboard,
+  Menu,
+  Settings,
+  Sparkles,
+  UserRound,
 } from "lucide-react";
 import {
   Sheet,
@@ -26,79 +26,126 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-const navItems = [
+const primaryNavItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/profile", label: "Profile", icon: Building2 },
-  { href: "/grants/eligible", label: "My Matches", icon: Sparkles },
-  { href: "/grants", label: "Grants", icon: Search },
+  { href: "/grants/eligible", label: "Opportunities", icon: BriefcaseBusiness },
   { href: "/applications", label: "Applications", icon: FileText },
-  { href: "/founder-pack", label: "Founder Pack", icon: BriefcaseBusiness },
-  { href: "/intelligence", label: "Intelligence", icon: Brain },
-  { href: "/billing", label: "Billing", icon: CreditCard },
+  { href: "/profile", label: "My Profile", icon: UserRound },
+  { href: "/profile", label: "Data Vault", icon: Database },
+  { href: "/dashboard", label: "Activity", icon: Gauge },
+  { href: "/intelligence", label: "Analytics", icon: BarChart3 },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
-function NavLinks({ className, onLinkClick }: { className?: string; onLinkClick?: () => void }) {
+const secondaryNavItems = [
+  { href: "/founder-pack", label: "Founder Pack", icon: Sparkles },
+  { href: "/billing", label: "Billing", icon: CreditCard },
+];
+
+function isActive(pathname: string, href: string, label: string): boolean {
+  if (label === "Data Vault" || label === "Activity") return false;
+  if (href === "/dashboard") return pathname === href;
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+function NavLinks({
+  className,
+  onLinkClick,
+  compact = false,
+}: {
+  className?: string;
+  onLinkClick?: () => void;
+  compact?: boolean;
+}) {
   const pathname = usePathname();
   const router = useRouter();
+  const groups = [primaryNavItems, secondaryNavItems];
+
   return (
     <>
-      {navItems.map((item) => (
-        <Link
-          key={item.href}
-          href={item.href}
-          prefetch
-          onMouseEnter={() => router.prefetch(item.href)}
-          onFocus={() => router.prefetch(item.href)}
-          onClick={onLinkClick}
-          className={cn(
-            "flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-            (pathname === item.href || (item.href !== "/grants" && pathname.startsWith(item.href)))
-              ? "bg-muted text-foreground"
-              : "text-muted-foreground hover:bg-muted hover:text-foreground",
-            className
+      {groups.map((items, groupIndex) => (
+        <div key={groupIndex} className={cn(groupIndex > 0 && "mt-7 border-t border-white/10 pt-5")}>
+          {groupIndex > 0 && !compact && (
+            <p className="mb-2 px-3 text-[11px] font-bold uppercase tracking-[0.12em] text-white/45">
+              Growth
+            </p>
           )}
-        >
-          <item.icon className="h-4 w-4" />
-          {item.label}
-        </Link>
+          <div className="space-y-1.5">
+            {items.map((item) => {
+              const Icon = item.icon;
+              const active = isActive(pathname, item.href, item.label);
+              return (
+                <Link
+                  key={`${item.href}-${item.label}`}
+                  href={item.href}
+                  prefetch
+                  onMouseEnter={() => router.prefetch(item.href)}
+                  onFocus={() => router.prefetch(item.href)}
+                  onClick={onLinkClick}
+                  className={cn(
+                    "flex h-11 items-center gap-3 rounded-lg px-3 text-[14px] font-extrabold transition-colors",
+                    compact
+                      ? active
+                        ? "bg-[#2167e8] text-white"
+                        : "text-[#243a5a] hover:bg-[#eaf3ff] hover:text-[#071a3a]"
+                      : active
+                        ? "bg-[#2f6df0] text-white shadow-[0_12px_24px_rgba(33,103,232,0.24)]"
+                        : "text-white/86 hover:bg-white/9 hover:text-white",
+                    className
+                  )}
+                >
+                  <Icon className="h-4.5 w-4.5" />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
+        </div>
       ))}
     </>
   );
 }
 
-export function DashboardNav() {
+export function DashboardNav({ profileStrength = 0 }: { profileStrength?: number }) {
   const [open, setOpen] = useState(false);
+  const score = Math.max(0, Math.min(100, Math.round(profileStrength)));
+
   return (
     <>
-      {/* Desktop nav: hidden below md */}
-      <nav className="hidden items-center gap-1 md:flex">
+      <nav className="hidden lg:block">
         <NavLinks />
       </nav>
 
-      {/* Mobile: hamburger + sheet */}
+      <div className="mt-auto hidden rounded-2xl border border-white/18 bg-white/[0.04] p-4 text-white lg:block">
+        <p className="text-[13px] font-bold text-white/86">Profile Strength</p>
+        <p className="mt-2 text-[28px] font-black leading-none">{score}%</p>
+        <div className="mt-4 h-2 rounded-full bg-white/18">
+          <div className="h-full rounded-full bg-[#35c386]" style={{ width: `${score}%` }} />
+        </div>
+        <p className="mt-3 text-[12px] font-medium text-white/82">
+          {score >= 85 ? "Excellent" : score >= 60 ? "Good progress" : "Needs attention"}
+        </p>
+      </div>
+
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetTrigger asChild>
           <Button
             variant="ghost"
             size="icon"
-            className="md:hidden"
+            className="lg:hidden"
             aria-label="Open menu"
           >
             <Menu className="h-5 w-5" />
           </Button>
         </SheetTrigger>
-        <SheetContent side="left" className="w-[280px] sm:max-w-[280px]">
+        <SheetContent side="left" className="w-[300px] bg-white sm:max-w-[300px]">
           <SheetHeader>
-            <SheetTitle className="flex items-center gap-2 text-left">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-                <FileCheck className="h-5 w-5 text-primary-foreground" />
-              </div>
-              Grants-Copilot
+            <SheetTitle className="text-left text-xl font-black text-[#071a3a]">
+              Grants<span className="text-[#2468e8]">Copilot</span>
             </SheetTitle>
           </SheetHeader>
-          <nav className="mt-6 flex flex-col gap-1">
-            <NavLinks className="w-full justify-start" onLinkClick={() => setOpen(false)} />
+          <nav className="mt-6">
+            <NavLinks compact onLinkClick={() => setOpen(false)} />
           </nav>
         </SheetContent>
       </Sheet>

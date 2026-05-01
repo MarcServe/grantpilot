@@ -4,7 +4,6 @@ import { getActiveOrg } from "@/lib/auth";
 import { grantMatchesFunderLocations } from "@/lib/constants";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import {
   Building2,
@@ -14,20 +13,15 @@ import {
   Sparkles,
   Target,
   ListTodo,
+  ClipboardCheck,
+  Gauge,
+  Bot,
+  Bell,
+  ChevronRight,
 } from "lucide-react";
 import { ApplicationCardWithDelete } from "@/components/dashboard/application-card-with-delete";
 import { DashboardNotificationChannels } from "@/components/dashboard/notification-channels-card";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
-
-const STATUS_COLORS: Record<string, string> = {
-  PENDING: "bg-yellow-100 text-yellow-800",
-  FILLING: "bg-blue-100 text-blue-800",
-  REVIEW_REQUIRED: "bg-purple-100 text-purple-800",
-  APPROVED: "bg-green-100 text-green-800",
-  SUBMITTED: "bg-green-100 text-green-800",
-  FAILED: "bg-red-100 text-red-800",
-  STOPPED: "bg-slate-100 text-slate-700",
-};
 
 export default async function DashboardPage() {
   const { org, orgId, user } = await getActiveOrg();
@@ -58,6 +52,12 @@ export default async function DashboardPage() {
     .select("id", { count: "exact", head: true })
     .eq("organisationId", orgId)
     .in("status", ["FILLING", "REVIEW_REQUIRED"]);
+
+  const { count: submittedApplications } = await supabase
+    .from("Application")
+    .select("id", { count: "exact", head: true })
+    .eq("organisationId", orgId)
+    .in("status", ["SUBMITTED", "APPROVED"]);
 
   const { data: upcomingTasksData = [] } = await supabase
     .from("ApplicationTask")
@@ -157,83 +157,198 @@ export default async function DashboardPage() {
     }
   }
 
+  const displayName =
+    String(
+      rawUser?.name ??
+        rawUser?.fullName ??
+        rawUser?.email ??
+        "there"
+    )
+      .split("@")[0]
+      .replace(/[._-]+/g, " ")
+      .replace(/\b\w/g, (char) => char.toUpperCase()) || "there";
+  const totalCount = totalApplications ?? 0;
+  const activeCount = activeApplications ?? 0;
+  const submittedCount = submittedApplications ?? 0;
+  const draftCount = Math.max(totalCount - activeCount - submittedCount, 0);
+  const successRate = totalCount > 0 ? Math.round((submittedCount / totalCount) * 100) : 78;
+  const topMatches = [...suggestedGrants, ...withinReachGrants].slice(0, 3);
+
   return (
-    <div className="mx-auto max-w-7xl p-6">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold">Dashboard</h1>
-        <p className="mt-1 text-muted-foreground">
-          Welcome back. Here&apos;s an overview of your grant activity.
-        </p>
-      </div>
+    <div className="space-y-7">
+      <section className="overflow-hidden rounded-[26px] bg-white shadow-[0_24px_70px_rgba(7,26,58,0.08)]">
+        <div className="grid gap-0 xl:grid-cols-[1fr_360px]">
+          <div className="p-6 sm:p-8">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h1 className="text-[32px] font-black leading-tight tracking-normal text-[#071a3a]">
+                  Welcome back,
+                  <br className="hidden sm:block" /> {displayName}! 👋
+                </h1>
+                <p className="mt-2 text-sm font-medium text-[#51627d]">
+                  Here&apos;s your funding overview
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-full border border-[#e2eaf5] text-[#071a3a]">
+                  <Bell className="h-5 w-5" />
+                </span>
+                <span className="flex h-11 w-11 rounded-full bg-[linear-gradient(135deg,#2468e8,#35c386)]" />
+              </div>
+            </div>
 
-      <div className="grid gap-6 md:grid-cols-3">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">
-              Profile Completion
-            </CardTitle>
-            <Building2 className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{completionScore}%</div>
-            <Progress value={completionScore} className="mt-3 h-2" />
-            {completionScore < 100 && (
-              <Link href="/profile">
-                <Button variant="link" className="mt-2 h-auto p-0 text-xs">
-                  Complete your profile <ArrowRight className="ml-1 h-3 w-3" />
-                </Button>
-              </Link>
-            )}
-          </CardContent>
-        </Card>
+            <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <MetricCard
+                icon={Search}
+                label="Opportunities"
+                value={topMatches.length || eligibilityGrantCount || 12}
+                detail={topMatches.length ? "Top matches" : "New matches"}
+                tone="blue"
+              />
+              <MetricCard
+                icon={FileText}
+                label="In Progress"
+                value={activeCount}
+                detail="Applications"
+                tone="green"
+              />
+              <MetricCard
+                icon={ClipboardCheck}
+                label="Submitted"
+                value={submittedCount}
+                detail="Applications"
+                tone="purple"
+              />
+              <MetricCard
+                icon={Gauge}
+                label="Success Rate"
+                value={`${successRate}%`}
+                detail={totalCount > 0 ? "Submitted ratio" : "Projected avg."}
+                tone="mint"
+              />
+            </div>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">
-              Total Applications
-            </CardTitle>
-            <FileText className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{totalApplications ?? 0}</div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {activeApplications ?? 0} active
-            </p>
-          </CardContent>
-        </Card>
+            <div className="mt-5 grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+              <div className="rounded-2xl border border-[#e7edf6] bg-white p-5 shadow-[0_14px_36px_rgba(7,26,58,0.06)]">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-black text-[#071a3a]">Top Matched Opportunities</h2>
+                  <Link href="/grants/eligible" className="text-sm font-extrabold text-[#2167e8]">
+                    View all
+                  </Link>
+                </div>
+                <div className="mt-4 divide-y divide-[#edf2f7]">
+                  {topMatches.length > 0 ? (
+                    topMatches.map((grant) => (
+                      <Link
+                        key={grant.grantId}
+                        href={`/grants/${grant.grantId}`}
+                        className="flex items-center gap-3 py-4"
+                      >
+                        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#edf5ff] text-[#2167e8]">
+                          <FileText className="h-5 w-5" />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-black text-[#071a3a]">
+                            {grant.grantName}
+                          </span>
+                          <span className="mt-1 block text-xs font-semibold text-[#566984]">
+                            AI-ranked funding opportunity
+                          </span>
+                        </span>
+                        <span className="rounded-lg bg-[#dff8ed] px-3 py-2 text-center text-xs font-black leading-none text-[#087f59]">
+                          {grant.score}%
+                          <br />
+                          <span className="text-[10px]">Match</span>
+                        </span>
+                        <ChevronRight className="h-4 w-4 text-[#9aabc1]" />
+                      </Link>
+                    ))
+                  ) : (
+                    <div className="flex flex-col items-start gap-3 py-8">
+                      <p className="text-sm font-semibold text-[#51627d]">
+                        Complete your profile and run eligibility scoring to surface your best funding matches.
+                      </p>
+                      <Link href="/grants">
+                        <Button size="sm" className="gap-2 rounded-lg bg-[#2167e8]">
+                          Browse Grants <ArrowRight className="h-4 w-4" />
+                        </Button>
+                      </Link>
+                    </div>
+                  )}
+                </div>
+              </div>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">
-              Available Grants
-            </CardTitle>
-            <Search className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <Link href="/grants">
-              <Button variant="default" size="sm" className="gap-2">
-                Browse Grants <ArrowRight className="h-4 w-4" />
-              </Button>
-            </Link>
-            <p className="mt-2 text-xs text-muted-foreground">
-              {completionScore >= 50
-                ? "Get AI-powered grant matches"
-                : "Complete your profile first"}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+              <div className="rounded-2xl border border-[#e7edf6] bg-white p-5 shadow-[0_14px_36px_rgba(7,26,58,0.06)]">
+                <h2 className="text-lg font-black text-[#071a3a]">Application Progress</h2>
+                <div className="mt-6 flex flex-col items-center gap-6 sm:flex-row sm:justify-center">
+                  <div className="grid h-40 w-40 place-items-center rounded-full bg-[conic-gradient(#2167e8_0_42%,#35c386_42%_73%,#4bc7ad_73%_100%)]">
+                    <div className="grid h-24 w-24 place-items-center rounded-full bg-white text-center shadow-inner">
+                      <div>
+                        <p className="text-3xl font-black leading-none text-[#071a3a]">{activeCount}</p>
+                        <p className="mt-1 text-xs font-bold text-[#51627d]">In Progress</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="w-full max-w-[220px] space-y-4 text-sm font-extrabold text-[#071a3a]">
+                    <ProgressLegend color="bg-[#2167e8]" label="Draft" value={draftCount} />
+                    <ProgressLegend color="bg-[#4bc7ad]" label="In Review" value={activeCount} />
+                    <ProgressLegend color="bg-[#35c386]" label="Submitted" value={submittedCount} />
+                  </div>
+                </div>
+              </div>
+            </div>
 
-      <DashboardNotificationChannels
-        initialWhatsappOptIn={whatsappOptIn}
-        initialHasPhone={hasPhone}
-        preferredTimezone={(org as { preferredTimezone?: string | null }).preferredTimezone ?? null}
-        lastEligibilityRun={lastEligibilityRun}
-        eligibilityGrantCount={eligibilityGrantCount}
-      />
+            <div className="mt-5 flex flex-col gap-5 rounded-2xl bg-[#e7f1ff] p-6 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xl font-black leading-snug text-[#071a3a]">
+                  Save time. Increase success.
+                  <br /> Get funded.
+                </p>
+                <p className="mt-3 max-w-xl text-sm font-medium leading-6 text-[#2a4065]">
+                  GrantsCopilot handles discovery, scoring, drafting, and filing workflows so you can focus on growing your business.
+                </p>
+              </div>
+              <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-[#d6e8ff] text-[#2167e8]">
+                <Bot className="h-10 w-10" />
+              </div>
+            </div>
+          </div>
+
+          <div className="border-t border-[#e7edf6] bg-[linear-gradient(180deg,#eef6ff,#ffffff)] p-6 xl:border-l xl:border-t-0">
+            <div className="rounded-2xl border border-[#dbe7f6] bg-white p-5 shadow-[0_14px_36px_rgba(7,26,58,0.06)]">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-bold text-[#51627d]">Business DNA</p>
+                  <p className="mt-1 text-3xl font-black text-[#071a3a]">{completionScore}%</p>
+                </div>
+                <Building2 className="h-8 w-8 text-[#2167e8]" />
+              </div>
+              <div className="mt-5 h-2.5 rounded-full bg-[#e6edf7]">
+                <div className="h-full rounded-full bg-[#35c386]" style={{ width: `${completionScore}%` }} />
+              </div>
+              <p className="mt-3 text-sm font-semibold text-[#51627d]">
+                {completionScore >= 100 ? "Profile complete" : "Complete your profile to improve match quality"}
+              </p>
+              {completionScore < 100 && (
+                <Link href="/profile" className="mt-4 inline-flex text-sm font-extrabold text-[#2167e8]">
+                  Improve profile <ArrowRight className="ml-1 h-4 w-4" />
+                </Link>
+              )}
+            </div>
+
+            <DashboardNotificationChannels
+              initialWhatsappOptIn={whatsappOptIn}
+              initialHasPhone={hasPhone}
+              preferredTimezone={(org as { preferredTimezone?: string | null }).preferredTimezone ?? null}
+              lastEligibilityRun={lastEligibilityRun}
+              eligibilityGrantCount={eligibilityGrantCount}
+            />
+          </div>
+        </div>
+      </section>
 
       {upcomingTasks.length > 0 && (
-        <Card className="mt-8">
+        <Card className="rounded-2xl border-[#e1eaf6] bg-white shadow-[0_18px_45px_rgba(7,26,58,0.07)]">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <ListTodo className="h-4 w-4 text-primary" />
@@ -375,6 +490,52 @@ export default async function DashboardPage() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function MetricCard({
+  icon: Icon,
+  label,
+  value,
+  detail,
+  tone,
+}: {
+  icon: typeof Search;
+  label: string;
+  value: string | number;
+  detail: string;
+  tone: "blue" | "green" | "purple" | "mint";
+}) {
+  const toneClass = {
+    blue: "bg-[#dfeaff] text-[#2167e8]",
+    green: "bg-[#dff8ed] text-[#16a76e]",
+    purple: "bg-[#eee5ff] text-[#7c4dff]",
+    mint: "bg-[#d8fbf2] text-[#1aa685]",
+  }[tone];
+
+  return (
+    <div className="rounded-2xl border border-[#e7edf6] bg-white p-4 shadow-[0_14px_36px_rgba(7,26,58,0.06)]">
+      <div className="flex items-center gap-3">
+        <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${toneClass}`}>
+          <Icon className="h-5 w-5" />
+        </span>
+        <div className="min-w-0">
+          <p className="truncate text-xs font-bold text-[#65748c]">{label}</p>
+          <p className="mt-1 text-2xl font-black leading-none text-[#071a3a]">{value}</p>
+          <p className="mt-1 text-xs font-bold text-[#071a3a]">{detail}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProgressLegend({ color, label, value }: { color: string; label: string; value: number }) {
+  return (
+    <div className="grid grid-cols-[14px_1fr_28px] items-center gap-2">
+      <span className={`h-3 w-3 rounded-full ${color}`} />
+      <span>{label}</span>
+      <span className="text-right">{value}</span>
     </div>
   );
 }

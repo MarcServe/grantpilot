@@ -279,9 +279,9 @@ export function ProfileForm({ profile, initialStep = 1 }: { profile: ProfileData
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
+    <div className="mx-auto w-full max-w-3xl space-y-5 overflow-hidden px-0 sm:space-y-6">
       <div>
-        <div className="mb-2 flex items-center justify-between text-sm">
+        <div className="mb-2 flex flex-col gap-1 text-sm min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between">
           <span className="font-medium">
             Step {step} of 6: {STEP_LABELS[step - 1]}
           </span>
@@ -297,11 +297,11 @@ export function ProfileForm({ profile, initialStep = 1 }: { profile: ProfileData
         hasWebsiteIntelligence={Boolean(profile.websiteIntelligence?.trim())}
       />
 
-      <Card>
-        <CardHeader>
+      <Card className="overflow-hidden rounded-2xl">
+        <CardHeader className="px-4 sm:px-6">
           <CardTitle>{STEP_LABELS[step - 1]}</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="min-w-0 px-4 sm:px-6">
           {step === 1 && (
             <Step1Basics
               defaultValues={{

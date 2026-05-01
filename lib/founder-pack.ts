@@ -6,12 +6,42 @@ export interface FounderPackInputs {
   founderBackground: string;
   technicalContribution: string;
   targetUse: "innovator_founder_visa" | "funding_readiness" | "accelerator_investor";
+  documentTypes?: FounderPackDocumentType[];
   marketFocus: string;
   revenueModel: string;
   pricingAssumptions: string;
   hiringPlan: string;
   additionalNotes?: string;
 }
+
+export type FounderPackDocumentType =
+  | "executive_summary"
+  | "business_plan"
+  | "innovation_statement"
+  | "market_analysis"
+  | "financial_projections"
+  | "founder_positioning"
+  | "scalability_plan"
+  | "risk_mitigation"
+  | "evidence_checklist"
+  | "next_steps";
+
+export const FOUNDER_PACK_DOCUMENT_TYPES: {
+  value: FounderPackDocumentType;
+  label: string;
+  description: string;
+}[] = [
+  { value: "executive_summary", label: "Executive Summary", description: "Visa/investor-ready business overview." },
+  { value: "business_plan", label: "Business Plan", description: "Model, operations, go-to-market, and milestones." },
+  { value: "innovation_statement", label: "Innovation Statement", description: "USP, technical novelty, and defensibility." },
+  { value: "market_analysis", label: "Market Analysis", description: "Customers, market need, competition, and demand." },
+  { value: "financial_projections", label: "Financial Projections", description: "Assumptions and 3-year planning lines." },
+  { value: "founder_positioning", label: "Founder Positioning", description: "Why the founder is credible and central." },
+  { value: "scalability_plan", label: "Scalability Plan", description: "Growth, hiring, partnerships, and expansion." },
+  { value: "risk_mitigation", label: "Risks & Mitigation", description: "Key execution risks and controls." },
+  { value: "evidence_checklist", label: "Evidence Checklist", description: "Documents and proof needed to support claims." },
+  { value: "next_steps", label: "Next Steps", description: "Action plan to complete the pack." },
+];
 
 export interface FounderPackContent {
   executiveSummary: string;
@@ -129,6 +159,15 @@ export async function generateFounderPack(
   profile: BusinessProfileLike,
   inputs: FounderPackInputs
 ): Promise<FounderPackContent> {
+  const selectedTypes =
+    inputs.documentTypes?.length
+      ? inputs.documentTypes
+      : FOUNDER_PACK_DOCUMENT_TYPES.map((item) => item.value);
+  const selectedLabels = FOUNDER_PACK_DOCUMENT_TYPES
+    .filter((item) => selectedTypes.includes(item.value))
+    .map((item) => `- ${item.label}: ${item.description}`)
+    .join("\n");
+
   const prompt = `You are a senior UK startup advisor preparing an export-ready founder funding pack.
 
 The pack should help a founder explain an innovative, viable, and scalable business. It may support an Innovator Founder Visa business plan, grant applications, accelerator applications, or investor-readiness work, but must not claim approval is guaranteed.
@@ -152,6 +191,9 @@ Founder and pack inputs:
 - Pricing and projection assumptions: ${inputs.pricingAssumptions}
 - Hiring/job creation plan: ${inputs.hiringPlan}
 - Additional notes: ${inputs.additionalNotes ?? ""}
+
+Generate these document sections only. For unselected sections, return an empty string or empty array while preserving the required JSON shape:
+${selectedLabels}
 
 Write in polished UK business English. Be specific to this company. Do not invent exact revenue, customers, contracts, awards, grants, patents, or endorsements unless present in the profile or inputs. Where evidence is missing, use cautious planning language and add the missing evidence to the checklist.
 

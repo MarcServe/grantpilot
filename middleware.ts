@@ -8,6 +8,7 @@ const protectedPaths = [
   "/applications",
   "/billing",
   "/intelligence",
+  "/founder-pack",
   "/admin",
   "/settings",
 ];

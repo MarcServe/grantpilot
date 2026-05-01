@@ -6,6 +6,7 @@ import {
   Bell,
   Bot,
   BriefcaseBusiness,
+  CheckCircle2,
   ChevronRight,
   ClipboardCheck,
   Database,
@@ -52,6 +53,75 @@ const menuItems = [
 
 const trustLogos = ["startpath", "LaunchHub", "Founders.Space", "UKTN", "Enterprise Nation", "tech spark"];
 
+const featureCards = [
+  {
+    icon: Sparkles,
+    title: "Business DNA Engine",
+    text: "Builds a living company profile from your sector, website, funding goals, financials, documents, and previous applications.",
+  },
+  {
+    icon: Target,
+    title: "Predictive Grant Scoring",
+    text: "Ranks grants by fit, gaps, location, deadline, and probability so users know what to apply for first.",
+  },
+  {
+    icon: FileCheck2,
+    title: "Autonomous Application Layer",
+    text: "Drafts answers, prepares checklists, tracks tasks, and starts filing workflows with human approval before submission.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Fresh Link Verification",
+    text: "Prioritises live opportunities, separates direct applications from login-required portals, and avoids stale grant links.",
+  },
+];
+
+const pricingTiers = [
+  {
+    name: "Starter",
+    price: "Free",
+    detail: "For founders validating funding fit",
+    features: ["Business profile", "Fresh grant discovery", "Basic eligibility signals"],
+    cta: "Start Free",
+    href: "/sign-up",
+  },
+  {
+    name: "Pro",
+    price: "£29/mo",
+    detail: "For SMEs actively applying",
+    features: ["Predictive scoring", "AI application drafting", "Deadline reminders", "Outcome learning"],
+    cta: "Get Pro",
+    href: "/sign-up",
+    featured: true,
+  },
+  {
+    name: "Business",
+    price: "£99/mo",
+    detail: "For teams, advisors, and operators",
+    features: ["Multi-profile workspace", "Founder funding pack", "Automation workflows", "Priority intelligence"],
+    cta: "Book a Demo",
+    href: "#book-demo",
+  },
+];
+
+const resources = [
+  {
+    title: "Grant Readiness Checklist",
+    text: "Know what documents, financial details, and evidence you need before applying.",
+    href: "#features",
+  },
+  {
+    title: "Direct vs Login Grants",
+    text: "Understand when GrantsCopilot can file directly and when it prepares a guided portal workflow.",
+    href: "#how-it-works",
+  },
+  {
+    title: "Founder Funding Pack",
+    text: "Generate business plans, innovation statements, market analysis, and financial projection drafts.",
+    href: "/founder-pack",
+  },
+];
+
 const toneClasses: Record<string, string> = {
   blue: "bg-blue-100 text-blue-600",
   green: "bg-emerald-100 text-emerald-600",
@@ -62,21 +132,21 @@ const toneClasses: Record<string, string> = {
 export default function LandingPage() {
   return (
     <div className="min-h-screen overflow-hidden bg-[#f7fbff] text-[#071a3a]">
-      <header className="mx-auto flex max-w-[1480px] items-center justify-between px-6 py-6 lg:px-10">
-        <Link href="/" className="flex items-center gap-3" aria-label="GrantsCopilot home">
+      <header className="mx-auto flex max-w-[1480px] items-center justify-between gap-3 px-4 py-4 sm:px-6 sm:py-6 lg:px-10">
+        <Link href="/" className="flex min-w-0 items-center gap-2 sm:gap-3" aria-label="GrantsCopilot home">
           <Image
             src="/logogc.png"
             alt=""
             width={88}
             height={88}
-            className="h-16 w-16 object-contain"
+            className="h-11 w-11 shrink-0 object-contain sm:h-16 sm:w-16"
             priority
           />
-          <div className="leading-none">
-            <div className="text-[30px] font-black tracking-tight">
+          <div className="min-w-0 leading-none">
+            <div className="truncate text-[22px] font-black tracking-tight min-[420px]:text-[26px] sm:text-[30px]">
               Grants<span className="text-[#2468e8]">Copilot</span>
             </div>
-            <div className="mt-1 text-[13px] font-semibold text-[#071a3a]">
+            <div className="mt-1 hidden text-[12px] font-semibold text-[#071a3a] min-[430px]:block sm:text-[13px]">
               Find it. Fill it. Fund it. <span className="text-[#2fbf84]">On Autopilot.</span>
             </div>
           </div>
@@ -95,23 +165,24 @@ export default function LandingPage() {
             Log in
           </Link>
           <Link
-            href="/sign-up"
-            className="inline-flex h-12 items-center rounded-lg bg-[#2167e8] px-6 text-[15px] font-bold text-white shadow-[0_12px_24px_rgba(33,103,232,0.25)] transition hover:bg-[#1858cf]"
+            href="#book-demo"
+            className="inline-flex h-10 shrink-0 items-center rounded-lg bg-[#2167e8] px-3 text-[13px] font-bold text-white shadow-[0_12px_24px_rgba(33,103,232,0.25)] transition hover:bg-[#1858cf] min-[430px]:h-11 min-[430px]:px-4 sm:h-12 sm:px-6 sm:text-[15px]"
           >
-            Book a Demo
+            <span className="min-[360px]:hidden">Demo</span>
+            <span className="hidden min-[360px]:inline">Book a Demo</span>
           </Link>
         </div>
       </header>
 
       <main>
-        <section className="mx-auto grid max-w-[1480px] items-center gap-10 px-6 pb-10 pt-8 lg:grid-cols-[0.78fr_1.22fr] lg:px-10 lg:pb-12 lg:pt-10">
+        <section className="mx-auto grid max-w-[1480px] items-center gap-8 px-4 pb-10 pt-6 sm:px-6 lg:grid-cols-[0.78fr_1.22fr] lg:px-10 lg:pb-12 lg:pt-10">
           <div className="max-w-[610px]">
-            <div className="inline-flex h-8 items-center gap-2 rounded-full bg-[#e8f0ff] px-4 text-[14px] font-bold text-[#105fdf]">
+            <div className="inline-flex min-h-8 max-w-full items-center gap-2 rounded-full bg-[#e8f0ff] px-3 py-1.5 text-[13px] font-bold text-[#105fdf] sm:px-4 sm:text-[14px]">
               <Sparkles className="h-4 w-4" />
-              AI-Powered Grant Automation
+              <span className="truncate">AI-Powered Grant Automation</span>
             </div>
 
-            <h1 className="mt-8 text-[54px] font-black leading-[1.04] tracking-normal text-[#071a3a] sm:text-[70px] lg:text-[72px]">
+            <h1 className="mt-7 text-[clamp(2.55rem,11vw,4.4rem)] font-black leading-[1.06] tracking-normal text-[#071a3a] sm:mt-8 lg:text-[72px]">
               Find Grants.
               <br />
               Apply Automatically.
@@ -119,22 +190,22 @@ export default function LandingPage() {
               <span className="text-[#35c386]">Get Funded.</span>
             </h1>
 
-            <p className="mt-6 max-w-[560px] text-[20px] font-medium leading-[1.5] text-[#09224a]">
+            <p className="mt-5 max-w-[560px] text-[18px] font-medium leading-[1.55] text-[#09224a] sm:mt-6 sm:text-[20px]">
               GrantsCopilot uses AI to find the right funding for your business, check your eligibility, and complete
               applications — all on autopilot.
             </p>
 
-            <div className="mt-9 flex flex-col gap-4 sm:flex-row">
+            <div className="mt-8 flex flex-col gap-3 sm:mt-9 sm:flex-row sm:gap-4">
               <Link
                 href="/sign-up"
-                className="inline-flex h-14 items-center justify-center gap-3 rounded-lg bg-[#2167e8] px-7 text-[17px] font-extrabold text-white shadow-[0_14px_26px_rgba(33,103,232,0.24)] transition hover:bg-[#1858cf]"
+                className="inline-flex h-[52px] min-h-[52px] items-center justify-center gap-3 rounded-lg bg-[#2167e8] px-5 text-[16px] font-extrabold text-white shadow-[0_14px_26px_rgba(33,103,232,0.24)] transition hover:bg-[#1858cf] sm:h-14 sm:px-7 sm:text-[17px]"
               >
                 Get Started Free
                 <ArrowRight className="h-5 w-5" />
               </Link>
               <a
                 href="#how-it-works"
-                className="inline-flex h-14 items-center justify-center gap-3 rounded-lg border border-[#d8e2f2] bg-white px-7 text-[17px] font-extrabold text-[#071a3a] shadow-[0_10px_22px_rgba(9,34,74,0.08)]"
+                className="inline-flex h-[52px] min-h-[52px] items-center justify-center gap-3 rounded-lg border border-[#d8e2f2] bg-white px-5 text-[16px] font-extrabold text-[#071a3a] shadow-[0_10px_22px_rgba(9,34,74,0.08)] sm:h-14 sm:px-7 sm:text-[17px]"
               >
                 <span className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-[#071a3a]">
                   <Play className="ml-0.5 h-3.5 w-3.5 fill-[#071a3a]" />
@@ -143,7 +214,7 @@ export default function LandingPage() {
               </a>
             </div>
 
-            <div className="mt-10 grid max-w-[560px] grid-cols-1 gap-6 text-[14px] font-bold text-[#09224a] sm:grid-cols-3">
+            <div className="mt-8 grid max-w-[560px] grid-cols-1 gap-4 text-[14px] font-bold text-[#09224a] min-[430px]:grid-cols-3 sm:mt-10 sm:gap-6">
               <Feature icon={Sparkles} title="AI-Powered" detail="Intelligence" />
               <Feature icon={ShieldCheck} title="Secure &" detail="Compliant" />
               <Feature icon={Users} title="Trusted by" detail="Startups & SMEs" />
@@ -153,11 +224,58 @@ export default function LandingPage() {
           <DashboardPreview />
         </section>
 
-        <section id="how-it-works" className="mx-auto max-w-[1480px] px-6 pb-8 pt-2 lg:px-10">
-          <div className="rounded-[18px] bg-[linear-gradient(115deg,#123577_0%,#0d3e95_52%,#2468e8_100%)] px-9 py-7 text-white shadow-[0_22px_55px_rgba(10,50,120,0.16)] lg:px-10">
+        <section id="features" className="mx-auto max-w-[1480px] px-4 py-10 sm:px-6 sm:py-12 lg:px-10">
+          <div className="grid gap-8 lg:grid-cols-[0.85fr_1.15fr]">
+            <div>
+              <p className="text-sm font-black uppercase tracking-[0.14em] text-[#2167e8]">Features</p>
+              <h2 className="mt-4 max-w-[560px] text-[32px] font-black leading-tight tracking-normal text-[#071a3a] sm:text-[42px]">
+                Funding intelligence built around your company DNA.
+              </h2>
+              <p className="mt-5 max-w-[560px] text-lg font-medium leading-8 text-[#334766]">
+                GrantsCopilot is not just a searchable grant list. It learns what your business is, scores the right
+                opportunities, and turns funding work into a structured application pipeline.
+              </p>
+              <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+                <Link
+                  href="/sign-up"
+                  className="inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-[#2167e8] px-6 text-sm font-black text-white shadow-[0_12px_24px_rgba(33,103,232,0.22)]"
+                >
+                  Build My DNA Profile <ArrowRight className="h-4 w-4" />
+                </Link>
+                <Link
+                  href="/sign-in"
+                  className="inline-flex h-12 items-center justify-center rounded-lg border border-[#d8e2f2] bg-white px-6 text-sm font-black text-[#071a3a]"
+                >
+                  Log in
+                </Link>
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              {featureCards.map((feature) => {
+                const Icon = feature.icon;
+                return (
+                  <div
+                    key={feature.title}
+                    className="rounded-2xl border border-[#e2ebf6] bg-white p-6 shadow-[0_18px_45px_rgba(7,26,58,0.07)]"
+                  >
+                    <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[#e7f1ff] text-[#2167e8]">
+                      <Icon className="h-6 w-6" />
+                    </span>
+                    <h3 className="mt-5 text-xl font-black text-[#071a3a]">{feature.title}</h3>
+                    <p className="mt-3 text-sm font-medium leading-6 text-[#51627d]">{feature.text}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        <section id="how-it-works" className="mx-auto max-w-[1480px] px-4 pb-8 pt-2 sm:px-6 lg:px-10">
+          <div className="rounded-[18px] bg-[linear-gradient(115deg,#123577_0%,#0d3e95_52%,#2468e8_100%)] px-5 py-7 text-white shadow-[0_22px_55px_rgba(10,50,120,0.16)] sm:px-9 lg:px-10">
             <div className="mb-5 flex items-center justify-center gap-7">
               <span className="hidden h-px w-20 bg-white/25 sm:block" />
-              <h2 className="text-center text-[30px] font-black tracking-normal">How GrantsCopilot Works</h2>
+              <h2 className="text-center text-[26px] font-black tracking-normal sm:text-[30px]">How GrantsCopilot Works</h2>
               <span className="hidden h-px w-20 bg-white/25 sm:block" />
             </div>
 
@@ -185,7 +303,134 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <section className="mx-auto max-w-[1200px] px-6 pb-12 pt-4 text-center">
+        <section id="pricing" className="mx-auto max-w-[1480px] px-4 py-10 sm:px-6 sm:py-12 lg:px-10">
+          <div className="text-center">
+            <p className="text-sm font-black uppercase tracking-[0.14em] text-[#2167e8]">Pricing</p>
+            <h2 className="mt-4 text-[32px] font-black leading-tight text-[#071a3a] sm:text-[40px]">Start lean. Scale into automation.</h2>
+            <p className="mx-auto mt-4 max-w-2xl text-lg font-medium leading-8 text-[#51627d]">
+              Pick the level of funding support that matches your team. Upgrade when you are ready for deeper scoring,
+              filing workflows, and founder pack generation.
+            </p>
+          </div>
+
+          <div className="mt-8 grid gap-5 lg:grid-cols-3">
+            {pricingTiers.map((tier) => (
+              <div
+                key={tier.name}
+                className={`rounded-2xl border p-5 shadow-[0_18px_45px_rgba(7,26,58,0.07)] sm:p-7 ${
+                  tier.featured
+                    ? "border-[#2167e8] bg-[#071a3a] text-white"
+                    : "border-[#e2ebf6] bg-white text-[#071a3a]"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-2xl font-black">{tier.name}</h3>
+                    <p className={`mt-2 text-sm font-semibold ${tier.featured ? "text-white/72" : "text-[#51627d]"}`}>
+                      {tier.detail}
+                    </p>
+                  </div>
+                  {tier.featured && (
+                    <span className="rounded-full bg-[#35c386] px-3 py-1 text-xs font-black text-white">Most useful</span>
+                  )}
+                </div>
+                <p className="mt-7 text-4xl font-black">{tier.price}</p>
+                <ul className="mt-7 space-y-3">
+                  {tier.features.map((item) => (
+                    <li key={item} className="flex gap-3 text-sm font-bold">
+                      <CheckCircle2 className={`mt-0.5 h-4 w-4 shrink-0 ${tier.featured ? "text-[#35c386]" : "text-[#2167e8]"}`} />
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+                <Link
+                  href={tier.href}
+                  className={`mt-8 inline-flex h-12 w-full items-center justify-center rounded-lg text-sm font-black ${
+                    tier.featured
+                      ? "bg-white text-[#071a3a]"
+                      : "bg-[#2167e8] text-white"
+                  }`}
+                >
+                  {tier.cta}
+                </Link>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section id="resources" className="mx-auto max-w-[1480px] px-4 py-10 sm:px-6 sm:py-12 lg:px-10">
+          <div className="rounded-[24px] bg-white p-5 shadow-[0_20px_60px_rgba(7,26,58,0.08)] sm:p-7 lg:p-9">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="text-sm font-black uppercase tracking-[0.14em] text-[#2167e8]">Resources</p>
+                <h2 className="mt-4 text-[30px] font-black leading-tight text-[#071a3a] sm:text-[38px]">Practical funding help for non-grant experts.</h2>
+              </div>
+              <Link href="/sign-up" className="inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-[#2167e8] px-6 text-sm font-black text-white">
+                Open Workspace <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
+
+            <div className="mt-8 grid gap-4 lg:grid-cols-3">
+              {resources.map((resource) => (
+                <Link
+                  key={resource.title}
+                  href={resource.href}
+                  className="group rounded-2xl border border-[#e2ebf6] bg-[#f7fbff] p-6 transition hover:border-[#2167e8] hover:bg-white"
+                >
+                  <h3 className="text-xl font-black text-[#071a3a]">{resource.title}</h3>
+                  <p className="mt-3 text-sm font-medium leading-6 text-[#51627d]">{resource.text}</p>
+                  <span className="mt-5 inline-flex items-center gap-2 text-sm font-black text-[#2167e8]">
+                    Read more <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" />
+                  </span>
+                </Link>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section id="about-us" className="mx-auto max-w-[1480px] px-4 py-10 sm:px-6 sm:py-12 lg:px-10">
+          <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
+            <div className="rounded-[24px] bg-[#071a3a] p-6 text-white shadow-[0_22px_55px_rgba(7,26,58,0.16)] sm:p-8">
+              <p className="text-sm font-black uppercase tracking-[0.14em] text-[#8bb6ff]">About Us</p>
+              <h2 className="mt-4 text-[30px] font-black leading-tight sm:text-[38px]">Building the operating system for business funding.</h2>
+              <p className="mt-5 text-base font-medium leading-8 text-white/78">
+                GrantsCopilot helps founders and SMEs move from fragmented funding discovery to an intelligent funding
+                pipeline: profile, match, draft, apply, learn, and improve.
+              </p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <AboutStat value="24/7" label="Funding discovery and monitoring" />
+              <AboutStat value="AI" label="Eligibility reasoning and application drafting" />
+              <AboutStat value="UK+" label="Built for UK SMEs with global expansion in mind" />
+              <AboutStat value="HITL" label="Human approval before sensitive submission steps" />
+            </div>
+          </div>
+        </section>
+
+        <section id="book-demo" className="mx-auto max-w-[1480px] px-4 py-10 sm:px-6 sm:py-12 lg:px-10">
+          <div className="grid items-center gap-6 rounded-[24px] bg-[linear-gradient(115deg,#e7f1ff,#ffffff)] p-6 shadow-[0_18px_50px_rgba(7,26,58,0.08)] sm:p-8 lg:grid-cols-[1fr_auto] lg:p-10">
+            <div>
+              <p className="text-sm font-black uppercase tracking-[0.14em] text-[#2167e8]">Book a Demo</p>
+              <h2 className="mt-3 text-[30px] font-black leading-tight text-[#071a3a] sm:text-[36px]">
+                See how GrantsCopilot can run your funding workflow.
+              </h2>
+              <p className="mt-4 max-w-3xl text-base font-medium leading-7 text-[#51627d]">
+                Create an account to explore the workspace, or start a guided demo flow for grant matching, application tasks,
+                and founder funding pack generation.
+              </p>
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Link href="/sign-up" className="inline-flex h-12 items-center justify-center rounded-lg bg-[#2167e8] px-7 text-sm font-black text-white">
+                Create Account
+              </Link>
+              <Link href="/sign-in" className="inline-flex h-12 items-center justify-center rounded-lg border border-[#d8e2f2] bg-white px-7 text-sm font-black text-[#071a3a]">
+                Log in
+              </Link>
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-[1200px] px-4 pb-12 pt-4 text-center sm:px-6">
           <p className="text-[16px] font-semibold text-[#09224a]">Trusted by ambitious founders and growing businesses</p>
           <div className="mt-7 grid grid-cols-2 items-center gap-8 text-[#071a3a] sm:grid-cols-3 lg:grid-cols-6">
             {trustLogos.map((logo) => (
@@ -244,7 +489,7 @@ function DashboardPreview() {
               <Bell className="h-5 w-5 text-[#071a3a]" />
               <div className="hidden items-center gap-2 sm:flex">
                 <div className="h-8 w-8 rounded-full bg-[linear-gradient(135deg,#123577,#35c386)]" />
-                <span className="text-[12px] font-bold">Michael Orji</span>
+                <span className="text-[12px] font-bold">Andrew McCaw</span>
               </div>
             </div>
           </div>
@@ -345,6 +590,15 @@ function Feature({ icon: Icon, title, detail }: { icon: typeof Sparkles; title: 
         <div>{title}</div>
         <div>{detail}</div>
       </div>
+    </div>
+  );
+}
+
+function AboutStat({ value, label }: { value: string; label: string }) {
+  return (
+    <div className="rounded-2xl border border-[#e2ebf6] bg-white p-6 shadow-[0_18px_45px_rgba(7,26,58,0.07)]">
+      <p className="text-3xl font-black text-[#2167e8]">{value}</p>
+      <p className="mt-3 text-sm font-bold leading-6 text-[#51627d]">{label}</p>
     </div>
   );
 }

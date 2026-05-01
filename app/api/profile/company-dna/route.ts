@@ -152,7 +152,14 @@ export async function POST(): Promise<NextResponse> {
     let websiteIntelligence = typeof profile.websiteIntelligence === "string" ? profile.websiteIntelligence : "";
     const websiteUrl = typeof profile.websiteUrl === "string" ? profile.websiteUrl : "";
     if (!websiteIntelligence && websiteUrl) {
-      websiteIntelligence = await analyseWebsite(websiteUrl);
+      websiteIntelligence = await analyseWebsite(websiteUrl).catch((error) => {
+        const detail = error instanceof Error ? error.message : "Website analysis failed";
+        return `Website URL: ${websiteUrl}
+
+Website analysis note: ${detail}
+
+The website could not be extracted reliably. Use the current business profile below as the primary source. Do not invent facts that are not present in the profile.`;
+      });
       await supabase.from("BusinessProfile").update({ websiteIntelligence }).eq("id", profile.id as string);
     }
     if (!websiteIntelligence) {

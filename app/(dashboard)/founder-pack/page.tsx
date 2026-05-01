@@ -1,6 +1,6 @@
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import type { FounderPackContent } from "@/lib/founder-pack";
+import type { FounderPackContent, FounderPackDocumentType } from "@/lib/founder-pack";
 import { FounderPackClient } from "@/components/founder-pack/founder-pack-client";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +19,7 @@ interface PackRow {
   type: string;
   createdAt: string;
   content: FounderPackContent;
+  inputs?: { documentTypes?: FounderPackDocumentType[] } | null;
 }
 
 function formatDateLabel(value: string): string {
@@ -44,7 +45,7 @@ export default async function FounderPackPage() {
       .order("createdAt", { ascending: true }),
     supabase
       .from("FounderFundingPack")
-      .select("id, type, createdAt, content")
+      .select("id, type, createdAt, content, inputs")
       .eq("organisationId", orgId)
       .order("createdAt", { ascending: false })
       .limit(10),
@@ -65,13 +66,14 @@ export default async function FounderPackPage() {
     createdAtLabel: formatDateLabel(pack.createdAt),
     type: pack.type,
     content: pack.content,
+    documentTypes: pack.inputs?.documentTypes ?? null,
   }));
 
   return (
-    <div className="mx-auto max-w-7xl p-6">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold">Founder Funding Pack</h1>
-        <p className="mt-1 max-w-3xl text-muted-foreground">
+    <div className="mx-auto w-full max-w-7xl space-y-6 px-0 sm:px-2">
+      <div className="rounded-2xl bg-white p-5 shadow-[0_18px_45px_rgba(7,26,58,0.07)] sm:p-6">
+        <h1 className="text-2xl font-black text-[#071a3a]">Founder Funding Pack</h1>
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground sm:text-base">
           Generate a gated business planning pack for Innovator Founder framing, grants, accelerators, and investor-readiness work.
         </p>
       </div>

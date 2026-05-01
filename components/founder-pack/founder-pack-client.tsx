@@ -4,10 +4,16 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { BriefcaseBusiness, Download, FileText, Loader2, Lock, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import type { FounderPackContent, FounderPackInputs } from "@/lib/founder-pack";
+import {
+  FOUNDER_PACK_DOCUMENT_TYPES,
+  type FounderPackContent,
+  type FounderPackDocumentType,
+  type FounderPackInputs,
+} from "@/lib/founder-pack";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -18,6 +24,7 @@ interface PackSummary {
   createdAtLabel: string;
   type: string;
   content: FounderPackContent;
+  documentTypes?: FounderPackDocumentType[] | null;
 }
 
 interface ProfileOption {
@@ -30,7 +37,27 @@ interface ProfileOption {
 }
 
 function contentIsReady(content?: FounderPackContent | null): content is FounderPackContent {
-  return Boolean(content?.executiveSummary || content?.businessPlan || content?.innovationStatement);
+  return Boolean(
+    content?.executiveSummary ||
+      content?.businessPlan ||
+      content?.innovationStatement ||
+      content?.marketAnalysis ||
+      content?.founderPositioning ||
+      content?.scalabilityPlan ||
+      content?.riskMitigation?.length ||
+      content?.evidenceChecklist?.length ||
+      content?.nextSteps?.length ||
+      content?.financialProjections?.assumptions?.length
+  );
+}
+
+function documentTypeLabel(types?: FounderPackDocumentType[] | null): string {
+  if (!types?.length) return "Full pack";
+  if (types.length === FOUNDER_PACK_DOCUMENT_TYPES.length) return "Full pack";
+  if (types.length === 1) {
+    return FOUNDER_PACK_DOCUMENT_TYPES.find((item) => item.value === types[0])?.label ?? "Document";
+  }
+  return `${types.length} documents`;
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -48,6 +75,12 @@ function ParagraphBlock({ text }: { text: string }) {
 
 function PackDocument({ pack }: { pack: PackSummary }) {
   const content = pack.content;
+  const documentTypes =
+    pack.documentTypes?.length
+      ? pack.documentTypes
+      : FOUNDER_PACK_DOCUMENT_TYPES.map((item) => item.value);
+  const includes = (type: FounderPackDocumentType) => documentTypes.includes(type);
+
   return (
     <Card className="print:border-0 print:shadow-none">
       <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -64,67 +97,87 @@ function PackDocument({ pack }: { pack: PackSummary }) {
         </Button>
       </CardHeader>
       <CardContent className="space-y-6">
-        <Section title="Executive Summary">
-          <ParagraphBlock text={content.executiveSummary} />
-        </Section>
-        <Section title="Business Plan">
-          <ParagraphBlock text={content.businessPlan} />
-        </Section>
-        <Section title="Innovation Statement">
-          <ParagraphBlock text={content.innovationStatement} />
-        </Section>
-        <Section title="Market Analysis">
-          <ParagraphBlock text={content.marketAnalysis} />
-        </Section>
-        <Section title="Financial Projections">
-          <div className="grid gap-3 md:grid-cols-2">
-            {[
-              ["Assumptions", content.financialProjections.assumptions],
-              ["Year 1", content.financialProjections.year1],
-              ["Year 2", content.financialProjections.year2],
-              ["Year 3", content.financialProjections.year3],
-            ].map(([label, rows]) => (
-              <div key={String(label)} className="rounded-md border p-3">
-                <h3 className="text-sm font-medium">{String(label)}</h3>
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                  {(rows as string[]).map((row) => (
-                    <li key={row}>{row}</li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-        </Section>
-        <Section title="Founder Positioning">
-          <ParagraphBlock text={content.founderPositioning} />
-        </Section>
-        <Section title="Scalability Plan">
-          <ParagraphBlock text={content.scalabilityPlan} />
-        </Section>
-        <Section title="Risks & Mitigation">
-          <div className="space-y-2">
-            {content.riskMitigation.map((item) => (
-              <div key={`${item.risk}-${item.mitigation}`} className="rounded-md border p-3">
-                <p className="text-sm font-medium">{item.risk}</p>
-                <p className="mt-1 text-sm text-muted-foreground">{item.mitigation}</p>
-              </div>
-            ))}
-          </div>
-        </Section>
-        <Section title="Evidence Checklist">
-          <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-            {content.evidenceChecklist.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-        </Section>
-        <Section title="Next Steps">
-          <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-            {content.nextSteps.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-        </Section>
+        {includes("executive_summary") && content.executiveSummary && (
+          <Section title="Executive Summary">
+            <ParagraphBlock text={content.executiveSummary} />
+          </Section>
+        )}
+        {includes("business_plan") && content.businessPlan && (
+          <Section title="Business Plan">
+            <ParagraphBlock text={content.businessPlan} />
+          </Section>
+        )}
+        {includes("innovation_statement") && content.innovationStatement && (
+          <Section title="Innovation Statement">
+            <ParagraphBlock text={content.innovationStatement} />
+          </Section>
+        )}
+        {includes("market_analysis") && content.marketAnalysis && (
+          <Section title="Market Analysis">
+            <ParagraphBlock text={content.marketAnalysis} />
+          </Section>
+        )}
+        {includes("financial_projections") && (
+          <Section title="Financial Projections">
+            <div className="grid gap-3 md:grid-cols-2">
+              {[
+                ["Assumptions", content.financialProjections.assumptions],
+                ["Year 1", content.financialProjections.year1],
+                ["Year 2", content.financialProjections.year2],
+                ["Year 3", content.financialProjections.year3],
+              ].map(([label, rows]) => (
+                <div key={String(label)} className="rounded-md border p-3">
+                  <h3 className="text-sm font-medium">{String(label)}</h3>
+                  <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                    {(rows as string[]).map((row) => (
+                      <li key={row}>{row}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </Section>
+        )}
+        {includes("founder_positioning") && content.founderPositioning && (
+          <Section title="Founder Positioning">
+            <ParagraphBlock text={content.founderPositioning} />
+          </Section>
+        )}
+        {includes("scalability_plan") && content.scalabilityPlan && (
+          <Section title="Scalability Plan">
+            <ParagraphBlock text={content.scalabilityPlan} />
+          </Section>
+        )}
+        {includes("risk_mitigation") && content.riskMitigation.length > 0 && (
+          <Section title="Risks & Mitigation">
+            <div className="space-y-2">
+              {content.riskMitigation.map((item) => (
+                <div key={`${item.risk}-${item.mitigation}`} className="rounded-md border p-3">
+                  <p className="text-sm font-medium">{item.risk}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{item.mitigation}</p>
+                </div>
+              ))}
+            </div>
+          </Section>
+        )}
+        {includes("evidence_checklist") && content.evidenceChecklist.length > 0 && (
+          <Section title="Evidence Checklist">
+            <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+              {content.evidenceChecklist.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </Section>
+        )}
+        {includes("next_steps") && content.nextSteps.length > 0 && (
+          <Section title="Next Steps">
+            <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+              {content.nextSteps.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </Section>
+        )}
         <p className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">{content.disclaimer}</p>
       </CardContent>
     </Card>
@@ -151,6 +204,7 @@ export function FounderPackClient({
     founderBackground: profiles[0]?.founderBackground ?? "",
     technicalContribution: profiles[0]?.teamExpertise ?? "",
     targetUse: "innovator_founder_visa",
+    documentTypes: FOUNDER_PACK_DOCUMENT_TYPES.map((item) => item.value),
     marketFocus: "UK SMEs, startups, councils, incubators, and funding support organisations.",
     revenueModel: "SaaS subscriptions for SMEs, premium founder packs, and B2B licensing for councils, incubators, and accelerators.",
     pricingAssumptions: "Free trial for initial onboarding, paid Pro and Business plans, with optional premium document pack generation.",
@@ -165,6 +219,16 @@ export function FounderPackClient({
 
   function update<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function toggleDocumentType(type: FounderPackDocumentType, checked: boolean) {
+    setForm((prev) => {
+      const current = prev.documentTypes?.length ? prev.documentTypes : [];
+      const next = checked
+        ? [...new Set([...current, type])]
+        : current.filter((item) => item !== type);
+      return { ...prev, documentTypes: next };
+    });
   }
 
   function selectProfile(profileId: string) {
@@ -201,6 +265,7 @@ export function FounderPackClient({
         createdAt: pack.createdAt,
         createdAtLabel: "just now",
         type: form.targetUse,
+        documentTypes: form.documentTypes,
         content: pack.content,
       };
       setHistory((prev) => [next, ...prev]);
@@ -244,6 +309,34 @@ export function FounderPackClient({
                 <p className="mt-1">Upgrade to generate visa-grade business planning packs.</p>
               </div>
             )}
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <Label>Document types</Label>
+                <Badge variant="secondary">{form.documentTypes?.length ?? 0} selected</Badge>
+              </div>
+              <div className="grid gap-2">
+                {FOUNDER_PACK_DOCUMENT_TYPES.map((doc) => (
+                  <label
+                    key={doc.value}
+                    className="flex cursor-pointer items-start gap-3 rounded-md border bg-background p-3 transition-colors hover:bg-muted/40"
+                  >
+                    <Checkbox
+                      checked={form.documentTypes?.includes(doc.value) ?? false}
+                      onCheckedChange={(value) => toggleDocumentType(doc.value, value === true)}
+                      className="mt-0.5"
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium">{doc.label}</span>
+                      <span className="mt-1 block text-xs leading-5 text-muted-foreground">{doc.description}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              {form.documentTypes?.length === 0 && (
+                <p className="text-sm text-destructive">Select at least one document type.</p>
+              )}
+            </div>
 
             <div className="space-y-2">
               <Label htmlFor="profileId">Business profile</Label>
@@ -301,9 +394,9 @@ export function FounderPackClient({
               <Textarea id="additionalNotes" rows={3} value={form.additionalNotes} onChange={(event) => update("additionalNotes", event.target.value)} />
             </div>
 
-            <Button type="button" className="w-full gap-2" disabled={loading || !allowed} onClick={generate}>
+            <Button type="button" className="w-full gap-2" disabled={loading || !allowed || !form.documentTypes?.length} onClick={generate}>
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-              Generate pack
+              Generate selected documents
             </Button>
           </CardContent>
         </Card>
@@ -322,7 +415,9 @@ export function FounderPackClient({
                   className="flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm hover:bg-muted"
                 >
                   <span>{pack.createdAtLabel}</span>
-                  <Badge variant={pack.id === selectedPack?.id ? "default" : "secondary"}>{pack.type.replace(/_/g, " ")}</Badge>
+                  <Badge variant={pack.id === selectedPack?.id ? "default" : "secondary"}>
+                    {documentTypeLabel(pack.documentTypes)}
+                  </Badge>
                 </button>
               ))}
             </CardContent>

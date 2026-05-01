@@ -11,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { LogOut, User } from "lucide-react";
+import { ChevronDown, LogOut, User } from "lucide-react";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 
 export function UserNav() {
@@ -50,9 +50,15 @@ export function UserNav() {
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
-          className="relative h-8 w-8 rounded-full bg-primary text-xs font-semibold text-primary-foreground"
+          className="h-11 gap-2 rounded-full border border-[#dce6f4] bg-white px-2.5 pr-3 text-[#071a3a] shadow-sm hover:bg-[#f5f9ff]"
         >
-          {initials}
+          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[linear-gradient(135deg,#2468e8,#35c386)] text-xs font-black text-white">
+            {initials}
+          </span>
+          <span className="hidden max-w-[150px] truncate text-sm font-extrabold sm:inline">
+            {user.email?.split("@")[0] ?? "Account"}
+          </span>
+          <ChevronDown className="hidden h-4 w-4 text-[#64748b] sm:block" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-56" align="end" forceMount>

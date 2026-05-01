@@ -2,8 +2,13 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { generateFounderPack } from "@/lib/founder-pack";
+import { FOUNDER_PACK_DOCUMENT_TYPES, generateFounderPack } from "@/lib/founder-pack";
 import { recordUsage } from "@/lib/plan-check";
+
+const documentTypeValues = FOUNDER_PACK_DOCUMENT_TYPES.map((item) => item.value) as [
+  (typeof FOUNDER_PACK_DOCUMENT_TYPES)[number]["value"],
+  ...(typeof FOUNDER_PACK_DOCUMENT_TYPES)[number]["value"][],
+];
 
 const requestSchema = z.object({
   profileId: z.string().min(1),
@@ -12,6 +17,7 @@ const requestSchema = z.object({
   founderBackground: z.string().min(20).max(4000),
   technicalContribution: z.string().min(20).max(4000),
   targetUse: z.enum(["innovator_founder_visa", "funding_readiness", "accelerator_investor"]).default("innovator_founder_visa"),
+  documentTypes: z.array(z.enum(documentTypeValues)).min(1).default(documentTypeValues),
   marketFocus: z.string().min(10).max(2500),
   revenueModel: z.string().min(10).max(2500),
   pricingAssumptions: z.string().min(10).max(2500),
