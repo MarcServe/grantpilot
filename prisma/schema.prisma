@@ -64,6 +64,7 @@ model Organisation {
   applications       Application[]
   usage              Usage[]
   portalCredentials  PortalCredential[]
+  founderFundingPacks FounderFundingPack[]
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
 }
@@ -112,9 +113,28 @@ model BusinessProfile {
   teamExpertise      String?       @db.Text     // Key team skills, qualifications
   documents          Document[]
   applications       Application[]
+  founderFundingPacks FounderFundingPack[]
   completionScore    Int           @default(0)
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
+}
+
+model FounderFundingPack {
+  id             String          @id @default(cuid())
+  organisationId String
+  organisation   Organisation    @relation(fields: [organisationId], references: [id])
+  profileId      String
+  profile        BusinessProfile @relation(fields: [profileId], references: [id])
+  createdById    String?
+  type           String          @default("innovator_founder_visa")
+  status         String          @default("generated")
+  inputs         Json            @default("{}")
+  content        Json            @default("{}")
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([organisationId])
+  @@index([profileId])
 }
 
 model Document {

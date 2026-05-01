@@ -14,6 +14,7 @@ import {
   Brain,
   Settings,
   Menu,
+  BriefcaseBusiness,
 } from "lucide-react";
 import {
   Sheet,
@@ -31,6 +32,7 @@ const navItems = [
   { href: "/grants/eligible", label: "My Matches", icon: Sparkles },
   { href: "/grants", label: "Grants", icon: Search },
   { href: "/applications", label: "Applications", icon: FileText },
+  { href: "/founder-pack", label: "Founder Pack", icon: BriefcaseBusiness },
   { href: "/intelligence", label: "Intelligence", icon: Brain },
   { href: "/billing", label: "Billing", icon: CreditCard },
   { href: "/settings", label: "Settings", icon: Settings },
