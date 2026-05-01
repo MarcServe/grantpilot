@@ -56,7 +56,7 @@ Optional: `RESEND_API_KEY`, `EMAIL_FROM`, Stripe keys, Twilio (WhatsApp). See [D
 ## Optional: full system
 
 - **Worker** (form filling): `cd grantpilot-worker && npm install && npm run dev`  
-  Needs its own `.env` with `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and the worker AI provider keys.
+  Needs its own `.env` with `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `OPENAI_API_KEY`, and any legacy vision fallback provider keys still enabled.
 
 - **Inngest** (cron jobs: grant sync, scanner, eligibility refresh, reminders):  
   `npx inngest-cli@latest dev`  

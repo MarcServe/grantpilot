@@ -4,6 +4,7 @@ import type { FormFieldInfo } from "./browser.js";
 import type { ProfileData } from "./profile-data.js";
 import type { FillAction } from "./browser.js";
 import type { RequiredAttachment } from "./required-attachments.js";
+import { completeJsonWithOpenAI } from "./openai.js";
 
 export interface GrantContext {
   name: string;
@@ -444,13 +445,7 @@ ${userAnswers && Object.keys(userAnswers).length > 0 ? `\nThe user has already p
 
 Return ONLY the JSON object, no markdown.`;
 
-  const res = await getAnthropic().messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 4000,
-    messages: [{ role: "user", content: prompt }],
-  });
-
-  const text = res.content?.[0]?.type === "text" ? res.content[0].text : "";
+  const text = await completeJsonWithOpenAI(prompt, 4000);
   return parseFormFillResponse(text, fields);
 }
 

@@ -11,6 +11,7 @@ import {
   Scale,
   Network,
   ArrowRight,
+  BarChart3,
 } from "lucide-react";
 
 export default async function IntelligencePage() {
@@ -42,6 +43,30 @@ export default async function IntelligencePage() {
     ?.filled_snapshot;
   const fieldCount = snapshot?.fields?.length ?? 0;
   const fileCount = snapshot?.fileNames?.length ?? 0;
+
+  const [{ data: profile }, { data: outcomes }] = await Promise.all([
+    supabase
+      .from("BusinessProfile")
+      .select("completionScore, websiteIntelligence, innovationCapabilities, socialImpact, keyAchievements, teamExpertise")
+      .eq("organisationId", orgId)
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("ApplicationOutcome")
+      .select("outcome, awardedAmount")
+      .eq("organisationId", orgId),
+  ]);
+  const outcomeRows = (outcomes ?? []) as { outcome?: string; awardedAmount?: number | null }[];
+  const awardedCount = outcomeRows.filter((row) => row.outcome === "awarded").length;
+  const shortlistedCount = outcomeRows.filter((row) => row.outcome === "shortlisted").length;
+  const totalOutcomes = outcomeRows.length;
+  const dnaSignals = [
+    (profile as { websiteIntelligence?: string | null } | null)?.websiteIntelligence,
+    (profile as { innovationCapabilities?: string | null } | null)?.innovationCapabilities,
+    (profile as { socialImpact?: string | null } | null)?.socialImpact,
+    (profile as { keyAchievements?: string | null } | null)?.keyAchievements,
+    (profile as { teamExpertise?: string | null } | null)?.teamExpertise,
+  ].filter((value) => typeof value === "string" && value.trim().length > 0).length;
 
   return (
     <div className="mx-auto max-w-4xl p-6">
@@ -103,16 +128,78 @@ export default async function IntelligencePage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <Scale className="h-5 w-5" />
-              Eligibility decision engine
+              Predictive funding scoring
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Per-grant eligibility score (e.g. 90% eligible), reasons why, and for partial fits a GrantsCopilot improvement plan. Scores are cached and shown on the grants list; we notify you for high-fit grants.
+              Per-grant funding fit, eligibility reasoning, evidence strength, and improvement plans. Scores are cached and shown on the grants list; we notify you for high-fit grants.
             </p>
             <Link href="/grants">
               <Button variant="outline" size="sm" className="gap-1">
                 Open a grant and check eligibility <ArrowRight className="h-3 w-3" />
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Brain className="h-5 w-5" />
+              Business DNA engine
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Your profile, website intelligence, grant memory, application answers, and evidence fields form a reusable company model for funding decisions.
+            </p>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div className="rounded-md border p-3">
+                <p className="text-muted-foreground">Profile depth</p>
+                <p className="text-lg font-semibold">{(profile as { completionScore?: number } | null)?.completionScore ?? 0}%</p>
+              </div>
+              <div className="rounded-md border p-3">
+                <p className="text-muted-foreground">DNA signals</p>
+                <p className="text-lg font-semibold">{dnaSignals}/5</p>
+              </div>
+            </div>
+            <Link href="/profile">
+              <Button variant="outline" size="sm" className="gap-1">
+                Improve company DNA <ArrowRight className="h-3 w-3" />
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <BarChart3 className="h-5 w-5" />
+              Outcome learning loop
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Record awards, rejections, shortlist decisions, and funder feedback so GrantPilot learns which patterns improve future recommendations.
+            </p>
+            <div className="grid grid-cols-3 gap-2 text-sm">
+              <div className="rounded-md border p-3">
+                <p className="text-muted-foreground">Outcomes</p>
+                <p className="text-lg font-semibold">{totalOutcomes}</p>
+              </div>
+              <div className="rounded-md border p-3">
+                <p className="text-muted-foreground">Shortlisted</p>
+                <p className="text-lg font-semibold">{shortlistedCount}</p>
+              </div>
+              <div className="rounded-md border p-3">
+                <p className="text-muted-foreground">Awarded</p>
+                <p className="text-lg font-semibold">{awardedCount}</p>
+              </div>
+            </div>
+            <Link href="/applications">
+              <Button variant="outline" size="sm" className="gap-1">
+                Record outcomes <ArrowRight className="h-3 w-3" />
               </Button>
             </Link>
           </CardContent>

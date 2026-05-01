@@ -35,6 +35,8 @@ interface EligibilityResult {
   met?: string[];
   missing?: string[];
   confidenceBand?: "high" | "medium" | "low";
+  winProbability?: number;
+  evidenceStrength?: "strong" | "medium" | "weak";
 }
 
 function AutoImproveButton({ grantId, applicationId }: { grantId: string; applicationId?: string }) {
@@ -193,14 +195,14 @@ export function EligibilityCard({ grantId, applicationId }: { grantId: string; a
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-sm font-medium">
           <Scale className="h-4 w-4" />
-          Eligibility decision
+          Funding probability
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         {!result ? (
           <>
             <p className="text-sm text-muted-foreground">
-              Get a GrantsCopilot assessment of how well your business fits this grant. We may show a cached score if we&apos;ve already assessed it.
+              Get a GrantsCopilot assessment of rule eligibility, evidence strength, and likely funding fit. We may show a cached score if we&apos;ve already assessed it.
             </p>
             <Button
               variant="outline"
@@ -217,8 +219,18 @@ export function EligibilityCard({ grantId, applicationId }: { grantId: string; a
           <>
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-base font-semibold">
-                Eligibility: {score}%
+                Funding fit: {score}%
               </span>
+              {result.winProbability != null && (
+                <Badge variant="secondary">
+                  Win probability: {Math.round(result.winProbability)}%
+                </Badge>
+              )}
+              {result.evidenceStrength && (
+                <Badge variant="outline" className="capitalize">
+                  Evidence: {result.evidenceStrength}
+                </Badge>
+              )}
               {result.confidenceBand && (
                 <Badge variant="outline" className="capitalize">
                   Confidence: {result.confidenceBand}
@@ -234,7 +246,7 @@ export function EligibilityCard({ grantId, applicationId }: { grantId: string; a
             <p className="text-sm leading-relaxed">{result.summary ?? result.reason}</p>
             {(result.met?.length || result.missing?.length) ? (
               <div className="rounded-md border bg-muted/30 p-3">
-                <p className="mb-2 text-xs font-medium text-muted-foreground">Why you scored {score}%</p>
+                <p className="mb-2 text-xs font-medium text-muted-foreground">Why your funding fit is {score}%</p>
                 {result.met && result.met.length > 0 && (
                   <ul className="space-y-1 text-sm text-green-700 dark:text-green-400">
                     {result.met.map((m, i) => (

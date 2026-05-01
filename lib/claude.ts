@@ -18,6 +18,7 @@ interface ProfileForMatching {
   fundingPurposes: string[];
   fundingDetails: string | null;
   businessType?: string | null;
+  fundingOutcomeSignals?: string | null;
 }
 
 interface GrantForMatching {
@@ -67,6 +68,9 @@ export interface EligibilityResult {
   met?: string[];
   /** Criteria missing or weak */
   missing?: string[];
+  /** Estimated chance of a competitive funding outcome, not just rule eligibility. */
+  winProbability?: number;
+  evidenceStrength?: "strong" | "medium" | "weak";
 }
 
 export function getConfidenceBand(score: number): ConfidenceBand {
@@ -88,6 +92,7 @@ export async function getEligibilityDecision(
 
 Business: ${profile.businessName} (${profile.sector}). Location: ${profile.location}. Employees: ${profile.employeeCount ?? "N/A"}. Revenue: ${profile.annualRevenue ? `£${profile.annualRevenue.toLocaleString("en-GB")}` : "N/A"}. Funding sought: £${profile.fundingMin.toLocaleString("en-GB")}–£${profile.fundingMax.toLocaleString("en-GB")}. Purposes: ${profile.fundingPurposes.join(", ")}. ${profile.missionStatement ? `Mission: ${profile.missionStatement}.` : ""} ${profile.description ? `Description: ${profile.description}` : ""}
 Business type: ${profile.businessType || "N/A"}.
+Prior funding outcome signals: ${profile.fundingOutcomeSignals || "No structured outcome history yet."}
 
 Grant: ${grant.name} (${grant.funder}). Amount: ${grant.amount != null ? `£${grant.amount.toLocaleString("en-GB")}` : "Varies"}. Eligibility: ${grant.eligibility}.${grant.description ? ` Description: ${grant.description.slice(0, 800)}.` : ""}${grant.objectives ? ` Objectives: ${grant.objectives.slice(0, 400)}.` : ""}${grant.applicantTypes?.length ? ` Applicant types: ${grant.applicantTypes.join(", ")}.` : ""} Sectors: ${(grant.sectors ?? []).join(", ")}. Regions: ${(grant.regions ?? []).join(", ")}.
 
@@ -102,7 +107,9 @@ Return ONLY valid JSON. No markdown. Use this exact shape:
   "alignment": ["How grant aligns with business - only if score >= 70, else []"],
   "improvementPlan": { "gaps": ["Gap 1"], "actions": ["Action 1"], "timeline": "Short term" } or null,
   "met": ["Short label for each eligibility criterion the business clearly meets", "e.g. UK registered company", "SME eligible"],
-  "missing": ["Short label for each criterion that is missing or weak", "e.g. Requires pilot deployment evidence", "Requires sustainability component"]
+  "missing": ["Short label for each criterion that is missing or weak", "e.g. Requires pilot deployment evidence", "Requires sustainability component"],
+  "winProbability": 0-100,
+  "evidenceStrength": "strong" | "medium" | "weak"
 }
 
 Rules:
@@ -112,7 +119,9 @@ Rules:
 - alignment: only when score >= 70, 2-4 bullets on how this grant fits their business.
 - improvementPlan: only when score < 75. gaps = what's missing or misaligned; actions = concrete steps to improve fit; timeline optional (e.g. "0-3 months"). Use null when score >= 75.
 - met: 2-6 short labels (one line each) for criteria the business clearly satisfies. Use checkmark-friendly phrasing.
-- missing: 0-6 short labels for criteria that are missing, weak, or unclear. Use warning-friendly phrasing. Use [] when score >= 85.`,
+- missing: 0-6 short labels for criteria that are missing, weak, or unclear. Use warning-friendly phrasing. Use [] when score >= 85.
+- winProbability is not legal eligibility. It estimates competitive funding likelihood based on fit, evidence strength, clarity, and likely competition. Keep it conservative.
+- evidenceStrength reflects whether the profile contains enough proof: strong = clear metrics/track record/evidence, medium = plausible but needs proof, weak = thin evidence.`,
     1200
   );
 
@@ -131,6 +140,10 @@ Rules:
     if (parsed.score >= 75 && parsed.improvementPlan) parsed.improvementPlan = undefined;
     if (!Array.isArray(parsed.met)) parsed.met = [];
     if (!Array.isArray(parsed.missing)) parsed.missing = [];
+    parsed.winProbability = Math.min(100, Math.max(0, Number(parsed.winProbability) || parsed.score || conf));
+    if (!["strong", "medium", "weak"].includes(String(parsed.evidenceStrength))) {
+      parsed.evidenceStrength = parsed.score >= 80 ? "strong" : parsed.score >= 55 ? "medium" : "weak";
+    }
     const applicantGate = getApplicantTypeGate(profile.businessType, grant);
     if (applicantGate && !applicantGate.profileMatches) {
       return {
@@ -147,6 +160,8 @@ Rules:
           timeline: "Before applying",
         },
         missing: uniqueStrings([...(parsed.missing ?? []), applicantGate.reason]),
+        winProbability: Math.min(parsed.winProbability ?? 25, 25),
+        evidenceStrength: "weak",
       };
     }
     return parsed;
@@ -158,6 +173,8 @@ Rules:
       score: 50,
       summary: "We couldn't automatically assess eligibility. Please read the grant criteria and decide.",
       reasons: [],
+      winProbability: 50,
+      evidenceStrength: "weak",
     };
   }
 }

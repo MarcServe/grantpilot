@@ -28,7 +28,8 @@ Set these in your host (Vercel, Railway, etc.) or in production `.env`:
 |----------|----------|--------|
 | `OPENAI_API_KEY` | Yes | App AI: grant discovery, matching, eligibility, website intelligence, requirements parsing, and profile autofill |
 | `OPENAI_MODEL` | Optional | Defaults to `gpt-4o-mini` for app AI helper calls |
-| `ANTHROPIC_API_KEY` | Worker only | Legacy worker form-filling paths still use Claude until the worker is migrated |
+| `ANTHROPIC_API_KEY` | Worker fallback only | Legacy worker vision/navigation fallbacks still use Claude until those paths are migrated |
+| `OPENAI_WORKER_MODEL` | Optional | Defaults to `OPENAI_MODEL` or `gpt-4o-mini` for worker text-only form mapping |
 | `GEMINI_API_KEY` | Optional | For multi-agent grant discovery (when implemented); or `GOOGLE_AI_API_KEY` |
 | `DATABASE_URL` | Yes | Supabase Postgres; use pooler: `...:6543/postgres?pgbouncer=true` |
 | `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL |

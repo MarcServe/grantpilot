@@ -13,6 +13,7 @@ import { ApplicationTaskList } from "@/components/applications/application-task-
 import { EditableSnapshot } from "@/components/applications/editable-snapshot";
 import { NeedsInputForm } from "@/components/applications/needs-input-form";
 import { ApplicationSessionPoller } from "@/components/applications/application-session-poller";
+import { OutcomeLearningForm } from "@/components/applications/outcome-learning-form";
 
 const ITEM_STATUS_ICON: Record<string, React.ReactNode> = {
   done: <CheckCircle className="h-4 w-4 text-green-600" />,
@@ -104,6 +105,12 @@ export default async function ApplicationDetailPage({
     dueDate: t.dueDate,
     slug: t.slug ?? null,
   }));
+
+  const { data: outcomeRow } = await supabase
+    .from("ApplicationOutcome")
+    .select("outcome, awardedAmount, funderFeedback, learningNotes")
+    .eq("applicationId", application.id)
+    .maybeSingle();
 
   const itemRows = (items ?? []) as { status?: string | null }[];
   const terminalItemCount = itemRows.filter(
@@ -295,6 +302,18 @@ export default async function ApplicationDetailPage({
           applicationId={application.id}
           grantId={grantId || undefined}
           tasks={tasks}
+        />
+      )}
+
+      {["REVIEW_REQUIRED", "APPROVED", "SUBMITTED", "FAILED"].includes(application.status) && (
+        <OutcomeLearningForm
+          applicationId={application.id}
+          existingOutcome={(outcomeRow as {
+            outcome?: "applied" | "shortlisted" | "awarded" | "rejected" | "withdrawn" | "unknown";
+            awardedAmount?: number | null;
+            funderFeedback?: string | null;
+            learningNotes?: string | null;
+          } | null) ?? null}
         />
       )}
 

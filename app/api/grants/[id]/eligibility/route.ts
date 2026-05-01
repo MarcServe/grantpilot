@@ -19,7 +19,23 @@ function profileToMatching(profile: Record<string, unknown>) {
     fundingPurposes: Array.isArray(profile.fundingPurposes) ? profile.fundingPurposes as string[] : (Array.isArray(profile.funding_purposes) ? profile.funding_purposes as string[] : []),
     fundingDetails: profile.fundingDetails != null ? String(profile.fundingDetails) : (profile.funding_details != null ? String(profile.funding_details) : null),
     businessType: String(get("businessType") ?? get("business_type") ?? ""),
+    fundingOutcomeSignals: profile.fundingOutcomeSignals != null ? String(profile.fundingOutcomeSignals) : null,
   };
+}
+
+function buildOutcomeSignals(outcomes: unknown[] | null): string {
+  const rows = Array.isArray(outcomes) ? outcomes : [];
+  if (rows.length === 0) return "";
+  return rows
+    .slice(0, 8)
+    .map((row) => {
+      const item = row as { outcome?: string; awardedAmount?: number | null; funderFeedback?: string | null; Grant?: { name?: string; funder?: string } | { name?: string; funder?: string }[] };
+      const grant = Array.isArray(item.Grant) ? item.Grant[0] : item.Grant;
+      const amount = item.awardedAmount ? `, awarded £${Number(item.awardedAmount).toLocaleString("en-GB")}` : "";
+      const feedback = item.funderFeedback ? `, feedback: ${item.funderFeedback.slice(0, 240)}` : "";
+      return `${grant?.name ?? "Grant"} (${grant?.funder ?? "Funder"}): ${item.outcome ?? "unknown"}${amount}${feedback}`;
+    })
+    .join("\n");
 }
 
 export async function GET(
@@ -64,6 +80,14 @@ export async function GET(
       regions: string[];
     };
 
+    const { data: outcomeRows } = await supabase
+      .from("ApplicationOutcome")
+      .select("outcome, awardedAmount, funderFeedback, Grant(name, funder)")
+      .eq("organisationId", orgId)
+      .eq("profileId", profile.id)
+      .order("reportedAt", { ascending: false })
+      .limit(8);
+
     if (useCache) {
       const { data: cached } = await supabase
         .from("EligibilityAssessment")
@@ -106,6 +130,8 @@ export async function GET(
             met: [],
             missing: [applicantGate.reason],
             confidenceBand: getConfidenceBand(gatedScore),
+            winProbability: gatedScore,
+            evidenceStrength: "weak",
           });
         }
         return NextResponse.json({
@@ -120,12 +146,17 @@ export async function GET(
           met: (c.met_criteria as string[]) ?? [],
           missing: (c.missing_criteria as string[]) ?? [],
           confidenceBand: getConfidenceBand(score),
+          winProbability: score,
+          evidenceStrength: score >= 80 ? "strong" : score >= 55 ? "medium" : "weak",
         });
       }
     }
 
     const result = await getEligibilityDecision(
-      profileToMatching(profile as Record<string, unknown>),
+      profileToMatching({
+        ...(profile as Record<string, unknown>),
+        fundingOutcomeSignals: buildOutcomeSignals(outcomeRows ?? []),
+      }),
       {
         id: g.id,
         name: g.name,

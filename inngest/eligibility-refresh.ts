@@ -51,7 +51,22 @@ function profileToMatching(profile: Record<string, unknown>) {
     fundingPurposes: Array.isArray(profile.fundingPurposes) ? profile.fundingPurposes as string[] : (Array.isArray(profile.funding_purposes) ? profile.funding_purposes as string[] : []),
     fundingDetails: profile.fundingDetails != null ? String(profile.fundingDetails) : (profile.funding_details != null ? String(profile.funding_details) : null),
     businessType: String(get("businessType") ?? get("business_type") ?? ""),
+    fundingOutcomeSignals: profile.fundingOutcomeSignals != null ? String(profile.fundingOutcomeSignals) : null,
   };
+}
+
+function buildOutcomeSignals(outcomes: unknown[] | null): string {
+  const rows = Array.isArray(outcomes) ? outcomes : [];
+  return rows
+    .slice(0, 8)
+    .map((row) => {
+      const item = row as { outcome?: string; awardedAmount?: number | null; funderFeedback?: string | null; Grant?: { name?: string; funder?: string } | { name?: string; funder?: string }[] };
+      const grant = Array.isArray(item.Grant) ? item.Grant[0] : item.Grant;
+      const amount = item.awardedAmount ? `, awarded £${Number(item.awardedAmount).toLocaleString("en-GB")}` : "";
+      const feedback = item.funderFeedback ? `, feedback: ${item.funderFeedback.slice(0, 240)}` : "";
+      return `${grant?.name ?? "Grant"} (${grant?.funder ?? "Funder"}): ${item.outcome ?? "unknown"}${amount}${feedback}`;
+    })
+    .join("\n");
 }
 
 function getProfileOrgId(p: { organisationId?: string; organisation_id?: string }): string | null {
@@ -250,6 +265,14 @@ export async function runEligibilityRefreshJob(options?: {
           type: d.type ?? "",
           category: d.category ?? null,
         }));
+        const { data: outcomeRows } = await supabase
+          .from("ApplicationOutcome")
+          .select("outcome, awardedAmount, funderFeedback, Grant(name, funder)")
+          .eq("organisationId", orgId)
+          .eq("profileId", profileId)
+          .order("reportedAt", { ascending: false })
+          .limit(8);
+        const fundingOutcomeSignals = buildOutcomeSignals(outcomeRows ?? []);
 
         for (const grantId of layer3Ids) {
           const grant = locationFiltered.find((g) => g.id === grantId);
@@ -257,7 +280,10 @@ export async function runEligibilityRefreshJob(options?: {
 
           try {
             const result = await getEligibilityDecision(
-              profileToMatching(profile as Record<string, unknown>),
+              profileToMatching({
+                ...(profile as Record<string, unknown>),
+                fundingOutcomeSignals,
+              }),
               {
                 id: grant.id,
                 name: grant.name,

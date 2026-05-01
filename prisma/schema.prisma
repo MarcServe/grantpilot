@@ -65,6 +65,7 @@ model Organisation {
   usage              Usage[]
   portalCredentials  PortalCredential[]
   founderFundingPacks FounderFundingPack[]
+  applicationOutcomes ApplicationOutcome[]
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
 }
@@ -114,6 +115,7 @@ model BusinessProfile {
   documents          Document[]
   applications       Application[]
   founderFundingPacks FounderFundingPack[]
+  applicationOutcomes ApplicationOutcome[]
   completionScore    Int           @default(0)
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
@@ -167,6 +169,7 @@ model Grant {
   url_status       String        @default("unknown") // live, dead, expired, unknown
   url_checked_at   DateTime?     // last time the URL was verified
   applications    Application[]
+  applicationOutcomes ApplicationOutcome[]
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 }
@@ -192,10 +195,35 @@ model Application {
   focusNotes     String?         @db.Text     // User notes guiding AI for this specific grant
   status         AppStatus       @default(PENDING)
   submittedAt    DateTime?
+  outcome        ApplicationOutcome?
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
 
   @@index([organisationId])
+}
+
+model ApplicationOutcome {
+  id             String          @id @default(cuid())
+  organisationId String
+  organisation   Organisation    @relation(fields: [organisationId], references: [id])
+  applicationId  String          @unique
+  application    Application     @relation(fields: [applicationId], references: [id])
+  grantId        String
+  grant          Grant           @relation(fields: [grantId], references: [id])
+  profileId      String
+  profile        BusinessProfile @relation(fields: [profileId], references: [id])
+  reportedById   String?
+  outcome        String
+  awardedAmount  Float?
+  funderFeedback String?         @db.Text
+  learningNotes  String?         @db.Text
+  reportedAt     DateTime        @default(now())
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([organisationId])
+  @@index([grantId])
+  @@index([profileId])
 }
 
 model Usage {
