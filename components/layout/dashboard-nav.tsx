@@ -106,27 +106,20 @@ function NavLinks({
   );
 }
 
-export function DashboardNav({ profileStrength = 0 }: { profileStrength?: number }) {
+type DashboardNavPlacement = "sidebar" | "header";
+
+export function DashboardNav({
+  profileStrength = 0,
+  placement = "sidebar",
+}: {
+  profileStrength?: number;
+  placement?: DashboardNavPlacement;
+}) {
   const [open, setOpen] = useState(false);
   const score = Math.max(0, Math.min(100, Math.round(profileStrength)));
 
-  return (
-    <>
-      <nav className="hidden lg:block">
-        <NavLinks />
-      </nav>
-
-      <div className="mt-auto hidden rounded-2xl border border-white/18 bg-white/[0.04] p-4 text-white lg:block">
-        <p className="text-[13px] font-bold text-white/86">Profile Strength</p>
-        <p className="mt-2 text-[28px] font-black leading-none">{score}%</p>
-        <div className="mt-4 h-2 rounded-full bg-white/18">
-          <div className="h-full rounded-full bg-[#35c386]" style={{ width: `${score}%` }} />
-        </div>
-        <p className="mt-3 text-[12px] font-medium text-white/82">
-          {score >= 85 ? "Excellent" : score >= 60 ? "Good progress" : "Needs attention"}
-        </p>
-      </div>
-
+  if (placement === "header") {
+    return (
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetTrigger asChild>
           <Button
@@ -149,6 +142,25 @@ export function DashboardNav({ profileStrength = 0 }: { profileStrength?: number
           </nav>
         </SheetContent>
       </Sheet>
+    );
+  }
+
+  return (
+    <>
+      <nav>
+        <NavLinks />
+      </nav>
+
+      <div className="mt-auto rounded-2xl border border-white/18 bg-white/[0.04] p-4 text-white">
+        <p className="text-[13px] font-bold text-white/86">Profile Strength</p>
+        <p className="mt-2 text-[28px] font-black leading-none">{score}%</p>
+        <div className="mt-4 h-2 rounded-full bg-white/18">
+          <div className="h-full rounded-full bg-[#35c386]" style={{ width: `${score}%` }} />
+        </div>
+        <p className="mt-3 text-[12px] font-medium text-white/82">
+          {score >= 85 ? "Excellent" : score >= 60 ? "Good progress" : "Needs attention"}
+        </p>
+      </div>
     </>
   );
 }

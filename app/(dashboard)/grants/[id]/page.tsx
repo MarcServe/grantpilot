@@ -56,12 +56,18 @@ export default async function GrantDetailPage({
   if (profileId) {
     const { data: assessment } = await supabase
       .from("EligibilityAssessment")
-      .select("score")
+      .select("score, scoring_source, summary")
       .eq("organisation_id", orgId)
       .eq("profile_id", profileId)
       .eq("grant_id", grant.id)
       .maybeSingle();
-    eligibilityScore = (assessment as { score?: number } | null)?.score ?? null;
+    const assessmentRow = assessment as { score?: number; scoring_source?: string | null; summary?: string | null } | null;
+    const source = assessmentRow?.scoring_source ?? (assessmentRow?.summary?.startsWith("Preliminary fit") ? "heuristic" : "openai");
+    eligibilityScore = assessmentRow?.score == null
+      ? null
+      : source === "heuristic"
+        ? Math.min(assessmentRow.score, 69)
+        : assessmentRow.score;
     const applicantGate = getApplicantTypeGate(
       String((profile as Record<string, unknown>).businessType ?? (profile as Record<string, unknown>).business_type ?? ""),
       {
@@ -245,6 +251,13 @@ export default async function GrantDetailPage({
                 {r}
               </Badge>
             ))}
+            {(grant as { source?: string | null }).source && (
+              <Badge variant={(grant as { source?: string | null }).source === "openai" ? "default" : "secondary"}>
+                {(grant as { source?: string | null }).source === "openai"
+                  ? "OpenAI discovered"
+                  : `${String((grant as { source?: string | null }).source).replace(/-/g, ".")} source`}
+              </Badge>
+            )}
           </div>
 
           <Separator />

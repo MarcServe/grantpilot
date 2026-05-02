@@ -48,11 +48,12 @@ export function SignInForm() {
           <div className="mx-auto flex justify-center mb-2">
               <div className="relative flex items-center">
                 <Image 
-                  src="/Newpilot_1.png" 
+                  src="/grantcomotion.gif" 
                   alt="GrantsCopilot Logo" 
                   width={800} 
                   height={200} 
                   className="h-40 w-auto object-contain mix-blend-multiply"
+                  unoptimized
                   priority
                 />
               </div>
@@ -60,7 +61,7 @@ export function SignInForm() {
           <CardTitle className="text-2xl">Welcome back</CardTitle>
           <CardDescription>Sign in to your Grants-Copilot account</CardDescription>
         </CardHeader>
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-6">
           <CardContent className="space-y-4">
             {error && (
               <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">

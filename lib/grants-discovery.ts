@@ -9,6 +9,7 @@ import { discoverGrantsWithPerplexity } from "./grants-discovery-perplexity";
 import { discoverGrantsWithGemini } from "./grants-discovery-gemini";
 import { upsertGrant, type GrantInput } from "./grants-ingest";
 import { checkUrlHealth } from "./url-health-check";
+import { inferFunderLocationsFromProfile } from "@/lib/constants";
 
 function normaliseKey(g: GrantInput): string {
   return `${(g.name ?? "").toLowerCase().trim()}|${(g.funder ?? "").toLowerCase().trim()}`;
@@ -175,6 +176,6 @@ export function profileToDiscoveryProfile(profile: {
     fundingMin: Number(profile.fundingMin) || 0,
     fundingMax: Number(profile.fundingMax) || 0,
     fundingPurposes: Array.isArray(profile.fundingPurposes) ? profile.fundingPurposes : [],
-    funderLocations: (profile.funderLocations ?? []) as ("US" | "UK" | "EU" | "CA" | "AU" | "Global")[],
+    funderLocations: inferFunderLocationsFromProfile(profile) as ("US" | "UK" | "EU" | "CA" | "AU" | "Global")[],
   };
 }

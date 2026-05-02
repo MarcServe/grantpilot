@@ -1,5 +1,5 @@
 import { getSupabaseAdmin } from "./supabase";
-import { PLAN_LIMITS, type PlanKey } from "./stripe";
+import { PLAN_LIMITS, type PlanKey } from "./plans";
 
 export async function checkUsageLimit(
   organisationId: string,

@@ -5,6 +5,7 @@ import { GrantsListClient } from "@/components/grants/grants-list-client";
 import { computeUrgency } from "@/lib/urgency";
 import { isGrantLinkUsable } from "@/lib/grant-freshness";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
+import { inferFunderLocationsFromProfile } from "@/lib/constants";
 
 export default async function GrantsPage() {
   const { org, orgId } = await getActiveOrg();
@@ -19,22 +20,32 @@ export default async function GrantsPage() {
   const profile = org.profiles?.[0];
   const hasProfile = !!profile;
   const profileComplete = (profile?.completionScore ?? 0) >= 50;
-  const userFunderLocations = (profile as { funderLocations?: string[] } | undefined)?.funderLocations ?? [];
+  const userFunderLocations = inferFunderLocationsFromProfile(profile as {
+    funderLocations?: string[] | null;
+    location?: string | null;
+    country?: string | null;
+    region?: string | null;
+  } | undefined);
   const appliedGrantIds = profile ? await getAppliedGrantIds(supabase, orgId, profile.id) : new Set<string>();
   const grants = allGrants.filter((grant) => !appliedGrantIds.has(grant.id));
 
-  const cachedScores: Record<string, { score: number; summary?: string }> = {};
+  const cachedScores: Record<string, { score: number; summary?: string; scoringSource?: string }> = {};
   let savedGrantIds: string[] = [];
   if (profileComplete && profile) {
     const { data: rowsData } = await supabase
       .from("EligibilityAssessment")
-      .select("grant_id, score, summary")
+      .select("grant_id, score, summary, scoring_source")
       .eq("organisation_id", orgId)
       .eq("profile_id", profile.id);
     const rows = Array.isArray(rowsData) ? rowsData : [];
-    for (const row of rows as { grant_id: string; score: number; summary: string | null }[]) {
+    for (const row of rows as { grant_id: string; score: number; summary: string | null; scoring_source?: string | null }[]) {
       if (appliedGrantIds.has(row.grant_id)) continue;
-      cachedScores[row.grant_id] = { score: row.score, summary: row.summary ?? undefined };
+      const scoringSource = row.scoring_source ?? (row.summary?.startsWith("Preliminary fit") ? "heuristic" : "openai");
+      cachedScores[row.grant_id] = {
+        score: scoringSource === "heuristic" ? Math.min(row.score, 69) : row.score,
+        summary: row.summary ?? undefined,
+        scoringSource,
+      };
     }
     const { data: savedData } = await supabase
       .from("SavedGrant")
@@ -78,6 +89,7 @@ export default async function GrantsPage() {
             regions: g.regions ?? [],
             applicantTypes: g.applicantTypes ?? [],
             funderLocations: g.funderLocations ?? [],
+            source: g.source ?? null,
             eligibility: g.eligibility ?? "",
             applicationUrl: g.applicationUrl ?? "",
             urgencyLevel: urgency.level,

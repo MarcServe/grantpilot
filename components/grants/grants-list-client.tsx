@@ -37,11 +37,13 @@ interface GrantData {
   createdAt?: string | null;
   urlStatus?: string | null;
   urlCheckedAt?: string | null;
+  source?: string | null;
 }
 
 interface CachedScore {
   score: number;
   summary?: string;
+  scoringSource?: string;
 }
 
 interface GrantsListClientProps {
@@ -58,7 +60,7 @@ function matchesFunderLocations(
   userFL: string[]
 ): boolean {
   if (userFL.length === 0) return true;
-  if (grantFL.length === 0) return true;
+  if (grantFL.length === 0) return false;
   return grantFL.some((r) => userFL.includes(r));
 }
 
@@ -148,7 +150,7 @@ export function GrantsListClient({
       result = result.filter((g) => savedSet.has(g.id));
     } else if (regionFilter) {
       result = result.filter(
-        (g) => g.funderLocations.length === 0 || g.funderLocations.includes(regionFilter)
+        (g) => g.funderLocations.includes(regionFilter)
       );
     }
 
@@ -275,6 +277,8 @@ export function GrantsListClient({
               onToggleSave={profileComplete ? () => toggleSaved(grant.id, isSaved) : undefined}
               urlStatus={grant.urlStatus}
               urlCheckedAt={grant.urlCheckedAt}
+              source={grant.source}
+              scoringSource={cached?.scoringSource}
             />
           );
         })}

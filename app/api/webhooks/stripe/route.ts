@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getStripe, getPlanFromPriceId, type PlanKey } from "@/lib/stripe";
+import { getStripe, getPlanFromPriceId } from "@/lib/stripe";
+import type { PlanKey } from "@/lib/plans";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { notifyOrgMembers } from "@/lib/notify";
 import type Stripe from "stripe";

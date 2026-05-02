@@ -37,6 +37,7 @@ interface EligibilityResult {
   confidenceBand?: "high" | "medium" | "low";
   winProbability?: number;
   evidenceStrength?: "strong" | "medium" | "weak";
+  scoringSource?: "openai" | "heuristic" | "embedding" | "manual";
 }
 
 function AutoImproveButton({ grantId, applicationId }: { grantId: string; applicationId?: string }) {
@@ -221,6 +222,9 @@ export function EligibilityCard({ grantId, applicationId }: { grantId: string; a
               <span className="text-base font-semibold">
                 Funding fit: {score}%
               </span>
+              <Badge variant={result.scoringSource === "heuristic" ? "outline" : "secondary"}>
+                {result.scoringSource === "heuristic" ? "Preliminary fit" : "Company-DNA AI scored"}
+              </Badge>
               {result.winProbability != null && (
                 <Badge variant="secondary">
                   Win probability: {Math.round(result.winProbability)}%
@@ -246,7 +250,11 @@ export function EligibilityCard({ grantId, applicationId }: { grantId: string; a
             <p className="text-sm leading-relaxed">{result.summary ?? result.reason}</p>
             {(result.met?.length || result.missing?.length) ? (
               <div className="rounded-md border bg-muted/30 p-3">
-                <p className="mb-2 text-xs font-medium text-muted-foreground">Why your funding fit is {score}%</p>
+                <p className="mb-2 text-xs font-medium text-muted-foreground">
+                  {result.scoringSource === "heuristic"
+                    ? "Preliminary signals only"
+                    : `Why your company DNA gives this grant a ${score}% fit`}
+                </p>
                 {result.met && result.met.length > 0 && (
                   <ul className="space-y-1 text-sm text-green-700 dark:text-green-400">
                     {result.met.map((m, i) => (
@@ -321,7 +329,7 @@ export function EligibilityCard({ grantId, applicationId }: { grantId: string; a
             <div className="flex flex-wrap gap-2">
               <Button variant="ghost" size="sm" onClick={() => handleCheck(true)} disabled={loading}>
                 {loading ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
-                Re-check (fresh GrantsCopilot)
+                {result.scoringSource === "heuristic" ? "Run full company-DNA check" : "Re-check fresh"}
               </Button>
               {score < 85 && (result.improvementPlan?.actions?.length || result.missing?.length) ? (
                 <AutoImproveButton grantId={grantId} applicationId={applicationId} />

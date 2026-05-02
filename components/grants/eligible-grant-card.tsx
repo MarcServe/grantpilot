@@ -15,6 +15,7 @@ export interface EligibleGrant {
   summary: string | null;
   missingCriteria: string[] | null;
   improvementPlan: { gaps?: string[]; actions?: string[] } | null;
+  scoringSource?: string | null;
 }
 
 const ONE_WEEK_MS = 7 * 86_400_000;
@@ -73,9 +74,15 @@ export function EligibleGrantCard({ grant }: { grant: EligibleGrant }) {
           </p>
         </div>
         <Badge variant={scoreBadgeVariant(grant.score)} className="shrink-0">
-          {grant.score}% match
+          {grant.score}% {grant.scoringSource === "heuristic" ? "prelim" : "match"}
         </Badge>
       </div>
+
+      {grant.scoringSource === "heuristic" && (
+        <Badge variant="outline" className="w-fit border-amber-200 bg-amber-50 text-amber-700">
+          Needs full company-DNA AI review
+        </Badge>
+      )}
 
       {grant.summary && (
         <p className="text-sm text-muted-foreground line-clamp-2">{grant.summary}</p>

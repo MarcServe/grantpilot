@@ -24,6 +24,7 @@ import {
   Trophy,
   Users,
 } from "lucide-react";
+import { PLAN_CATALOG } from "@/lib/plans";
 
 const navItems = ["Features", "How It Works", "Pricing", "Resources", "About Us"];
 
@@ -76,33 +77,15 @@ const featureCards = [
   },
 ];
 
-const pricingTiers = [
-  {
-    name: "Starter",
-    price: "Free",
-    detail: "For founders validating funding fit",
-    features: ["Business profile", "Fresh grant discovery", "Basic eligibility signals"],
-    cta: "Start Free",
-    href: "/sign-up",
-  },
-  {
-    name: "Pro",
-    price: "£29/mo",
-    detail: "For SMEs actively applying",
-    features: ["Predictive scoring", "AI application drafting", "Deadline reminders", "Outcome learning"],
-    cta: "Get Pro",
-    href: "/sign-up",
-    featured: true,
-  },
-  {
-    name: "Business",
-    price: "£99/mo",
-    detail: "For teams, advisors, and operators",
-    features: ["Multi-profile workspace", "Founder funding pack", "Automation workflows", "Priority intelligence"],
-    cta: "Book a Demo",
-    href: "#book-demo",
-  },
-];
+const pricingTiers = PLAN_CATALOG.map((plan) => ({
+  name: plan.marketingName,
+  price: plan.price,
+  detail: plan.detail,
+  features: plan.homepageFeatures,
+  cta: plan.cta,
+  href: plan.href,
+  featured: plan.featured,
+}));
 
 const resources = [
   {
@@ -175,8 +158,8 @@ export default function LandingPage() {
       </header>
 
       <main>
-        <section className="mx-auto grid max-w-[1480px] items-center gap-8 px-4 pb-10 pt-6 sm:px-6 lg:grid-cols-[0.78fr_1.22fr] lg:px-10 lg:pb-12 lg:pt-10">
-          <div className="max-w-[610px]">
+        <section className="mx-auto flex max-w-[1480px] flex-col gap-8 px-4 pb-10 pt-6 sm:px-6 lg:flex-row lg:items-start lg:gap-10 lg:px-10 lg:pb-12 lg:pt-10">
+          <div className="order-2 w-full max-w-[610px] shrink-0 lg:order-1 lg:max-w-[min(100%,610px)] lg:basis-[min(610px,44%)]">
             <div className="inline-flex min-h-8 max-w-full items-center gap-2 rounded-full bg-[#e8f0ff] px-3 py-1.5 text-[13px] font-bold text-[#105fdf] sm:px-4 sm:text-[14px]">
               <Sparkles className="h-4 w-4" />
               <span className="truncate">AI-Powered Grant Automation</span>
@@ -221,7 +204,28 @@ export default function LandingPage() {
             </div>
           </div>
 
-          <DashboardPreview />
+          <div className="order-1 mx-auto min-w-0 w-full max-w-[640px] flex-1 rounded-2xl border border-[#e2ebf6] bg-white p-6 shadow-[0_18px_45px_rgba(7,26,58,0.07)] sm:p-8 lg:order-2 lg:mx-0 lg:mt-30 lg:max-w-none lg:rounded-2xl lg:p-8">
+            <div className="flex justify-center lg:justify-start">
+              <Image
+                src="/grantcomotion.gif"
+                alt="GrantsCopilot"
+                width={800}
+                height={200}
+                className="h-auto max-h-[220px] w-full max-w-[560px] object-contain lg:max-h-[min(260px,28vw)] lg:max-w-full"
+                unoptimized
+                priority
+              />
+            </div>
+          </div>
+        </section>
+
+        <section
+          className="mx-auto max-w-[1480px] px-4 pb-12 pt-2 sm:px-6 lg:px-10 lg:pb-16"
+          aria-label="Workspace preview"
+        >
+          <div className="flex justify-center lg:justify-end">
+            <DashboardPreview />
+          </div>
         </section>
 
         <section id="features" className="mx-auto max-w-[1480px] px-4 py-10 sm:px-6 sm:py-12 lg:px-10">
@@ -448,9 +452,9 @@ export default function LandingPage() {
 
 function DashboardPreview() {
   return (
-    <div className="relative mx-auto w-full max-w-[860px]">
-      <div className="absolute -inset-5 rounded-[34px] bg-[#dceaff]/65 blur-3xl" />
-      <div className="relative grid overflow-hidden rounded-[20px] bg-white shadow-[0_30px_80px_rgba(7,26,58,0.14)] lg:grid-cols-[180px_1fr]">
+    <div className="relative mx-auto w-full max-w-[860px] lg:mx-0 lg:max-w-none">
+      <div className="pointer-events-none absolute inset-x-[-1.25rem] top-[4.5rem] bottom-[-1.25rem] z-0 rounded-[34px] bg-[#dceaff]/65 blur-3xl" />
+      <div className="relative z-10 grid overflow-hidden rounded-[20px] bg-white shadow-[0_30px_80px_rgba(7,26,58,0.14)] lg:grid-cols-[180px_1fr]">
         <aside className="hidden bg-[#001a34] px-4 py-6 text-white lg:block">
           <h2 className="px-2 text-[21px] font-black">GrantsCopilot</h2>
           <div className="mt-6 space-y-2">
@@ -479,7 +483,7 @@ function DashboardPreview() {
           </div>
         </aside>
 
-        <div className="min-w-0 p-5 sm:p-7">
+        <div className="@container/preview min-w-0 p-5 sm:p-7">
           <div className="flex items-start justify-between gap-4">
             <div>
               <h2 className="text-[21px] font-black text-[#071a3a]">Welcome back, Michael! 👋</h2>
@@ -494,19 +498,24 @@ function DashboardPreview() {
             </div>
           </div>
 
-          <div className="mt-7 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-7 grid min-w-0 grid-cols-1 gap-3 @min-[340px]/preview:grid-cols-2 @min-[580px]/preview:grid-cols-4">
             {stats.map((stat) => {
               const Icon = stat.icon;
               return (
-                <div key={stat.label} className="rounded-lg border border-[#eef2f7] bg-white p-4 shadow-[0_10px_28px_rgba(9,34,74,0.07)]">
-                  <div className="flex items-center gap-3">
-                    <span className={`flex h-10 w-10 items-center justify-center rounded-full ${toneClasses[stat.tone]}`}>
+                <div
+                  key={stat.label}
+                  className="@container/stat min-w-0 rounded-lg border border-[#eef2f7] bg-white p-4 shadow-[0_10px_28px_rgba(9,34,74,0.07)]"
+                >
+                  <div className="flex flex-col gap-2 @[200px]/stat:flex-row @[200px]/stat:items-center @[200px]/stat:gap-3">
+                    <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${toneClasses[stat.tone]}`}>
                       <Icon className="h-5 w-5" />
                     </span>
-                    <div>
-                      <p className="text-[11px] font-semibold text-[#65748c]">{stat.label}</p>
-                      <p className="text-[24px] font-black leading-none text-[#071a3a]">{stat.value}</p>
-                      <p className="mt-1 text-[11px] font-semibold text-[#071a3a]">{stat.detail}</p>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] font-semibold leading-snug text-[#65748c]">{stat.label}</p>
+                      <p className="break-words text-xl font-black leading-none tracking-tight text-[#071a3a] @[200px]/stat:text-2xl">
+                        {stat.value}
+                      </p>
+                      <p className="mt-1 text-[11px] font-semibold leading-snug text-[#071a3a]">{stat.detail}</p>
                     </div>
                   </div>
                 </div>
@@ -514,8 +523,8 @@ function DashboardPreview() {
             })}
           </div>
 
-          <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_1fr]">
-            <div className="rounded-lg border border-[#eef2f7] bg-white p-5 shadow-[0_10px_28px_rgba(9,34,74,0.07)]">
+          <div className="mt-4 grid min-w-0 grid-cols-1 gap-4 @min-[460px]/preview:grid-cols-2">
+            <div className="min-w-0 rounded-lg border border-[#eef2f7] bg-white p-5 shadow-[0_10px_28px_rgba(9,34,74,0.07)]">
               <div className="flex items-center justify-between">
                 <h3 className="text-[15px] font-black text-[#071a3a]">Top Matched Opportunities</h3>
                 <Link href="/grants/eligible" className="text-[12px] font-bold text-[#2167e8]">
@@ -543,10 +552,10 @@ function DashboardPreview() {
               </div>
             </div>
 
-            <div className="rounded-lg border border-[#eef2f7] bg-white p-5 shadow-[0_10px_28px_rgba(9,34,74,0.07)]">
+            <div className="@container/aprog min-w-0 rounded-lg border border-[#eef2f7] bg-white p-5 shadow-[0_10px_28px_rgba(9,34,74,0.07)]">
               <h3 className="text-[15px] font-black text-[#071a3a]">Application Progress</h3>
-              <div className="mt-5 flex items-center justify-center gap-8">
-                <div className="grid h-32 w-32 place-items-center rounded-full bg-[conic-gradient(#2167e8_0_42%,#35c386_42%_73%,#4bc7ad_73%_100%)]">
+              <div className="mt-5 flex flex-col items-center gap-6 @min-[260px]/aprog:flex-row @min-[260px]/aprog:justify-center @min-[260px]/aprog:gap-8">
+                <div className="grid h-32 w-32 shrink-0 place-items-center rounded-full bg-[conic-gradient(#2167e8_0_42%,#35c386_42%_73%,#4bc7ad_73%_100%)]">
                   <div className="grid h-20 w-20 place-items-center rounded-full bg-white text-center shadow-inner">
                     <div>
                       <p className="text-[26px] font-black leading-none text-[#071a3a]">7</p>
@@ -554,7 +563,7 @@ function DashboardPreview() {
                     </div>
                   </div>
                 </div>
-                <div className="space-y-4 text-[12px] font-bold">
+                <div className="w-full min-w-0 max-w-[200px] space-y-4 text-[12px] font-bold">
                   <Legend color="bg-[#2167e8]" label="Draft" value="3" />
                   <Legend color="bg-[#4bc7ad]" label="In Review" value="2" />
                   <Legend color="bg-[#35c386]" label="Ready to Submit" value="2" />
@@ -641,10 +650,10 @@ function ArrowDivider() {
 
 function Legend({ color, label, value }: { color: string; label: string; value: string }) {
   return (
-    <div className="grid grid-cols-[14px_1fr_16px] items-center gap-2">
-      <span className={`h-3 w-3 rounded-full ${color}`} />
-      <span>{label}</span>
-      <span className="text-right">{value}</span>
+    <div className="grid min-w-0 grid-cols-[14px_minmax(0,1fr)_28px] items-center gap-2">
+      <span className={`h-3 w-3 shrink-0 rounded-full ${color}`} />
+      <span className="min-w-0 break-words leading-snug">{label}</span>
+      <span className="shrink-0 text-right tabular-nums">{value}</span>
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { inngest } from "./client";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getEligibilityDecision } from "@/lib/claude";
 import { notifyOrgMembers } from "@/lib/notify";
-import { grantMatchesFunderLocations } from "@/lib/constants";
+import { grantMatchesFunderLocations, inferFunderLocationsFromProfile } from "@/lib/constants";
 import { createStartApplicationToken } from "@/lib/start-application-token";
 import { checkRequirementsAgainstDocuments } from "@/lib/grant-requirements";
 import type { DigestGrantItem } from "@/lib/notify";
@@ -158,7 +158,12 @@ export async function runEligibilityRefreshJob(options?: {
         console.info(`[eligibility-refresh]   Excluding ${appliedGrantIds.size} grants with existing applications`);
 
         // ── Funder location pre-filter (existing) ──
-        const userFunderLocations = (profile as { funderLocations?: string[] }).funderLocations;
+        const userFunderLocations = inferFunderLocationsFromProfile(profile as {
+          funderLocations?: string[] | null;
+          location?: string | null;
+          country?: string | null;
+          region?: string | null;
+        });
         const locationFiltered = unappliedGrants.filter((g) => grantMatchesFunderLocations(g.funderLocations, userFunderLocations));
         console.info(`[eligibility-refresh]   ${locationFiltered.length} grants match funder locations (of ${unappliedGrants.length} unapplied, ${grantsList.length} total)`);
 
@@ -315,6 +320,7 @@ export async function runEligibilityRefreshJob(options?: {
                 improvement_plan: result.improvementPlan ?? null,
                 met_criteria: result.met ?? [],
                 missing_criteria: result.missing ?? [],
+                scoring_source: "openai",
                 updated_at: new Date().toISOString(),
               },
               { onConflict: "organisation_id,profile_id,grant_id" }
@@ -365,7 +371,8 @@ export async function runEligibilityRefreshJob(options?: {
           }
         }
 
-        // Persist heuristic scores for grants not sent to OpenAI (so grant list still shows something)
+        // Persist low-confidence heuristic scores for grants not sent to OpenAI.
+        // These keep the list ordered without pretending a full AI eligibility assessment has run.
         const scoredByOpenAIIds = new Set(layer3Ids);
         const unscoredHeuristic = heuristicResults.filter(
           (r) => !scoredByOpenAIIds.has(r.grantId) && !cachedGrantIds.has(r.grantId)
@@ -376,9 +383,11 @@ export async function runEligibilityRefreshJob(options?: {
               organisation_id: orgId,
               profile_id: profileId,
               grant_id: h.grantId,
-              score: h.score,
-              decision: scoreToDecision(h.score),
-              summary: `Heuristic match: ${h.reasons.join(", ")}`,
+              score: Math.min(h.score, 69),
+              decision: scoreToDecision(Math.min(h.score, 69)),
+              summary: `Preliminary fit only: ${h.reasons.join(", ")}. Open the grant and run a fresh GrantsCopilot check for company-DNA reasoning.`,
+              reasons: h.reasons,
+              scoring_source: "heuristic",
               updated_at: new Date().toISOString(),
             },
             { onConflict: "organisation_id,profile_id,grant_id" }

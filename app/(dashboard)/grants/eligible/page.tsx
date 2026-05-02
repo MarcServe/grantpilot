@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { grantMatchesFunderLocations } from "@/lib/constants";
+import { grantMatchesFunderLocations, inferFunderLocationsFromProfile } from "@/lib/constants";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, ArrowRight, Building2 } from "lucide-react";
@@ -49,7 +49,7 @@ export default async function EligibleGrantsPage() {
   // First try: filter by both org and profile
   const assessmentsResult = await supabase
     .from("EligibilityAssessment")
-    .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, updated_at")
+    .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, updated_at, scoring_source")
     .eq("organisation_id", orgId)
     .eq("profile_id", profileId)
     .order("score", { ascending: false });
@@ -61,7 +61,7 @@ export default async function EligibleGrantsPage() {
   if ((!assessmentsData || assessmentsData.length === 0) && !assessmentsError) {
     const fallback = await supabase
       .from("EligibilityAssessment")
-      .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, updated_at, profile_id")
+      .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, updated_at, profile_id, scoring_source")
       .eq("organisation_id", orgId)
       .order("score", { ascending: false });
     if (fallback.data && fallback.data.length > 0) {
@@ -82,6 +82,7 @@ export default async function EligibleGrantsPage() {
     missing_criteria: string[] | null;
     improvement_plan: { gaps?: string[]; actions?: string[] } | null;
     updated_at: string;
+    scoring_source?: string | null;
   }[];
 
   const grantIds = assessments.map((a) => a.grant_id);
@@ -108,7 +109,12 @@ export default async function EligibleGrantsPage() {
       isGrantLinkUsable(grant) && !appliedGrantIds.has(grant.id)
     );
 
-    const userFunderLocations = (profile as { funderLocations?: string[] }).funderLocations;
+    const userFunderLocations = inferFunderLocationsFromProfile(profile as {
+      funderLocations?: string[] | null;
+      location?: string | null;
+      country?: string | null;
+      region?: string | null;
+    });
     const locationFiltered = validGrants.filter((g) =>
       grantMatchesFunderLocations(g.funderLocations, userFunderLocations)
     );
@@ -127,20 +133,23 @@ export default async function EligibleGrantsPage() {
     const grant = grantsMap.get(a.grant_id);
     if (!grant) continue;
 
+    const scoringSource = a.scoring_source ?? (a.summary?.startsWith("Preliminary fit") ? "heuristic" : "openai");
+    const score = scoringSource === "heuristic" ? Math.min(a.score, 69) : a.score;
     allGrants.push({
       grantId: a.grant_id,
       grantName: grant.name,
       funder: grant.funder,
       deadline: grant.deadline,
-      score: a.score,
+      score,
       decision: a.decision,
       summary: a.summary,
       missingCriteria: a.missing_criteria,
       improvementPlan: a.improvement_plan,
+      scoringSource,
     });
 
-    if (a.score >= 80) suggestedCount++;
-    else if (a.score >= 50) withinReachCount++;
+    if (scoringSource !== "heuristic" && score >= 80) suggestedCount++;
+    else if (score >= 50) withinReachCount++;
     else otherCount++;
   }
 

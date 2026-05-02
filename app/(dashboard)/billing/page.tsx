@@ -1,6 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg } from "@/lib/auth";
-import { PLAN_LIMITS } from "@/lib/stripe";
+import { PLAN_LIMITS } from "@/lib/plans";
 import { BillingClient } from "@/components/billing/billing-client";
 
 interface BillingPageProps {

@@ -51,11 +51,12 @@ export default function SignUpPage() {
             <div className="mx-auto flex justify-center mb-2">
               <div className="relative flex items-center">
                 <Image 
-                  src="/Newpilot_1.png" 
+                  src="/grantcomotion.gif" 
                   alt="GrantsCopilot Logo" 
                   width={800} 
                   height={200} 
                   className="h-40 w-auto object-contain mix-blend-multiply"
+                  unoptimized
                   priority
                 />
               </div>
@@ -83,11 +84,12 @@ export default function SignUpPage() {
           <div className="mx-auto flex justify-center mb-2">
               <div className="relative flex items-center">
                 <Image 
-                  src="/Newpilot_1.png" 
+                  src="/grantcomotion.gif" 
                   alt="GrantsCopilot Logo" 
                   width={800} 
                   height={200} 
                   className="h-40 w-auto object-contain mix-blend-multiply"
+                  unoptimized
                   priority
                 />
               </div>

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Check, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
+import { PLAN_CATALOG } from "@/lib/plans";
 
 interface BillingClientProps {
   currentPlan: string;
@@ -20,48 +21,15 @@ interface BillingClientProps {
   billingSuccessFromRedirect?: boolean;
 }
 
-const PLANS = [
-  {
-    name: "Free Trial",
-    value: "FREE_TRIAL",
-    price: "Free",
-    priceId: "",
-    features: [
-      "7-day trial",
-      "1 business profile",
-      "5 grant matches/month",
-      "1 auto-fill/month",
-    ],
-  },
-  {
-    name: "Pro",
-    value: "PRO",
-    price: "£99/mo",
-    priceId: process.env.NEXT_PUBLIC_STRIPE_PRO_PRICE_ID ?? "",
-    features: [
-      "1 business profile",
-      "Unlimited grant matches",
-      "10 auto-fills/month",
-      "Founder Funding Pack",
-      "Email notifications",
-      "WhatsApp notifications",
-    ],
-  },
-  {
-    name: "Business",
-    value: "BUSINESS",
-    price: "£199/mo",
-    priceId: process.env.NEXT_PUBLIC_STRIPE_BUSINESS_PRICE_ID ?? "",
-    features: [
-      "5 business profiles",
-      "Unlimited grant matches",
-      "Unlimited auto-fills",
-      "Founder Funding Pack",
-      "Priority support",
-      "All notification channels",
-    ],
-  },
-];
+const PLANS = PLAN_CATALOG.map((plan) => ({
+  ...plan,
+  priceId:
+    plan.value === "PRO"
+      ? process.env.NEXT_PUBLIC_STRIPE_PRO_PRICE_ID ?? ""
+      : plan.value === "BUSINESS"
+        ? process.env.NEXT_PUBLIC_STRIPE_BUSINESS_PRICE_ID ?? ""
+        : "",
+}));
 
 export function BillingClient({
   currentPlan,

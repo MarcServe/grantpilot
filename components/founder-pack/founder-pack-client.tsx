@@ -42,8 +42,15 @@ function contentIsReady(content?: FounderPackContent | null): content is Founder
       content?.businessPlan ||
       content?.innovationStatement ||
       content?.marketAnalysis ||
+      content?.pitchDeck?.length ||
+      content?.businessModelCanvas?.valuePropositions?.length ||
       content?.founderPositioning ||
       content?.scalabilityPlan ||
+      content?.grantApplicationDraft?.length ||
+      content?.budgetNarrative ||
+      content?.impactMeasurementPlan ||
+      content?.projectWorkplan?.length ||
+      content?.supportLetterTemplate ||
       content?.riskMitigation?.length ||
       content?.evidenceChecklist?.length ||
       content?.nextSteps?.length ||
@@ -73,8 +80,44 @@ function ParagraphBlock({ text }: { text: string }) {
   return <p className="whitespace-pre-line text-sm leading-6 text-muted-foreground">{text}</p>;
 }
 
+function BulletList({ items }: { items: string[] }) {
+  if (items.length === 0) return null;
+  return (
+    <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+      {items.map((item) => (
+        <li key={item}>{item}</li>
+      ))}
+    </ul>
+  );
+}
+
+function CanvasBlock({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div className="rounded-md border bg-background p-3">
+      <h3 className="text-sm font-medium">{title}</h3>
+      <div className="mt-2">
+        <BulletList items={items} />
+      </div>
+    </div>
+  );
+}
+
 function PackDocument({ pack }: { pack: PackSummary }) {
   const content = pack.content;
+  const pitchDeck = content.pitchDeck ?? [];
+  const businessModelCanvas = content.businessModelCanvas ?? {
+    keyPartners: [],
+    keyActivities: [],
+    keyResources: [],
+    valuePropositions: [],
+    customerRelationships: [],
+    channels: [],
+    customerSegments: [],
+    costStructure: [],
+    revenueStreams: [],
+  };
+  const grantApplicationDraft = content.grantApplicationDraft ?? [];
+  const projectWorkplan = content.projectWorkplan ?? [];
   const documentTypes =
     pack.documentTypes?.length
       ? pack.documentTypes
@@ -107,6 +150,57 @@ function PackDocument({ pack }: { pack: PackSummary }) {
             <ParagraphBlock text={content.businessPlan} />
           </Section>
         )}
+        {includes("pitch_deck") && pitchDeck.length > 0 && (
+          <Section title="Canvas Standard Pitch Deck">
+            <div className="grid gap-3">
+              {pitchDeck.map((slide, index) => (
+                <div key={`${slide.title}-${index}`} className="rounded-md border bg-background p-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-blue-600">Slide {index + 1}</p>
+                      <h3 className="mt-1 text-base font-semibold">{slide.title}</h3>
+                    </div>
+                    {slide.objective && (
+                      <Badge variant="secondary" className="w-fit whitespace-normal text-left">
+                        {slide.objective}
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="mt-3">
+                    <BulletList items={slide.bullets} />
+                  </div>
+                  {slide.speakerNotes && (
+                    <p className="mt-3 whitespace-pre-line text-sm leading-6 text-muted-foreground">
+                      <span className="font-medium text-foreground">Speaker notes: </span>
+                      {slide.speakerNotes}
+                    </p>
+                  )}
+                  {slide.visualDirection && (
+                    <p className="mt-2 whitespace-pre-line text-sm leading-6 text-muted-foreground">
+                      <span className="font-medium text-foreground">Design direction: </span>
+                      {slide.visualDirection}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </Section>
+        )}
+        {includes("business_model_canvas") && businessModelCanvas.valuePropositions.length > 0 && (
+          <Section title="Business Model Canvas">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              <CanvasBlock title="Key Partners" items={businessModelCanvas.keyPartners} />
+              <CanvasBlock title="Key Activities" items={businessModelCanvas.keyActivities} />
+              <CanvasBlock title="Key Resources" items={businessModelCanvas.keyResources} />
+              <CanvasBlock title="Value Propositions" items={businessModelCanvas.valuePropositions} />
+              <CanvasBlock title="Customer Relationships" items={businessModelCanvas.customerRelationships} />
+              <CanvasBlock title="Channels" items={businessModelCanvas.channels} />
+              <CanvasBlock title="Customer Segments" items={businessModelCanvas.customerSegments} />
+              <CanvasBlock title="Cost Structure" items={businessModelCanvas.costStructure} />
+              <CanvasBlock title="Revenue Streams" items={businessModelCanvas.revenueStreams} />
+            </div>
+          </Section>
+        )}
         {includes("innovation_statement") && content.innovationStatement && (
           <Section title="Innovation Statement">
             <ParagraphBlock text={content.innovationStatement} />
@@ -136,6 +230,57 @@ function PackDocument({ pack }: { pack: PackSummary }) {
                 </div>
               ))}
             </div>
+          </Section>
+        )}
+        {includes("grant_application_draft") && grantApplicationDraft.length > 0 && (
+          <Section title="Grant Application Draft">
+            <div className="space-y-3">
+              {grantApplicationDraft.map((item) => (
+                <div key={item.question} className="rounded-md border bg-background p-3">
+                  <h3 className="text-sm font-medium">{item.question}</h3>
+                  <p className="mt-2 whitespace-pre-line text-sm leading-6 text-muted-foreground">{item.answer}</p>
+                </div>
+              ))}
+            </div>
+          </Section>
+        )}
+        {includes("budget_narrative") && content.budgetNarrative && (
+          <Section title="Budget Narrative">
+            <ParagraphBlock text={content.budgetNarrative} />
+          </Section>
+        )}
+        {includes("impact_measurement_plan") && content.impactMeasurementPlan && (
+          <Section title="Impact Measurement Plan">
+            <ParagraphBlock text={content.impactMeasurementPlan} />
+          </Section>
+        )}
+        {includes("project_workplan") && projectWorkplan.length > 0 && (
+          <Section title="Project Workplan">
+            <div className="space-y-3">
+              {projectWorkplan.map((phase) => (
+                <div key={`${phase.phase}-${phase.timeline}`} className="rounded-md border bg-background p-3">
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                    <h3 className="text-sm font-medium">{phase.phase}</h3>
+                    {phase.timeline && <Badge variant="outline">{phase.timeline}</Badge>}
+                  </div>
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    <div>
+                      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Activities</p>
+                      <BulletList items={phase.activities} />
+                    </div>
+                    <div>
+                      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Outputs</p>
+                      <BulletList items={phase.outputs} />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Section>
+        )}
+        {includes("support_letter_template") && content.supportLetterTemplate && (
+          <Section title="Support Letter Template">
+            <ParagraphBlock text={content.supportLetterTemplate} />
           </Section>
         )}
         {includes("founder_positioning") && content.founderPositioning && (
@@ -435,7 +580,7 @@ export function FounderPackClient({
               <div>
                 <p className="font-medium">No pack generated yet</p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Complete the inputs and generate a pack to create the business plan, innovation statement, market analysis, projections, and founder positioning.
+                  Complete the inputs and generate a pack to create pitch decks, business plans, grant drafts, budgets, impact plans, and founder positioning.
                 </p>
               </div>
             </CardContent>

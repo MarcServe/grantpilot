@@ -1,5 +1,6 @@
 import { getApplicantTypeGate } from "@/lib/eligibility-hard-gates";
 import { cleanJsonResponse, completeJson } from "@/lib/openai-client";
+import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))];
@@ -164,7 +165,7 @@ Rules:
         evidenceStrength: "weak",
       };
     }
-    return parsed;
+    return applyEligibilityScoreGuards(profile, grant, parsed);
   } catch {
     return {
       decision: "review",

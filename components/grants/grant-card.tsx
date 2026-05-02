@@ -26,6 +26,8 @@ interface GrantCardProps {
   onToggleSave?: () => void;
   urlStatus?: string | null;
   urlCheckedAt?: string | null;
+  source?: string | null;
+  scoringSource?: string | null;
 }
 
 const URGENCY_CLASS: Record<string, string> = {
@@ -52,7 +54,15 @@ export function GrantCard({
   onToggleSave,
   urlStatus,
   urlCheckedAt,
+  source,
+  scoringSource,
 }: GrantCardProps) {
+  const scoreLabel = scoringSource === "heuristic" ? "Prelim" : "Match";
+  const sourceLabel = source
+    ? source === "openai"
+      ? "OpenAI found"
+      : `${source.replace(/-/g, ".").replace(/\b\w/g, (char) => char.toUpperCase())} source`
+    : null;
   return (
     <Card className="transition-shadow hover:shadow-md">
       <CardHeader className="pb-3">
@@ -101,7 +111,10 @@ export function GrantCard({
                     : "bg-muted-foreground"
               }`}
             >
-              {matchScore}%
+              <span className="text-center leading-none">
+                {matchScore}%
+                <span className="mt-0.5 block text-[9px] font-semibold">{scoreLabel}</span>
+              </span>
             </div>
           )}
           </div>
@@ -111,6 +124,18 @@ export function GrantCard({
             Saved
           </Badge>
         )}
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {sourceLabel && (
+            <Badge variant={source === "openai" ? "default" : "outline"} className="w-fit text-xs">
+              {sourceLabel}
+            </Badge>
+          )}
+          {scoringSource === "heuristic" && (
+            <Badge variant="outline" className="w-fit border-amber-200 bg-amber-50 text-xs text-amber-700">
+              Needs full AI review
+            </Badge>
+          )}
+        </div>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="flex flex-wrap gap-2">

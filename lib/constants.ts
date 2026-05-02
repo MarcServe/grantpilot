@@ -22,11 +22,42 @@ export const FUNDER_LOCATION_LABELS: Record<FunderLocation, string> = {
  */
 export function grantMatchesFunderLocations(
   grantFunderLocations: string[] | undefined,
-  userFunderLocations: string[] | undefined
+  userFunderLocations: string[] | undefined,
+  options?: { allowUnknownGrantLocation?: boolean }
 ): boolean {
   const user = userFunderLocations ?? [];
   if (user.length === 0) return true;
   const grant = grantFunderLocations ?? [];
-  if (grant.length === 0) return true; // legacy grants without tag
+  if (grant.length === 0) return options?.allowUnknownGrantLocation === true;
   return grant.some((r) => user.includes(r));
+}
+
+export function inferFunderLocationsFromProfile(profile?: {
+  funderLocations?: string[] | null;
+  location?: string | null;
+  country?: string | null;
+  region?: string | null;
+} | null): FunderLocation[] {
+  const explicit = profile?.funderLocations?.filter((value): value is FunderLocation =>
+    FUNDER_LOCATIONS.includes(value as FunderLocation)
+  );
+  if (explicit?.length) return explicit;
+
+  const text = `${profile?.country ?? ""} ${profile?.region ?? ""} ${profile?.location ?? ""}`.toLowerCase();
+  if (/\b(uk|united kingdom|england|scotland|wales|northern ireland|london|bristol|manchester|birmingham|leeds|cardiff|edinburgh|glasgow|belfast)\b/.test(text)) {
+    return ["UK"];
+  }
+  if (/\b(us|usa|u\.s\.|united states|america|new york|california|texas|florida)\b/.test(text)) {
+    return ["US"];
+  }
+  if (/\b(eu|europe|european union|germany|france|spain|italy|netherlands|ireland|belgium|sweden|denmark)\b/.test(text)) {
+    return ["EU"];
+  }
+  if (/\b(canada|ontario|toronto|vancouver|quebec)\b/.test(text)) {
+    return ["CA"];
+  }
+  if (/\b(australia|sydney|melbourne|queensland|victoria)\b/.test(text)) {
+    return ["AU"];
+  }
+  return [];
 }

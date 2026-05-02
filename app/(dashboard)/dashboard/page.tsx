@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg } from "@/lib/auth";
-import { grantMatchesFunderLocations } from "@/lib/constants";
+import { grantMatchesFunderLocations, inferFunderLocationsFromProfile } from "@/lib/constants";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -127,12 +127,12 @@ export default async function DashboardPage() {
     const appliedGrantIds = await getAppliedGrantIds(supabase, orgId, profile.id);
     const { data: assessmentsData } = await supabase
       .from("EligibilityAssessment")
-      .select("grant_id, score, summary")
+      .select("grant_id, score, summary, scoring_source")
       .eq("organisation_id", orgId)
       .eq("profile_id", profile.id)
       .order("score", { ascending: false });
     const assessments = assessmentsData ?? [];
-    const grantIds = (assessments as { grant_id: string; score: number; summary: string | null }[]).map((a) => a.grant_id);
+    const grantIds = (assessments as { grant_id: string; score: number; summary: string | null; scoring_source?: string | null }[]).map((a) => a.grant_id);
     if (grantIds.length > 0) {
       const BATCH = 200;
       const allGrantsList: { id: string; name: string; funderLocations?: string[] }[] = [];
@@ -144,15 +144,22 @@ export default async function DashboardPage() {
         if (batch) allGrantsList.push(...(batch as typeof allGrantsList));
       }
       const grantsList = allGrantsList;
-      const userFunderLocations = (profile as { funderLocations?: string[] }).funderLocations;
+      const userFunderLocations = inferFunderLocationsFromProfile(profile as {
+        funderLocations?: string[] | null;
+        location?: string | null;
+        country?: string | null;
+        region?: string | null;
+      });
       const nameById = new Map(grantsList.map((g) => [g.id, g.name]));
       const matchesLocation = new Set(grantsList.filter((g) => grantMatchesFunderLocations(g.funderLocations, userFunderLocations)).map((g) => g.id));
-      for (const a of assessments as { grant_id: string; score: number; summary: string | null }[]) {
+      for (const a of assessments as { grant_id: string; score: number; summary: string | null; scoring_source?: string | null }[]) {
         if (appliedGrantIds.has(a.grant_id)) continue;
         if (!matchesLocation.has(a.grant_id)) continue;
         const name = nameById.get(a.grant_id) ?? "Grant";
-        if (a.score >= 80) suggestedGrants.push({ grantId: a.grant_id, grantName: name, score: a.score });
-        else if (a.score >= 50) withinReachGrants.push({ grantId: a.grant_id, grantName: name, score: a.score, summary: a.summary ?? undefined });
+        const source = a.scoring_source ?? (a.summary?.startsWith("Preliminary fit") ? "heuristic" : "openai");
+        const score = source === "heuristic" ? Math.min(a.score, 69) : a.score;
+        if (source !== "heuristic" && score >= 80) suggestedGrants.push({ grantId: a.grant_id, grantName: name, score });
+        else if (score >= 50) withinReachGrants.push({ grantId: a.grant_id, grantName: name, score, summary: a.summary ?? undefined });
       }
     }
   }
@@ -171,14 +178,14 @@ export default async function DashboardPage() {
   const activeCount = activeApplications ?? 0;
   const submittedCount = submittedApplications ?? 0;
   const draftCount = Math.max(totalCount - activeCount - submittedCount, 0);
-  const successRate = totalCount > 0 ? Math.round((submittedCount / totalCount) * 100) : 78;
+  const successRate = totalCount > 0 ? Math.round((submittedCount / totalCount) * 100) : 0;
   const topMatches = [...suggestedGrants, ...withinReachGrants].slice(0, 3);
 
   return (
     <div className="space-y-7">
       <section className="overflow-hidden rounded-[26px] bg-white shadow-[0_24px_70px_rgba(7,26,58,0.08)]">
-        <div className="grid gap-0 xl:grid-cols-[1fr_360px]">
-          <div className="p-6 sm:p-8">
+        <div className="grid min-w-0 gap-0 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="@container/main min-w-0 p-6 sm:p-8">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <h1 className="text-[32px] font-black leading-tight tracking-normal text-[#071a3a]">
@@ -197,12 +204,12 @@ export default async function DashboardPage() {
               </div>
             </div>
 
-            <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="mt-8 grid min-w-0 grid-cols-1 gap-4 @min-[520px]/main:grid-cols-2 @min-[920px]/main:grid-cols-4">
               <MetricCard
                 icon={Search}
                 label="Opportunities"
-                value={topMatches.length || eligibilityGrantCount || 12}
-                detail={topMatches.length ? "Top matches" : "New matches"}
+                value={topMatches.length || eligibilityGrantCount}
+                detail={topMatches.length ? "Top matches" : "Scored grants"}
                 tone="blue"
               />
               <MetricCard
@@ -223,13 +230,13 @@ export default async function DashboardPage() {
                 icon={Gauge}
                 label="Success Rate"
                 value={`${successRate}%`}
-                detail={totalCount > 0 ? "Submitted ratio" : "Projected avg."}
+                detail={totalCount > 0 ? "Submitted ratio" : "No submissions yet"}
                 tone="mint"
               />
             </div>
 
-            <div className="mt-5 grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
-              <div className="rounded-2xl border border-[#e7edf6] bg-white p-5 shadow-[0_14px_36px_rgba(7,26,58,0.06)]">
+            <div className="mt-5 grid min-w-0 grid-cols-1 gap-5 @min-[680px]/main:grid-cols-2">
+              <div className="min-w-0 rounded-2xl border border-[#e7edf6] bg-white p-5 shadow-[0_14px_36px_rgba(7,26,58,0.06)]">
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg font-black text-[#071a3a]">Top Matched Opportunities</h2>
                   <Link href="/grants/eligible" className="text-sm font-extrabold text-[#2167e8]">
@@ -278,10 +285,10 @@ export default async function DashboardPage() {
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-[#e7edf6] bg-white p-5 shadow-[0_14px_36px_rgba(7,26,58,0.06)]">
+              <div className="@container/progress min-w-0 rounded-2xl border border-[#e7edf6] bg-white p-5 shadow-[0_14px_36px_rgba(7,26,58,0.06)]">
                 <h2 className="text-lg font-black text-[#071a3a]">Application Progress</h2>
-                <div className="mt-6 flex flex-col items-center gap-6 sm:flex-row sm:justify-center">
-                  <div className="grid h-40 w-40 place-items-center rounded-full bg-[conic-gradient(#2167e8_0_42%,#35c386_42%_73%,#4bc7ad_73%_100%)]">
+                <div className="mt-6 flex flex-col items-center gap-6 @min-[320px]/progress:flex-row @min-[320px]/progress:flex-wrap @min-[320px]/progress:justify-center">
+                  <div className="grid h-40 w-40 shrink-0 place-items-center rounded-full bg-[conic-gradient(#2167e8_0_42%,#35c386_42%_73%,#4bc7ad_73%_100%)]">
                     <div className="grid h-24 w-24 place-items-center rounded-full bg-white text-center shadow-inner">
                       <div>
                         <p className="text-3xl font-black leading-none text-[#071a3a]">{activeCount}</p>
@@ -289,7 +296,7 @@ export default async function DashboardPage() {
                       </div>
                     </div>
                   </div>
-                  <div className="w-full max-w-[220px] space-y-4 text-sm font-extrabold text-[#071a3a]">
+                  <div className="w-full min-w-0 max-w-[260px] space-y-4 text-sm font-extrabold text-[#071a3a]">
                     <ProgressLegend color="bg-[#2167e8]" label="Draft" value={draftCount} />
                     <ProgressLegend color="bg-[#4bc7ad]" label="In Review" value={activeCount} />
                     <ProgressLegend color="bg-[#35c386]" label="Submitted" value={submittedCount} />
@@ -314,7 +321,7 @@ export default async function DashboardPage() {
             </div>
           </div>
 
-          <div className="border-t border-[#e7edf6] bg-[linear-gradient(180deg,#eef6ff,#ffffff)] p-6 xl:border-l xl:border-t-0">
+          <div className="min-w-0 border-t border-[#e7edf6] bg-[linear-gradient(180deg,#eef6ff,#ffffff)] p-6 xl:border-l xl:border-t-0">
             <div className="rounded-2xl border border-[#dbe7f6] bg-white p-5 shadow-[0_14px_36px_rgba(7,26,58,0.06)]">
               <div className="flex items-center justify-between">
                 <div>
@@ -515,15 +522,15 @@ function MetricCard({
   }[tone];
 
   return (
-    <div className="rounded-2xl border border-[#e7edf6] bg-white p-4 shadow-[0_14px_36px_rgba(7,26,58,0.06)]">
-      <div className="flex items-center gap-3">
+    <div className="@container/metric rounded-2xl border border-[#e7edf6] bg-white p-4 shadow-[0_14px_36px_rgba(7,26,58,0.06)]">
+      <div className="flex flex-col gap-3 @[220px]/metric:flex-row @[220px]/metric:items-center @[220px]/metric:gap-3">
         <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${toneClass}`}>
           <Icon className="h-5 w-5" />
         </span>
-        <div className="min-w-0">
-          <p className="truncate text-xs font-bold text-[#65748c]">{label}</p>
-          <p className="mt-1 text-2xl font-black leading-none text-[#071a3a]">{value}</p>
-          <p className="mt-1 text-xs font-bold text-[#071a3a]">{detail}</p>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-bold leading-snug text-[#65748c]">{label}</p>
+          <p className="mt-1 break-words text-2xl font-black leading-none tracking-tight text-[#071a3a]">{value}</p>
+          <p className="mt-1 text-xs font-bold leading-snug text-[#071a3a]">{detail}</p>
         </div>
       </div>
     </div>
@@ -532,10 +539,10 @@ function MetricCard({
 
 function ProgressLegend({ color, label, value }: { color: string; label: string; value: number }) {
   return (
-    <div className="grid grid-cols-[14px_1fr_28px] items-center gap-2">
-      <span className={`h-3 w-3 rounded-full ${color}`} />
-      <span>{label}</span>
-      <span className="text-right">{value}</span>
+    <div className="grid min-w-0 grid-cols-[14px_minmax(0,1fr)_28px] items-center gap-2">
+      <span className={`h-3 w-3 shrink-0 rounded-full ${color}`} />
+      <span className="min-w-0 break-words leading-snug">{label}</span>
+      <span className="shrink-0 text-right tabular-nums">{value}</span>
     </div>
   );
 }

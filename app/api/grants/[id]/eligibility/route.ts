@@ -91,7 +91,7 @@ export async function GET(
     if (useCache) {
       const { data: cached } = await supabase
         .from("EligibilityAssessment")
-        .select("score, decision, summary, reasons, alignment, improvement_plan, met_criteria, missing_criteria")
+        .select("score, decision, summary, reasons, alignment, improvement_plan, met_criteria, missing_criteria, scoring_source")
         .eq("organisation_id", orgId)
         .eq("profile_id", profile.id)
         .eq("grant_id", grantId)
@@ -106,8 +106,10 @@ export async function GET(
           improvement_plan: unknown;
           met_criteria: unknown;
           missing_criteria: unknown;
+          scoring_source?: string | null;
         };
-        const score = c.score;
+        const scoringSource = c.scoring_source ?? (c.summary?.startsWith("Preliminary fit") ? "heuristic" : "openai");
+        const score = scoringSource === "heuristic" ? Math.min(c.score, 69) : c.score;
         const applicantGate = getApplicantTypeGate(
           String((profile as Record<string, unknown>).businessType ?? (profile as Record<string, unknown>).business_type ?? ""),
           g
@@ -132,6 +134,7 @@ export async function GET(
             confidenceBand: getConfidenceBand(gatedScore),
             winProbability: gatedScore,
             evidenceStrength: "weak",
+            scoringSource,
           });
         }
         return NextResponse.json({
@@ -148,6 +151,7 @@ export async function GET(
           confidenceBand: getConfidenceBand(score),
           winProbability: score,
           evidenceStrength: score >= 80 ? "strong" : score >= 55 ? "medium" : "weak",
+          scoringSource,
         });
       }
     }
@@ -185,6 +189,7 @@ export async function GET(
         improvement_plan: result.improvementPlan ?? null,
         met_criteria: result.met ?? [],
         missing_criteria: result.missing ?? [],
+        scoring_source: "openai",
         updated_at: new Date().toISOString(),
       },
       { onConflict: "organisation_id,profile_id,grant_id" }
@@ -193,6 +198,7 @@ export async function GET(
     return NextResponse.json({
       ...result,
       confidenceBand: getConfidenceBand(score),
+      scoringSource: "openai",
     });
   } catch (e) {
     console.error("[GRANTS_ELIGIBILITY]", e);

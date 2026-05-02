@@ -39,15 +39,15 @@ export default async function DashboardLayout({
         </Link>
 
         <div className="mt-8 flex min-h-0 flex-1 flex-col">
-          <DashboardNav profileStrength={profileStrength} />
+          <DashboardNav profileStrength={profileStrength} placement="sidebar" />
         </div>
       </aside>
 
-      <div className="lg:pl-[250px]">
+      <div className="min-w-0 lg:pl-[250px]">
         <header className="sticky top-0 z-30 border-b border-[#dfe8f5] bg-white/90 backdrop-blur-xl">
           <div className="mx-auto flex h-20 max-w-[1280px] items-center justify-between px-5 sm:px-7 lg:px-8">
             <div className="flex items-center gap-3">
-              <DashboardNav profileStrength={profileStrength} />
+              <DashboardNav profileStrength={profileStrength} placement="header" />
               <Link href="/dashboard" className="flex items-center gap-2 lg:hidden">
                 <Image
                   src="/logogc.png"
@@ -84,7 +84,7 @@ export default async function DashboardLayout({
           </div>
         </header>
 
-        <main className="mx-auto max-w-[1280px] px-5 py-7 sm:px-7 lg:px-8">{children}</main>
+        <main className="mx-auto w-full min-w-0 max-w-[1280px] px-5 py-7 sm:px-7 lg:px-8">{children}</main>
       </div>
     </div>
   );

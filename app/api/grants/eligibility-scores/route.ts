@@ -21,7 +21,7 @@ export async function GET(): Promise<NextResponse> {
     const appliedGrantIds = await getAppliedGrantIds(supabase, orgId, profile.id);
     const { data: rows = [] } = await supabase
       .from("EligibilityAssessment")
-      .select("grant_id, score, summary, reasons, alignment, improvement_plan, met_criteria, missing_criteria")
+      .select("grant_id, score, summary, reasons, alignment, improvement_plan, met_criteria, missing_criteria, scoring_source")
       .eq("organisation_id", orgId)
       .eq("profile_id", profile.id);
 
@@ -41,20 +41,25 @@ export async function GET(): Promise<NextResponse> {
 
     const scores: Record<
       string,
-      { score: number; summary?: string; reasons?: string[]; alignment?: string[]; improvementPlan?: unknown; met?: string[]; missing?: string[] }
+      { score: number; summary?: string; reasons?: string[]; alignment?: string[]; improvementPlan?: unknown; met?: string[]; missing?: string[]; scoringSource?: string }
     > = {};
-    for (const row of rows as { grant_id: string; score: number; summary: string | null; reasons: unknown; alignment: unknown; improvement_plan: unknown; met_criteria: unknown; missing_criteria: unknown }[]) {
+    for (const row of rows as { grant_id: string; score: number; summary: string | null; reasons: unknown; alignment: unknown; improvement_plan: unknown; met_criteria: unknown; missing_criteria: unknown; scoring_source?: string | null }[]) {
       if (appliedGrantIds.has(row.grant_id)) continue;
       const applicantGate = getApplicantTypeGate(profileBusinessType, grantsById.get(row.grant_id) ?? {});
-      const score = applicantGate && !applicantGate.profileMatches ? Math.min(row.score, 25) : row.score;
+      const source = row.scoring_source ?? (row.summary?.startsWith("Preliminary fit") ? "heuristic" : "openai");
+      const sourceCappedScore = source === "heuristic" ? Math.min(row.score, 69) : row.score;
+      const score = applicantGate && !applicantGate.profileMatches ? Math.min(sourceCappedScore, 25) : sourceCappedScore;
       scores[row.grant_id] = {
         score,
-        summary: row.summary ?? undefined,
+        summary: source === "heuristic"
+          ? row.summary ?? "Preliminary fit only. Open the grant to run full company-DNA reasoning."
+          : row.summary ?? undefined,
         reasons: (row.reasons as string[]) ?? undefined,
         alignment: (row.alignment as string[]) ?? undefined,
         improvementPlan: row.improvement_plan ?? undefined,
         met: (row.met_criteria as string[]) ?? undefined,
         missing: (row.missing_criteria as string[]) ?? undefined,
+        scoringSource: source,
       };
     }
 
