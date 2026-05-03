@@ -26,6 +26,7 @@ import {
   Users,
 } from "lucide-react";
 import { PLAN_CATALOG } from "@/lib/plans";
+import { HeroMotionVideo } from "@/components/marketing/hero-motion-video";
 
 const navItems = ["Features", "How It Works", "Pricing", "Resources", "About Us"];
 
@@ -152,11 +153,11 @@ export default function LandingPage() {
             Log in
           </Link>
           <Link
-            href="#book-demo"
+            href="/sign-up"
             className="inline-flex h-10 shrink-0 items-center rounded-lg bg-[#2167e8] px-3 text-[13px] font-bold text-white shadow-[0_12px_24px_rgba(33,103,232,0.25)] transition hover:bg-[#1858cf] min-[430px]:h-11 min-[430px]:px-4 sm:h-12 sm:px-6 sm:text-[15px]"
           >
-            <span className="min-[360px]:hidden">Demo</span>
-            <span className="hidden min-[360px]:inline">Book a Demo</span>
+            <span className="min-[360px]:hidden">Start</span>
+            <span className="hidden min-[360px]:inline">Get started</span>
           </Link>
         </div>
       </header>
@@ -210,15 +211,7 @@ export default function LandingPage() {
 
           <div className="order-1 mx-auto min-w-0 w-full max-w-[640px] flex-1 rounded-2xl border border-[#e2ebf6] bg-white p-6 shadow-[0_18px_45px_rgba(7,26,58,0.07)] sm:p-8 lg:order-2 lg:mx-0 lg:mt-30 lg:max-w-none lg:rounded-2xl lg:p-8">
             <div className="flex justify-center lg:justify-start">
-              <Image
-                src="/grantcomotion.gif"
-                alt="GrantsCopilot"
-                width={800}
-                height={200}
-                className="h-auto max-h-[220px] w-full max-w-[560px] object-contain lg:max-h-[min(260px,28vw)] lg:max-w-full"
-                unoptimized
-                priority
-              />
+              <HeroMotionVideo className="h-auto max-h-[220px] w-full max-w-[560px] object-contain lg:max-h-[min(260px,28vw)] lg:max-w-full" />
             </div>
           </div>
         </section>
@@ -450,21 +443,21 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <section id="book-demo" className="mx-auto max-w-[1480px] px-4 py-10 sm:px-6 sm:py-12 lg:px-10">
+        <section id="get-started" className="mx-auto max-w-[1480px] px-4 py-10 sm:px-6 sm:py-12 lg:px-10">
           <div className="grid items-center gap-6 rounded-[24px] bg-[linear-gradient(115deg,#e7f1ff,#ffffff)] p-6 shadow-[0_18px_50px_rgba(7,26,58,0.08)] sm:p-8 lg:grid-cols-[1fr_auto] lg:p-10">
             <div>
-              <p className="text-sm font-black uppercase tracking-[0.14em] text-[#2167e8]">Book a Demo</p>
+              <p className="text-sm font-black uppercase tracking-[0.14em] text-[#2167e8]">Get started</p>
               <h2 className="mt-3 text-[30px] font-black leading-tight text-[#071a3a] sm:text-[36px]">
-                See how GrantsCopilot can run your funding workflow.
+                Run your funding workflow in GrantsCopilot.
               </h2>
               <p className="mt-4 max-w-3xl text-base font-medium leading-7 text-[#51627d]">
-                Create an account to explore the workspace, or start a guided demo flow for grant matching, application tasks,
+                Create an account to explore the workspace and get started with grant matching, application tasks,
                 and founder funding pack generation.
               </p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
               <Link href="/sign-up" className="inline-flex h-12 items-center justify-center rounded-lg bg-[#2167e8] px-7 text-sm font-black text-white">
-                Create Account
+                Get started
               </Link>
               <Link href="/sign-in" className="inline-flex h-12 items-center justify-center rounded-lg border border-[#d8e2f2] bg-white px-7 text-sm font-black text-[#071a3a]">
                 Log in
