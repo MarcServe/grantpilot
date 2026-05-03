@@ -34,6 +34,19 @@ export function isNineAmLocal(timezone: string): boolean {
   return getHourInTimezone(timezone || "UTC") === 9;
 }
 
+/** Return true if "today" is Monday in the given IANA timezone (for weekly cron logic per org). */
+export function isMondayLocal(timezone: string): boolean {
+  try {
+    const weekday = new Date().toLocaleDateString("en-GB", {
+      timeZone: timezone || "UTC",
+      weekday: "long",
+    });
+    return weekday === "Monday";
+  } catch {
+    return false;
+  }
+}
+
 /** Return true if it's 8am (8:00–8:59) in the given timezone.
  *  Cron runs at :30 past each hour, so hour=8 means it's ~8:30 AM local. */
 export function isEligibilityNotificationTime(timezone: string): boolean {

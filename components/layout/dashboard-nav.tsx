@@ -12,6 +12,7 @@ import {
   Gauge,
   LayoutDashboard,
   Menu,
+  MessageSquareReply,
   Settings,
   Sparkles,
   UserRound,
@@ -30,6 +31,7 @@ const primaryNavItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/grants/eligible", label: "Opportunities", icon: BriefcaseBusiness },
   { href: "/applications", label: "Applications", icon: FileText },
+  { href: "/applications/outcomes", label: "Outcome feedback", icon: MessageSquareReply },
   { href: "/profile", label: "My Profile", icon: UserRound },
   { href: "/profile", label: "Data Vault", icon: Database },
   { href: "/dashboard", label: "Activity", icon: Gauge },
@@ -45,6 +47,13 @@ const secondaryNavItems = [
 function isActive(pathname: string, href: string, label: string): boolean {
   if (label === "Data Vault" || label === "Activity") return false;
   if (href === "/dashboard") return pathname === href;
+  if (href === "/applications/outcomes") {
+    return pathname === href || pathname.startsWith(`${href}/`);
+  }
+  if (href === "/applications") {
+    if (pathname.startsWith("/applications/outcomes")) return false;
+    return pathname === href || pathname.startsWith(`${href}/`);
+  }
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg } from "@/lib/auth";
+import { fetchApplicationsNeedingOutcome } from "@/lib/outcome-feedback";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { EligibilityNotificationPreferences } from "@/components/profile/eligibility-notification-preferences";
@@ -17,6 +18,7 @@ import {
 export default async function IntelligencePage() {
   const { orgId } = await getActiveOrg();
   const supabase = getSupabaseAdmin();
+  const pendingOutcomes = await fetchApplicationsNeedingOutcome(orgId);
 
   let appWithSnapshot: { filled_snapshot?: unknown } | null = null;
   const { data: byOrgId } = await supabase
@@ -197,11 +199,31 @@ export default async function IntelligencePage() {
                 <p className="text-lg font-semibold">{awardedCount}</p>
               </div>
             </div>
-            <Link href="/applications">
-              <Button variant="outline" size="sm" className="gap-1">
-                Record outcomes <ArrowRight className="h-3 w-3" />
-              </Button>
-            </Link>
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+              <Link href="/applications/outcomes">
+                <Button variant="default" size="sm" className="gap-1">
+                  Outcome queue
+                  {pendingOutcomes.length > 0 ? ` (${pendingOutcomes.length})` : ""}{" "}
+                  <ArrowRight className="h-3 w-3" />
+                </Button>
+              </Link>
+              <Link href="/applications">
+                <Button variant="outline" size="sm" className="gap-1">
+                  All applications <ArrowRight className="h-3 w-3" />
+                </Button>
+              </Link>
+            </div>
+            {pendingOutcomes.length > 0 && (
+              <ul className="text-xs text-muted-foreground">
+                {pendingOutcomes.slice(0, 4).map((p) => (
+                  <li key={p.applicationId}>
+                    <Link href={`/applications/${p.applicationId}`} className="font-medium text-primary hover:underline">
+                      {p.grantName}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
           </CardContent>
         </Card>
 

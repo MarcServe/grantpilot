@@ -97,9 +97,9 @@ export function buildEmailHtml(
         subject: `Application submitted: ${grant}`,
         html: baseLayout(
           "Application submitted successfully",
-          `<p>Your application for <strong>${grant}</strong> has been submitted.</p><p>You'll receive any updates from the grant provider directly.</p>`,
+          `<p>Your application for <strong>${grant}</strong> has been submitted.</p><p>You&apos;ll receive any updates from the grant provider directly.</p><p style="margin-top:14px">When you hear back, open your application and record the outcome — awarded, rejected, shortlisted, or withdrawn — so GrantsCopilot can sharpen future matches.</p>`,
           payload.applicationId ? `${appUrl}/applications/${payload.applicationId}` : undefined,
-          "View Application"
+          "View application"
         ),
       };
 
@@ -290,6 +290,28 @@ export function buildEmailHtml(
         ),
       };
 
+    case "outcome_feedback_reminder": {
+      const n = payload.pendingOutcomeCount ?? 0;
+      const names = (payload.outcomeGrantNames ?? []).filter((x) => typeof x === "string" && x.trim().length > 0).slice(0, 5);
+      const list =
+        names.length > 0
+          ? `<ul style="padding-left:20px;margin-top:12px">${names.map((name) => `<li>${escapeHtml(name)}</li>`).join("")}</ul>`
+          : "";
+      const queueUrl = `${appUrl}/applications/outcomes`;
+      return {
+        subject:
+          n === 1 ? "Record your grant outcome — GrantsCopilot" : `${n} applications waiting on outcome feedback`,
+        html: baseLayout(
+          n === 1 ? "One outcome still to record" : "Help GrantsCopilot learn from your results",
+          `<p>You have <strong>${n}</strong> submitted application${n === 1 ? "" : "s"} without a final outcome recorded.</p>
+          <p>When funders reply by email or portal, log the result here — we use it to tune eligibility and recommendations.</p>${list}
+          <p style="margin-top:14px"><a href="${queueUrl}" style="color:#1B3A6B;font-weight:600">Open outcome queue</a></p>`,
+          queueUrl,
+          "Record outcomes"
+        ),
+      };
+    }
+
     default:
       return {
         subject: "Update from Grants-Copilot",
@@ -320,7 +342,7 @@ export function buildWhatsAppMessage(
     }
 
     case "application_submitted":
-      return `Your application for ${grant} has been submitted successfully.\n\n${appUrl}/applications/${payload.applicationId ?? ""}`;
+      return `Your application for ${grant} has been submitted successfully.\n\nWhen you hear back from the funder, record the outcome in GrantsCopilot so we can improve future matches.\n\n${appUrl}/applications/${payload.applicationId ?? ""}`;
 
     case "application_failed":
       return `There was an issue with your ${grant} application. Please check the details.\n\n${appUrl}/applications/${payload.applicationId ?? ""}`;
@@ -388,6 +410,12 @@ export function buildWhatsAppMessage(
 
     case "subscription_cancelled":
       return `Your Grants-Copilot subscription has ended. You're now on the Free Trial plan.\n\nResubscribe anytime: ${appUrl}/billing`;
+
+    case "outcome_feedback_reminder": {
+      const n = payload.pendingOutcomeCount ?? 0;
+      const queueUrl = `${appUrl}/applications/outcomes`;
+      return `${n} submitted application${n === 1 ? "" : "s"} still need outcome feedback (award, rejection, shortlist, or withdrawal). Record them so GrantsCopilot can learn:\n\n${queueUrl}`;
+    }
 
     default:
       return `You have an update on Grants-Copilot.\n\n${appUrl}`;

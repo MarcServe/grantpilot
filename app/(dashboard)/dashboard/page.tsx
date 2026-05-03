@@ -21,7 +21,9 @@ import {
 } from "lucide-react";
 import { ApplicationCardWithDelete } from "@/components/dashboard/application-card-with-delete";
 import { DashboardNotificationChannels } from "@/components/dashboard/notification-channels-card";
+import { OutcomeFeedbackBanner } from "@/components/dashboard/outcome-feedback-banner";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
+import { fetchApplicationsNeedingOutcome, applicationNeedsOutcomeReminder } from "@/lib/outcome-feedback";
 
 export default async function DashboardPage() {
   const { org, orgId, user } = await getActiveOrg();
@@ -181,8 +183,19 @@ export default async function DashboardPage() {
   const successRate = totalCount > 0 ? Math.round((submittedCount / totalCount) * 100) : 0;
   const topMatches = [...suggestedGrants, ...withinReachGrants].slice(0, 3);
 
+  const [pendingOutcomes, outcomeRowsForRecent] = await Promise.all([
+    fetchApplicationsNeedingOutcome(orgId),
+    supabase.from("ApplicationOutcome").select("applicationId, outcome").eq("organisationId", orgId),
+  ]);
+  const outcomeByApplicationId = new Map<string, string>();
+  for (const row of outcomeRowsForRecent.data ?? []) {
+    const r = row as { applicationId?: string; outcome?: string };
+    if (r.applicationId && r.outcome) outcomeByApplicationId.set(r.applicationId, r.outcome);
+  }
+
   return (
     <div className="space-y-7">
+      <OutcomeFeedbackBanner pending={pendingOutcomes} />
       <section className="overflow-hidden rounded-[26px] bg-white shadow-[0_24px_70px_rgba(7,26,58,0.08)]">
         <div className="grid min-w-0 gap-0 xl:grid-cols-[minmax(0,1fr)_360px]">
           <div className="@container/main min-w-0 p-6 sm:p-8">
@@ -211,6 +224,7 @@ export default async function DashboardPage() {
                 value={topMatches.length || eligibilityGrantCount}
                 detail={topMatches.length ? "Top matches" : "Scored grants"}
                 tone="blue"
+                href="/grants/eligible"
               />
               <MetricCard
                 icon={FileText}
@@ -218,6 +232,7 @@ export default async function DashboardPage() {
                 value={activeCount}
                 detail="Applications"
                 tone="green"
+                href="/applications?status=in_progress"
               />
               <MetricCard
                 icon={ClipboardCheck}
@@ -225,6 +240,7 @@ export default async function DashboardPage() {
                 value={submittedCount}
                 detail="Applications"
                 tone="purple"
+                href="/applications?status=submitted"
               />
               <MetricCard
                 icon={Gauge}
@@ -232,6 +248,7 @@ export default async function DashboardPage() {
                 value={`${successRate}%`}
                 detail={totalCount > 0 ? "Submitted ratio" : "No submissions yet"}
                 tone="mint"
+                href="/applications"
               />
             </div>
 
@@ -492,6 +509,10 @@ export default async function DashboardPage() {
                 funder={app.grant.funder}
                 displayStatus={app.displayStatus}
                 createdAt={app.createdAt}
+                needsOutcomeReminder={
+                  ["SUBMITTED", "APPROVED"].includes(app.status) &&
+                  applicationNeedsOutcomeReminder(outcomeByApplicationId.get(app.id))
+                }
               />
             ))}
           </div>
@@ -507,12 +528,14 @@ function MetricCard({
   value,
   detail,
   tone,
+  href,
 }: {
   icon: typeof Search;
   label: string;
   value: string | number;
   detail: string;
   tone: "blue" | "green" | "purple" | "mint";
+  href: string;
 }) {
   const toneClass = {
     blue: "bg-[#dfeaff] text-[#2167e8]",
@@ -521,8 +544,11 @@ function MetricCard({
     mint: "bg-[#d8fbf2] text-[#1aa685]",
   }[tone];
 
+  const shellClass =
+    "@container/metric block rounded-2xl border border-[#e7edf6] bg-white p-4 shadow-[0_14px_36px_rgba(7,26,58,0.06)] transition-colors hover:border-[#2167e8]/35 hover:shadow-[0_18px_44px_rgba(7,26,58,0.09)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2167e8] focus-visible:ring-offset-2";
+
   return (
-    <div className="@container/metric rounded-2xl border border-[#e7edf6] bg-white p-4 shadow-[0_14px_36px_rgba(7,26,58,0.06)]">
+    <Link href={href} className={shellClass}>
       <div className="flex flex-col gap-3 @[220px]/metric:flex-row @[220px]/metric:items-center @[220px]/metric:gap-3">
         <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${toneClass}`}>
           <Icon className="h-5 w-5" />
@@ -533,7 +559,7 @@ function MetricCard({
           <p className="mt-1 text-xs font-bold leading-snug text-[#071a3a]">{detail}</p>
         </div>
       </div>
-    </div>
+    </Link>
   );
 }
 

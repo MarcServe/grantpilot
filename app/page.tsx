@@ -7,6 +7,7 @@ import {
   Bot,
   BriefcaseBusiness,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   ClipboardCheck,
   Database,
@@ -81,7 +82,10 @@ const pricingTiers = PLAN_CATALOG.map((plan) => ({
   name: plan.marketingName,
   price: plan.price,
   detail: plan.detail,
-  features: plan.homepageFeatures,
+  /** Short bullets above the fold */
+  summaryFeatures: plan.homepageFeatures,
+  /** Same grouped breakdown as Billing */
+  featureBlocks: plan.features,
   cta: plan.cta,
   href: plan.href,
   featured: plan.featured,
@@ -340,13 +344,48 @@ export default function LandingPage() {
                 </div>
                 <p className="mt-7 text-4xl font-black">{tier.price}</p>
                 <ul className="mt-7 space-y-3">
-                  {tier.features.map((item) => (
+                  {tier.summaryFeatures.map((item) => (
                     <li key={item} className="flex gap-3 text-sm font-bold">
                       <CheckCircle2 className={`mt-0.5 h-4 w-4 shrink-0 ${tier.featured ? "text-[#35c386]" : "text-[#2167e8]"}`} />
                       <span>{item}</span>
                     </li>
                   ))}
                 </ul>
+                <details
+                  className={`group mt-6 border-t pt-5 ${tier.featured ? "border-white/25" : "border-[#e2ebf6]"}`}
+                >
+                  <summary
+                    className={`flex cursor-pointer list-none items-center justify-between gap-2 text-sm font-black [&::-webkit-details-marker]:hidden ${
+                      tier.featured ? "text-white/95" : "text-[#2167e8]"
+                    }`}
+                  >
+                    <span>See full plan details</span>
+                    <ChevronDown className="h-4 w-4 shrink-0 transition-transform duration-200 group-open:rotate-180" />
+                  </summary>
+                  <div className={`mt-4 space-y-4 text-left ${tier.featured ? "text-white/92" : "text-[#071a3a]"}`}>
+                    {tier.featureBlocks.map((block) => (
+                      <div key={block.heading}>
+                        <p
+                          className={`text-[11px] font-black uppercase tracking-[0.12em] ${
+                            tier.featured ? "text-white/55" : "text-[#51627d]"
+                          }`}
+                        >
+                          {block.heading}
+                        </p>
+                        <ul className="mt-2 space-y-2">
+                          {block.bullets.map((bullet) => (
+                            <li key={bullet} className="flex gap-2 text-xs font-bold leading-snug sm:text-sm">
+                              <CheckCircle2
+                                className={`mt-0.5 h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4 ${tier.featured ? "text-[#35c386]" : "text-[#2167e8]"}`}
+                              />
+                              <span>{bullet}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                </details>
                 <Link
                   href={tier.href}
                   className={`mt-8 inline-flex h-12 w-full items-center justify-center rounded-lg text-sm font-black ${

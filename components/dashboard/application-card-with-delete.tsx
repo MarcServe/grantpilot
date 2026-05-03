@@ -33,6 +33,8 @@ interface ApplicationCardWithDeleteProps {
   funder: string;
   displayStatus: string;
   createdAt: string;
+  /** Highlight submitted apps still missing a terminal outcome */
+  needsOutcomeReminder?: boolean;
 }
 
 export function ApplicationCardWithDelete({
@@ -41,6 +43,7 @@ export function ApplicationCardWithDelete({
   funder,
   displayStatus,
   createdAt,
+  needsOutcomeReminder,
 }: ApplicationCardWithDeleteProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -73,7 +76,12 @@ export function ApplicationCardWithDelete({
               </div>
             </div>
           </Link>
-          <div className="flex shrink-0 items-center gap-3">
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
+            {needsOutcomeReminder && (
+              <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-900">
+                Outcome?
+              </Badge>
+            )}
             <Badge variant="secondary" className={STATUS_COLORS[displayStatus] ?? ""}>
               {displayStatus.replace(/_/g, " ")}
             </Badge>

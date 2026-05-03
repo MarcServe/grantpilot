@@ -2,6 +2,7 @@ import { serve } from "inngest/next";
 import { inngest } from "@/inngest/client";
 import { grantSync } from "@/inngest/grant-sync";
 import { deadlineReminder } from "@/inngest/deadline-reminder";
+import { outcomeFeedbackReminder } from "@/inngest/outcome-feedback-reminder";
 import { monitorSession } from "@/inngest/monitor-session";
 import { eligibilityRefresh, eligibilityRefreshRequested } from "@/inngest/eligibility-refresh";
 import { grantDiscovery } from "@/inngest/grant-discovery";
@@ -19,6 +20,7 @@ export const { GET, POST, PUT } = serve({
     grantDiscoveryEnqueue,
     grantDiscoveryProcess,
     deadlineReminder,
+    outcomeFeedbackReminder,
     monitorSession,
     eligibilityRefresh,
     eligibilityRefreshRequested,

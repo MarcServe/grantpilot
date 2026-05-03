@@ -24,7 +24,8 @@ export type NotificationType =
   | "grant_scan_digest"
   | "subscription_activated"
   | "subscription_upgraded"
-  | "subscription_cancelled";
+  | "subscription_cancelled"
+  | "outcome_feedback_reminder";
 
 export interface DigestGrantItem {
   grantId: string;
@@ -58,6 +59,10 @@ export interface NotificationPayload {
   profileName?: string;
   /** Subscription plan name for billing notifications */
   planName?: string;
+  /** Number of submitted apps awaiting outcome feedback (outcome_feedback_reminder) */
+  pendingOutcomeCount?: number;
+  /** Grant titles to preview in outcome reminder email */
+  outcomeGrantNames?: string[];
   /** Labels for details required before the application can continue. */
   needsInputLabels?: string[];
 }
