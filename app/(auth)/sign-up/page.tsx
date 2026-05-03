@@ -50,11 +50,11 @@ export default function SignUpPage() {
           <CardHeader className="space-y-2 text-center">
             <div className="mx-auto flex justify-center mb-2">
               <div className="relative flex items-center">
-                <Image 
-                  src="/grantcomotion.gif" 
-                  alt="GrantsCopilot Logo" 
-                  width={800} 
-                  height={200} 
+                <Image
+                  src="/grantcomotion.gif"
+                  alt="GrantsCopilot Logo"
+                  width={800}
+                  height={200}
                   className="h-40 w-auto object-contain mix-blend-multiply"
                   unoptimized
                   priority
@@ -83,11 +83,11 @@ export default function SignUpPage() {
         <CardHeader className="space-y-2 text-center">
           <div className="mx-auto flex justify-center mb-2">
               <div className="relative flex items-center">
-                <Image 
-                  src="/grantcomotion.gif" 
-                  alt="GrantsCopilot Logo" 
-                  width={800} 
-                  height={200} 
+                <Image
+                  src="/grantcomotion.gif"
+                  alt="GrantsCopilot Logo"
+                  width={800}
+                  height={200}
                   className="h-40 w-auto object-contain mix-blend-multiply"
                   unoptimized
                   priority

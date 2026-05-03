@@ -1,8 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Form,
@@ -12,28 +14,10 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Loader2 } from "lucide-react";
+import { Loader2, Plus, Trash2 } from "lucide-react";
 import { step6Schema, type Step6Data } from "@/lib/validations/profile";
 
 const FIELDS: { name: keyof Step6Data; label: string; placeholder: string; hint: string }[] = [
-  {
-    name: "directorNames",
-    label: "Director / Founder Names",
-    placeholder: "e.g. Jane Smith, CEO & Co-founder; Ahmed Khan, Technical Director",
-    hint: "Names and roles of directors, founders, or senior leaders. Used for director/team questions on forms.",
-  },
-  {
-    name: "directorProfiles",
-    label: "Director / Founder Profiles",
-    placeholder: "One per line, e.g. Jane Smith - CEO & Co-founder - 12 years in edtech, scaled SaaS to £2m ARR, LinkedIn: ...",
-    hint: "Add every director/founder separately. Include name, role, experience, qualifications, responsibilities, LinkedIn, and relevant track record.",
-  },
-  {
-    name: "teamMembers",
-    label: "Team Members / Key Staff",
-    placeholder: "One per line, e.g. Ahmed Khan - Technical Lead - ex-NHS data engineer, owns integrations and data security\nPriya Patel - Operations Manager - 8 years delivering public-sector programmes",
-    hint: "Add all non-director team members who may strengthen grant applications. The AI uses every person listed when forms ask about team, capability, delivery roles, or key personnel.",
-  },
   {
     name: "boardMembers",
     label: "Board Members / Trustees",
@@ -222,6 +206,102 @@ const FIELDS: { name: keyof Step6Data; label: string; placeholder: string; hint:
   },
 ];
 
+type PersonRow = {
+  id: string;
+  name: string;
+  role: string;
+  profile: string;
+  linkedIn?: string;
+};
+
+function newPerson(overrides?: Partial<PersonRow>): PersonRow {
+  return {
+    id: crypto.randomUUID(),
+    name: "",
+    role: "",
+    profile: "",
+    linkedIn: "",
+    ...overrides,
+  };
+}
+
+function splitPersonLine(value: string): Omit<PersonRow, "id"> {
+  const parts = value
+    .split(/\s+-\s+|\s+–\s+|,\s*/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const linkedInIndex = parts.findIndex((part) => /^linkedin:/i.test(part) || /^https?:\/\/(www\.)?linkedin\.com/i.test(part));
+  const linkedIn = linkedInIndex >= 0 ? parts.slice(linkedInIndex).join(" - ").replace(/^linkedin:\s*/i, "") : "";
+  const usable = linkedInIndex >= 0 ? parts.slice(0, linkedInIndex) : parts;
+  return {
+    name: usable[0] ?? "",
+    role: usable[1] ?? "",
+    profile: usable.slice(2).join(" - "),
+    linkedIn,
+  };
+}
+
+function splitNameRole(value: string): { name: string; role: string } {
+  const person = splitPersonLine(value);
+  return { name: person.name, role: person.role };
+}
+
+function parsePeople(text: string | undefined | null): PersonRow[] {
+  const lines = String(text ?? "")
+    .split(/\n|;/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return [newPerson()];
+  return lines.map((line) => {
+    return newPerson(splitPersonLine(line));
+  });
+}
+
+function parseDirectors(names: string | undefined | null, profiles: string | undefined | null): PersonRow[] {
+  const nameRows = String(names ?? "")
+    .split(/\n|;/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map(splitNameRole);
+  const profileRows = String(profiles ?? "")
+    .split(/\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const count = Math.max(nameRows.length, profileRows.length);
+  if (count === 0) return [newPerson()];
+
+  return Array.from({ length: count }, (_, index) => {
+    const parsedProfile = splitPersonLine(profileRows[index] ?? "");
+    const nameRow = nameRows[index] ?? { name: parsedProfile.name, role: parsedProfile.role };
+    return newPerson({
+      name: nameRow.name,
+      role: nameRow.role,
+      profile: parsedProfile.profile || profileRows[index] || "",
+      linkedIn: parsedProfile.linkedIn,
+    });
+  });
+}
+
+function serializeNames(people: PersonRow[]): string {
+  return people
+    .map((person) => [person.name, person.role].filter(Boolean).join(" - ").trim())
+    .filter(Boolean)
+    .join("; ");
+}
+
+function serializeProfiles(people: PersonRow[]): string {
+  return people
+    .map((person) => {
+      const header = [person.name, person.role].filter(Boolean).join(" - ").trim();
+      const body = person.profile.trim();
+      const linkedIn = person.linkedIn?.trim() ? `LinkedIn: ${person.linkedIn.trim()}` : "";
+      return [header, body, linkedIn].filter(Boolean).join(" - ");
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
 interface Step6Props {
   defaultValues: Step6Data;
   onSubmit: (data: Step6Data) => Promise<boolean>;
@@ -231,6 +311,12 @@ interface Step6Props {
 }
 
 export function Step6GrantReadiness({ defaultValues, onSubmit, onBack, onComplete, isPending }: Step6Props) {
+  const [directors, setDirectors] = useState<PersonRow[]>(() =>
+    parseDirectors(defaultValues.directorNames, defaultValues.directorProfiles)
+  );
+  const [teamMembers, setTeamMembers] = useState<PersonRow[]>(() =>
+    parsePeople(defaultValues.teamMembers)
+  );
   const form = useForm<Step6Data>({
     resolver: zodResolver(step6Schema),
     defaultValues: {
@@ -271,12 +357,41 @@ export function Step6GrantReadiness({ defaultValues, onSubmit, onBack, onComplet
     },
   });
 
+  function syncDirectors(next: PersonRow[]) {
+    setDirectors(next);
+    form.setValue("directorNames", serializeNames(next), { shouldDirty: true });
+    form.setValue("directorProfiles", serializeProfiles(next), { shouldDirty: true });
+  }
+
+  function syncTeam(next: PersonRow[]) {
+    setTeamMembers(next);
+    form.setValue("teamMembers", serializeProfiles(next), { shouldDirty: true });
+  }
+
+  function updateDirector(index: number, patch: Partial<PersonRow>) {
+    syncDirectors(directors.map((person, i) => (i === index ? { ...person, ...patch } : person)));
+  }
+
+  function updateTeamMember(index: number, patch: Partial<PersonRow>) {
+    syncTeam(teamMembers.map((person, i) => (i === index ? { ...person, ...patch } : person)));
+  }
+
   async function handleSave(data: Step6Data) {
-    await onSubmit(data);
+    await onSubmit({
+      ...data,
+      directorNames: serializeNames(directors),
+      directorProfiles: serializeProfiles(directors),
+      teamMembers: serializeProfiles(teamMembers),
+    });
   }
 
   async function handleSaveAndComplete(data: Step6Data) {
-    const saved = await onSubmit(data);
+    const saved = await onSubmit({
+      ...data,
+      directorNames: serializeNames(directors),
+      directorProfiles: serializeProfiles(directors),
+      teamMembers: serializeProfiles(teamMembers),
+    });
     if (saved) onComplete();
   }
 
@@ -289,6 +404,160 @@ export function Step6GrantReadiness({ defaultValues, onSubmit, onBack, onComplet
           GrantsCopilot can tailor each application to match what that specific funder cares about
           — instead of writing generic answers.
         </div>
+
+        <section className="space-y-3 rounded-lg border p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold">Directors / Founders</h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Add each director, founder, or senior leader separately. GrantsCopilot uses these details for director, capability, governance, and key personnel questions.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={() => syncDirectors([...directors, newPerson()])}
+            >
+              <Plus className="h-4 w-4" />
+              Add director
+            </Button>
+          </div>
+
+          <div className="space-y-3">
+            {directors.map((person, index) => (
+              <div key={person.id} className="rounded-md border bg-background p-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <FormLabel>Name</FormLabel>
+                    <Input
+                      value={person.name}
+                      onChange={(event) => updateDirector(index, { name: event.target.value })}
+                      placeholder="e.g. Michael Orji"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <FormLabel>Role</FormLabel>
+                    <Input
+                      value={person.role}
+                      onChange={(event) => updateDirector(index, { role: event.target.value })}
+                      placeholder="e.g. Technical founder / CEO"
+                    />
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <FormLabel>Profile, responsibilities, track record</FormLabel>
+                    <Textarea
+                      value={person.profile}
+                      onChange={(event) => updateDirector(index, { profile: event.target.value })}
+                      placeholder="Experience, qualifications, responsibilities, delivery role, awards, domain expertise..."
+                      rows={3}
+                      className="resize-y"
+                    />
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <FormLabel>LinkedIn / profile URL</FormLabel>
+                    <Input
+                      value={person.linkedIn ?? ""}
+                      onChange={(event) => updateDirector(index, { linkedIn: event.target.value })}
+                      placeholder="https://www.linkedin.com/in/..."
+                    />
+                  </div>
+                </div>
+                <div className="mt-3 flex justify-end">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="gap-2 text-destructive hover:text-destructive"
+                    disabled={directors.length === 1}
+                    onClick={() => syncDirectors(directors.filter((_, i) => i !== index))}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Remove
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="space-y-3 rounded-lg border p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold">Team Members / Key Staff</h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Add non-director staff, contractors, advisers, or delivery leads who strengthen applications where funders ask about the team.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={() => syncTeam([...teamMembers, newPerson()])}
+            >
+              <Plus className="h-4 w-4" />
+              Add team member
+            </Button>
+          </div>
+
+          <div className="space-y-3">
+            {teamMembers.map((person, index) => (
+              <div key={person.id} className="rounded-md border bg-background p-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <FormLabel>Name</FormLabel>
+                    <Input
+                      value={person.name}
+                      onChange={(event) => updateTeamMember(index, { name: event.target.value })}
+                      placeholder="e.g. Jane Smith"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <FormLabel>Role</FormLabel>
+                    <Input
+                      value={person.role}
+                      onChange={(event) => updateTeamMember(index, { role: event.target.value })}
+                      placeholder="e.g. Operations Manager"
+                    />
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <FormLabel>Expertise and delivery contribution</FormLabel>
+                    <Textarea
+                      value={person.profile}
+                      onChange={(event) => updateTeamMember(index, { profile: event.target.value })}
+                      placeholder="Relevant experience, responsibilities, certifications, delivery role, technical/domain strengths..."
+                      rows={3}
+                      className="resize-y"
+                    />
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <FormLabel>LinkedIn / profile URL</FormLabel>
+                    <Input
+                      value={person.linkedIn ?? ""}
+                      onChange={(event) => updateTeamMember(index, { linkedIn: event.target.value })}
+                      placeholder="https://www.linkedin.com/in/..."
+                    />
+                  </div>
+                </div>
+                <div className="mt-3 flex justify-end">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="gap-2 text-destructive hover:text-destructive"
+                    disabled={teamMembers.length === 1}
+                    onClick={() => syncTeam(teamMembers.filter((_, i) => i !== index))}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Remove
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
 
         {FIELDS.map((f) => (
           <FormField
