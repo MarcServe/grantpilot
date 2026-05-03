@@ -518,7 +518,7 @@ function DashboardPreview() {
         <div className="@container/preview min-w-0 p-5 sm:p-7">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h2 className="text-[21px] font-black text-[#071a3a]">Welcome back, Michael! 👋</h2>
+              <h2 className="text-[21px] font-black text-[#071a3a]">Welcome back, Andrew! 👋</h2>
               <p className="mt-1 text-[12px] font-medium text-[#54657f]">Here&apos;s your funding overview</p>
             </div>
             <div className="flex items-center gap-4">
