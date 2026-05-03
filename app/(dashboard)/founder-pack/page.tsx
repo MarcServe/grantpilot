@@ -2,6 +2,7 @@ import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import type { FounderPackContent, FounderPackDocumentType } from "@/lib/founder-pack";
 import { FounderPackClient } from "@/components/founder-pack/founder-pack-client";
+import { planAllows, resolvePlanKey } from "@/lib/plan-features";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +36,7 @@ function formatDateLabel(value: string): string {
 export default async function FounderPackPage() {
   const { org, orgId } = await getActiveOrg();
   const supabase = getSupabaseAdmin();
-  const allowed = String((org as { plan?: string } | undefined)?.plan ?? "FREE_TRIAL") !== "FREE_TRIAL";
+  const allowed = planAllows(resolvePlanKey((org as { plan?: string } | undefined)?.plan), "founder_pack");
 
   const [{ data: profiles }, { data: packs }] = await Promise.all([
     supabase

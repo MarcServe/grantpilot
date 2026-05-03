@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Check, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
-import { PLAN_CATALOG } from "@/lib/plans";
+import { PLAN_CATALOG, getPublicStripePriceId } from "@/lib/plans";
 
 interface BillingClientProps {
   currentPlan: string;
@@ -23,12 +23,7 @@ interface BillingClientProps {
 
 const PLANS = PLAN_CATALOG.map((plan) => ({
   ...plan,
-  priceId:
-    plan.value === "PRO"
-      ? process.env.NEXT_PUBLIC_STRIPE_PRO_PRICE_ID ?? ""
-      : plan.value === "BUSINESS"
-        ? process.env.NEXT_PUBLIC_STRIPE_BUSINESS_PRICE_ID ?? ""
-        : "",
+  priceId: getPublicStripePriceId(plan.value),
 }));
 
 export function BillingClient({
@@ -164,7 +159,7 @@ export function BillingClient({
         </CardContent>
       </Card>
 
-      <div className="grid gap-6 md:grid-cols-3">
+      <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
         {PLANS.map((plan) => {
           const isCurrent = plan.value === currentPlan;
           return (
@@ -180,17 +175,23 @@ export function BillingClient({
                 <p className="text-2xl font-bold">{plan.price}</p>
               </CardHeader>
               <CardContent className="space-y-4">
-                <ul className="space-y-2">
-                  {plan.features.map((feature) => (
-                    <li
-                      key={feature}
-                      className="flex items-center gap-2 text-sm"
-                    >
-                      <Check className="h-4 w-4 text-accent" />
-                      {feature}
-                    </li>
+                <div className="space-y-4">
+                  {plan.features.map((block) => (
+                    <div key={block.heading} className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {block.heading}
+                      </p>
+                      <ul className="space-y-2">
+                        {block.bullets.map((bullet) => (
+                          <li key={bullet} className="flex items-start gap-2 text-sm">
+                            <Check className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
+                            <span>{bullet}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   ))}
-                </ul>
+                </div>
                 {!isCurrent && plan.priceId && (
                   <Button
                     className="w-full"

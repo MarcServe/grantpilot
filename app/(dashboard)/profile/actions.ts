@@ -20,6 +20,9 @@ import { syncGrantMemoryFromProfile } from "@/lib/grant-memory";
 import { requestEligibilityRefresh } from "@/lib/eligibility-refresh-trigger";
 import { analyseWebsite } from "@/lib/website-intelligence";
 import { generateAndStoreProfileEmbedding } from "@/lib/embeddings";
+import { PLAN_LIMITS } from "@/lib/plans";
+import { planAllows } from "@/lib/plan-features";
+import { getOrganisationPlanKey } from "@/lib/plan-check";
 
 async function getOrgId(): Promise<string> {
   const { orgId } = await getActiveOrg();
@@ -105,10 +108,16 @@ async function getOrCreateProfile(organisationId: string) {
   }
   const supabase = getSupabaseAdmin();
 
+  const { count: profileCount } = await supabase
+    .from("BusinessProfile")
+    .select("id", { count: "exact", head: true })
+    .eq("organisationId", organisationId);
+
   const { data: existing } = await supabase
     .from("BusinessProfile")
     .select("*, Document(*)")
     .eq("organisationId", organisationId)
+    .order("createdAt", { ascending: true })
     .limit(1)
     .maybeSingle();
 
@@ -123,6 +132,14 @@ async function getOrCreateProfile(organisationId: string) {
       ...existing,
       documents,
     };
+  }
+
+  const plan = await getOrganisationPlanKey(organisationId);
+  const profileLimit = PLAN_LIMITS[plan].profiles;
+  if ((profileCount ?? 0) >= profileLimit) {
+    throw new Error(
+      `Your plan allows up to ${profileLimit} business profile(s). Upgrade on Billing to add more.`
+    );
   }
 
   const id = crypto.randomUUID();
@@ -212,7 +229,7 @@ export async function saveStep1(data: Step1Data) {
 
   const previousUrl = (profile as Record<string, unknown>).websiteUrl as string | null;
   if (newUrl && newUrl !== previousUrl) {
-    analyseAndSaveWebsiteIntelligence(profile.id, newUrl).catch((err) =>
+    analyseAndSaveWebsiteIntelligence(profile.id, newUrl, orgId).catch((err) =>
       console.error("[website-intelligence] Background analysis failed:", err)
     );
   }
@@ -222,9 +239,13 @@ export async function saveStep1(data: Step1Data) {
 
 async function analyseAndSaveWebsiteIntelligence(
   profileId: string,
-  url: string
+  url: string,
+  organisationId: string
 ): Promise<void> {
   try {
+    const plan = await getOrganisationPlanKey(organisationId);
+    if (!planAllows(plan, "website_intelligence_refresh")) return;
+
     console.info(`[website-intelligence] Analysing ${url} for profile ${profileId}`);
     const intelligence = await analyseWebsite(url);
     const supabase = getSupabaseAdmin();

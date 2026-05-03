@@ -13,7 +13,9 @@ export function getStripe(): Stripe {
 }
 
 export function getPlanFromPriceId(priceId: string): PlanKey {
+  if (!priceId) return "FREE_TRIAL";
   if (priceId === process.env.NEXT_PUBLIC_STRIPE_PRO_PRICE_ID) return "PRO";
+  if (priceId === process.env.NEXT_PUBLIC_STRIPE_GROWTH_PRICE_ID) return "GROWTH";
   if (priceId === process.env.NEXT_PUBLIC_STRIPE_BUSINESS_PRICE_ID) return "BUSINESS";
   return "FREE_TRIAL";
 }

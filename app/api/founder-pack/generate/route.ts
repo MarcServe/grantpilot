@@ -4,6 +4,7 @@ import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { FOUNDER_PACK_DOCUMENT_TYPES, generateFounderPack } from "@/lib/founder-pack";
 import { recordUsage } from "@/lib/plan-check";
+import { planAllows, PLAN_CAPABILITY_MESSAGES, resolvePlanKey } from "@/lib/plan-features";
 
 const documentTypeValues = FOUNDER_PACK_DOCUMENT_TYPES.map((item) => item.value) as [
   (typeof FOUNDER_PACK_DOCUMENT_TYPES)[number]["value"],
@@ -28,10 +29,10 @@ const requestSchema = z.object({
 export async function POST(req: Request): Promise<NextResponse> {
   try {
     const { org, orgId, user } = await getActiveOrg();
-    const plan = String((org as { plan?: string } | undefined)?.plan ?? "FREE_TRIAL");
-    if (plan === "FREE_TRIAL") {
+    const plan = resolvePlanKey((org as { plan?: string }).plan);
+    if (!planAllows(plan, "founder_pack")) {
       return NextResponse.json(
-        { error: "Founder Funding Pack is available on Pro and Business plans." },
+        { error: PLAN_CAPABILITY_MESSAGES.founder_pack },
         { status: 402 }
       );
     }

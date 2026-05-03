@@ -449,9 +449,9 @@ export function FounderPackClient({
               <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
                 <div className="flex items-center gap-2 font-medium">
                   <Lock className="h-4 w-4" />
-                  Pro feature
+                  Paid plans
                 </div>
-                <p className="mt-1">Upgrade to generate visa-grade business planning packs.</p>
+                <p className="mt-1">Upgrade to Growth, Pro, or Business to generate visa-grade business planning packs.</p>
               </div>
             )}
 

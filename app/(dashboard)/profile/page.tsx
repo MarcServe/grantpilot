@@ -2,6 +2,7 @@ import { getProfile } from "./actions";
 import { getActiveOrg } from "@/lib/auth";
 import { ProfileForm } from "@/components/profile/profile-form";
 import { NotificationPreferences } from "@/components/profile/notification-preferences";
+import { planAllows, resolvePlanKey } from "@/lib/plan-features";
 
 function getFirstIncompleteStep(profile: {
   businessName: string;
@@ -33,9 +34,13 @@ export default async function ProfilePage({
   const stepFromQuery =
     Number.isFinite(stepParam) && stepParam >= 1 && stepParam <= 6 ? stepParam : null;
 
-  const [profile, { user }] = await Promise.all([getProfile(), getActiveOrg()]);
+  const [profile, activeOrg] = await Promise.all([getProfile(), getActiveOrg()]);
+  const companyDnaAiEnabled = planAllows(
+    resolvePlanKey((activeOrg.org as { plan?: string }).plan),
+    "company_dna_ai"
+  );
 
-  const userRow = user as { phoneNumber?: string | null; whatsappOptIn?: boolean };
+  const userRow = activeOrg.user as { phoneNumber?: string | null; whatsappOptIn?: boolean };
   const phoneNumber = userRow.phoneNumber ?? null;
   const whatsappOptIn = Boolean(userRow.whatsappOptIn);
 
@@ -72,7 +77,7 @@ export default async function ProfilePage({
             whatsappOptIn,
           }}
         />
-        <ProfileForm profile={profile} initialStep={initialStep} />
+        <ProfileForm profile={profile} initialStep={initialStep} companyDnaAiEnabled={companyDnaAiEnabled} />
       </div>
     </div>
   );

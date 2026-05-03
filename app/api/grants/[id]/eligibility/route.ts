@@ -3,6 +3,8 @@ import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getEligibilityDecision, getConfidenceBand } from "@/lib/claude";
 import { getApplicantTypeGate } from "@/lib/eligibility-hard-gates";
+import { checkUsageLimit, recordUsage } from "@/lib/plan-check";
+import { resolvePlanKey } from "@/lib/plan-features";
 
 function profileToMatching(profile: Record<string, unknown>) {
   const get = (key: string) => profile[key] ?? profile[key.replace(/([A-Z])/g, "_$1").toLowerCase()];
@@ -156,6 +158,16 @@ export async function GET(
       }
     }
 
+    const plan = resolvePlanKey((org as { plan?: string }).plan);
+    const { allowed, remaining } = await checkUsageLimit(orgId, "match");
+    if (!allowed) {
+      const message =
+        plan === "FREE_TRIAL"
+          ? "You've used all Starter full eligibility checks this month. Cached scores still appear for grants you've already assessed. Upgrade for unlimited company-DNA scoring."
+          : "Monthly eligibility check quota reached.";
+      return NextResponse.json({ error: message, code: "MATCH_LIMIT", remaining }, { status: 402 });
+    }
+
     const result = await getEligibilityDecision(
       profileToMatching({
         ...(profile as Record<string, unknown>),
@@ -194,6 +206,8 @@ export async function GET(
       },
       { onConflict: "organisation_id,profile_id,grant_id" }
     );
+
+    await recordUsage(orgId, "match");
 
     return NextResponse.json({
       ...result,

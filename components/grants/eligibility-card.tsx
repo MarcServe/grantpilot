@@ -159,7 +159,16 @@ function AutoImproveButton({ grantId, applicationId }: { grantId: string; applic
   );
 }
 
-export function EligibilityCard({ grantId, applicationId }: { grantId: string; applicationId?: string }) {
+export function EligibilityCard({
+  grantId,
+  applicationId,
+  grantAutoImproveEnabled = true,
+}: {
+  grantId: string;
+  applicationId?: string;
+  grantAutoImproveEnabled?: boolean;
+}) {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<EligibilityResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -173,6 +182,17 @@ export function EligibilityCard({ grantId, applicationId }: { grantId: string; a
       const res = await fetch(url);
       const data = await res.json();
       if (!res.ok) {
+        if (res.status === 402) {
+          toast.error(data.error ?? "Limit reached", {
+            description: "Upgrade or wait until next month for more Starter checks.",
+            action: {
+              label: "Billing",
+              onClick: () => router.push("/billing"),
+            },
+          });
+          setError(null);
+          return;
+        }
         setError(data.error ?? "Failed to check eligibility");
         return;
       }
@@ -331,10 +351,15 @@ export function EligibilityCard({ grantId, applicationId }: { grantId: string; a
                 {loading ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
                 {result.scoringSource === "heuristic" ? "Run full company-DNA check" : "Re-check fresh"}
               </Button>
-              {score < 85 && (result.improvementPlan?.actions?.length || result.missing?.length) ? (
+              {grantAutoImproveEnabled && score < 85 && (result.improvementPlan?.actions?.length || result.missing?.length) ? (
                 <AutoImproveButton grantId={grantId} applicationId={applicationId} />
               ) : null}
             </div>
+            {!grantAutoImproveEnabled && score < 85 ? (
+              <p className="pt-1 text-xs text-muted-foreground">
+                Grant-specific auto-improve is available on Growth, Pro, and Business.
+              </p>
+            ) : null}
           </>
         )}
         {error && (

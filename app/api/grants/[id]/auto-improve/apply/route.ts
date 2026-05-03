@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { planAllows, PLAN_CAPABILITY_MESSAGES, resolvePlanKey } from "@/lib/plan-features";
 
 /**
  * POST /api/grants/[id]/auto-improve/apply
@@ -15,6 +16,14 @@ export async function POST(
 ): Promise<NextResponse> {
   try {
     const { org, orgId } = await getActiveOrg();
+    const plan = resolvePlanKey((org as { plan?: string }).plan);
+    if (!planAllows(plan, "grant_auto_improve")) {
+      return NextResponse.json(
+        { error: PLAN_CAPABILITY_MESSAGES.grant_auto_improve, code: "FEATURE_FORBIDDEN" },
+        { status: 402 }
+      );
+    }
+
     const profile = org.profiles?.[0];
     if (!profile) {
       return NextResponse.json({ error: "No profile found" }, { status: 400 });

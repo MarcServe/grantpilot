@@ -122,7 +122,15 @@ const STEP_LABELS = [
   "Grant Readiness",
 ];
 
-export function ProfileForm({ profile, initialStep = 1 }: { profile: ProfileData; initialStep?: number }) {
+export function ProfileForm({
+  profile,
+  initialStep = 1,
+  companyDnaAiEnabled,
+}: {
+  profile: ProfileData;
+  initialStep?: number;
+  companyDnaAiEnabled: boolean;
+}) {
   const router = useRouter();
   const [step, setStep] = useState(initialStep);
   const [isPending, startTransition] = useTransition();
@@ -295,6 +303,7 @@ export function ProfileForm({ profile, initialStep = 1 }: { profile: ProfileData
       <CompanyDnaAutofill
         hasWebsiteUrl={Boolean(profile.websiteUrl?.trim())}
         hasWebsiteIntelligence={Boolean(profile.websiteIntelligence?.trim())}
+        companyDnaAiEnabled={companyDnaAiEnabled}
       />
 
       <Card className="overflow-hidden rounded-2xl">

@@ -8,6 +8,16 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
+function subscriptionActivatedFeatureList(planName: string): string {
+  if (planName === "Business") {
+    return "<li>Up to 5 business profiles</li><li>Unlimited full eligibility &amp; DNA scoring</li><li>Unlimited AI auto-fills</li><li>Company DNA, grant auto-improve &amp; Founder Pack</li><li>Priority support &amp; notifications</li>";
+  }
+  if (planName === "Growth") {
+    return "<li>1 business profile</li><li>Unlimited full eligibility &amp; DNA scoring</li><li>10 AI auto-fills/month</li><li>Company DNA, grant auto-improve &amp; Founder Pack</li><li>Email &amp; WhatsApp notifications</li>";
+  }
+  return "<li>Up to 2 business profiles</li><li>Unlimited full eligibility &amp; DNA scoring</li><li>25 AI auto-fills/month</li><li>Company DNA, grant auto-improve &amp; Founder Pack</li><li>Email &amp; WhatsApp notifications</li>";
+}
+
 function baseLayout(title: string, body: string, ctaUrl?: string, ctaText?: string): string {
   return `<!DOCTYPE html>
 <html>
@@ -244,7 +254,7 @@ export function buildEmailHtml(
           `<p>Your subscription to <strong>Grants-Copilot ${plan}</strong> is now active.</p>
           <p>Here's what's unlocked:</p>
           <ul style="padding-left:20px">
-            ${plan === "Business" ? "<li>5 business profiles</li><li>Unlimited grant matches</li><li>Unlimited auto-fills</li><li>Priority support</li><li>All notification channels</li>" : "<li>Unlimited grant matches</li><li>10 auto-fills per month</li><li>Email &amp; WhatsApp notifications</li>"}
+            ${subscriptionActivatedFeatureList(plan)}
           </ul>
           <p>Your GrantsCopilot grant matching is running daily — we'll send you matched grants every morning.</p>`,
           `${appUrl}/dashboard`,
@@ -260,7 +270,7 @@ export function buildEmailHtml(
         html: baseLayout(
           `You've upgraded to Grants-Copilot ${plan}`,
           `<p>Your plan has been upgraded to <strong>Grants-Copilot ${plan}</strong>.</p>
-          <p>Your new limits are now active — enjoy unlimited grant matches and auto-fills.</p>`,
+          <p>Your new limits are now active — see usage anytime on the billing page.</p>`,
           `${appUrl}/billing`,
           "View Subscription"
         ),
@@ -373,7 +383,7 @@ export function buildWhatsAppMessage(
 
     case "subscription_upgraded": {
       const plan = payload.planName ?? "Business";
-      return `⬆️ Upgraded to Grants-Copilot ${plan}!\n\nYour new limits are active. Enjoy unlimited grant matches and auto-fills.\n\n${appUrl}/billing`;
+      return `⬆️ Upgraded to Grants-Copilot ${plan}!\n\nYour new limits are active. View details: ${appUrl}/billing`;
     }
 
     case "subscription_cancelled":

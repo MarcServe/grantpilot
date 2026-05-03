@@ -1,5 +1,12 @@
 import { getSupabaseAdmin } from "./supabase";
 import { PLAN_LIMITS, type PlanKey } from "./plans";
+import { resolvePlanKey } from "./plan-features";
+
+export async function getOrganisationPlanKey(organisationId: string): Promise<PlanKey> {
+  const supabase = getSupabaseAdmin();
+  const { data } = await supabase.from("Organisation").select("plan").eq("id", organisationId).maybeSingle();
+  return resolvePlanKey(data?.plan);
+}
 
 export async function checkUsageLimit(
   organisationId: string,

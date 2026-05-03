@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { suggestProfileImprovements } from "@/lib/claude";
+import { planAllows, PLAN_CAPABILITY_MESSAGES, resolvePlanKey } from "@/lib/plan-features";
 
 function profileToMatching(profile: Record<string, unknown>) {
   const get = (key: string) => profile[key] ?? profile[key.replace(/([A-Z])/g, "_$1").toLowerCase()];
@@ -30,6 +31,14 @@ export async function POST(
 ): Promise<NextResponse> {
   try {
     const { org, orgId } = await getActiveOrg();
+    const plan = resolvePlanKey((org as { plan?: string }).plan);
+    if (!planAllows(plan, "grant_auto_improve")) {
+      return NextResponse.json(
+        { error: PLAN_CAPABILITY_MESSAGES.grant_auto_improve, code: "FEATURE_FORBIDDEN" },
+        { status: 402 }
+      );
+    }
+
     const profile = org.profiles?.[0];
     if (!profile || (profile.completionScore ?? 0) < 50) {
       return NextResponse.json(

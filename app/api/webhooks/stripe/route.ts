@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getStripe, getPlanFromPriceId } from "@/lib/stripe";
-import type { PlanKey } from "@/lib/plans";
+import { planNotifyDisplayName, type PlanKey } from "@/lib/plans";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { notifyOrgMembers } from "@/lib/notify";
 import type Stripe from "stripe";
@@ -62,7 +62,7 @@ export async function POST(req: Request): Promise<NextResponse> {
                 const org = orgData as { id: string } | null;
                 if (org?.id) {
                   await notifyOrgMembers(org.id, "subscription_activated", {
-                    planName: plan === "BUSINESS" ? "Business" : "Pro",
+                    planName: planNotifyDisplayName(plan),
                   }).catch(console.error);
                 }
               }
@@ -71,7 +71,7 @@ export async function POST(req: Request): Promise<NextResponse> {
               const org = rows[0];
               if (org?.id) {
                 await notifyOrgMembers(org.id, "subscription_activated", {
-                  planName: plan === "BUSINESS" ? "Business" : "Pro",
+                  planName: planNotifyDisplayName(plan),
                 }).catch(console.error);
               }
             }
@@ -116,7 +116,7 @@ export async function POST(req: Request): Promise<NextResponse> {
             }
             if (orgIdToNotify && orgBeforeTyped?.plan !== plan) {
               await notifyOrgMembers(orgIdToNotify, "subscription_upgraded", {
-                planName: plan === "BUSINESS" ? "Business" : "Pro",
+                planName: planNotifyDisplayName(plan),
               }).catch(console.error);
             }
           }

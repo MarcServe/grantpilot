@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Brain, CheckCircle, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
@@ -23,9 +24,11 @@ interface DnaSuggestion {
 export function CompanyDnaAutofill({
   hasWebsiteUrl,
   hasWebsiteIntelligence,
+  companyDnaAiEnabled,
 }: {
   hasWebsiteUrl: boolean;
   hasWebsiteIntelligence: boolean;
+  companyDnaAiEnabled: boolean;
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -72,6 +75,27 @@ export function CompanyDnaAutofill({
     }
   }, []);
 
+  if (!companyDnaAiEnabled) {
+    return (
+      <Card className="overflow-hidden rounded-2xl border-muted bg-muted/20">
+        <CardHeader className="px-4 pb-3 sm:px-6">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Brain className="h-4 w-4" />
+            Company DNA Autofill
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 px-4 sm:px-6">
+          <p className="text-sm text-muted-foreground">
+            Turn website intelligence into structured profile fields with one click. Included on Growth, Pro, and Business.
+          </p>
+          <Button asChild variant="outline" size="sm" className="w-fit gap-2">
+            <Link href="/billing">View plans</Link>
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
   function persistDraft(
     nextSuggestions: DnaSuggestion[],
     nextSelected: Set<string>,
@@ -98,7 +122,13 @@ export function CompanyDnaAutofill({
       const res = await fetch("/api/profile/company-dna", { method: "POST" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        toast.error(data.error ?? "Could not generate Company DNA suggestions");
+        if (res.status === 402) {
+          toast.error(data.error ?? "Upgrade required", {
+            action: { label: "Billing", onClick: () => router.push("/billing") },
+          });
+        } else {
+          toast.error(data.error ?? "Could not generate Company DNA suggestions");
+        }
         return;
       }
       const next: DnaSuggestion[] = Array.isArray(data.suggestions) ? data.suggestions : [];
@@ -137,7 +167,13 @@ export function CompanyDnaAutofill({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        toast.error(data.error ?? "Could not apply profile updates");
+        if (res.status === 402) {
+          toast.error(data.error ?? "Upgrade required", {
+            action: { label: "Billing", onClick: () => router.push("/billing") },
+          });
+        } else {
+          toast.error(data.error ?? "Could not apply profile updates");
+        }
         return;
       }
       toast.success(`Applied ${data.applied?.length ?? selectedCount} profile updates`);

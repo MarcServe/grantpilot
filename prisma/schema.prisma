@@ -34,6 +34,7 @@ enum AppStatus {
 enum Plan {
   FREE_TRIAL
   PRO
+  GROWTH
   BUSINESS
 }
 

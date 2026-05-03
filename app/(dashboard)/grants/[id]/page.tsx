@@ -23,6 +23,7 @@ import { computeUrgency } from "@/lib/urgency";
 import { checkRequirementsAgainstDocuments } from "@/lib/grant-requirements";
 import type { RequiredAttachment } from "@/lib/grant-requirements";
 import { getApplicantTypeGate } from "@/lib/eligibility-hard-gates";
+import { planAllows, resolvePlanKey } from "@/lib/plan-features";
 
 export default async function GrantDetailPage({
   params,
@@ -42,6 +43,8 @@ export default async function GrantDetailPage({
 
   const { org, orgId } = await getActiveOrg();
   const profile = org.profiles?.[0];
+  const plan = resolvePlanKey((org as { plan?: string }).plan);
+  const grantAutoImproveEnabled = planAllows(plan, "grant_auto_improve");
   const hasProfile = !!profile && (profile.completionScore ?? 0) >= 50;
   const profileId = profile?.id ?? null;
 
@@ -310,7 +313,11 @@ export default async function GrantDetailPage({
           {hasProfile && profileId && (
             <>
               <Separator />
-              <EligibilityCard grantId={grant.id} applicationId={existingApplication?.id} />
+              <EligibilityCard
+                grantId={grant.id}
+                applicationId={existingApplication?.id}
+                grantAutoImproveEnabled={grantAutoImproveEnabled}
+              />
             </>
           )}
 

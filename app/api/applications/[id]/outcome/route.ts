@@ -7,8 +7,10 @@ import {
   generateOutcomeLearningInsight,
   outcomeToScoreSignal,
   type FundingOutcome,
+  type OutcomeLearningInsight,
 } from "@/lib/outcome-learning";
 import { requestEligibilityRefresh } from "@/lib/eligibility-refresh-trigger";
+import { planAllows, resolvePlanKey } from "@/lib/plan-features";
 
 const outcomeSchema = z.object({
   outcome: z.enum(["applied", "shortlisted", "awarded", "rejected", "withdrawn", "unknown"]),
@@ -23,7 +25,7 @@ export async function POST(
 ): Promise<NextResponse> {
   try {
     const { id } = await params;
-    const { orgId, user } = await getActiveOrg();
+    const { orgId, user, org } = await getActiveOrg();
     const body = await req.json().catch(() => ({}));
     const parsed = outcomeSchema.safeParse(body);
     if (!parsed.success) {
@@ -46,20 +48,34 @@ export async function POST(
       ? application.BusinessProfile[0]
       : application.BusinessProfile;
     const outcome = parsed.data.outcome as FundingOutcome;
-    const insight = await generateOutcomeLearningInsight({
-      outcome,
-      grantName: String((grant as { name?: string } | null)?.name ?? "Grant"),
-      funder: String((grant as { funder?: string } | null)?.funder ?? "Funder"),
-      profileSummary: buildOutcomeProfileSummary((profile ?? {}) as Record<string, unknown>),
-      funderFeedback: parsed.data.funderFeedback,
-      learningNotes: parsed.data.learningNotes,
-    }).catch(() => ({
-      summary: "Outcome recorded.",
-      strengths: [],
-      weaknesses: [],
-      nextActions: [],
-      scoringAdjustment: outcomeToScoreSignal(outcome),
-    }));
+    const plan = resolvePlanKey((org as { plan?: string }).plan);
+
+    let insight: OutcomeLearningInsight;
+    if (planAllows(plan, "outcome_learning_ai")) {
+      insight = await generateOutcomeLearningInsight({
+        outcome,
+        grantName: String((grant as { name?: string } | null)?.name ?? "Grant"),
+        funder: String((grant as { funder?: string } | null)?.funder ?? "Funder"),
+        profileSummary: buildOutcomeProfileSummary((profile ?? {}) as Record<string, unknown>),
+        funderFeedback: parsed.data.funderFeedback,
+        learningNotes: parsed.data.learningNotes,
+      }).catch(() => ({
+        summary: "Outcome recorded.",
+        strengths: [],
+        weaknesses: [],
+        nextActions: [],
+        scoringAdjustment: outcomeToScoreSignal(outcome),
+      }));
+    } else {
+      insight = {
+        summary:
+          "Outcome recorded. Upgrade to Growth, Pro, or Business for AI learning insights tailored to your grants and profile.",
+        strengths: [],
+        weaknesses: [],
+        nextActions: [],
+        scoringAdjustment: outcomeToScoreSignal(outcome),
+      };
+    }
 
     const { data: saved, error: upsertError } = await supabase
       .from("ApplicationOutcome")
