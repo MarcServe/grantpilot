@@ -20,7 +20,7 @@ export async function checkUsageLimit(
     .single();
   if (!org) return { allowed: false, remaining: 0 };
 
-  const plan = org.plan as PlanKey;
+  const plan = resolvePlanKey((org as { plan?: string }).plan);
   const limits = PLAN_LIMITS[plan];
 
   const limitKey = type === "autofill" ? "autoFillsPerMonth" : "matchesPerMonth";

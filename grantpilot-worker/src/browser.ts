@@ -92,6 +92,27 @@ export async function navigateToGrantUrl(
  */
 export async function getFormFields(page: Page): Promise<FormFieldInfo[]> {
   const fields = await page.evaluate(() => {
+    function isCaptchaOrSystemField(el: Element): boolean {
+      const input = el as HTMLInputElement;
+      const text = `${input.name ?? ""} ${input.id ?? ""} ${input.getAttribute("aria-label") ?? ""}`.toLowerCase();
+      return /\b(g-recaptcha-response|h-captcha-response|cf-turnstile-response|captcha|csrf|authenticity_token)\b/.test(text);
+    }
+
+    function isVisibleEnough(el: Element): boolean {
+      if (isCaptchaOrSystemField(el)) return false;
+      const html = el as HTMLElement;
+      const style = window.getComputedStyle(html);
+      if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
+      const rect = html.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) return true;
+      const label = html.closest("label");
+      if (label) {
+        const labelRect = label.getBoundingClientRect();
+        return labelRect.width > 0 && labelRect.height > 0;
+      }
+      return false;
+    }
+
     function selectorFor(el: Element): string {
       const input = el as HTMLInputElement;
       if (input.id) return `#${CSS.escape(input.id)}`;
@@ -113,6 +134,10 @@ export async function getFormFields(page: Page): Promise<FormFieldInfo[]> {
         if (parent) label = parent.textContent?.trim() ?? "";
       }
       if (!label) {
+        const aria = (el as HTMLElement).getAttribute("aria-label");
+        if (aria) label = aria;
+      }
+      if (!label) {
         const labelledBy = (el as HTMLElement).getAttribute("aria-labelledby");
         if (labelledBy) {
           label = labelledBy
@@ -126,6 +151,12 @@ export async function getFormFields(page: Page): Promise<FormFieldInfo[]> {
         const prev = (el as HTMLElement).previousElementSibling;
         if (prev && /label|span|p|div/i.test(prev.tagName)) {
           label = prev.textContent?.trim() ?? "";
+        }
+      }
+      if (!label) {
+        const next = (el as HTMLElement).nextElementSibling;
+        if (next && /label|span|p|div/i.test(next.tagName)) {
+          label = next.textContent?.trim() ?? "";
         }
       }
       return label.replace(/\s+/g, " ").trim();
@@ -201,7 +232,8 @@ export async function getFormFields(page: Page): Promise<FormFieldInfo[]> {
       instruction?: string;
     }> = [];
 
-    const choiceInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="radio"], input[type="checkbox"]'));
+    const choiceInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="radio"], input[type="checkbox"]'))
+      .filter((input) => isVisibleEnough(input) || Boolean(input.closest("label")));
     const groups = new Map<string, HTMLInputElement[]>();
     for (const input of choiceInputs) {
       const key = input.name || input.id || labelFor(input);
@@ -231,10 +263,48 @@ export async function getFormFields(page: Page): Promise<FormFieldInfo[]> {
       });
     }
 
+    const roleChoices = Array.from(document.querySelectorAll<HTMLElement>('[role="radio"], [role="checkbox"]'))
+      .filter((el) => el.tagName.toLowerCase() !== "input" && isVisibleEnough(el));
+    const roleGroups = new Map<string, HTMLElement[]>();
+    for (const el of roleChoices) {
+      const group =
+        el.closest('[role="radiogroup"], [role="group"], fieldset, [data-automation-id*="question"], [data-testid*="question"]');
+      const groupLabel =
+        group?.querySelector("legend, h1, h2, h3, h4, [role='heading']")?.textContent?.trim() ||
+        group?.getAttribute("aria-label") ||
+        group?.id ||
+        el.getAttribute("name") ||
+        "choice_group";
+      const existing = roleGroups.get(groupLabel) ?? [];
+      existing.push(el);
+      roleGroups.set(groupLabel, existing);
+    }
+    for (const [groupLabel, options] of roleGroups) {
+      const first = options[0];
+      const role = first.getAttribute("role") === "radio" ? "radio_group" : "checkbox_group";
+      result.push({
+        name: groupLabel,
+        id: null,
+        selector: `[role="${first.getAttribute("role") ?? "radio"}"]`,
+        type: role,
+        label: groupLabel.replace(/\s+/g, " ").slice(0, 300),
+        placeholder: "",
+        options: options.map((option) => ({
+          label: labelFor(option) || option.textContent?.trim() || option.getAttribute("aria-label") || "Option",
+          value: option.getAttribute("data-value") || option.textContent?.trim() || option.getAttribute("aria-label") || "on",
+          selector: selectorFor(option),
+          checked: option.getAttribute("aria-checked") === "true",
+        })),
+        required: options.some((option) => option.getAttribute("aria-required") === "true"),
+        instruction: instructionFor(first),
+      });
+    }
+
     const inputs = document.querySelectorAll(
       'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="radio"]):not([type="checkbox"]), textarea, select'
     );
     inputs.forEach((el) => {
+      if (!isVisibleEnough(el)) return;
       const name = (el as HTMLInputElement).name || (el as HTMLInputElement).id || "";
       if (!name) return;
       const id = (el as HTMLInputElement).id || null;
@@ -260,6 +330,7 @@ export async function getFormFields(page: Page): Promise<FormFieldInfo[]> {
       result.push({ name, id, selector: selectorFor(el), type, label, placeholder, options, maxLength, required, instruction });
     });
     document.querySelectorAll<HTMLElement>('[contenteditable="true"], [role="textbox"][contenteditable]').forEach((el, idx) => {
+      if (!isVisibleEnough(el)) return;
       const name = el.getAttribute("name") || el.id || el.getAttribute("aria-label") || `rich_text_${idx + 1}`;
       const label = labelFor(el) || el.getAttribute("aria-label") || name;
       result.push({
@@ -382,7 +453,37 @@ async function chooseByOptionLabel(page: Page, selector: string, value: string):
     }
   }
   for (const input of inputs) await input.dispose().catch(() => {});
-  return false;
+
+  // Styled forms such as Airtable often hide the native input and make the
+  // visible Yes/No pill the real click target. Fall back to accessible role
+  // and exact visible text before giving up.
+  const roleClicked = await page
+    .getByRole("radio", { name: new RegExp(`^\\s*${escapeRegExp(value)}\\s*$`, "i") })
+    .first()
+    .click({ timeout: 1500 })
+    .then(() => true)
+    .catch(() => false);
+  if (roleClicked) return true;
+
+  const checkboxClicked = await page
+    .getByRole("checkbox", { name: new RegExp(`^\\s*${escapeRegExp(value)}\\s*$`, "i") })
+    .first()
+    .click({ timeout: 1500 })
+    .then(() => true)
+    .catch(() => false);
+  if (checkboxClicked) return true;
+
+  const textClicked = await page
+    .getByText(new RegExp(`^\\s*${escapeRegExp(value)}\\s*$`, "i"))
+    .first()
+    .click({ timeout: 1500 })
+    .then(() => true)
+    .catch(() => false);
+  return textClicked;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 async function verifyAction(page: Page, selector: string, expected: string, type: FillAction["type"]): Promise<boolean> {
@@ -623,6 +724,23 @@ export interface FilledFormSnapshot {
 export async function getFilledFormSnapshot(page: Page): Promise<FilledFormSnapshot> {
   const result = await page.evaluate(() => {
     const fields: Array<{ label: string; name: string; value: string }> = [];
+    function isCaptchaOrSystemField(el: Element): boolean {
+      const input = el as HTMLInputElement;
+      const text = `${input.name ?? ""} ${input.id ?? ""} ${input.getAttribute("aria-label") ?? ""}`.toLowerCase();
+      return /\b(g-recaptcha-response|h-captcha-response|cf-turnstile-response|captcha|csrf|authenticity_token)\b/.test(text);
+    }
+    function isVisibleEnough(el: Element): boolean {
+      if (isCaptchaOrSystemField(el)) return false;
+      const html = el as HTMLElement;
+      const style = window.getComputedStyle(html);
+      if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
+      const rect = html.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) return true;
+      const label = html.closest("label");
+      if (!label) return false;
+      const labelRect = label.getBoundingClientRect();
+      return labelRect.width > 0 && labelRect.height > 0;
+    }
     function labelFor(el: Element): string {
       let label = "";
       const forId = (el as HTMLInputElement).id;
@@ -686,7 +804,8 @@ export async function getFilledFormSnapshot(page: Page): Promise<FilledFormSnaps
       return labelFor(input) || input.name || input.id || "Choice field";
     }
 
-    const choiceInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="radio"], input[type="checkbox"]'));
+    const choiceInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="radio"], input[type="checkbox"]'))
+      .filter((input) => isVisibleEnough(input) || Boolean(input.closest("label")));
     const choiceGroups = new Map<string, HTMLInputElement[]>();
     for (const input of choiceInputs) {
       const key = input.name || input.id || questionLabelFor(input);
@@ -710,11 +829,11 @@ export async function getFilledFormSnapshot(page: Page): Promise<FilledFormSnaps
       'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="file"]):not([type="radio"]):not([type="checkbox"]), textarea, select'
     );
     inputs.forEach((el) => {
+      if (!isVisibleEnough(el)) return;
       const name = (el as HTMLInputElement).name || (el as HTMLInputElement).id || "";
       if (!name) return;
       let value = "";
       const tag = (el as HTMLElement).tagName.toLowerCase();
-      const type = (el as HTMLInputElement).type?.toLowerCase();
       if (tag === "select") {
         value = (el as HTMLSelectElement).value ?? "";
       } else {
@@ -1039,6 +1158,7 @@ export async function findAndClickApplyButton(
 export async function filterApplicationFields(fields: FormFieldInfo[]): Promise<FormFieldInfo[]> {
   const chromeNames = /^(search|q|query|s|keyword|filter|sort|lang|language|locale|cookie|consent|newsletter|subscribe|email_subscribe|signup_email|mc_email|mc-embedded-subscribe-email|__search|_search)$/i;
   const chromeLabels = /\b(search|filter|sort by|language|cookie|newsletter|subscribe|sign up for|search the site|find a grant)\b/i;
+  const systemFields = /\b(g-recaptcha-response|h-captcha-response|cf-turnstile-response|captcha|csrf|authenticity_token)\b/i;
 
   return fields.filter((f) => {
     const name = (f.name || "").toLowerCase();
@@ -1047,6 +1167,7 @@ export async function filterApplicationFields(fields: FormFieldInfo[]): Promise<
     const type = (f.type || "").toLowerCase();
 
     if (type === "search") return false;
+    if (systemFields.test(name) || systemFields.test(label) || systemFields.test(placeholder)) return false;
     if (chromeNames.test(name)) return false;
     if (chromeLabels.test(label)) return false;
     if (chromeLabels.test(placeholder)) return false;

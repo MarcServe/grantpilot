@@ -1,6 +1,7 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg } from "@/lib/auth";
 import { PLAN_LIMITS } from "@/lib/plans";
+import { resolvePlanKey } from "@/lib/plan-features";
 import { BillingClient } from "@/components/billing/billing-client";
 
 interface BillingPageProps {
@@ -32,7 +33,7 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
     .eq("type", "match")
     .gte("createdAt", fromDate);
 
-  const plan = org.plan as keyof typeof PLAN_LIMITS;
+  const plan = resolvePlanKey(org.plan);
   const limits = PLAN_LIMITS[plan];
 
   return (

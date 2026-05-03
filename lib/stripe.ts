@@ -1,5 +1,5 @@
 import Stripe from "stripe";
-import { PLAN_LIMITS, type PlanKey } from "@/lib/plans";
+import { PLAN_CATALOG, type PlanKey } from "@/lib/plans";
 
 let stripeClient: Stripe | null = null;
 
@@ -12,10 +12,19 @@ export function getStripe(): Stripe {
   return stripeClient;
 }
 
-export function getPlanFromPriceId(priceId: string): PlanKey {
-  if (!priceId) return "FREE_TRIAL";
-  if (priceId === process.env.NEXT_PUBLIC_STRIPE_PRO_PRICE_ID) return "PRO";
-  if (priceId === process.env.NEXT_PUBLIC_STRIPE_GROWTH_PRICE_ID) return "GROWTH";
-  if (priceId === process.env.NEXT_PUBLIC_STRIPE_BUSINESS_PRICE_ID) return "BUSINESS";
-  return "FREE_TRIAL";
+export function getPlanFromPriceId(priceId: string): PlanKey | null {
+  if (!priceId) return null;
+  for (const plan of PLAN_CATALOG) {
+    if (!plan.stripePriceIdEnv) continue;
+    if (priceId === process.env[plan.stripePriceIdEnv]) return plan.value;
+  }
+  return null;
+}
+
+export function getAllowedCheckoutPriceIds(): Set<string> {
+  return new Set(
+    PLAN_CATALOG
+      .map((plan) => plan.stripePriceIdEnv ? process.env[plan.stripePriceIdEnv] : "")
+      .filter((value): value is string => Boolean(value?.trim()))
+  );
 }

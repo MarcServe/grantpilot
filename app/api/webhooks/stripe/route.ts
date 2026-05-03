@@ -44,6 +44,10 @@ export async function POST(req: Request): Promise<NextResponse> {
         }
 
         const plan = getPlanFromPriceId(priceId ?? "");
+        if (!plan) {
+          console.error("[STRIPE_WEBHOOK] checkout.session.completed unknown price:", priceId);
+          break;
+        }
 
         if (customerId) {
           const { data, error } = await supabase
@@ -85,6 +89,10 @@ export async function POST(req: Request): Promise<NextResponse> {
         const customerId = subscription.customer as string;
         const priceId = subscription.items.data[0]?.price.id ?? "";
         const plan = getPlanFromPriceId(priceId);
+        if (!plan) {
+          console.error("[STRIPE_WEBHOOK] customer.subscription.updated unknown price:", priceId);
+          break;
+        }
         const activeOrTrialing = subscription.status === "active" || subscription.status === "trialing";
 
         if (activeOrTrialing) {

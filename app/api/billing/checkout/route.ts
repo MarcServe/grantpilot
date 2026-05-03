@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg } from "@/lib/auth";
-import { getStripe } from "@/lib/stripe";
+import { getAllowedCheckoutPriceIds, getStripe } from "@/lib/stripe";
 
 const checkoutSchema = z.object({
   priceId: z.string().min(1),
@@ -25,6 +25,9 @@ export async function POST(req: Request): Promise<NextResponse> {
     const parsed = checkoutSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
+    }
+    if (!getAllowedCheckoutPriceIds().has(parsed.data.priceId)) {
+      return NextResponse.json({ error: "Unknown or unconfigured billing plan" }, { status: 400 });
     }
 
     const stripe = getStripe();

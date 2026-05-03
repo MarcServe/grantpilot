@@ -50,6 +50,9 @@ export async function POST() {
       if (sub?.items?.data?.length) {
         const priceId = sub.items.data[0].price.id;
         const plan = getPlanFromPriceId(priceId);
+        if (!plan) {
+          return NextResponse.json({ success: false, error: "Subscription price is not mapped to a GrantsCopilot plan" }, { status: 400 });
+        }
         const { error } = await supabase
           .from("Organisation")
           .update({ plan, stripeId: customer.id })
@@ -68,6 +71,9 @@ export async function POST() {
 
     const priceId = subscription.items.data[0].price.id;
     const plan = getPlanFromPriceId(priceId);
+    if (!plan) {
+      return NextResponse.json({ success: false, error: "Subscription price is not mapped to a GrantsCopilot plan" }, { status: 400 });
+    }
     const { error } = await supabase
       .from("Organisation")
       .update({ plan, stripeId: customer.id })

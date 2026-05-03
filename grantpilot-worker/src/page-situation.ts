@@ -138,10 +138,6 @@ Return ONLY a JSON object: {"situation":"...","needsDirectUrl":false,"applyButto
   }
 }
 
-/** Patterns that indicate site chrome / non-application inputs */
-const CHROME_INPUT_PATTERNS = /^(search|q|query|s|keyword|filter|sort|lang|language|locale|cookie|consent|newsletter|subscribe|email_subscribe|signup_email|mc_email)$/i;
-const CHROME_LABEL_PATTERNS = /\b(search|filter|sort by|language|cookie|newsletter|subscribe|sign up for)\b/i;
-
 /**
  * Analyze form fields on the page and determine if they are genuine application fields.
  * Returns { applicationFieldCount, chromeFieldCount, totalFields }.
@@ -198,9 +194,6 @@ export async function analyzeFormFields(page: Page): Promise<{
   });
   return analysis;
 }
-
-/** Common Apply / Start Application button patterns, including Microsoft Forms localized starts. */
-const APPLY_BUTTON_TEXT = /\b(apply\s*(now|here|online)?|start\s*(now|application|form)?|begin\s*(now|application|form)?|start\s*your\s*application|submit\s*an?\s*application|apply\s*for\s*(this|the)\s*(grant|fund|scheme|competition)|empezar\s*ahora|comenzar|iniciar|start)\b/i;
 
 /**
  * DOM heuristic detection with field-aware analysis.
@@ -270,6 +263,41 @@ export async function detectPageSituation(page: Page, hints?: NavigationHints): 
       return { situation: "info_page_with_apply", confidence: 0.9 };
     }
     return { situation: "info_page_with_apply", confidence: 0.7 };
+  }
+
+  if (/airtable\.com|tally\.so|typeform\.com|jotform\.com|formstack\.com|formsite\.com|cognitoforms\.com|form\.asana\.com|forms\.gle/i.test(finalUrl)) {
+    const hostedForm = await page.evaluate(() => {
+      const visible = (el: Element) => {
+        const html = el as HTMLElement;
+        const style = window.getComputedStyle(html);
+        if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
+        const rect = html.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      };
+      const captchaOrSystem = (el: Element) => {
+        const input = el as HTMLInputElement;
+        const text = `${input.name ?? ""} ${input.id ?? ""} ${input.getAttribute("aria-label") ?? ""}`.toLowerCase();
+        return /\b(g-recaptcha-response|h-captcha-response|cf-turnstile-response|captcha|csrf|authenticity_token)\b/.test(text);
+      };
+      const inputs = Array.from(document.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="password"]):not([type="file"]), textarea, select'))
+        .filter((el) => visible(el) && !captchaOrSystem(el));
+      const choices = new Set<string>();
+      document.querySelectorAll<HTMLInputElement>('input[type="radio"], input[type="checkbox"]').forEach((input) => {
+        if (captchaOrSystem(input)) return;
+        const label = input.closest("label")?.textContent?.trim() || input.name || input.id || input.value || "choice";
+        choices.add(label);
+      });
+      const roleChoices = Array.from(document.querySelectorAll('[role="radio"], [role="checkbox"]')).filter((el) => visible(el) && !captchaOrSystem(el));
+      const buttons = Array.from(document.querySelectorAll<HTMLElement>('button, input[type="submit"], [role="button"]'));
+      const hasSubmit = buttons.some((el) => {
+        const text = `${el.textContent ?? ""} ${(el as HTMLInputElement).value ?? ""} ${el.getAttribute("aria-label") ?? ""}`.toLowerCase();
+        return /\b(submit|next|continue|start|begin)\b/.test(text);
+      });
+      return { fieldCount: inputs.length + choices.size + roleChoices.length, hasSubmit };
+    }).catch(() => ({ fieldCount: 0, hasSubmit: false }));
+    if (hostedForm.fieldCount >= 1 || hostedForm.hasSubmit) {
+      return { situation: "application_form", confidence: 0.95 };
+    }
   }
 
   const visionResult = await detectPageSituationWithVision(page);
