@@ -36,6 +36,24 @@ interface ProfileOption {
   financialProjections?: string | null;
 }
 
+interface ApplicationOption {
+  id: string;
+  status: string;
+  profileId: string;
+  grantId: string;
+  grantName: string;
+  funder: string;
+}
+
+interface EligibleGrantOption {
+  grantId: string;
+  profileId: string;
+  grantName: string;
+  funder: string;
+  score: number;
+  decision: string;
+}
+
 function contentIsReady(content?: FounderPackContent | null): content is FounderPackContent {
   return Boolean(
     content?.executiveSummary ||
@@ -331,10 +349,14 @@ function PackDocument({ pack }: { pack: PackSummary }) {
 
 export function FounderPackClient({
   profiles,
+  applications,
+  eligibleGrants,
   packs,
   allowed,
 }: {
   profiles: ProfileOption[];
+  applications: ApplicationOption[];
+  eligibleGrants: EligibleGrantOption[];
   packs: PackSummary[];
   allowed: boolean;
 }) {
@@ -355,12 +377,27 @@ export function FounderPackClient({
     pricingAssumptions: "Free trial for initial onboarding, paid Pro and Business plans, with optional premium document pack generation.",
     hiringPlan: "Founder-led product development first, then hire AI engineering, grant operations, customer success, and partnerships roles as revenue grows.",
     additionalNotes: "",
+    selectedApplicationIds: [],
+    selectedEligibleGrantIds: [],
+    grantRequirementsNotes: "",
   });
 
   const selectedPack = useMemo(
     () => history.find((pack) => pack.id === selectedPackId) ?? history[0] ?? null,
     [history, selectedPackId]
   );
+
+  const applicationsForProfile = useMemo(
+    () => applications.filter((a) => a.profileId === form.profileId),
+    [applications, form.profileId]
+  );
+
+  const eligibleForProfile = useMemo(
+    () => eligibleGrants.filter((row) => row.profileId === form.profileId),
+    [eligibleGrants, form.profileId]
+  );
+
+  const selectedEligibleCount = form.selectedEligibleGrantIds?.length ?? 0;
 
   function update<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -381,10 +418,32 @@ export function FounderPackClient({
     setForm((prev) => ({
       ...prev,
       profileId,
+      selectedApplicationIds: [],
+      selectedEligibleGrantIds: [],
       founderBackground: prev.founderBackground || profile?.founderBackground || "",
       technicalContribution: prev.technicalContribution || profile?.teamExpertise || "",
       pricingAssumptions: prev.pricingAssumptions || profile?.financialProjections || "",
     }));
+  }
+
+  function toggleGrantApplication(applicationId: string, checked: boolean) {
+    setForm((prev) => {
+      const cur = prev.selectedApplicationIds ?? [];
+      const next = checked ? [...new Set([...cur, applicationId])] : cur.filter((id) => id !== applicationId);
+      return { ...prev, selectedApplicationIds: next };
+    });
+  }
+
+  function toggleEligibleGrant(grantId: string, checked: boolean) {
+    setForm((prev) => {
+      const cur = prev.selectedEligibleGrantIds ?? [];
+      if (checked && cur.length >= 15 && !cur.includes(grantId)) {
+        toast.error("You can select up to 15 eligible grants.");
+        return prev;
+      }
+      const next = checked ? [...new Set([...cur, grantId])] : cur.filter((id) => id !== grantId);
+      return { ...prev, selectedEligibleGrantIds: next };
+    });
   }
 
   async function generate() {
@@ -394,10 +453,19 @@ export function FounderPackClient({
     }
     setLoading(true);
     try {
+      const payload = {
+        ...form,
+        selectedApplicationIds:
+          form.selectedApplicationIds?.length ? form.selectedApplicationIds : undefined,
+        selectedEligibleGrantIds:
+          form.selectedEligibleGrantIds?.length ? form.selectedEligibleGrantIds : undefined,
+        grantRequirementsNotes: form.grantRequirementsNotes?.trim() || undefined,
+      };
+
       const res = await fetch("/api/founder-pack/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -497,6 +565,96 @@ export function FounderPackClient({
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div className="space-y-3 rounded-lg border border-dashed bg-muted/25 p-3">
+              <div>
+                <Label className="text-base">Grant context</Label>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  Choose applications and/or scored grants for this profile so we pull published eligibility and your latest
+                  match assessment into the pack. Grants that already have an application appear only above; paste extra funder
+                  wording below when needed.
+                </p>
+              </div>
+              {applicationsForProfile.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No applications for this profile yet. Paste grant requirements below or start applications from{" "}
+                  <span className="font-medium text-foreground">Opportunities</span>.
+                </p>
+              ) : (
+                <div className="grid max-h-[220px] gap-2 overflow-y-auto pr-1">
+                  {applicationsForProfile.map((app) => (
+                    <label
+                      key={app.id}
+                      className="flex cursor-pointer items-start gap-3 rounded-md border bg-background p-2.5 transition-colors hover:bg-muted/40"
+                    >
+                      <Checkbox
+                        checked={form.selectedApplicationIds?.includes(app.id) ?? false}
+                        onCheckedChange={(value) => toggleGrantApplication(app.id, value === true)}
+                        className="mt-0.5"
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium leading-snug">{app.grantName}</span>
+                        <span className="mt-0.5 block text-xs text-muted-foreground">
+                          {app.funder ? `${app.funder} · ` : ""}
+                          Status: {app.status.replace(/_/g, " ")}
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+              {eligibleForProfile.length > 0 && (
+                <div className="space-y-2 pt-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <Label className="text-sm font-medium">Eligible opportunities (no application yet)</Label>
+                    <Badge variant="outline">{selectedEligibleCount}/15</Badge>
+                  </div>
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    From eligibility scoring for this profile. Start an application for a grant if you want it in the list
+                    above instead.
+                  </p>
+                  <div className="grid max-h-[220px] gap-2 overflow-y-auto pr-1">
+                    {eligibleForProfile.map((row) => {
+                      const checked = form.selectedEligibleGrantIds?.includes(row.grantId) ?? false;
+                      const atCap = selectedEligibleCount >= 15 && !checked;
+                      const band = row.decision ? row.decision.replace(/_/g, " ") : "";
+                      return (
+                        <label
+                          key={`${row.profileId}-${row.grantId}`}
+                          className={`flex cursor-pointer items-start gap-3 rounded-md border bg-background p-2.5 transition-colors hover:bg-muted/40 ${atCap ? "opacity-60" : ""}`}
+                        >
+                          <Checkbox
+                            checked={checked}
+                            disabled={atCap}
+                            onCheckedChange={(value) => toggleEligibleGrant(row.grantId, value === true)}
+                            className="mt-0.5"
+                          />
+                          <span className="min-w-0">
+                            <span className="block text-sm font-medium leading-snug">{row.grantName}</span>
+                            <span className="mt-0.5 block text-xs text-muted-foreground">
+                              {row.funder ? `${row.funder} · ` : ""}
+                              Score {Number.isFinite(row.score) ? row.score : "—"}%
+                              {band ? ` · ${band}` : ""}
+                            </span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              <div className="space-y-2 pt-1">
+                <Label htmlFor="grantRequirementsNotes">Grant requirements & notes (optional)</Label>
+                <Textarea
+                  id="grantRequirementsNotes"
+                  rows={4}
+                  placeholder="Paste eligibility text, assessment criteria, word limits, mandatory documents, evaluation priorities, or grants not yet in your workspace…"
+                  value={form.grantRequirementsNotes ?? ""}
+                  onChange={(event) => update("grantRequirementsNotes", event.target.value)}
+                  className="text-sm"
+                />
+              </div>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">

@@ -43,10 +43,10 @@ export function HeroMotionVideo({ className }: { className?: string }) {
     );
     io.observe(v);
 
-    let gapTimer: ReturnType<typeof setTimeout> | null = null;
+    let gapTimer: number | null = null;
 
     const onEnded = () => {
-      if (gapTimer) clearTimeout(gapTimer);
+      if (gapTimer != null) window.clearTimeout(gapTimer);
       gapTimer = window.setTimeout(() => {
         gapTimer = null;
         v.currentTime = 0;
@@ -59,7 +59,7 @@ export function HeroMotionVideo({ className }: { className?: string }) {
     v.addEventListener("canplay", kick);
 
     return () => {
-      if (gapTimer) clearTimeout(gapTimer);
+      if (gapTimer != null) window.clearTimeout(gapTimer);
       io.disconnect();
       v.removeEventListener("loadeddata", kick);
       v.removeEventListener("canplay", kick);

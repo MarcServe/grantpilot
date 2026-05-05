@@ -18,8 +18,8 @@ export default async function DashboardLayout({
 
   return (
     <div className="min-h-screen bg-[#f4f8ff] text-[#071a3a]">
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-[250px] flex-col bg-[#041d38] px-5 py-7 text-white lg:flex">
-        <Link href="/dashboard" className="flex items-center gap-3" aria-label="GrantsCopilot dashboard">
+      <aside className="fixed inset-y-0 left-0 z-40 hidden h-screen max-h-screen w-[250px] flex-col overflow-hidden bg-[#041d38] px-5 py-7 text-white lg:flex">
+        <Link href="/dashboard" className="flex shrink-0 items-center gap-3" aria-label="GrantsCopilot dashboard">
           <Image
             src="/logogc.png"
             alt=""
@@ -38,7 +38,7 @@ export default async function DashboardLayout({
           </div>
         </Link>
 
-        <div className="mt-8 flex min-h-0 flex-1 flex-col">
+        <div className="mt-8 flex min-h-0 flex-1 flex-col overflow-hidden">
           <DashboardNav profileStrength={profileStrength} placement="sidebar" />
         </div>
       </aside>

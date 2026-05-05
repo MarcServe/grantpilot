@@ -12,6 +12,12 @@ export interface FounderPackInputs {
   pricingAssumptions: string;
   hiringPlan: string;
   additionalNotes?: string;
+  /** Application IDs (org-owned) whose Grant rows inform bespoke pack generation */
+  selectedApplicationIds?: string[];
+  /** Grant IDs from eligibility scoring for this profile (no application required yet) */
+  selectedEligibleGrantIds?: string[];
+  /** Free-text funder criteria, eligibility bullets, form questions, or URLs pasted by founder */
+  grantRequirementsNotes?: string;
 }
 
 export type FounderPackDocumentType =
@@ -271,7 +277,8 @@ function normaliseContent(raw: unknown): FounderPackContent {
 
 export async function generateFounderPack(
   profile: BusinessProfileLike,
-  inputs: FounderPackInputs
+  inputs: FounderPackInputs,
+  grantContextBlock?: string
 ): Promise<FounderPackContent> {
   const selectedTypes =
     inputs.documentTypes?.length
@@ -305,6 +312,14 @@ Founder and pack inputs:
 - Pricing and projection assumptions: ${inputs.pricingAssumptions}
 - Hiring/job creation plan: ${inputs.hiringPlan}
 - Additional notes: ${inputs.additionalNotes ?? ""}
+
+Target grants & funder requirements (tailor grant drafts, evidence checklist, budget narrative, workplan, and impact language to these when provided; name grants explicitly where helpful):
+${grantContextBlock?.trim() ? grantContextBlock.trim() : "None specified — use strong general UK funding / accelerator readiness framing aligned to the profile."}
+
+Rules when grant context exists:
+- Reflect eligibility themes, geographic scope, applicant types, and stated objectives without inventing facts not in the profile or inputs.
+- Prioritise overlap between company DNA and each grant's eligibility text.
+- Flag gaps between profile evidence and grant requirements in evidenceChecklist and risks.
 
 Generate these document sections only. For unselected sections, return an empty string or empty array while preserving the required JSON shape:
 ${selectedLabels}

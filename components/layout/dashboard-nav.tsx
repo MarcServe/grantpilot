@@ -156,11 +156,11 @@ export function DashboardNav({
 
   return (
     <>
-      <nav>
+      <nav className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto [-webkit-overflow-scrolling:touch] pr-0.5">
         <NavLinks />
       </nav>
 
-      <div className="mt-auto rounded-2xl border border-white/18 bg-white/[0.04] p-4 text-white">
+      <div className="mt-auto shrink-0 rounded-2xl border border-white/18 bg-white/[0.04] p-4 text-white">
         <p className="text-[13px] font-bold text-white/86">Profile Strength</p>
         <p className="mt-2 text-[28px] font-black leading-none">{score}%</p>
         <div className="mt-4 h-2 rounded-full bg-white/18">

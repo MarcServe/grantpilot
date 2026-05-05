@@ -48,11 +48,12 @@ export function SignInForm() {
           <div className="mx-auto flex justify-center mb-2">
               <div className="relative flex items-center">
                 <Image
-                  src="/logogc.png"
+                  src="/grantcomotion.gif"
                   alt="GrantsCopilot Logo"
-                  width={160}
-                  height={160}
-                  className="h-36 w-36 object-contain sm:h-40 sm:w-40"
+                  width={800}
+                  height={200}
+                  className="h-40 w-auto object-contain mix-blend-multiply"
+                  unoptimized
                   priority
                 />
               </div>
