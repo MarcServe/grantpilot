@@ -335,6 +335,7 @@ export default async function GrantDetailPage({
                 key={grant.id}
                 grantId={grant.id}
                 profileId={profileId}
+                applicationUrl={grant.applicationUrl ?? ""}
                 eligibilityScore={eligibilityScore ?? undefined}
               />
             ) : (

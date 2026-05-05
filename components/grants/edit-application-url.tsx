@@ -121,7 +121,7 @@ export function EditApplicationUrl({ grantId, applicationUrl }: EditApplicationU
         setValue(data.formUrl);
         setEditing(true);
         router.refresh();
-        toast.success("Application form link found. Review and save to use it for auto-fill.");
+        toast.success("Application form link found. Review and save it for application prep.");
         return;
       }
       if (data.status === "running") {
@@ -144,7 +144,7 @@ export function EditApplicationUrl({ grantId, applicationUrl }: EditApplicationU
           setValue(pollData.formUrl);
           setEditing(true);
           router.refresh();
-          toast.success("Application form link found. Review and save to use it for auto-fill.");
+          toast.success("Application form link found. Review and save it for application prep.");
           return;
         }
         if (pollData.status === "failed" || pollData.status === "manual_review_needed") {

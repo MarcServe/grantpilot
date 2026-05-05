@@ -6,7 +6,12 @@ This document describes how the application works: features, user actions, backg
 
 ## 1. Project summary
 
-**Grants-Copilot** (codebase: GrantPilot) is an AI-powered grant discovery, matching, and application platform.
+**Grants-Copilot** (codebase: GrantPilot) is an AI-powered grant discovery, matching, and application preparation platform.
+
+## Version positioning
+
+- **Version 1 launch:** find fresh grants, score eligibility from company DNA, send deadline/match alerts, prepare application answers, document checklists, founder packs, pitch decks, and outcome learning.
+- **Version 2 roadmap:** external form auto-filing and no-login start links. The worker and session APIs remain in the codebase for internal testing, but V1 customer-facing copy should not promise one-click auto-submission.
 
 - **Stack:** Next.js 16 (App Router, Turbopack), TypeScript, Supabase (Postgres, Auth, Storage). Optional worker: Playwright-based form filling.
 - **Package manager:** npm.
@@ -32,8 +37,8 @@ This document describes how the application works: features, user actions, backg
 | `/dashboard` | Overview: profile completion, applications count, suggested/within-reach grants, tasks, notification prefs |
 | `/profile` | Business profile (multi-step form), notification channels, eligibility digest preferences |
 | `/grants` | Browse grants (from sync + discovery) |
-| `/grants/[id]` | Grant detail: eligibility score, Apply with GrantsCopilot, edit application URL, similar grants |
-| `/grants/apply-by-link` | Paste external grant URL(s); start application(s) with GrantsCopilot (up to 20 URLs, optional autopilot) |
+| `/grants/[id]` | Grant detail: eligibility score, prepare application, edit application URL, similar grants |
+| `/grants/apply-by-link` | Paste external grant URL(s); verify/open official link and capture prep notes |
 | `/applications` | List of applications with status |
 | `/applications/[id]` | Application detail: status, tasks, snapshot, approve/cancel/delete |
 | `/billing` | Subscription, plan limits, Stripe checkout/portal |

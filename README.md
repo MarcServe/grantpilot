@@ -1,6 +1,6 @@
 # Grants-Copilot (GrantPilot)
 
-AI-powered grant discovery, matching, and application platform. Find grants, get eligibility scores, and use **Apply with GrantsCopilot** to auto-fill application forms.
+AI-powered grant discovery, matching, and application preparation platform. Version 1 helps founders and SMEs find fresh grants, understand eligibility, receive alerts, and prepare funder-ready documents. External form auto-filing remains a Version 2 workflow while dynamic form handling is hardened.
 
 **Stack:** Next.js 16 (App Router, Turbopack), TypeScript, Supabase (Postgres, Auth, Storage). Optional worker: `grantpilot-worker/` for Playwright-based form filling.
 
@@ -55,7 +55,7 @@ Optional: `RESEND_API_KEY`, `EMAIL_FROM`, Stripe keys, Twilio (WhatsApp). See [D
 
 ## Optional: full system
 
-- **Worker** (form filling): `cd grantpilot-worker && npm install && npm run dev`  
+- **Worker** (V2/internal form filling): `cd grantpilot-worker && npm install && npm run dev`  
   Needs its own `.env` with `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `OPENAI_API_KEY`, and any legacy vision fallback provider keys still enabled.
 
 - **Inngest** (cron jobs: grant sync, scanner, eligibility refresh, reminders):  
@@ -67,7 +67,7 @@ Optional: `RESEND_API_KEY`, `EMAIL_FROM`, Stripe keys, Twilio (WhatsApp). See [D
 ## Docs
 
 - **[AGENTS.md](./AGENTS.md)** — Cursor/agent instructions, services, architecture, Inngest jobs, notifications.
-- **[APP_OVERVIEW.md](./APP_OVERVIEW.md)** — Features, routes, user flows, Apply with GrantsCopilot end-to-end.
+- **[APP_OVERVIEW.md](./APP_OVERVIEW.md)** — Features, routes, user flows, and V2 auto-filing internals.
 - **[DEPLOYMENT.md](./DEPLOYMENT.md)** — Env vars, hosting (e.g. Vercel), Inngest, migrations.
 
 ---

@@ -69,8 +69,8 @@ const featureCards = [
   },
   {
     icon: FileCheck2,
-    title: "Autonomous Application Layer",
-    text: "Drafts answers, prepares checklists, tracks tasks, and starts filing workflows with human approval before submission.",
+    title: "Application Prep Workspace",
+    text: "Drafts funder-ready answers, document checklists, pitch decks, budget narratives, and application tasks before you file.",
   },
   {
     icon: ShieldCheck,
@@ -100,7 +100,7 @@ const resources = [
   },
   {
     title: "Direct vs Login Grants",
-    text: "Understand when GrantsCopilot can file directly and when it prepares a guided portal workflow.",
+    text: "Understand which grants can be prepared quickly and which require portal login or human judgement.",
     href: "#how-it-works",
   },
   {
@@ -135,7 +135,7 @@ export default function LandingPage() {
               Grants<span className="text-[#2468e8]">Copilot</span>
             </div>
             <div className="mt-1 hidden text-[12px] font-semibold text-[#071a3a] min-[430px]:block sm:text-[13px]">
-              Find it. Fill it. Fund it. <span className="text-[#2fbf84]">On Autopilot.</span>
+              Find it. Qualify it. Prepare it. <span className="text-[#2fbf84]">Apply faster.</span>
             </div>
           </div>
         </Link>
@@ -167,20 +167,20 @@ export default function LandingPage() {
           <div className="order-2 w-full max-w-[610px] shrink-0 lg:order-1 lg:max-w-[min(100%,610px)] lg:basis-[min(610px,44%)]">
             <div className="inline-flex min-h-8 max-w-full items-center gap-2 rounded-full bg-[#e8f0ff] px-3 py-1.5 text-[13px] font-bold text-[#105fdf] sm:px-4 sm:text-[14px]">
               <Sparkles className="h-4 w-4" />
-              <span className="truncate">AI-Powered Grant Automation</span>
+              <span className="truncate">AI-Powered Grant Discovery & Qualification</span>
             </div>
 
             <h1 className="mt-7 text-[clamp(2.55rem,11vw,4.4rem)] font-black leading-[1.06] tracking-normal text-[#071a3a] sm:mt-8 lg:text-[72px]">
               Find Grants.
               <br />
-              Apply Automatically.
+              Know What You Qualify For.
               <br />
               <span className="text-[#35c386]">Get Funded.</span>
             </h1>
 
             <p className="mt-5 max-w-[560px] text-[18px] font-medium leading-[1.55] text-[#09224a] sm:mt-6 sm:text-[20px]">
-              GrantsCopilot uses AI to find the right funding for your business, check your eligibility, and complete
-              applications — all on autopilot.
+              GrantsCopilot uses AI to find fresh funding, check your eligibility against your company DNA, and prepare
+              the documents, answers, and tasks you need to apply with confidence.
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:mt-9 sm:flex-row sm:gap-4">
@@ -233,8 +233,8 @@ export default function LandingPage() {
                 Funding intelligence built around your company DNA.
               </h2>
               <p className="mt-5 max-w-[560px] text-lg font-medium leading-8 text-[#334766]">
-                GrantsCopilot is not just a searchable grant list. It learns what your business is, scores the right
-                opportunities, and turns funding work into a structured application pipeline.
+              GrantsCopilot is not just a searchable grant list. It learns what your business is, scores the right
+                opportunities, and turns funding work into a structured application preparation pipeline.
               </p>
               <div className="mt-7 flex flex-col gap-3 sm:flex-row">
                 <Link
@@ -285,7 +285,7 @@ export default function LandingPage() {
               <ArrowDivider />
               <Step icon={Target} title="2. Match" text="Our AI checks your eligibility and ranks opportunities by your chance of success." accent="green" />
               <ArrowDivider />
-              <Step icon={Send} title="3. Apply" text="We complete and submit applications automatically using your data." accent="purple" />
+              <Step icon={Send} title="3. Prepare" text="Generate funder-ready answers, document checklists, pitch decks, and application tasks." accent="purple" />
               <ArrowDivider />
               <div className="flex min-h-[126px] items-center gap-6 rounded-xl border border-white/22 bg-white/8 px-7 py-5">
                 <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-[#35c386]/20">
@@ -294,9 +294,9 @@ export default function LandingPage() {
                   </div>
                 </div>
                 <div>
-                  <h3 className="text-[22px] font-black">Get Funded</h3>
+                  <h3 className="text-[22px] font-black">Apply Faster</h3>
                   <p className="mt-2 text-[14px] font-medium leading-6 text-white/90">
-                    More approvals. Less effort. That&apos;s the power of GrantsCopilot.
+                    Stop searching, guessing, and missing deadlines. Auto-filing arrives in V2.
                   </p>
                 </div>
               </div>
@@ -307,10 +307,10 @@ export default function LandingPage() {
         <section id="pricing" className="mx-auto max-w-[1480px] px-4 py-10 sm:px-6 sm:py-12 lg:px-10">
           <div className="text-center">
             <p className="text-sm font-black uppercase tracking-[0.14em] text-[#2167e8]">Pricing</p>
-            <h2 className="mt-4 text-[32px] font-black leading-tight text-[#071a3a] sm:text-[40px]">Start lean. Scale into automation.</h2>
+            <h2 className="mt-4 text-[32px] font-black leading-tight text-[#071a3a] sm:text-[40px]">Start with funding intelligence. Scale into automation.</h2>
             <p className="mx-auto mt-4 max-w-2xl text-lg font-medium leading-8 text-[#51627d]">
               Pick the level of funding support that matches your team. Upgrade when you are ready for deeper scoring,
-              filing workflows, and founder pack generation.
+              application preparation, and founder pack generation. Auto-filing is marked as a V2 workflow while we harden it.
             </p>
           </div>
 
@@ -431,7 +431,7 @@ export default function LandingPage() {
               <h2 className="mt-4 text-[30px] font-black leading-tight sm:text-[38px]">Building the operating system for business funding.</h2>
               <p className="mt-5 text-base font-medium leading-8 text-white/78">
                 GrantsCopilot helps founders and SMEs move from fragmented funding discovery to an intelligent funding
-                pipeline: profile, match, draft, apply, learn, and improve.
+                pipeline: profile, match, draft, prepare, learn, and improve. Auto-filing sits on the V2 roadmap.
               </p>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">

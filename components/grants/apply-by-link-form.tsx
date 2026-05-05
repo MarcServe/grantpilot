@@ -1,13 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Link2 } from "lucide-react";
+import { ExternalLink, Link2 } from "lucide-react";
 import { toast } from "sonner";
 import { normalizeGrantApplicationUrl } from "@/lib/grant-url";
 
@@ -19,15 +18,12 @@ interface ApplyByLinkFormProps {
   fixGrantId?: string;
 }
 
-export function ApplyByLinkForm({ profileId, prefillUrl, prefillGrantName, prefillFunder, fixGrantId }: ApplyByLinkFormProps) {
-  const router = useRouter();
-  const [loading, setLoading] = useState(false);
+export function ApplyByLinkForm({ prefillUrl, prefillGrantName, prefillFunder }: ApplyByLinkFormProps) {
   const [urlInput, setUrlInput] = useState(prefillUrl ?? "");
   const [grantName, setGrantName] = useState(prefillGrantName ?? "");
   const [funder, setFunder] = useState(prefillFunder ?? "");
   const [eligibility, setEligibility] = useState("");
   const [focusNotes, setFocusNotes] = useState("");
-  const [successApplications, setSuccessApplications] = useState<{ applicationId: string; grantName: string }[] | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -56,94 +52,12 @@ export function ApplyByLinkForm({ profileId, prefillUrl, prefillGrantName, prefi
       toast.error("Maximum 20 URLs per batch. Add fewer and try again.");
       return;
     }
-    setLoading(true);
-    setSuccessApplications(null);
-    try {
-      const body: {
-        profileId: string;
-        focusNotes?: string;
-        applicationUrl?: string;
-        grantName?: string;
-        funder?: string;
-        eligibility?: string;
-        fixGrantId?: string;
-        links?: { applicationUrl: string; grantName?: string; funder?: string; eligibility?: string }[];
-      } = {
-        profileId,
-        focusNotes: focusNotes.trim() || undefined,
-        fixGrantId: fixGrantId || undefined,
-      };
-      const shared = {
-        grantName: grantName.trim() || undefined,
-        funder: funder.trim() || undefined,
-        eligibility: eligibility.trim() || undefined,
-      };
-      if (urls.length === 1) {
-        body.applicationUrl = urls[0];
-        body.grantName = shared.grantName;
-        body.funder = shared.funder;
-        body.eligibility = shared.eligibility;
-      } else {
-        body.links = urls.map((applicationUrl) => ({ applicationUrl, ...shared }));
-      }
-      const res = await fetch("/api/applications/start-with-link", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error ?? "Failed to start application(s)");
-        return;
-      }
-      const apps = data.applications as { applicationId: string; grantName: string }[] | undefined;
-      if (apps && apps.length > 0) {
-        setSuccessApplications(apps);
-        if (apps.length === 1) {
-          toast.success("Application started. AI will fill it and pause for review.");
-          router.push(`/applications/${apps[0].applicationId}`);
-          return;
-        }
-        toast.success(`${apps.length} applications started. AI is filling the forms.`);
-      } else {
-        toast.success("Application started. AI is filling the form.");
-        router.push(`/applications/${data.applicationId}`);
-      }
-    } catch {
-      toast.error("Something went wrong");
-    } finally {
-      setLoading(false);
+    if (urls.length > 1) {
+      toast.info("Batch auto-filing is moving to Version 2. Open one funder link at a time for now.");
+      return;
     }
-  }
-
-  if (successApplications && successApplications.length > 1) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">Batch started</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-sm text-muted-foreground">
-            {successApplications.length} applications are being filled. Open any to track progress.
-          </p>
-          <ul className="space-y-2">
-            {successApplications.map(({ applicationId, grantName: name }) => (
-              <li key={applicationId}>
-                <Link
-                  href={`/applications/${applicationId}`}
-                  className="text-sm font-medium text-primary underline"
-                >
-                  {name}
-                </Link>
-              </li>
-            ))}
-          </ul>
-          <Button variant="outline" onClick={() => { setSuccessApplications(null); setUrlInput(""); }}>
-            Add more links
-          </Button>
-        </CardContent>
-      </Card>
-    );
+    toast.success("Link verified. Opening the official funder page.");
+    window.open(urls[0], "_blank", "noopener,noreferrer");
   }
 
   return (
@@ -208,14 +122,21 @@ export function ApplyByLinkForm({ profileId, prefillUrl, prefillGrantName, prefi
               className="mt-1 w-full min-h-[60px] rounded-md border border-input bg-background px-3 py-2 text-sm"
               maxLength={2000}
             />
-            <p className="mt-1 text-xs text-muted-foreground">
-              Guides the AI on what to emphasise when filling this specific grant application.
+          <p className="mt-1 text-xs text-muted-foreground">
+              Keep these notes for your manual application and Founder Pack drafting. Auto-filing is moving to Version 2.
             </p>
           </div>
-          <Button type="submit" disabled={loading} className="gap-2">
-            {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-            Start auto-fill
+          <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+            Version 1 verifies and prepares grant applications. Automatic external form filling is a Version 2 feature
+            while we harden support for login portals, CAPTCHAs, dynamic fields, and funder-specific forms.
+          </div>
+          <Button type="submit" className="gap-2">
+            <ExternalLink className="h-4 w-4" />
+            Verify link and open funder form
           </Button>
+          <Link href="/founder-pack" className="ml-0 inline-flex text-sm font-medium text-primary underline sm:ml-3">
+            Generate Founder & SME Pack
+          </Link>
         </form>
       </CardContent>
     </Card>

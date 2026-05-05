@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BriefcaseBusiness, Download, FileText, Loader2, Lock, Sparkles } from "lucide-react";
+import { BriefcaseBusiness, Download, ExternalLink, FileText, Loader2, Lock, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import {
   FOUNDER_PACK_DOCUMENT_TYPES,
@@ -121,6 +121,7 @@ function CanvasBlock({ title, items }: { title: string; items: string[] }) {
 }
 
 function PackDocument({ pack }: { pack: PackSummary }) {
+  const [exporting, setExporting] = useState<string | null>(null);
   const content = pack.content;
   const pitchDeck = content.pitchDeck ?? [];
   const businessModelCanvas = content.businessModelCanvas ?? {
@@ -142,6 +143,61 @@ function PackDocument({ pack }: { pack: PackSummary }) {
       : FOUNDER_PACK_DOCUMENT_TYPES.map((item) => item.value);
   const includes = (type: FounderPackDocumentType) => documentTypes.includes(type);
 
+  async function downloadExport(format: "pdf" | "docx" | "pptx" | "md" | "json") {
+    setExporting(format);
+    try {
+      const res = await fetch(`/api/founder-pack/${pack.id}/export?format=${format}`);
+      const blob = await res.blob();
+      if (!res.ok) {
+        const error = await blob.text().catch(() => "");
+        toast.error(error ? JSON.parse(error).error ?? "Export failed" : "Export failed");
+        return;
+      }
+      const disposition = res.headers.get("Content-Disposition") ?? "";
+      const filename = disposition.match(/filename="([^"]+)"/)?.[1] ?? `founder-pack.${format}`;
+      const href = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = href;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(href);
+      toast.success(`${format.toUpperCase()} export ready`);
+    } catch {
+      toast.error("Export failed");
+    } finally {
+      setExporting(null);
+    }
+  }
+
+  async function sendToCanva() {
+    setExporting("canva");
+    try {
+      const res = await fetch(`/api/founder-pack/${pack.id}/canva`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data.error ?? "Could not send deck to Canva");
+        return;
+      }
+      const designUrl =
+        data.job?.result?.design?.urls?.edit_url ??
+        data.job?.job?.result?.design?.urls?.edit_url ??
+        data.job?.result?.design?.url ??
+        data.job?.job?.result?.design?.url;
+      if (designUrl) {
+        window.open(designUrl, "_blank", "noopener,noreferrer");
+        toast.success("Canva deck created");
+      } else {
+        toast.success("Canva autofill job started");
+      }
+    } catch {
+      toast.error("Could not send deck to Canva");
+    } finally {
+      setExporting(null);
+    }
+  }
+
   return (
     <Card className="print:border-0 print:shadow-none">
       <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -152,10 +208,30 @@ function PackDocument({ pack }: { pack: PackSummary }) {
           </CardTitle>
           <p className="mt-1 text-sm text-muted-foreground">Generated {pack.createdAtLabel}</p>
         </div>
-        <Button type="button" variant="outline" className="gap-2 print:hidden" onClick={() => window.print()}>
-          <Download className="h-4 w-4" />
-          Export / print
-        </Button>
+        <div className="flex flex-wrap gap-2 print:hidden">
+          {(["docx", "pdf", "pptx", "md", "json"] as const).map((format) => (
+            <Button
+              key={format}
+              type="button"
+              variant={format === "pptx" ? "default" : "outline"}
+              size="sm"
+              className="gap-2"
+              disabled={Boolean(exporting)}
+              onClick={() => downloadExport(format)}
+            >
+              {exporting === format ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              {format.toUpperCase()}
+            </Button>
+          ))}
+          <Button type="button" variant="outline" size="sm" className="gap-2" disabled={Boolean(exporting)} onClick={sendToCanva}>
+            {exporting === "canva" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
+            Canva
+          </Button>
+          <Button type="button" variant="ghost" size="sm" className="gap-2" onClick={() => window.print()}>
+            <Download className="h-4 w-4" />
+            Print
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="space-y-6">
         {includes("executive_summary") && content.executiveSummary && (

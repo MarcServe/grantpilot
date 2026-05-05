@@ -33,7 +33,7 @@ export default async function DashboardLayout({
               Grants<span className="text-[#69a1ff]">Copilot</span>
             </div>
             <div className="mt-1 text-[10px] font-semibold text-white/58">
-              Funding on autopilot
+              Funding intelligence
             </div>
           </div>
         </Link>
@@ -66,7 +66,7 @@ export default async function DashboardLayout({
                   Autonomous Funding Infrastructure
                 </p>
                 <p className="mt-1 text-sm font-semibold text-[#243a5a]">
-                  Find it. Fill it. Fund it. On autopilot.
+                  Find it. Qualify it. Prepare it.
                 </p>
               </div>
             </div>

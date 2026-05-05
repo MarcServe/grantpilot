@@ -74,7 +74,7 @@ export const PLAN_CATALOG: PlanCatalogRow[] = [
       },
       {
         heading: "Applications",
-        bullets: ["1 AI application auto-fill per month"],
+        bullets: ["Application prep checklist and official-link handoff"],
       },
       {
         heading: "Not included",
@@ -103,7 +103,7 @@ export const PLAN_CATALOG: PlanCatalogRow[] = [
       },
       {
         heading: "Applications",
-        bullets: ["10 AI application auto-fills per month"],
+        bullets: ["10 grant-specific application prep runs per month"],
       },
       {
         heading: "Intelligence",
@@ -122,7 +122,7 @@ export const PLAN_CATALOG: PlanCatalogRow[] = [
         bullets: ["Email & WhatsApp"],
       },
     ],
-    homepageFeatures: ["Company DNA engine & unlimited scoring", "10 AI auto-fills/month", "Founder Pack & outcome learning"],
+    homepageFeatures: ["Company DNA engine & unlimited scoring", "10 prep runs/month", "Founder Pack & outcome learning"],
     cta: "Get Growth",
     href: "/sign-up",
   },
@@ -144,7 +144,7 @@ export const PLAN_CATALOG: PlanCatalogRow[] = [
       },
       {
         heading: "Applications",
-        bullets: ["25 AI application auto-fills per month"],
+        bullets: ["25 grant-specific application prep runs per month"],
       },
       {
         heading: "Intelligence",
@@ -163,7 +163,7 @@ export const PLAN_CATALOG: PlanCatalogRow[] = [
         bullets: ["Email & WhatsApp"],
       },
     ],
-    homepageFeatures: ["2 profiles & 25 auto-fills/month", "Everything in Growth with higher limits", "Built for heavier application pipelines"],
+    homepageFeatures: ["2 profiles & 25 prep runs/month", "Everything in Growth with higher limits", "Built for heavier funding pipelines"],
     cta: "Get Pro",
     href: "/sign-up",
     featured: true,
@@ -186,7 +186,7 @@ export const PLAN_CATALOG: PlanCatalogRow[] = [
       },
       {
         heading: "Applications",
-        bullets: ["Unlimited AI application auto-fills"],
+        bullets: ["Unlimited application prep runs"],
       },
       {
         heading: "Intelligence",

@@ -10,12 +10,12 @@ function escapeHtml(s: string): string {
 
 function subscriptionActivatedFeatureList(planName: string): string {
   if (planName === "Business") {
-    return "<li>Up to 5 business profiles</li><li>Unlimited full eligibility &amp; DNA scoring</li><li>Unlimited AI auto-fills</li><li>Company DNA, grant auto-improve &amp; Founder Pack</li><li>Priority support &amp; notifications</li>";
+    return "<li>Up to 5 business profiles</li><li>Unlimited full eligibility &amp; DNA scoring</li><li>Unlimited application prep runs</li><li>Company DNA, grant auto-improve &amp; Founder Pack</li><li>Priority support &amp; notifications</li>";
   }
   if (planName === "Growth") {
-    return "<li>1 business profile</li><li>Unlimited full eligibility &amp; DNA scoring</li><li>10 AI auto-fills/month</li><li>Company DNA, grant auto-improve &amp; Founder Pack</li><li>Email &amp; WhatsApp notifications</li>";
+    return "<li>1 business profile</li><li>Unlimited full eligibility &amp; DNA scoring</li><li>10 application prep runs/month</li><li>Company DNA, grant auto-improve &amp; Founder Pack</li><li>Email &amp; WhatsApp notifications</li>";
   }
-  return "<li>Up to 2 business profiles</li><li>Unlimited full eligibility &amp; DNA scoring</li><li>25 AI auto-fills/month</li><li>Company DNA, grant auto-improve &amp; Founder Pack</li><li>Email &amp; WhatsApp notifications</li>";
+  return "<li>Up to 2 business profiles</li><li>Unlimited full eligibility &amp; DNA scoring</li><li>25 application prep runs/month</li><li>Company DNA, grant auto-improve &amp; Founder Pack</li><li>Email &amp; WhatsApp notifications</li>";
 }
 
 function baseLayout(title: string, body: string, ctaUrl?: string, ctaText?: string): string {
@@ -148,17 +148,11 @@ export function buildEmailHtml(
 
     case "deadline_reminder": {
       const viewGrantUrl = payload.grantId ? `${appUrl}/grants/${payload.grantId}` : `${appUrl}/grants`;
-      const startUrl = payload.startApplicationToken
-        ? `${appUrl}/start-application?token=${encodeURIComponent(payload.startApplicationToken)}`
-        : null;
-      const startLink = startUrl
-        ? `<p style="margin-top:12px"><a href="${startUrl}" style="color:#1B3A6B;font-weight:600">Apply with GrantsCopilot</a> (no login needed)</p>`
-        : "";
       return {
         subject: `Grant deadline approaching: ${grant}`,
         html: baseLayout(
           "Grant deadline approaching",
-          `<p>The deadline for <strong>${grant}</strong> is ${payload.deadline ?? "approaching soon"}.</p><p>Don't miss out — start your application now.</p>${startLink}`,
+          `<p>The deadline for <strong>${grant}</strong> is ${payload.deadline ?? "approaching soon"}.</p><p>Don't miss out — review the fit, prepare your documents, and apply on the official funder site.</p>`,
           viewGrantUrl,
           "View Grant"
         ),
@@ -179,18 +173,14 @@ export function buildEmailHtml(
     case "grant_match_high": {
       const grantName = payload.grantName ?? "A grant";
       const score = payload.score ?? 85;
-      const startUrl = payload.startApplicationToken
-        ? `${appUrl}/start-application?token=${encodeURIComponent(payload.startApplicationToken)}`
-        : null;
-      const ctaUrl = startUrl ?? (payload.grantId ? `${appUrl}/grants/${payload.grantId}` : `${appUrl}/grants`);
-      const ctaText = startUrl ? "Apply with GrantsCopilot (no login)" : "View Grant";
+      const ctaUrl = payload.grantId ? `${appUrl}/grants/${payload.grantId}` : `${appUrl}/grants`;
       return {
         subject: `You're ${score}% eligible: ${grantName}`,
         html: baseLayout(
           `High match: ${grantName}`,
-          `<p>You're <strong>${score}% eligible</strong> for <strong>${grantName}</strong> based on your profile.</p><p>Apply with GrantsCopilot — no login needed.</p>`,
+          `<p>You're <strong>${score}% eligible</strong> for <strong>${grantName}</strong> based on your profile.</p><p>Review the grant, prepare your answers, and apply on the official funder site.</p>`,
           ctaUrl,
-          ctaText
+          "View Grant"
         ),
       };
     }
@@ -201,13 +191,7 @@ export function buildEmailHtml(
       const rows = grants
         .map((g: DigestGrantItem) => {
           const viewUrl = `${appUrl}/grants/${g.grantId}`;
-          const startUrl = g.startApplicationToken
-            ? `${appUrl}/start-application?token=${encodeURIComponent(g.startApplicationToken)}`
-            : null;
           const summaryText = g.summary ? ` — ${g.summary.slice(0, 120)}${g.summary.length > 120 ? "…" : ""}` : "";
-          const startLink = startUrl
-            ? ` <a href="${startUrl}" style="color:#1B3A6B;font-weight:600">Apply with GrantsCopilot (no login)</a>`
-            : "";
           const missingNote =
             (g.missingDocuments?.length ?? 0) > 0
               ? `<br><span style="color:#b45309;font-size:13px">May require: ${escapeHtml((g.missingDocuments ?? []).join(", "))}. <a href="${appUrl}/profile" style="color:#1B3A6B">Add in Profile → Documents</a></span>`
@@ -225,15 +209,15 @@ export function buildEmailHtml(
             hasWorkNeeded && workNeededParts.length > 0
               ? `<br><span style="color:#0369a1;font-size:13px">Work needed to improve fit: ${escapeHtml([...new Set(workNeededParts)].slice(0, 3).join("; "))}. <a href="${viewUrl}" style="color:#1B3A6B">View grant for full details</a></span>`
               : "";
-          return `<tr><td style="padding:12px 0;border-bottom:1px solid #e2e8f0"><strong>${escapeHtml(g.grantName)}</strong> (${g.score}% match)${escapeHtml(summaryText)}<br><a href="${viewUrl}" style="color:#1B3A6B">View grant</a>${startLink}${missingNote}${workNeededNote}</td></tr>`;
+          return `<tr><td style="padding:12px 0;border-bottom:1px solid #e2e8f0"><strong>${escapeHtml(g.grantName)}</strong> (${g.score}% match)${escapeHtml(summaryText)}<br><a href="${viewUrl}" style="color:#1B3A6B">View grant and prepare</a>${missingNote}${workNeededNote}</td></tr>`;
         })
         .join("");
       const table = rows ? `<table style="width:100%;border-collapse:collapse">${rows}</table>` : "";
       const hasAnyMissing = grants.some((g: DigestGrantItem) => ((g.missingDocuments?.length) ?? 0) > 0);
       const missingReminder = hasAnyMissing
-        ? `<p style="margin-top:16px;padding:12px;background:#fef3c7;border-radius:8px;color:#92400e">Some grants may require documents you haven&apos;t uploaded yet. Add them in <a href="${appUrl}/profile" style="color:#1B3A6B;font-weight:600">Profile → Documents</a> so we can auto-attach them when you apply.</p>`
+        ? `<p style="margin-top:16px;padding:12px;background:#fef3c7;border-radius:8px;color:#92400e">Some grants may require documents you haven&apos;t uploaded yet. Add them in <a href="${appUrl}/profile" style="color:#1B3A6B;font-weight:600">Profile → Documents</a> before you apply.</p>`
         : "";
-      const body = `<p>New grant opportunities for <strong>${escapeHtml(profileName)}</strong> — review and start an application from the links below.</p>${table}${missingReminder}<p style="margin-top:16px">You can also browse all your matches and apply with GrantsCopilot from the app.</p>`;
+      const body = `<p>New grant opportunities for <strong>${escapeHtml(profileName)}</strong> — review the fit, prepare your documents, and apply on the official funder site.</p>${table}${missingReminder}<p style="margin-top:16px">You can also browse all your matches from the app.</p>`;
       return {
         subject: `[Grants-Copilot] New grant opportunities for ${profileName}`,
         html: baseLayout(
@@ -283,7 +267,7 @@ export function buildEmailHtml(
         html: baseLayout(
           "Your subscription has ended",
           `<p>Your Grants-Copilot paid subscription has been cancelled and your account has been moved to the Free Trial plan.</p>
-          <p>You can still access your dashboard and existing applications, but GrantsCopilot grant matching, auto-fills, and notifications are limited on the free plan.</p>
+          <p>You can still access your dashboard and existing applications, but GrantsCopilot grant matching, application prep, and notifications are limited on the free plan.</p>
           <p>Ready to come back? Upgrade anytime from the billing page.</p>`,
           `${appUrl}/billing`,
           "Resubscribe"
@@ -364,18 +348,13 @@ export function buildWhatsAppMessage(
 
     case "deadline_reminder": {
       const viewUrl = payload.grantId ? `${appUrl}/grants/${payload.grantId}` : appUrl + "/grants";
-      let msg = `Reminder: The deadline for ${grant} is ${payload.deadline ?? "approaching soon"}. Don't miss out!\n\nView grant: ${viewUrl}`;
-      if (payload.startApplicationToken)
-        msg += `\nApply with GrantsCopilot (no login): ${appUrl}/start-application?token=${encodeURIComponent(payload.startApplicationToken)}`;
-      return msg;
+      return `Reminder: The deadline for ${grant} is ${payload.deadline ?? "approaching soon"}. Review the fit and prepare your documents before applying.\n\nView grant: ${viewUrl}`;
     }
 
     case "grant_match_high": {
       const score = payload.score ?? 85;
-      const linkUrl = payload.startApplicationToken
-        ? `${appUrl}/start-application?token=${encodeURIComponent(payload.startApplicationToken)}`
-        : (payload.grantId ? `${appUrl}/grants/${payload.grantId}` : appUrl);
-      return `You're ${score}% eligible for ${grant}. Apply with GrantsCopilot (no login):\n\n${linkUrl}`;
+      const linkUrl = payload.grantId ? `${appUrl}/grants/${payload.grantId}` : appUrl;
+      return `You're ${score}% eligible for ${grant}. Review the grant and prepare your application:\n\n${linkUrl}`;
     }
 
     case "grant_scan_digest": {
@@ -386,8 +365,6 @@ export function buildWhatsAppMessage(
       for (const g of grants as DigestGrantItem[]) {
         const viewUrl = `${appUrl}/grants/${g.grantId}`;
         msg += `• ${g.grantName} (${g.score}% match)\n  View: ${viewUrl}\n`;
-        if (g.startApplicationToken)
-          msg += `  Apply with GrantsCopilot (no login): ${appUrl}/start-application?token=${encodeURIComponent(g.startApplicationToken)}\n`;
         if ((g.missingDocuments?.length ?? 0) > 0) anyMissing = true;
         const workParts = [...(g.improvementPlan?.actions ?? []), ...(g.missingCriteria ?? [])].slice(0, 2);
         if (g.score < 70 && workParts.length > 0)

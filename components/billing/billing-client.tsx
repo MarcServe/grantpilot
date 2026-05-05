@@ -137,7 +137,7 @@ export function BillingClient({
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
           <div>
-            <p className="text-sm text-muted-foreground">Auto-fills this month</p>
+            <p className="text-sm text-muted-foreground">Application prep runs this month</p>
             <p className="text-2xl font-bold">
               {autoFillCount}
               <span className="text-sm font-normal text-muted-foreground">

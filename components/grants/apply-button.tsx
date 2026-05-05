@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -15,8 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, FileCheck, AlertTriangle } from "lucide-react";
-import { toast } from "sonner";
+import { ExternalLink, FileCheck, AlertTriangle } from "lucide-react";
 
 interface RequiredAttachment {
   kind: string;
@@ -29,63 +27,38 @@ interface RequiredAttachment {
 interface ApplyButtonProps {
   grantId: string;
   profileId: string;
+  applicationUrl?: string | null;
   /** Cached eligibility score (0–100). */
   eligibilityScore?: number;
 }
 
-export function ApplyButton({ grantId, profileId, eligibilityScore }: ApplyButtonProps) {
+export function ApplyButton({ grantId, profileId, applicationUrl, eligibilityScore }: ApplyButtonProps) {
   const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [checkLoading, setCheckLoading] = useState(false);
   const [missing, setMissing] = useState<RequiredAttachment[]>([]);
   const [required, setRequired] = useState<RequiredAttachment[]>([]);
   const [focusNotes, setFocusNotes] = useState("");
-  const router = useRouter();
 
   useEffect(() => {
     if (!open || !grantId || !profileId) return;
-    setCheckLoading(true);
+    let cancelled = false;
     fetch(
       `/api/applications/start-check?grantId=${encodeURIComponent(grantId)}&profileId=${encodeURIComponent(profileId)}`
     )
       .then((r) => r.json())
       .then((data) => {
+        if (cancelled) return;
         setRequired(data.requiredAttachments ?? []);
         setMissing(data.missing ?? []);
       })
       .catch(() => {
+        if (cancelled) return;
         setRequired([]);
         setMissing([]);
-      })
-      .finally(() => setCheckLoading(false));
-  }, [open, grantId, profileId]);
-
-  async function handleApply() {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/applications/start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ grantId, profileId, focusNotes: focusNotes.trim() || undefined }),
       });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        const msg = data.detail ? `${data.error}: ${data.detail}` : (data.error ?? "Failed to start application");
-        toast.error(msg);
-        return;
-      }
-
-      toast.success("Application started! GrantsCopilot will fill it and pause for your review.");
-      setOpen(false);
-      router.push(`/applications/${data.applicationId}`);
-    } catch {
-      toast.error("Something went wrong");
-    } finally {
-      setLoading(false);
-    }
-  }
+    return () => {
+      cancelled = true;
+    };
+  }, [open, grantId, profileId]);
 
   const missingSummary = missing.length > 0
     ? missing
@@ -102,29 +75,29 @@ export function ApplyButton({ grantId, profileId, eligibilityScore }: ApplyButto
       <DialogTrigger asChild>
         <Button className="gap-2">
           <FileCheck className="h-4 w-4" />
-          Apply with GrantsCopilot
+          Prepare Application
         </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Start GrantsCopilot Application</DialogTitle>
+          <DialogTitle>Prepare this application</DialogTitle>
           <DialogDescription>
-            GrantsCopilot will use your business profile to fill in the grant
-            application, then pause for your review before submission.
+            Version 1 helps you qualify, prepare answers, collect documents, and apply faster. Full auto-filing across
+            external forms is moving to Version 2 while we harden dynamic form handling.
           </DialogDescription>
         </DialogHeader>
         <div className="rounded-lg bg-muted p-4 text-sm">
           <ul className="space-y-2">
-            <li>1. GrantsCopilot opens the grant application form</li>
-            <li>2. Fills in company details from your profile</li>
-            <li>3. Prepares financial information</li>
-            <li>4. Uploads supporting documents and videos</li>
-            <li>5. Pauses for your review before submission</li>
+            <li>1. Review the eligibility fit and any gaps for this grant</li>
+            <li>2. Use your company DNA to draft answers and supporting material</li>
+            <li>3. Check required documents before opening the funder form</li>
+            <li>4. Apply on the official funder site with your prepared pack</li>
+            <li>5. Track the outcome so GrantsCopilot stops re-sending the same grant</li>
           </ul>
         </div>
         {eligibilityScore != null && eligibilityScore >= 85 && (
           <p className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-800 dark:bg-green-950/40 dark:text-green-200">
-            You&apos;re {eligibilityScore}% eligible. GrantsCopilot can draft this application, but you still approve before submission.
+            You&apos;re {eligibilityScore}% eligible. Use the prep tools to draft your answers before applying on the funder site.
           </p>
         )}
         <div className="space-y-1.5">
@@ -140,12 +113,10 @@ export function ApplyButton({ grantId, profileId, eligibilityScore }: ApplyButto
             className="resize-y text-sm"
           />
           <p className="text-xs text-muted-foreground">
-            Tell the AI what to emphasise. This guides how your profile is adapted for this specific grant.
+            Keep these notes for your drafting workflow. Grant-specific AI drafting and designed packs are available from the Founder Pack.
           </p>
         </div>
-        {checkLoading ? (
-          <p className="text-sm text-muted-foreground">Checking grant requirements…</p>
-        ) : missing.length > 0 && required.length > 0 ? (
+        {missing.length > 0 && required.length > 0 ? (
           <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/40">
             <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-500" />
             <div>
@@ -170,10 +141,19 @@ export function ApplyButton({ grantId, profileId, eligibilityScore }: ApplyButto
           <Button variant="outline" onClick={() => setOpen(false)}>
             Cancel
           </Button>
-          <Button onClick={handleApply} disabled={loading}>
-            {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Start Application
-          </Button>
+          <Link href={`/founder-pack?grantId=${encodeURIComponent(grantId)}`} onClick={() => setOpen(false)}>
+            <Button variant="outline">
+              Generate prep docs
+            </Button>
+          </Link>
+          {applicationUrl ? (
+            <a href={applicationUrl} target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}>
+              <Button>
+                <ExternalLink className="mr-2 h-4 w-4" />
+                Open funder form
+              </Button>
+            </a>
+          ) : null}
         </DialogFooter>
       </DialogContent>
     </Dialog>

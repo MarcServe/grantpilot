@@ -28,11 +28,11 @@ export default async function ApplyByLinkPage({
       </Link>
 
       <div className="mb-8">
-        <h1 className="text-2xl font-bold">Apply with your own grant link</h1>
+        <h1 className="text-2xl font-bold">Prepare from your own grant link</h1>
         <p className="mt-1 text-muted-foreground">
           {sp.name
-            ? <>Paste a working application URL for <strong>{sp.name}</strong> and we&apos;ll auto-fill it from your profile.</>
-            : <>Have a grant application URL that&apos;s not in our catalog? Paste it here and we&apos;ll auto-fill it from your profile and prepare it for your review.</>
+            ? <>Paste a working application URL for <strong>{sp.name}</strong> so you can verify the link and prepare the application pack.</>
+            : <>Have a grant application URL that&apos;s not in our catalog? Paste it here to verify it, capture notes, and prepare your application materials.</>
           }
         </p>
       </div>
@@ -46,7 +46,7 @@ export default async function ApplyByLinkPage({
         </div>
       ) : !profileComplete ? (
         <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-          Complete at least 30% of your profile to use auto-fill.
+          Complete at least 30% of your profile to use application prep.
           <Link href="/profile" className="ml-1 font-medium text-foreground underline">
             Complete profile
           </Link>

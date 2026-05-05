@@ -47,6 +47,10 @@ Set these in your host (Vercel, Railway, etc.) or in production `.env`:
 | `TWILIO_WHATSAPP_DEADLINE_CONTENT_SID` | WhatsApp | Optional. Twilio Content Template SID for deadline reminders. When set, deadline_reminder uses the template; placeholders `{{1}}` grant name, `{{2}}` deadline date, `{{3}}` start-application or grant URL. Business-initiated WhatsApp requires templates (Twilio 63016). |
 | `TWILIO_WHATSAPP_APPLICATION_NEEDS_INFO_CONTENT_SID` | WhatsApp | Optional. Twilio Content Template SID for paused applications that need extra details. Placeholders: `{{1}}` grant name, `{{2}}` requested detail summary, `{{3}}` application URL. |
 | `ELIGIBILITY_NOTIFY_MIN_COMPLETION` | Optional | Minimum `BusinessProfile.completionScore` (0–100) before **eligibility digest** and **grant_match_high** WhatsApp are sent. Default **60**. Scoring still runs for all org-linked profiles. |
+| `CANVA_ACCESS_TOKEN` | Optional | Canva Connect API token used by **Founder Pack → Canva**. Requires Canva Enterprise access and a token with permission to read brand templates and create autofills. |
+| `CANVA_BRAND_TEMPLATE_ID` | Optional | Canva brand template ID for Founder Pack autofill. The template must expose text autofill fields such as `TITLE`, `BUSINESS_NAME`, `SLIDE_1_TITLE`, and `SLIDE_1_BULLETS`. |
+| `CANVA_PITCH_DECK_TEMPLATE_ID` | Optional | Optional pitch-deck-specific Canva template ID. If set, this is used instead of `CANVA_BRAND_TEMPLATE_ID` for pitch deck exports. |
+| `CANVA_API_BASE` | Optional | Defaults to `https://api.canva.com/rest/v1`. Override only for Canva API testing/proxying. |
 
 \* Inngest: use [Vercel integration](https://inngest.com/docs/deploy/vercel) to auto-set keys and sync.
 
