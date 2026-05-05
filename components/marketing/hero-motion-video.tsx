@@ -2,9 +2,16 @@
 
 import { useEffect, useRef } from "react";
 
+/** Matches landing hero badge tint — tiny SVG loads instantly before MP4 */
+const NEUTRAL_POSTER =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1280 720'%3E%3Crect fill='%23e8f0ff' width='1280' height='720'/%3E%3C/svg%3E";
+
+/** Pause on last frame before replay (native `loop` restarts instantly). */
+const LOOP_GAP_MS = 3000;
+
 /**
- * Hero loop: MP4 streams and hardware-decodes better than GIF on mobile (especially iOS Safari).
- * muted + playsInline + programmatic play retry improves autoplay reliability.
+ * Hero loop: MP4 hardware-decodes better than GIF on mobile.
+ * preload="none" + IntersectionObserver avoids downloading until the hero is near the viewport.
  */
 export function HeroMotionVideo({ className }: { className?: string }) {
   const ref = useRef<HTMLVideoElement>(null);
@@ -17,22 +24,46 @@ export function HeroMotionVideo({ className }: { className?: string }) {
       void v.play().catch(() => {});
     };
 
-    kick();
-    v.addEventListener("loadeddata", kick);
-    v.addEventListener("canplay", kick);
+    let primed = false;
+
+    const prime = () => {
+      if (primed) return;
+      primed = true;
+      v.preload = "auto";
+      v.load();
+    };
 
     const io = new IntersectionObserver(
       (entries) => {
-        if (entries.some((e) => e.isIntersecting)) kick();
+        if (!entries.some((e) => e.isIntersecting)) return;
+        prime();
+        kick();
       },
-      { threshold: 0.1 }
+      { threshold: 0.06, rootMargin: "120px 0px" }
     );
     io.observe(v);
 
+    let gapTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const onEnded = () => {
+      if (gapTimer) clearTimeout(gapTimer);
+      gapTimer = window.setTimeout(() => {
+        gapTimer = null;
+        v.currentTime = 0;
+        void v.play().catch(() => {});
+      }, LOOP_GAP_MS);
+    };
+
+    v.addEventListener("ended", onEnded);
+    v.addEventListener("loadeddata", kick);
+    v.addEventListener("canplay", kick);
+
     return () => {
+      if (gapTimer) clearTimeout(gapTimer);
+      io.disconnect();
       v.removeEventListener("loadeddata", kick);
       v.removeEventListener("canplay", kick);
-      io.disconnect();
+      v.removeEventListener("ended", onEnded);
     };
   }, []);
 
@@ -43,9 +74,9 @@ export function HeroMotionVideo({ className }: { className?: string }) {
       height={720}
       autoPlay
       muted
-      loop
       playsInline
-      preload="auto"
+      preload="none"
+      poster={NEUTRAL_POSTER}
       controls={false}
       disablePictureInPicture
       disableRemotePlayback
