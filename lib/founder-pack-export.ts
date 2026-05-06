@@ -38,8 +38,15 @@ export function founderPackExportMime(format: PackExportFormat): string {
 export function founderPackExportFilename(pack: FounderPackExportInput, format: PackExportFormat): string {
   const business = pack.profile?.businessName || "founder-pack";
   const safe = business.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "founder-pack";
+  const types = selectedTypes(pack);
+  const typeSlug =
+    types.length === 1
+      ? types[0].replace(/_/g, "-")
+      : types.length === FOUNDER_PACK_DOCUMENT_TYPES.length
+        ? "full-pack"
+        : "selected-documents";
   const extension = format === "json" ? "json" : format;
-  return `${safe}-founder-pack.${extension}`;
+  return `${safe}-${typeSlug}.${extension}`;
 }
 
 export function isFounderPackExportFormat(value: string | null): value is PackExportFormat {
@@ -184,7 +191,14 @@ export function buildFounderPackTextSections(pack: FounderPackExportInput): Text
 
 function packTitle(pack: FounderPackExportInput): string {
   const business = pack.profile?.businessName || "Founder Funding Pack";
-  return `${business} Founder Funding Pack`;
+  const types = selectedTypes(pack);
+  const typeLabel =
+    types.length === 1
+      ? FOUNDER_PACK_DOCUMENT_TYPES.find((item) => item.value === types[0])?.label
+      : types.length === FOUNDER_PACK_DOCUMENT_TYPES.length
+        ? "Founder Funding Pack"
+        : "Selected Funding Documents";
+  return `${business} ${typeLabel ?? "Founder Funding Pack"}`;
 }
 
 export function generateFounderPackMarkdown(pack: FounderPackExportInput): Buffer {

@@ -275,6 +275,78 @@ function normaliseContent(raw: unknown): FounderPackContent {
   };
 }
 
+function emptyBusinessModelCanvas(): BusinessModelCanvas {
+  return {
+    keyPartners: [],
+    keyActivities: [],
+    keyResources: [],
+    valuePropositions: [],
+    customerRelationships: [],
+    channels: [],
+    customerSegments: [],
+    costStructure: [],
+    revenueStreams: [],
+  };
+}
+
+function emptyFounderPackContent(disclaimer?: string): FounderPackContent {
+  return {
+    executiveSummary: "",
+    businessPlan: "",
+    pitchDeck: [],
+    businessModelCanvas: emptyBusinessModelCanvas(),
+    innovationStatement: "",
+    marketAnalysis: "",
+    financialProjections: {
+      assumptions: [],
+      year1: [],
+      year2: [],
+      year3: [],
+    },
+    grantApplicationDraft: [],
+    budgetNarrative: "",
+    impactMeasurementPlan: "",
+    projectWorkplan: [],
+    supportLetterTemplate: "",
+    founderPositioning: "",
+    scalabilityPlan: "",
+    riskMitigation: [],
+    evidenceChecklist: [],
+    nextSteps: [],
+    disclaimer:
+      disclaimer ||
+      "This pack is a business planning aid and is not immigration, legal, financial, or endorsement advice.",
+  };
+}
+
+function filterFounderPackContent(
+  content: FounderPackContent,
+  selectedTypes: FounderPackDocumentType[]
+): FounderPackContent {
+  const allowed = new Set(selectedTypes);
+  const filtered = emptyFounderPackContent(content.disclaimer);
+
+  if (allowed.has("executive_summary")) filtered.executiveSummary = content.executiveSummary;
+  if (allowed.has("business_plan")) filtered.businessPlan = content.businessPlan;
+  if (allowed.has("pitch_deck")) filtered.pitchDeck = content.pitchDeck;
+  if (allowed.has("business_model_canvas")) filtered.businessModelCanvas = content.businessModelCanvas;
+  if (allowed.has("innovation_statement")) filtered.innovationStatement = content.innovationStatement;
+  if (allowed.has("market_analysis")) filtered.marketAnalysis = content.marketAnalysis;
+  if (allowed.has("financial_projections")) filtered.financialProjections = content.financialProjections;
+  if (allowed.has("grant_application_draft")) filtered.grantApplicationDraft = content.grantApplicationDraft;
+  if (allowed.has("budget_narrative")) filtered.budgetNarrative = content.budgetNarrative;
+  if (allowed.has("impact_measurement_plan")) filtered.impactMeasurementPlan = content.impactMeasurementPlan;
+  if (allowed.has("project_workplan")) filtered.projectWorkplan = content.projectWorkplan;
+  if (allowed.has("support_letter_template")) filtered.supportLetterTemplate = content.supportLetterTemplate;
+  if (allowed.has("founder_positioning")) filtered.founderPositioning = content.founderPositioning;
+  if (allowed.has("scalability_plan")) filtered.scalabilityPlan = content.scalabilityPlan;
+  if (allowed.has("risk_mitigation")) filtered.riskMitigation = content.riskMitigation;
+  if (allowed.has("evidence_checklist")) filtered.evidenceChecklist = content.evidenceChecklist;
+  if (allowed.has("next_steps")) filtered.nextSteps = content.nextSteps;
+
+  return filtered;
+}
+
 export async function generateFounderPack(
   profile: BusinessProfileLike,
   inputs: FounderPackInputs,
@@ -323,6 +395,9 @@ Rules when grant context exists:
 
 Generate these document sections only. For unselected sections, return an empty string or empty array while preserving the required JSON shape:
 ${selectedLabels}
+
+Treat every selected document type as a complete standalone deliverable, not a short section inside a generic pack. If only one document type is selected, make that one document comprehensive enough to export alone. If multiple related types are selected, make them consistent with each other but avoid repeating the same paragraph across documents.
+When selected grants or applications are supplied, explicitly tailor the grant application draft, budget narrative, workplan, impact plan, evidence checklist, pitch deck, and business plan to those grant objectives, eligibility criteria, applicant type, region, and assessment language.
 
 Write in polished UK business English. Be specific to this company. Do not invent exact revenue, customers, contracts, awards, grants, patents, or endorsements unless present in the profile or inputs. Where evidence is missing, use cautious planning language and add the missing evidence to the checklist.
 For the Canvas Standard Pitch Deck, create 10-12 practical slides with concise slide copy, speaker notes, and visual direction suitable for a clean Canva-style deck. Do not generate image URLs.
@@ -375,5 +450,5 @@ Return ONLY valid JSON with this exact shape:
 
   const raw = await completeJson(prompt, 4500);
   const parsed = JSON.parse(cleanJsonResponse(raw)) as unknown;
-  return normaliseContent(parsed);
+  return filterFounderPackContent(normaliseContent(parsed), selectedTypes);
 }

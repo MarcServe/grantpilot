@@ -20,7 +20,7 @@ const requestSchema = z.object({
   founderBackground: z.string().min(20).max(4000),
   technicalContribution: z.string().min(20).max(4000),
   targetUse: z.enum(["innovator_founder_visa", "funding_readiness", "accelerator_investor"]).default("innovator_founder_visa"),
-  documentTypes: z.array(z.enum(documentTypeValues)).min(1).default(documentTypeValues),
+  documentTypes: z.array(z.enum(documentTypeValues)).min(1),
   marketFocus: z.string().min(10).max(2500),
   revenueModel: z.string().min(10).max(2500),
   pricingAssumptions: z.string().min(10).max(2500),

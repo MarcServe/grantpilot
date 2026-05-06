@@ -18,6 +18,7 @@ interface ProfileRow {
 interface PackRow {
   id: string;
   type: string;
+  profileId: string;
   createdAt: string;
   content: FounderPackContent;
   inputs?: { documentTypes?: FounderPackDocumentType[] } | null;
@@ -98,7 +99,7 @@ export default async function FounderPackPage() {
       .order("createdAt", { ascending: true }),
     supabase
       .from("FounderFundingPack")
-      .select("id, type, createdAt, content, inputs")
+      .select("id, type, profileId, createdAt, content, inputs")
       .eq("organisationId", orgId)
       .order("createdAt", { ascending: false })
       .limit(10),
@@ -155,14 +156,20 @@ export default async function FounderPackPage() {
     financialProjections: profile.financialProjections ?? null,
   }));
 
-  const packRows = ((packs ?? []) as PackRow[]).map((pack) => ({
-    id: pack.id,
-    createdAt: pack.createdAt,
-    createdAtLabel: formatDateLabel(pack.createdAt),
-    type: pack.type,
-    content: pack.content,
-    documentTypes: pack.inputs?.documentTypes ?? null,
-  }));
+  const profileById = new Map(profileRows.map((profile) => [profile.id, profile]));
+  const packRows = ((packs ?? []) as PackRow[]).map((pack) => {
+    const profile = profileById.get(pack.profileId);
+    return {
+      id: pack.id,
+      createdAt: pack.createdAt,
+      createdAtLabel: formatDateLabel(pack.createdAt),
+      type: pack.type,
+      content: pack.content,
+      documentTypes: pack.inputs?.documentTypes ?? null,
+      profileBusinessName: profile?.businessName ?? null,
+      profileSector: profile?.sector ?? null,
+    };
+  });
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-6 px-0 sm:px-2">

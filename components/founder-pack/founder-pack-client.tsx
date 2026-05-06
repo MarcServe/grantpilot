@@ -1,9 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
   BriefcaseBusiness,
+  CalendarClock,
   CheckCircle2,
   Download,
   ExternalLink,
@@ -37,6 +39,8 @@ interface PackSummary {
   type: string;
   content: FounderPackContent;
   documentTypes?: FounderPackDocumentType[] | null;
+  profileBusinessName?: string | null;
+  profileSector?: string | null;
 }
 
 interface ProfileOption {
@@ -89,7 +93,7 @@ function contentIsReady(content?: FounderPackContent | null): content is Founder
 }
 
 function documentTypeLabel(types?: FounderPackDocumentType[] | null): string {
-  if (!types?.length) return "Full pack";
+  if (!types?.length) return "Legacy full pack";
   if (types.length === FOUNDER_PACK_DOCUMENT_TYPES.length) return "Full pack";
   if (types.length === 1) {
     return FOUNDER_PACK_DOCUMENT_TYPES.find((item) => item.value === types[0])?.label ?? "Document";
@@ -207,6 +211,7 @@ function PackDocument({ pack }: { pack: PackSummary }) {
       ? pack.documentTypes
       : FOUNDER_PACK_DOCUMENT_TYPES.map((item) => item.value);
   const includes = (type: FounderPackDocumentType) => documentTypes.includes(type);
+  const title = `${pack.profileBusinessName ?? "Founder"} ${documentTypeLabel(pack.documentTypes)}`;
 
   async function downloadExport(format: "pdf" | "docx" | "pptx" | "md" | "json") {
     setExporting(format);
@@ -266,12 +271,28 @@ function PackDocument({ pack }: { pack: PackSummary }) {
   return (
     <Card className="print:border-0 print:shadow-none">
       <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <CardTitle className="flex items-center gap-2">
-            <FileText className="h-5 w-5" />
-            Founder Funding Pack
-          </CardTitle>
-          <p className="mt-1 text-sm text-muted-foreground">Generated {pack.createdAtLabel}</p>
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="hidden h-12 w-12 shrink-0 items-center justify-center rounded-xl border bg-white sm:flex">
+            <Image src="/icon.png" alt="GrantsCopilot" width={34} height={34} className="rounded-md" />
+          </div>
+          <div className="min-w-0">
+            <CardTitle className="flex items-center gap-2 leading-tight">
+              <FileText className="h-5 w-5 shrink-0" />
+              <span>{title}</span>
+            </CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {pack.profileSector ? `${pack.profileSector} · ` : ""}
+              Generated {pack.createdAtLabel}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {documentTypes.slice(0, 5).map((type) => (
+                <Badge key={type} variant="secondary" className="text-[11px]">
+                  {FOUNDER_PACK_DOCUMENT_TYPES.find((item) => item.value === type)?.label ?? type}
+                </Badge>
+              ))}
+              {documentTypes.length > 5 && <Badge variant="outline" className="text-[11px]">+{documentTypes.length - 5}</Badge>}
+            </div>
+          </div>
         </div>
         <div className="flex flex-wrap gap-2 print:hidden">
           {(["docx", "pdf", "pptx", "md", "json"] as const).map((format) => (
@@ -291,10 +312,6 @@ function PackDocument({ pack }: { pack: PackSummary }) {
           <Button type="button" variant="outline" size="sm" className="gap-2" disabled={Boolean(exporting)} onClick={sendToCanva}>
             {exporting === "canva" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
             Canva
-          </Button>
-          <Button type="button" variant="ghost" size="sm" className="gap-2" onClick={() => window.print()}>
-            <Download className="h-4 w-4" />
-            Print
           </Button>
         </div>
       </CardHeader>
@@ -505,6 +522,7 @@ export function FounderPackClient({
   const [history, setHistory] = useState(packs);
   const [selectedPackId, setSelectedPackId] = useState(packs[0]?.id ?? "");
   const [loading, setLoading] = useState(false);
+  const [generationStatus, setGenerationStatus] = useState("");
   const [form, setForm] = useState<FounderPackInputs & { profileId: string }>({
     profileId: profiles[0]?.id ?? "",
     founderName: "",
@@ -512,7 +530,7 @@ export function FounderPackClient({
     founderBackground: profiles[0]?.founderBackground ?? "",
     technicalContribution: profiles[0]?.teamExpertise ?? "",
     targetUse: "innovator_founder_visa",
-    documentTypes: FOUNDER_PACK_DOCUMENT_TYPES.map((item) => item.value),
+    documentTypes: [],
     marketFocus: "UK SMEs, startups, councils, incubators, and funding support organisations.",
     revenueModel: "SaaS subscriptions for SMEs, premium founder packs, and B2B licensing for councils, incubators, and accelerators.",
     pricingAssumptions: "Free trial for initial onboarding, paid Pro and Business plans, with optional premium document pack generation.",
@@ -596,7 +614,12 @@ export function FounderPackClient({
       toast.error("Upgrade to Pro or Business to generate Founder Funding Packs.");
       return;
     }
+    if (!form.documentTypes?.length) {
+      toast.error("Select a document type or quick preset first.");
+      return;
+    }
     setLoading(true);
+    setGenerationStatus("Preparing company DNA, grant context, and selected document brief...");
     try {
       const payload = {
         ...form,
@@ -612,28 +635,34 @@ export function FounderPackClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      setGenerationStatus("Structuring the document, checking selected sections, and saving the pack...");
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         toast.error(data.error ?? "Could not generate pack");
         return;
       }
       const pack = data.pack as { id: string; createdAt: string; content: FounderPackContent };
+      const selectedProfile = profiles.find((profile) => profile.id === form.profileId);
       const next: PackSummary = {
         id: pack.id,
         createdAt: pack.createdAt,
         createdAtLabel: "just now",
         type: form.targetUse,
         documentTypes: form.documentTypes,
+        profileBusinessName: selectedProfile?.businessName ?? null,
+        profileSector: selectedProfile?.sector ?? null,
         content: pack.content,
       };
       setHistory((prev) => [next, ...prev]);
       setSelectedPackId(next.id);
+      setGenerationStatus("Generated and saved. Preview is ready.");
       toast.success("Founder Funding Pack generated");
       router.refresh();
     } catch {
       toast.error("Could not generate pack");
     } finally {
       setLoading(false);
+      window.setTimeout(() => setGenerationStatus(""), 2400);
     }
   }
 
@@ -906,13 +935,25 @@ export function FounderPackClient({
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
               Generate pitch deck & selected documents
             </Button>
+            {loading && (
+              <div className="rounded-md border border-blue-100 bg-blue-50 p-3 text-sm text-blue-900">
+                <div className="flex items-center gap-2 font-medium">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Generating document
+                </div>
+                <p className="mt-1 text-xs leading-5">{generationStatus || "Working with OpenAI and saving the pack..."}</p>
+              </div>
+            )}
           </CardContent>
         </Card>
 
         {history.length > 0 && (
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Pack History</CardTitle>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <CalendarClock className="h-4 w-4" />
+                Generation History
+              </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
               {history.map((pack) => (
@@ -920,12 +961,17 @@ export function FounderPackClient({
                   key={pack.id}
                   type="button"
                   onClick={() => setSelectedPackId(pack.id)}
-                  className="flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm hover:bg-muted"
+                  className={`w-full rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${
+                    pack.id === selectedPack?.id ? "border-blue-300 bg-blue-50" : ""
+                  }`}
                 >
-                  <span>{pack.createdAtLabel}</span>
-                  <Badge variant={pack.id === selectedPack?.id ? "default" : "secondary"}>
-                    {documentTypeLabel(pack.documentTypes)}
-                  </Badge>
+                  <span className="flex items-center justify-between gap-3">
+                    <span className="font-medium">{pack.profileBusinessName ?? "Founder pack"}</span>
+                    <Badge variant={pack.id === selectedPack?.id ? "default" : "secondary"}>
+                      {documentTypeLabel(pack.documentTypes)}
+                    </Badge>
+                  </span>
+                  <span className="mt-1 block text-xs text-muted-foreground">{pack.createdAtLabel}</span>
                 </button>
               ))}
             </CardContent>
@@ -934,7 +980,21 @@ export function FounderPackClient({
       </div>
 
       <div className="space-y-6">
-        {selectedPack && contentIsReady(selectedPack.content) ? (
+        {loading ? (
+          <Card className="border-blue-100 bg-gradient-to-br from-white to-blue-50">
+            <CardContent className="flex min-h-[420px] flex-col items-center justify-center gap-4 text-center">
+              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-blue-100 text-blue-700">
+                <Loader2 className="h-7 w-7 animate-spin" />
+              </div>
+              <div>
+                <p className="text-lg font-semibold">Generating your selected document pack</p>
+                <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">
+                  {generationStatus || "OpenAI is structuring the document around your company DNA, selected grant context, and chosen outputs."}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        ) : selectedPack && contentIsReady(selectedPack.content) ? (
           <PackDocument pack={selectedPack} />
         ) : (
           <Card>
