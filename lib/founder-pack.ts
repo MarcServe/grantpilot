@@ -347,6 +347,10 @@ function filterFounderPackContent(
   return filtered;
 }
 
+function parseFounderPackResponse(raw: string): FounderPackContent {
+  return normaliseContent(JSON.parse(cleanJsonResponse(raw)) as unknown);
+}
+
 export async function generateFounderPack(
   profile: BusinessProfileLike,
   inputs: FounderPackInputs,
@@ -448,7 +452,33 @@ Return ONLY valid JSON with this exact shape:
   "disclaimer": "short disclaimer"
 }`;
 
-  const raw = await completeJson(prompt, 4500);
-  const parsed = JSON.parse(cleanJsonResponse(raw)) as unknown;
-  return filterFounderPackContent(normaliseContent(parsed), selectedTypes);
+  const maxTokens =
+    selectedTypes.length <= 1 ? 7000 : selectedTypes.length <= 4 ? 10000 : 14000;
+
+  try {
+    const raw = await completeJson(prompt, maxTokens);
+    return filterFounderPackContent(parseFounderPackResponse(raw), selectedTypes);
+  } catch (err) {
+    console.warn("[founder-pack] Initial JSON generation failed, retrying with stricter output limits", err);
+  }
+
+  const retryPrompt = `${prompt}
+
+The previous response was invalid or truncated. Regenerate the same selected deliverables as COMPLETE valid JSON only.
+Keep every selected deliverable useful and standalone, but make the text more concise so the JSON is not cut off:
+- Long text sections: 4-7 focused paragraphs maximum.
+- Pitch deck: 10 slides maximum, 3-5 bullets per slide.
+- Grant application draft: 5-8 strong Q&A pairs maximum.
+- Workplan: 4 phases maximum.
+- Risk mitigation: 5 risks maximum.
+- Evidence checklist and next steps: 8 items maximum.
+Do not include markdown fences or commentary.`;
+
+  try {
+    const raw = await completeJson(retryPrompt, maxTokens);
+    return filterFounderPackContent(parseFounderPackResponse(raw), selectedTypes);
+  } catch (err) {
+    console.error("[founder-pack] Retry JSON generation failed", err);
+    throw new Error("The AI response was too long to save as structured JSON. Select fewer document types or use a quick preset, then try again.");
+  }
 }
