@@ -2,7 +2,19 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BriefcaseBusiness, Download, ExternalLink, FileText, Loader2, Lock, Sparkles } from "lucide-react";
+import {
+  BriefcaseBusiness,
+  CheckCircle2,
+  Download,
+  ExternalLink,
+  FileJson,
+  FileText,
+  FileType2,
+  Loader2,
+  Lock,
+  Presentation,
+  Sparkles,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   FOUNDER_PACK_DOCUMENT_TYPES,
@@ -84,6 +96,59 @@ function documentTypeLabel(types?: FounderPackDocumentType[] | null): string {
   }
   return `${types.length} documents`;
 }
+
+const documentPresets: {
+  label: string;
+  description: string;
+  types: FounderPackDocumentType[];
+}[] = [
+  {
+    label: "Full grant pack",
+    description: "Every planning, grant-writing, pitch, budget, impact, and evidence document.",
+    types: FOUNDER_PACK_DOCUMENT_TYPES.map((item) => item.value),
+  },
+  {
+    label: "Pitch deck + canvas",
+    description: "Canvas Standard Pitch Deck, Business Model Canvas, summary, market, and projections.",
+    types: ["pitch_deck", "business_model_canvas", "executive_summary", "market_analysis", "financial_projections"],
+  },
+  {
+    label: "Grant application pack",
+    description: "Application answers, budget narrative, impact plan, workplan, support letter, and evidence list.",
+    types: [
+      "grant_application_draft",
+      "budget_narrative",
+      "impact_measurement_plan",
+      "project_workplan",
+      "support_letter_template",
+      "evidence_checklist",
+      "next_steps",
+    ],
+  },
+  {
+    label: "Founder / visa pack",
+    description: "Business plan, innovation, founder positioning, scalability, market, and risk sections.",
+    types: [
+      "business_plan",
+      "innovation_statement",
+      "founder_positioning",
+      "scalability_plan",
+      "market_analysis",
+      "financial_projections",
+      "risk_mitigation",
+      "evidence_checklist",
+    ],
+  },
+];
+
+const exportFormats = [
+  { label: "PPTX deck", icon: Presentation },
+  { label: "DOCX pack", icon: FileText },
+  { label: "PDF pack", icon: FileType2 },
+  { label: "Markdown", icon: FileText },
+  { label: "JSON data", icon: FileJson },
+  { label: "Canva handoff", icon: ExternalLink },
+];
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -489,6 +554,10 @@ export function FounderPackClient({
     });
   }
 
+  function applyDocumentPreset(types: FounderPackDocumentType[]) {
+    setForm((prev) => ({ ...prev, documentTypes: types }));
+  }
+
   function selectProfile(profileId: string) {
     const profile = profiles.find((item) => item.id === profileId);
     setForm((prev) => ({
@@ -579,7 +648,67 @@ export function FounderPackClient({
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
+    <div className="space-y-6">
+      <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+        <Card className="overflow-hidden border-blue-100 bg-gradient-to-br from-white via-white to-blue-50">
+          <CardContent className="p-5 sm:p-6">
+            <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+              <div className="max-w-2xl">
+                <Badge className="gap-1 bg-blue-100 text-blue-700 hover:bg-blue-100">
+                  <Presentation className="h-3.5 w-3.5" />
+                  Pitch deck and grant documents
+                </Badge>
+                <h2 className="mt-3 text-2xl font-black tracking-tight text-[#071a3a]">
+                  Generate the full funding pack from company DNA.
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Pick a grant, select the outputs, then generate funder-ready documents including a Canvas Standard Pitch
+                  Deck, Business Model Canvas, business plan, application answers, budget narrative, evidence checklist, and
+                  export files.
+                </p>
+              </div>
+              <div className="grid min-w-[190px] gap-2 rounded-xl border bg-white/80 p-3 text-sm shadow-sm">
+                <div className="flex items-center gap-2 font-semibold text-[#071a3a]">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                  Available exports
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {exportFormats.map((format) => {
+                    const Icon = format.icon;
+                    return (
+                      <span key={format.label} className="flex items-center gap-1.5 rounded-md bg-slate-50 px-2 py-1 text-xs text-slate-700">
+                        <Icon className="h-3.5 w-3.5 text-blue-600" />
+                        {format.label}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Quick document presets</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-2">
+            {documentPresets.map((preset) => (
+              <button
+                key={preset.label}
+                type="button"
+                onClick={() => applyDocumentPreset(preset.types)}
+                className="rounded-md border bg-background p-3 text-left transition-colors hover:border-blue-200 hover:bg-blue-50"
+              >
+                <span className="block text-sm font-semibold text-[#071a3a]">{preset.label}</span>
+                <span className="mt-1 block text-xs leading-5 text-muted-foreground">{preset.description}</span>
+              </button>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
       <div className="space-y-6 print:hidden">
         <Card>
           <CardHeader>
@@ -775,7 +904,7 @@ export function FounderPackClient({
 
             <Button type="button" className="w-full gap-2" disabled={loading || !allowed || !form.documentTypes?.length} onClick={generate}>
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-              Generate selected documents
+              Generate pitch deck & selected documents
             </Button>
           </CardContent>
         </Card>
@@ -821,6 +950,7 @@ export function FounderPackClient({
           </Card>
         )}
       </div>
+    </div>
     </div>
   );
 }
