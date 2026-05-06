@@ -29,35 +29,36 @@ async function getOrgId(): Promise<string> {
   return orgId;
 }
 
-function calculateCompletionScore(
-  profile: {
-    businessName: string;
-    location: string;
-    sector: string;
-    missionStatement: string;
-    description: string;
-    employeeCount: number | null;
-    annualRevenue: number | null;
-    fundingMin: number;
-    fundingMax: number;
-    fundingPurposes: string[];
-    fundingDetails: string | null;
-  },
-  documentCount = 0
-): number {
+function calculateCompletionScore(profile: Record<string, unknown>, documentCount = 0): number {
+  const get = (camel: string, snake?: string): unknown =>
+    profile[camel] ?? (snake ? profile[snake] : undefined);
+
   let score = 0;
-  const total = 11; // 10 fields + documents
-  if (profile.businessName?.trim()) score++;
-  if (profile.location?.trim()) score++;
-  if (profile.sector?.trim()) score++;
-  if (profile.missionStatement?.trim()) score++;
-  if (profile.description?.trim()) score++;
-  if (profile.employeeCount != null) score++;
-  if (profile.annualRevenue != null) score++;
-  if (profile.fundingMin != null && profile.fundingMin >= 0) score++;
-  if (profile.fundingMax != null && profile.fundingMax >= 0) score++;
-  if (profile.fundingPurposes?.length > 0) score++;
+  const total = 11; // 10 core profile fields + supporting documents
+
+  const businessName = get("businessName", "business_name");
+  const location = get("location");
+  const sector = get("sector");
+  const missionStatement = get("missionStatement", "mission_statement");
+  const description = get("description");
+  const employeeCount = get("employeeCount", "employee_count");
+  const annualRevenue = get("annualRevenue", "annual_revenue");
+  const fundingMin = get("fundingMin", "funding_min");
+  const fundingMax = get("fundingMax", "funding_max");
+  const fundingPurposes = get("fundingPurposes", "funding_purposes");
+
+  if (businessName && String(businessName).trim()) score++;
+  if (location && String(location).trim()) score++;
+  if (sector && String(sector).trim()) score++;
+  if (missionStatement && String(missionStatement).trim()) score++;
+  if (description && String(description).trim()) score++;
+  if (employeeCount != null && Number(employeeCount) > 0) score++;
+  if (annualRevenue != null && Number(annualRevenue) > 0) score++;
+  if (fundingMin != null && Number(fundingMin) > 0) score++;
+  if (fundingMax != null && Number(fundingMax) > 0) score++;
+  if (Array.isArray(fundingPurposes) && fundingPurposes.length > 0) score++;
   if (documentCount >= 1) score++;
+
   return Math.round((score / total) * 100);
 }
 
@@ -73,7 +74,7 @@ async function recalcAndSaveCompletionScore(profileId: string): Promise<void> {
     .from("Document")
     .select("id", { count: "exact", head: true })
     .eq("profileId", profileId);
-  const score = calculateCompletionScore(profile as Parameters<typeof calculateCompletionScore>[0], count ?? 0);
+  const score = calculateCompletionScore(profile as Record<string, unknown>, count ?? 0);
   await supabase.from("BusinessProfile").update({ completionScore: score }).eq("id", profileId);
 }
 
@@ -404,6 +405,7 @@ export async function saveStep6(data: Step6Data) {
 
   if (updateError || !updated) return { error: updateError?.message ?? "Update failed" };
 
+  await recalcAndSaveCompletionScore(profile.id);
   await syncGrantMemoryForProfile(profile.id);
   await refreshProfileEmbedding(profile.id);
   await triggerEligibilityForOrg(orgId, "profile.step6.saved");
