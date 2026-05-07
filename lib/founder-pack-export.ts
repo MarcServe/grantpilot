@@ -42,7 +42,7 @@ export function founderPackExportFilename(pack: FounderPackExportInput, format: 
   const typeSlug =
     types.length === 1
       ? types[0].replace(/_/g, "-")
-      : types.length === FOUNDER_PACK_DOCUMENT_TYPES.length
+      : pack.inputs?.documentTypes?.length === FOUNDER_PACK_DOCUMENT_TYPES.length
         ? "full-pack"
         : "selected-documents";
   const extension = format === "json" ? "json" : format;
@@ -54,9 +54,45 @@ export function isFounderPackExportFormat(value: string | null): value is PackEx
 }
 
 function selectedTypes(pack: FounderPackExportInput): FounderPackDocumentType[] {
-  return pack.inputs?.documentTypes?.length
-    ? pack.inputs.documentTypes
-    : FOUNDER_PACK_DOCUMENT_TYPES.map((item) => item.value);
+  if (pack.inputs?.documentTypes?.length) return pack.inputs.documentTypes;
+  const inferred = inferLegacyTypes(pack.content);
+  return inferred.length ? inferred : ["executive_summary"];
+}
+
+const LEGACY_HIDDEN_TYPES = new Set<FounderPackDocumentType>([
+  "risk_mitigation",
+  "evidence_checklist",
+  "next_steps",
+]);
+
+function hasText(value?: string | null): boolean {
+  return Boolean(value?.trim());
+}
+
+function inferLegacyTypes(content: FounderPackContent): FounderPackDocumentType[] {
+  const inferred: FounderPackDocumentType[] = [];
+  if (hasText(content.executiveSummary)) inferred.push("executive_summary");
+  if (hasText(content.businessPlan)) inferred.push("business_plan");
+  if (content.pitchDeck?.length) inferred.push("pitch_deck");
+  if (content.businessModelCanvas?.valuePropositions?.length) inferred.push("business_model_canvas");
+  if (hasText(content.innovationStatement)) inferred.push("innovation_statement");
+  if (hasText(content.marketAnalysis)) inferred.push("market_analysis");
+  if (
+    content.financialProjections?.assumptions?.length ||
+    content.financialProjections?.year1?.length ||
+    content.financialProjections?.year2?.length ||
+    content.financialProjections?.year3?.length
+  ) {
+    inferred.push("financial_projections");
+  }
+  if (content.grantApplicationDraft?.length) inferred.push("grant_application_draft");
+  if (hasText(content.budgetNarrative)) inferred.push("budget_narrative");
+  if (hasText(content.impactMeasurementPlan)) inferred.push("impact_measurement_plan");
+  if (content.projectWorkplan?.length) inferred.push("project_workplan");
+  if (hasText(content.supportLetterTemplate)) inferred.push("support_letter_template");
+  if (hasText(content.founderPositioning)) inferred.push("founder_positioning");
+  if (hasText(content.scalabilityPlan)) inferred.push("scalability_plan");
+  return inferred.filter((type) => !LEGACY_HIDDEN_TYPES.has(type));
 }
 
 function includes(pack: FounderPackExportInput, type: FounderPackDocumentType): boolean {

@@ -395,16 +395,19 @@ ${grantContextBlock?.trim() ? grantContextBlock.trim() : "None specified — use
 Rules when grant context exists:
 - Reflect eligibility themes, geographic scope, applicant types, and stated objectives without inventing facts not in the profile or inputs.
 - Prioritise overlap between company DNA and each grant's eligibility text.
-- Flag gaps between profile evidence and grant requirements in evidenceChecklist and risks.
+- Every selected deliverable must clearly change around the selected grant context. Name the selected grant/funder in the executive summary, pitch deck, business plan, or grant draft where appropriate.
+- Do not produce a reusable generic company pack when a target grant is provided. Use the grant's stated objectives, applicant type, eligibility language, funding purpose, region, and assessment gaps to shape the output.
+- Flag gaps between profile evidence and grant requirements only when evidenceChecklist or risk_mitigation is selected.
 
 Generate these document sections only. For unselected sections, return an empty string or empty array while preserving the required JSON shape:
 ${selectedLabels}
 
 Treat every selected document type as a complete standalone deliverable, not a short section inside a generic pack. If only one document type is selected, make that one document comprehensive enough to export alone. If multiple related types are selected, make them consistent with each other but avoid repeating the same paragraph across documents.
 When selected grants or applications are supplied, explicitly tailor the grant application draft, budget narrative, workplan, impact plan, evidence checklist, pitch deck, and business plan to those grant objectives, eligibility criteria, applicant type, region, and assessment language.
+Never populate riskMitigation, evidenceChecklist, or nextSteps unless those exact document types are selected. Do not hide generic risks, evidence items, or next actions inside another section unless they are directly required by the selected document type.
 
 Write in polished UK business English. Be specific to this company. Do not invent exact revenue, customers, contracts, awards, grants, patents, or endorsements unless present in the profile or inputs. Where evidence is missing, use cautious planning language and add the missing evidence to the checklist.
-For the Canvas Standard Pitch Deck, create 10-12 practical slides with concise slide copy, speaker notes, and visual direction suitable for a clean Canva-style deck. Do not generate image URLs.
+For the Canvas Standard Pitch Deck, make pitchDeck the primary output: create 10-12 practical slides with concise slide copy, speaker notes, and visual direction suitable for a clean Canva-style deck. It must read as a slide deck, not a report. If grant context is provided, include at least 3 slides that explicitly connect the company to the selected grant's criteria, use of funds, delivery plan, or impact priorities. Do not generate image URLs.
 For grant application documents, write editable funder-ready drafts that cover the problem, project, beneficiaries, delivery, impact, value for money, risks, and evidence needs.
 
 Return ONLY valid JSON with this exact shape:

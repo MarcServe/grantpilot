@@ -93,12 +93,55 @@ function contentIsReady(content?: FounderPackContent | null): content is Founder
 }
 
 function documentTypeLabel(types?: FounderPackDocumentType[] | null): string {
-  if (!types?.length) return "Legacy full pack";
+  if (!types?.length) return "Legacy document";
   if (types.length === FOUNDER_PACK_DOCUMENT_TYPES.length) return "Full pack";
   if (types.length === 1) {
     return FOUNDER_PACK_DOCUMENT_TYPES.find((item) => item.value === types[0])?.label ?? "Document";
   }
   return `${types.length} documents`;
+}
+
+const legacyHiddenDocumentTypes = new Set<FounderPackDocumentType>([
+  "risk_mitigation",
+  "evidence_checklist",
+  "next_steps",
+]);
+
+function hasText(value?: string | null): boolean {
+  return Boolean(value?.trim());
+}
+
+function inferLegacyDocumentTypes(content: FounderPackContent): FounderPackDocumentType[] {
+  const inferred: FounderPackDocumentType[] = [];
+  if (hasText(content.executiveSummary)) inferred.push("executive_summary");
+  if (hasText(content.businessPlan)) inferred.push("business_plan");
+  if (content.pitchDeck?.length) inferred.push("pitch_deck");
+  if (content.businessModelCanvas?.valuePropositions?.length) inferred.push("business_model_canvas");
+  if (hasText(content.innovationStatement)) inferred.push("innovation_statement");
+  if (hasText(content.marketAnalysis)) inferred.push("market_analysis");
+  if (
+    content.financialProjections?.assumptions?.length ||
+    content.financialProjections?.year1?.length ||
+    content.financialProjections?.year2?.length ||
+    content.financialProjections?.year3?.length
+  ) {
+    inferred.push("financial_projections");
+  }
+  if (content.grantApplicationDraft?.length) inferred.push("grant_application_draft");
+  if (hasText(content.budgetNarrative)) inferred.push("budget_narrative");
+  if (hasText(content.impactMeasurementPlan)) inferred.push("impact_measurement_plan");
+  if (content.projectWorkplan?.length) inferred.push("project_workplan");
+  if (hasText(content.supportLetterTemplate)) inferred.push("support_letter_template");
+  if (hasText(content.founderPositioning)) inferred.push("founder_positioning");
+  if (hasText(content.scalabilityPlan)) inferred.push("scalability_plan");
+
+  return inferred.filter((type) => !legacyHiddenDocumentTypes.has(type));
+}
+
+function packDocumentTypes(pack: PackSummary): FounderPackDocumentType[] {
+  if (pack.documentTypes?.length) return pack.documentTypes;
+  const inferred = inferLegacyDocumentTypes(pack.content);
+  return inferred.length ? inferred : ["executive_summary"];
 }
 
 const documentPresets: {
@@ -206,12 +249,11 @@ function PackDocument({ pack }: { pack: PackSummary }) {
   };
   const grantApplicationDraft = content.grantApplicationDraft ?? [];
   const projectWorkplan = content.projectWorkplan ?? [];
-  const documentTypes =
-    pack.documentTypes?.length
-      ? pack.documentTypes
-      : FOUNDER_PACK_DOCUMENT_TYPES.map((item) => item.value);
+  const isLegacyPack = !pack.documentTypes?.length;
+  const documentTypes = packDocumentTypes(pack);
   const includes = (type: FounderPackDocumentType) => documentTypes.includes(type);
   const title = `${pack.profileBusinessName ?? "Founder"} ${documentTypeLabel(pack.documentTypes)}`;
+  const hasPitchDeck = includes("pitch_deck");
 
   async function downloadExport(format: "pdf" | "docx" | "pptx" | "md" | "json") {
     setExporting(format);
@@ -295,18 +337,18 @@ function PackDocument({ pack }: { pack: PackSummary }) {
           </div>
         </div>
         <div className="flex flex-wrap gap-2 print:hidden">
-          {(["docx", "pdf", "pptx", "md", "json"] as const).map((format) => (
+          {(["pptx", "docx", "pdf", "md", "json"] as const).map((format) => (
             <Button
               key={format}
               type="button"
-              variant={format === "pptx" ? "default" : "outline"}
+              variant={format === "pptx" && hasPitchDeck ? "default" : "outline"}
               size="sm"
               className="gap-2"
               disabled={Boolean(exporting)}
               onClick={() => downloadExport(format)}
             >
               {exporting === format ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-              {format.toUpperCase()}
+              {format === "pptx" && hasPitchDeck ? "PPTX deck" : format.toUpperCase()}
             </Button>
           ))}
           <Button type="button" variant="outline" size="sm" className="gap-2" disabled={Boolean(exporting)} onClick={sendToCanva}>
@@ -316,6 +358,18 @@ function PackDocument({ pack }: { pack: PackSummary }) {
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
+        {isLegacyPack && (
+          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 print:hidden">
+            This is an older generated pack. It is shown without generic risk, evidence, or next-step sections. Generate a
+            new pack after selecting document types and grant context for a fully tailored output.
+          </div>
+        )}
+        {hasPitchDeck && (
+          <div className="rounded-md border border-blue-100 bg-blue-50 p-3 text-sm text-blue-900 print:hidden">
+            Pitch decks export best as <span className="font-semibold">PPTX deck</span>. PDF and DOCX exports are written
+            outlines for review and notes.
+          </div>
+        )}
         {includes("executive_summary") && content.executiveSummary && (
           <Section title="Executive Summary">
             <ParagraphBlock text={content.executiveSummary} />
@@ -328,35 +382,46 @@ function PackDocument({ pack }: { pack: PackSummary }) {
         )}
         {includes("pitch_deck") && pitchDeck.length > 0 && (
           <Section title="Canvas Standard Pitch Deck">
-            <div className="grid gap-3">
+            <div className="grid gap-4">
               {pitchDeck.map((slide, index) => (
-                <div key={`${slide.title}-${index}`} className="rounded-md border bg-background p-4">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <p className="text-xs font-medium uppercase tracking-wide text-blue-600">Slide {index + 1}</p>
-                      <h3 className="mt-1 text-base font-semibold">{slide.title}</h3>
+                <div
+                  key={`${slide.title}-${index}`}
+                  className="overflow-hidden rounded-lg border bg-white shadow-sm"
+                >
+                  <div className="grid min-h-[260px] gap-0 sm:grid-cols-[110px_1fr]">
+                    <div className="flex flex-col justify-between bg-[#071a3a] p-4 text-white">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-200">Slide</p>
+                        <p className="mt-1 text-4xl font-black">{index + 1}</p>
+                      </div>
+                      <p className="text-xs font-medium text-emerald-200">GrantsCopilot deck</p>
                     </div>
-                    {slide.objective && (
-                      <Badge variant="secondary" className="w-fit whitespace-normal text-left">
-                        {slide.objective}
-                      </Badge>
-                    )}
+                    <div className="space-y-4 p-5">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <h3 className="max-w-xl text-xl font-black leading-tight text-[#071a3a]">{slide.title}</h3>
+                        {slide.objective && (
+                          <Badge variant="secondary" className="w-fit whitespace-normal text-left">
+                            {slide.objective}
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="rounded-md bg-blue-50 p-4">
+                        <BulletList items={slide.bullets} />
+                      </div>
+                      {slide.speakerNotes && (
+                        <p className="whitespace-pre-line text-sm leading-6 text-muted-foreground">
+                          <span className="font-medium text-foreground">Speaker notes: </span>
+                          {slide.speakerNotes}
+                        </p>
+                      )}
+                      {slide.visualDirection && (
+                        <p className="rounded-md border border-dashed p-3 text-sm leading-6 text-muted-foreground">
+                          <span className="font-medium text-foreground">Design direction: </span>
+                          {slide.visualDirection}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                  <div className="mt-3">
-                    <BulletList items={slide.bullets} />
-                  </div>
-                  {slide.speakerNotes && (
-                    <p className="mt-3 whitespace-pre-line text-sm leading-6 text-muted-foreground">
-                      <span className="font-medium text-foreground">Speaker notes: </span>
-                      {slide.speakerNotes}
-                    </p>
-                  )}
-                  {slide.visualDirection && (
-                    <p className="mt-2 whitespace-pre-line text-sm leading-6 text-muted-foreground">
-                      <span className="font-medium text-foreground">Design direction: </span>
-                      {slide.visualDirection}
-                    </p>
-                  )}
                 </div>
               ))}
             </div>
