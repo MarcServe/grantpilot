@@ -78,6 +78,16 @@ export async function POST(req: Request): Promise<NextResponse> {
       );
     }
 
+    const { data: assessmentOverride } = await supabase
+      .from("EligibilityAssessment")
+      .select("profile_overrides")
+      .eq("organisation_id", orgId)
+      .eq("profile_id", profileId)
+      .eq("grant_id", grantId)
+      .maybeSingle();
+    const profileOverrides =
+      (assessmentOverride as { profile_overrides?: Record<string, string | null> } | null)?.profile_overrides ?? null;
+
     const applicationId = crypto.randomUUID();
     const now = new Date().toISOString();
     const { data: application, error: appError } = await supabase
@@ -89,6 +99,7 @@ export async function POST(req: Request): Promise<NextResponse> {
         grantId,
         profileId,
         focusNotes: parsed.data.focusNotes?.trim() || null,
+        profile_overrides: profileOverrides && Object.keys(profileOverrides).length > 0 ? profileOverrides : null,
         status: "FILLING",
         createdAt: now,
         updatedAt: now,

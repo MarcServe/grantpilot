@@ -181,6 +181,7 @@ export default async function DashboardPage() {
   const submittedCount = submittedApplications ?? 0;
   const draftCount = Math.max(totalCount - activeCount - submittedCount, 0);
   const successRate = totalCount > 0 ? Math.round((submittedCount / totalCount) * 100) : 0;
+  const qualifiedOpportunityCount = suggestedGrants.length + withinReachGrants.length;
   const topMatches = [...suggestedGrants, ...withinReachGrants].slice(0, 3);
 
   const [pendingOutcomes, outcomeRowsForRecent] = await Promise.all([
@@ -221,8 +222,8 @@ export default async function DashboardPage() {
               <MetricCard
                 icon={Search}
                 label="Opportunities"
-                value={topMatches.length || eligibilityGrantCount}
-                detail={topMatches.length ? "Top matches" : "Scored grants"}
+                value={qualifiedOpportunityCount || eligibilityGrantCount}
+                detail={qualifiedOpportunityCount ? "Qualified matches" : "Scored grants"}
                 tone="blue"
                 href="/grants/eligible"
               />

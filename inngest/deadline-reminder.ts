@@ -5,6 +5,13 @@ import { createStartApplicationToken } from "@/lib/start-application-token";
 import { isNineAmLocal } from "@/lib/timezone";
 import { isGrantLinkUsable } from "@/lib/grant-freshness";
 
+const DEFAULT_DEADLINE_REMINDER_SCORE = 85;
+const MIN_DEADLINE_REMINDER_SCORE_FLOOR = 75;
+
+function reminderMinScore(preferenceScore: number | undefined): number {
+  return Math.max(preferenceScore ?? DEFAULT_DEADLINE_REMINDER_SCORE, MIN_DEADLINE_REMINDER_SCORE_FLOOR);
+}
+
 export const deadlineReminder = inngest.createFunction(
   { id: "deadline-reminder", name: "Grant Deadline Reminder" },
   { cron: "0 * * * *" }, // Every hour; send only when it's 9am in the org's timezone
@@ -111,18 +118,20 @@ export const deadlineReminder = inngest.createFunction(
             .select("min_score, max_score")
             .eq("organisation_id", org.id)
             .maybeSingle();
-          const minScore = (prefs as { min_score?: number } | null)?.min_score ?? 70;
+          const minScore = reminderMinScore((prefs as { min_score?: number } | null)?.min_score);
           const maxScore = (prefs as { max_score?: number } | null)?.max_score ?? 100;
 
           const { data: assessment } = await supabase
             .from("EligibilityAssessment")
-            .select("score")
+            .select("score, decision, scoring_source")
             .eq("organisation_id", org.id)
             .eq("profile_id", profileId)
             .eq("grant_id", grant.id)
             .maybeSingle();
-          const score = (assessment as { score?: number } | null)?.score;
+          const row = assessment as { score?: number; decision?: string | null; scoring_source?: string | null } | null;
+          const score = row?.score;
           if (score == null || score < minScore || score > maxScore) continue;
+          if (row?.scoring_source !== "openai" || row?.decision !== "likely_eligible") continue;
 
           try {
             const startApplicationToken = profile

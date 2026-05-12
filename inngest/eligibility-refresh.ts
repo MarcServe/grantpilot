@@ -26,7 +26,8 @@ import { getAppliedGrantIds } from "@/lib/applied-grants";
 
 const LAYER2_TOP_N = 15;
 const LAYER3_TOP_N = 10;
-const DIGEST_SCORE_THRESHOLD = 0;
+const DIGEST_SCORE_THRESHOLD = 85;
+const MIN_NOTIFICATION_SCORE_FLOOR = 75;
 const NOTIFY_COOLDOWN_DAYS = 1;
 const CACHE_DAYS = 1;
 
@@ -78,6 +79,14 @@ function getProfileCompletionScore(profile: Record<string, unknown>): number {
   const raw = profile.completionScore ?? profile.completion_score;
   const n = typeof raw === "number" ? raw : Number(raw);
   return Number.isFinite(n) ? Math.min(100, Math.max(0, Math.round(n))) : 0;
+}
+
+function notificationMinScore(preferenceScore: number | undefined): number {
+  return Math.max(preferenceScore ?? DIGEST_SCORE_THRESHOLD, MIN_NOTIFICATION_SCORE_FLOOR);
+}
+
+function shouldNotifyForEligibility(score: number, decision?: string | null, scoringSource?: string | null): boolean {
+  return scoringSource === "openai" && decision === "likely_eligible" && score >= MIN_NOTIFICATION_SCORE_FLOOR;
 }
 
 export async function runEligibilityRefreshJob(options?: {
@@ -251,9 +260,9 @@ export async function runEligibilityRefreshJob(options?: {
           .select("min_score, max_score, eligible_threshold, notify_email, notify_in_app, notify_whatsapp")
           .eq("organisation_id", orgId)
           .maybeSingle();
-        const minScore = (prefs as { min_score?: number } | null)?.min_score ?? DIGEST_SCORE_THRESHOLD;
+        const minScore = notificationMinScore((prefs as { min_score?: number } | null)?.min_score);
         const maxScore = (prefs as { max_score?: number } | null)?.max_score ?? 100;
-        const eligibleThreshold = (prefs as { eligible_threshold?: number } | null)?.eligible_threshold ?? 70;
+        const eligibleThreshold = notificationMinScore((prefs as { eligible_threshold?: number } | null)?.eligible_threshold);
         const sendWhatsApp = (prefs as { notify_whatsapp?: boolean } | null)?.notify_whatsapp ?? false;
         const sendNotifyEmail = (prefs as { notify_email?: boolean } | null)?.notify_email !== false;
 
@@ -327,7 +336,10 @@ export async function runEligibilityRefreshJob(options?: {
             );
             if (upsertErr) console.error("[eligibility-refresh] upsert", upsertErr);
 
-            const inRange = score >= minScore && score <= maxScore;
+            const inRange =
+              score >= minScore &&
+              score <= maxScore &&
+              shouldNotifyForEligibility(score, result.decision, "openai");
 
             if (inRange) {
               const { data: existing } = await supabase
@@ -353,7 +365,9 @@ export async function runEligibilityRefreshJob(options?: {
                   grantId: grant.id,
                   grantName: grant.name,
                   score,
-                  summary,
+                  summary:
+                    summary ??
+                    "Full company-DNA assessment found a strong match between your profile and this grant.",
                   startApplicationToken,
                   missingDocuments: missing.length > 0 ? missing.map((r) => r.label) : undefined,
                   improvementPlan: result.improvementPlan ?? undefined,

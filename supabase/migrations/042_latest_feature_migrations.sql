@@ -192,6 +192,12 @@ END $$;
 ALTER TABLE "EligibilityAssessment"
   ADD COLUMN IF NOT EXISTS "scoring_source" TEXT NOT NULL DEFAULT 'openai';
 
+ALTER TABLE "EligibilityAssessment"
+  ADD COLUMN IF NOT EXISTS "profile_overrides" JSONB DEFAULT NULL;
+
+COMMENT ON COLUMN "EligibilityAssessment"."profile_overrides" IS
+  'Grant-specific auto-improve overrides saved for this profile/grant without changing the main BusinessProfile.';
+
 DO $$
 BEGIN
   IF NOT EXISTS (

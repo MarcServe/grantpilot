@@ -14,7 +14,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Loader2, Scale, CheckCircle, AlertCircle, XCircle, Target, Lightbulb, Check, AlertTriangle, Sparkles } from "lucide-react";
+import { Loader2, Scale, Target, Lightbulb, Check, AlertTriangle, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 interface ImprovementPlan {
@@ -67,7 +67,6 @@ function AutoImproveButton({ grantId, applicationId }: { grantId: string; applic
 
   async function handleApply(toProfile: boolean) {
     if (!suggestions || Object.keys(suggestions).length === 0) return;
-    if (toProfile === false && !applicationId) return;
     setApplying(true);
     try {
       const body = toProfile
@@ -83,7 +82,7 @@ function AutoImproveButton({ grantId, applicationId }: { grantId: string; applic
       if (toProfile) {
         toast.success("Profile updated. Re-check eligibility to see the new score.");
       } else {
-        toast.success("Saved for this application only. Your main profile is unchanged. The next time GrantsCopilot fills this application, it will use these details.");
+        toast.success("Saved for this grant only. Your main profile is unchanged.");
       }
       setOpen(false);
       router.refresh();
@@ -108,7 +107,7 @@ function AutoImproveButton({ grantId, applicationId }: { grantId: string; applic
         <DialogHeader>
           <DialogTitle>Auto-improve application</DialogTitle>
           <DialogDescription>
-            We&apos;ve suggested rewrites to better match this grant. Apply to your main profile (used for all grants) or use for this application only (your profile stays unchanged).
+            We&apos;ve suggested grant-specific rewrites. Save them for this grant only so your main company DNA stays unchanged.
           </DialogDescription>
         </DialogHeader>
         {loading ? (
@@ -141,15 +140,12 @@ function AutoImproveButton({ grantId, applicationId }: { grantId: string; applic
           <Button variant="outline" onClick={() => setOpen(false)} className="sm:mr-auto">Cancel</Button>
           {hasSuggestions && (
             <>
-              {applicationId && (
-                <Button variant="secondary" onClick={() => handleApply(false)} disabled={applying}>
-                  {applying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Use for this application only
-                </Button>
-              )}
-              <Button onClick={() => handleApply(true)} disabled={applying}>
+              <Button onClick={() => handleApply(false)} disabled={applying}>
                 {applying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                Apply to profile
+                Save for this grant only
+              </Button>
+              <Button variant="outline" onClick={() => handleApply(true)} disabled={applying}>
+                Apply to main profile
               </Button>
             </>
           )}
@@ -205,11 +201,6 @@ export function EligibilityCard({
   }
 
   const score = result?.score ?? result?.confidence ?? 0;
-  const decisionConfig = {
-    likely_eligible: { label: "Likely eligible", icon: CheckCircle, color: "text-green-600 bg-green-50 border-green-200" },
-    review: { label: "Review", icon: AlertCircle, color: "text-amber-600 bg-amber-50 border-amber-200" },
-    unlikely: { label: "Unlikely", icon: XCircle, color: "text-red-600 bg-red-50 border-red-200" },
-  };
 
   return (
     <Card>

@@ -60,8 +60,8 @@ export function GrantCard({
   const scoreLabel = scoringSource === "heuristic" ? "Prelim" : "Match";
   const sourceLabel = source
     ? source === "openai"
-      ? "OpenAI found"
-      : `${source.replace(/-/g, ".").replace(/\b\w/g, (char) => char.toUpperCase())} source`
+      ? "OpenAI sourced"
+      : "Found in database"
     : null;
   return (
     <Card className="transition-shadow hover:shadow-md">
