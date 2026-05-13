@@ -105,8 +105,8 @@ export async function POST(req: Request): Promise<NextResponse> {
         {
           error:
             links.length > 1
-              ? `You need ${links.length} auto-fills but only ${remaining} remaining this month. Upgrade or reduce the number of links.`
-              : "You've reached your auto-fill limit this month. Upgrade your plan to continue.",
+              ? `You need ${links.length} application prep runs but only ${remaining} remaining this month. Upgrade or reduce the number of links.`
+              : "You've reached your application prep limit this month. Upgrade your plan to continue.",
         },
         { status: 403 }
       );

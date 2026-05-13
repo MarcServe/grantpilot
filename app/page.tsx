@@ -478,6 +478,17 @@ export default function LandingPage() {
           </div>
         </section>
       </main>
+      <footer className="border-t border-[#d8e2f2] bg-white/75">
+        <div className="mx-auto flex max-w-[1480px] flex-col gap-4 px-4 py-8 text-sm font-semibold text-[#51627d] sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-10">
+          <p>© 2026 GrantsCopilot. Funding intelligence for founders and SMEs.</p>
+          <div className="flex flex-wrap gap-4">
+            <Link href="/privacy" className="hover:text-[#2167e8]">Privacy</Link>
+            <Link href="/terms" className="hover:text-[#2167e8]">Terms</Link>
+            <Link href="/refund" className="hover:text-[#2167e8]">Refund policy</Link>
+            <Link href="/sign-in" className="hover:text-[#2167e8]">Log in</Link>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }

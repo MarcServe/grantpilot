@@ -13,6 +13,7 @@ import { rankGrantsByEmbedding, generateAndStoreProfileEmbedding } from "@/lib/e
 import { isEligibilityNotificationTime } from "@/lib/timezone";
 import { isGrantLinkUsable } from "@/lib/grant-freshness";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
+import { isOpenAIChecked } from "@/lib/grant-source-policy";
 
 /**
  * 3-Layer Eligibility Pipeline
@@ -86,7 +87,7 @@ function notificationMinScore(preferenceScore: number | undefined): number {
 }
 
 function shouldNotifyForEligibility(score: number, decision?: string | null, scoringSource?: string | null): boolean {
-  return scoringSource === "openai" && decision === "likely_eligible" && score >= MIN_NOTIFICATION_SCORE_FLOOR;
+  return isOpenAIChecked(scoringSource) && decision === "likely_eligible" && score >= MIN_NOTIFICATION_SCORE_FLOOR;
 }
 
 export async function runEligibilityRefreshJob(options?: {

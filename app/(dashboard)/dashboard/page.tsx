@@ -24,6 +24,7 @@ import { DashboardNotificationChannels } from "@/components/dashboard/notificati
 import { OutcomeFeedbackBanner } from "@/components/dashboard/outcome-feedback-banner";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { fetchApplicationsNeedingOutcome, applicationNeedsOutcomeReminder } from "@/lib/outcome-feedback";
+import { isOpenAIChecked } from "@/lib/grant-source-policy";
 
 export default async function DashboardPage() {
   const { org, orgId, user } = await getActiveOrg();
@@ -160,7 +161,7 @@ export default async function DashboardPage() {
         const name = nameById.get(a.grant_id) ?? "Grant";
         const source = a.scoring_source ?? (a.summary?.startsWith("Preliminary fit") ? "heuristic" : "openai");
         const score = source === "heuristic" ? Math.min(a.score, 69) : a.score;
-        if (source !== "heuristic" && score >= 80) suggestedGrants.push({ grantId: a.grant_id, grantName: name, score });
+        if (isOpenAIChecked(source) && score >= 80) suggestedGrants.push({ grantId: a.grant_id, grantName: name, score });
         else if (score >= 50) withinReachGrants.push({ grantId: a.grant_id, grantName: name, score, summary: a.summary ?? undefined });
       }
     }

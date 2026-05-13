@@ -4,6 +4,7 @@ import { notifyOrgMembers } from "@/lib/notify";
 import { createStartApplicationToken } from "@/lib/start-application-token";
 import { isNineAmLocal } from "@/lib/timezone";
 import { isGrantLinkUsable } from "@/lib/grant-freshness";
+import { isOpenAIChecked } from "@/lib/grant-source-policy";
 
 const DEFAULT_DEADLINE_REMINDER_SCORE = 85;
 const MIN_DEADLINE_REMINDER_SCORE_FLOOR = 75;
@@ -131,7 +132,7 @@ export const deadlineReminder = inngest.createFunction(
           const row = assessment as { score?: number; decision?: string | null; scoring_source?: string | null } | null;
           const score = row?.score;
           if (score == null || score < minScore || score > maxScore) continue;
-          if (row?.scoring_source !== "openai" || row?.decision !== "likely_eligible") continue;
+          if (!isOpenAIChecked(row?.scoring_source) || row?.decision !== "likely_eligible") continue;
 
           try {
             const startApplicationToken = profile

@@ -24,6 +24,7 @@ import { checkRequirementsAgainstDocuments } from "@/lib/grant-requirements";
 import type { RequiredAttachment } from "@/lib/grant-requirements";
 import { getApplicantTypeGate } from "@/lib/eligibility-hard-gates";
 import { planAllows, resolvePlanKey } from "@/lib/plan-features";
+import { grantFinderLabel } from "@/lib/grant-source-policy";
 
 export default async function GrantDetailPage({
   params,
@@ -82,21 +83,6 @@ export default async function GrantDetailPage({
       eligibilityScore = eligibilityScore == null ? 25 : Math.min(eligibilityScore, 25);
     }
   }
-
-  const { data: allGrantsData } = await supabase
-    .from("Grant")
-    .select("id, name, funder, amount, applicationUrl, sectors")
-    .neq("id", grant.id);
-  const allGrants = allGrantsData ?? [];
-  const sectors = (grant.sectors ?? []) as string[];
-  const funderName = (grant.funder ?? "") as string;
-  const similarGrants = (allGrants as { id: string; name: string; funder: string; sectors?: string[] }[])
-    .filter(
-      (g) =>
-        g.funder === funderName ||
-        (sectors.length > 0 && (g.sectors ?? []).some((s: string) => sectors.includes(s)))
-    )
-    .slice(0, 5);
 
   const urgency = computeUrgency(grant.deadline ?? null);
 
@@ -256,9 +242,7 @@ export default async function GrantDetailPage({
             ))}
             {(grant as { source?: string | null }).source && (
               <Badge variant={(grant as { source?: string | null }).source === "openai" ? "default" : "secondary"}>
-                {(grant as { source?: string | null }).source === "openai"
-                  ? "OpenAI discovered"
-                  : `${String((grant as { source?: string | null }).source).replace(/-/g, ".")} source`}
+                {grantFinderLabel((grant as { source?: string | null }).source)}
               </Badge>
             )}
           </div>

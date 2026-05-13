@@ -60,7 +60,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     const { allowed } = await checkUsageLimit(orgId, "autofill");
     if (!allowed) {
       return NextResponse.json(
-        { error: "You've reached your auto-fill limit this month. Upgrade your plan to continue." },
+        { error: "You've reached your application prep limit this month. Upgrade your plan to continue." },
         { status: 403 }
       );
     }

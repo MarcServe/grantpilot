@@ -1,6 +1,7 @@
 /**
- * Grant ingestion for production: sync from a JSON feed URL or upsert from manual import.
- * Set GRANTS_FEED_URL in env to enable periodic sync (e.g. via Inngest).
+ * Grant ingestion for production: sync from JSON feeds, manual imports, and AI/search
+ * discovery sources. Every source can add grants; trusted matching still flows through
+ * the OpenAI eligibility checker.
  */
 
 import { createHash } from "crypto";
@@ -47,8 +48,8 @@ export interface GrantInput {
   regions?: string[];
   /** Which regions this funder serves: US, UK, EU, Global. Used to match user preference. */
   funderLocations?: string[];
-  /** Origin: default (feed/manual), claude, openai, gemini, perplexity for multi-agent discovery; grants-gov for federal sync. */
-  source?: "default" | "claude" | "openai" | "gemini" | "perplexity" | "grants-gov";
+  /** Origin finder. Kept for ops/debugging; customer-facing confidence comes from OpenAI scoring. */
+  source?: "default" | "claude" | "openai" | "gemini" | "perplexity" | "grants-gov" | "bing" | "google";
 }
 
 function toArray(x: unknown): string[] {
@@ -88,7 +89,7 @@ export function parseGrantRow(row: unknown): GrantInput | null {
   const funderLocations = toArray(o.funderLocations ?? o.funder_locations);
   const applicantTypes = toArray(o.applicantTypes ?? o.applicant_types);
   const source = typeof o.source === "string" &&
-    ["default", "claude", "openai", "gemini", "perplexity", "grants-gov"].includes(o.source)
+    ["default", "claude", "openai", "gemini", "perplexity", "grants-gov", "bing", "google"].includes(o.source)
     ? (o.source as GrantInput["source"])
     : undefined;
   return {

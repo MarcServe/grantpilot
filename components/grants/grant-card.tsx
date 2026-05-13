@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Calendar, Building2, MapPin, ArrowRight, Users, Bookmark } from "lucide-react";
 import { UrlStatusBadge } from "./url-status-badge";
+import { grantFinderLabel } from "@/lib/grant-source-policy";
 
 interface GrantCardProps {
   id: string;
@@ -58,11 +59,7 @@ export function GrantCard({
   scoringSource,
 }: GrantCardProps) {
   const scoreLabel = scoringSource === "heuristic" ? "Prelim" : "Match";
-  const sourceLabel = source
-    ? source === "openai"
-      ? "OpenAI sourced"
-      : "Found in database"
-    : null;
+  const sourceLabel = grantFinderLabel(source);
   return (
     <Card className="transition-shadow hover:shadow-md">
       <CardHeader className="pb-3">

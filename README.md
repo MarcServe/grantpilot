@@ -32,9 +32,9 @@ Create a `.env` file (or use `.env.local`). Required for the app to run:
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key |
 | `SUPABASE_SERVICE_KEY` | Supabase service role key |
 | `NEXT_PUBLIC_APP_URL` | App URL (e.g. `http://localhost:3000`) |
-| `OPENAI_API_KEY` | For app AI features: discovery, matching, eligibility, website intelligence, requirements parsing, and profile autofill |
+| `OPENAI_API_KEY` | Required checker channel for matching, eligibility, notifications, document generation, website intelligence, requirements parsing, and profile autofill. Discovery can also use other finders, but trusted matches flow through OpenAI scoring. |
 
-Optional: `RESEND_API_KEY`, `EMAIL_FROM`, Stripe keys, Twilio (WhatsApp). See [DEPLOYMENT.md](./DEPLOYMENT.md) for the full list.
+Optional discovery providers: `PERPLEXITY_API_KEY`, `GEMINI_API_KEY`, future `BING_SEARCH_API_KEY`, and `GOOGLE_CSE_API_KEY` / `GOOGLE_CSE_ID`. Optional product services: `RESEND_API_KEY`, `EMAIL_FROM`, Stripe keys, Twilio (WhatsApp), Canva. See [DEPLOYMENT.md](./DEPLOYMENT.md) for the full list.
 
 **Note:** The app uses **Supabase** for all database access. There is no Prisma at runtime and no `DATABASE_URL`; the Prisma schema is for documentation only.
 
@@ -49,7 +49,7 @@ Optional: `RESEND_API_KEY`, `EMAIL_FROM`, Stripe keys, Twilio (WhatsApp). See [D
 | `npm start` | Start production server |
 | `npx eslint .` | Lint (or `npm run lint`) |
 
-**Health check:** `GET /api/health` returns `{"status":"ok"}`.
+**Health check:** `GET /api/health` returns `{"status":"ok"}`. `GET /api/health/readiness` checks production env readiness without exposing secret values.
 
 ---
 

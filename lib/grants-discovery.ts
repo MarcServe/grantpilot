@@ -1,6 +1,7 @@
 /**
- * Multi-agent grant discovery: OpenAI web search first, Perplexity and Gemini as fallbacks;
- * validate every URL before upserting.
+ * Multi-source grant discovery: OpenAI web search first, Perplexity and Gemini as additional finders;
+ * validate every URL before upserting. Regardless of finder source, customer-facing
+ * matching and notifications flow through the OpenAI eligibility checker.
  */
 
 import type { DiscoveryProfile } from "./grants-discovery-types";
@@ -59,7 +60,7 @@ async function isLoginWalled(url: string): Promise<boolean> {
 }
 
 /**
- * Run OpenAI (web search, primary), Perplexity, and Gemini in parallel.
+ * Run OpenAI (web search), Perplexity, and Gemini in parallel.
  * Merge, dedupe, validate URLs, then upsert only verified grants.
  */
 export async function runDiscoveryAndUpsert(profile: DiscoveryProfile): Promise<{
@@ -88,7 +89,8 @@ export async function runDiscoveryAndUpsert(profile: DiscoveryProfile): Promise<
     `[grants-discovery] raw results: openai=${openaiGrants.length}, perplexity=${perplexityGrants.length}, gemini=${geminiGrants.length}`
   );
 
-  // Prefer OpenAI > Perplexity (web-grounded) > Gemini.
+  // Prefer OpenAI > Perplexity (web-grounded) > Gemini when sources find the same grant.
+  // All source rows later flow through OpenAI eligibility scoring before becoming trusted matches.
   const byKey = new Map<string, GrantInput>();
   for (const g of openaiGrants) {
     const key = normaliseKey(g);

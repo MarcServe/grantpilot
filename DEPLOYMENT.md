@@ -7,13 +7,13 @@ Before going live with customers, ensure:
 | Item | Notes |
 |------|--------|
 | **Env vars** | All required variables set on the host (see §1). **`NEXT_PUBLIC_APP_URL`** must be your production URL (e.g. `https://grantpilot.co.uk`) or Stripe checkout and email links will point to the wrong place. |
-| **Supabase** | All migrations applied (001–012). Storage bucket **`documents`** created. RLS applied if you use authenticated Supabase clients. |
+| **Supabase** | All SQL files in `supabase/migrations/` applied, including the latest eligibility/profile override migrations. Storage bucket **`documents`** created. RLS applied if you use authenticated Supabase clients. |
 | **Auth** | Supabase Auth (or your IdP) configured with production redirect URLs. Sign-in/sign-up and dashboard protection are in place. |
 | **Grant data** | Either set **`GRANTS_FEED_URL`** for daily sync or import grants via **POST /api/admin/grants/import** (header **`x-grants-import-secret`**). Without grants, the app has nothing to match or display. |
 | **Inngest** | App registered in [Inngest Cloud](https://app.inngest.com) with production serve URL; **INNGEST_EVENT_KEY** and **INNGEST_SIGNING_KEY** set. Needed for grant-sync, discovery, deadline reminders, eligibility refresh. |
 | **Email** | **RESEND_API_KEY** and **EMAIL_FROM** set so transactional emails (welcome, reminders, digests) are sent. |
 | **WhatsApp** (optional) | **TWILIO_*** set and users can add a number + opt-in on Profile; otherwise email-only. |
-| **Billing** (optional) | **STRIPE_*** and webhook URL configured if you use paid plans. |
+| **Billing** | **STRIPE_*** price IDs, secret key, and webhook URL configured before accepting paid beta customers. |
 | **Secrets** | **GRANTS_IMPORT_SECRET** set and kept secret if you use the admin import API. **APPROVE_LINK_SECRET** / **START_APPLICATION_LINK_SECRET** optional; fallback to Inngest signing key. |
 
 The app is structured for production: auth-protected dashboard, org-scoped data, RLS-ready schema, server-side API keys, and health check at **GET /api/health**. Run through sign-up → profile → grants → apply once on staging with real env vars before cutting over.
@@ -26,11 +26,14 @@ Set these in your host (Vercel, Railway, etc.) or in production `.env`:
 
 | Variable | Required | Notes |
 |----------|----------|--------|
-| `OPENAI_API_KEY` | Yes | App AI: grant discovery, matching, eligibility, website intelligence, requirements parsing, and profile autofill |
+| `OPENAI_API_KEY` | Yes | Required checker channel for trusted matching, eligibility, notifications, document generation, website intelligence, requirements parsing, profile autofill, and optional OpenAI discovery |
 | `OPENAI_MODEL` | Optional | Defaults to `gpt-4o-mini` for app AI helper calls |
-| `ANTHROPIC_API_KEY` | Worker fallback only | Legacy worker vision/navigation fallbacks still use Claude until those paths are migrated |
+| `ANTHROPIC_API_KEY` | Optional finder/worker fallback | Legacy worker vision/navigation fallbacks and optional discovery paths may use Claude. Trusted matching still flows through OpenAI scoring. |
 | `OPENAI_WORKER_MODEL` | Optional | Defaults to `OPENAI_MODEL` or `gpt-4o-mini` for worker text-only form mapping |
-| `GEMINI_API_KEY` | Optional | For multi-agent grant discovery (when implemented); or `GOOGLE_AI_API_KEY` |
+| `GEMINI_API_KEY` | Optional | For multi-source grant discovery; or `GOOGLE_AI_API_KEY` |
+| `PERPLEXITY_API_KEY` | Optional | Enables Perplexity Sonar grant discovery. Found grants are still checked through OpenAI eligibility before notifications. |
+| `BING_SEARCH_API_KEY` | Optional | Enables Bing Search URL discovery when added/configured. |
+| `GOOGLE_CSE_API_KEY` / `GOOGLE_CSE_ID` | Optional | Enables Google Custom Search URL discovery when added/configured. |
 | `DATABASE_URL` | Yes | Supabase Postgres; use pooler: `...:6543/postgres?pgbouncer=true` |
 | `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase anon key |
@@ -51,12 +54,13 @@ Set these in your host (Vercel, Railway, etc.) or in production `.env`:
 | `CANVA_BRAND_TEMPLATE_ID` | Optional | Canva brand template ID for Founder Pack autofill. The template must expose text autofill fields such as `TITLE`, `BUSINESS_NAME`, `SLIDE_1_TITLE`, and `SLIDE_1_BULLETS`. |
 | `CANVA_PITCH_DECK_TEMPLATE_ID` | Optional | Optional pitch-deck-specific Canva template ID. If set, this is used instead of `CANVA_BRAND_TEMPLATE_ID` for pitch deck exports. |
 | `CANVA_API_BASE` | Optional | Defaults to `https://api.canva.com/rest/v1`. Override only for Canva API testing/proxying. |
+| `INTERNAL_API_SECRET` | Recommended | Secures `GET /api/health/readiness` when set. |
 
 \* Inngest: use [Vercel integration](https://inngest.com/docs/deploy/vercel) to auto-set keys and sync.
 
-### Multi-agent grant discovery (optional)
+### Multi-source grant discovery
 
-OpenAI is the primary discovery source for **“Find grants”** and the **grant-discovery** Inngest job. Perplexity and Gemini can still act as optional fallback sources when their keys are configured.
+OpenAI, Perplexity, Gemini, feed imports, and future Bing/Google search APIs may all find grant records. Those records are stored in the database after URL/deadline validation. Customer-facing matching, high-fit notifications, and deadline reminders must then pass through the OpenAI eligibility checker (`EligibilityAssessment.scoring_source = 'openai'`) before being treated as trusted matches.
 
 ## 2. Storage (profile documents)
 

@@ -2,7 +2,7 @@ import type { GrantInput } from "./grants-ingest";
 import type { FunderLocation } from "./constants";
 
 /**
- * Minimal profile context for AI grant discovery (OpenAI / Gemini).
+ * Minimal profile context for multi-source grant discovery.
  */
 export interface DiscoveryProfile {
   businessName: string;
@@ -51,7 +51,7 @@ export function parseJsonArray<T>(raw: string): T[] {
  */
 export function toGrantInput(
   row: DiscoveryGrantRow,
-  source: "claude" | "openai" | "gemini" | "perplexity",
+  source: "claude" | "openai" | "gemini" | "perplexity" | "bing" | "google",
   funderLocations?: string[]
 ): GrantInput | null {
   const name = typeof row.name === "string" ? row.name.trim() : "";

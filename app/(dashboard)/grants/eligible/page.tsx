@@ -9,6 +9,7 @@ import type { EligibleGrant } from "@/components/grants/eligible-grant-card";
 import { EligibleGrantsList } from "@/components/grants/eligible-grants-list";
 import { isGrantLinkUsable } from "@/lib/grant-freshness";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
+import { isOpenAIChecked } from "@/lib/grant-source-policy";
 
 export default async function EligibleGrantsPage() {
   const { org, orgId } = await getActiveOrg();
@@ -148,7 +149,7 @@ export default async function EligibleGrantsPage() {
       scoringSource,
     });
 
-    if (scoringSource !== "heuristic" && score >= 80) suggestedCount++;
+    if (isOpenAIChecked(scoringSource) && score >= 80) suggestedCount++;
     else if (score >= 50) withinReachCount++;
     else otherCount++;
   }
