@@ -269,14 +269,36 @@ function docParagraph(text: string, style?: string): string {
   return `<w:p>${styleXml}<w:r><w:t xml:space="preserve">${xmlEscape(text)}</w:t></w:r></w:p>`;
 }
 
+function docBullet(text: string): string {
+  return `<w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:ind w:left="720" w:hanging="360"/></w:pPr><w:r><w:t>•</w:t></w:r><w:r><w:tab/></w:r><w:r><w:t xml:space="preserve">${xmlEscape(text.replace(/^[-•]\s*/, ""))}</w:t></w:r></w:p>`;
+}
+
+function docPageBreak(): string {
+  return `<w:p><w:r><w:br w:type="page"/></w:r></w:p>`;
+}
+
+function docTextLine(line: string): string {
+  const clean = line.trim();
+  if (!clean) return "";
+  if (/^Slide\s+\d+:/i.test(clean)) return docParagraph(clean, "Heading2");
+  if (/^(Objective|Speaker notes|Design direction|Activities|Outputs|Assumptions|Year \d|Key Partners|Key Activities|Key Resources|Value Propositions|Customer Relationships|Channels|Customer Segments|Cost Structure|Revenue Streams)$/i.test(clean)) {
+    return docParagraph(clean, "Heading3");
+  }
+  if (/^[-•]\s+/.test(clean)) return docBullet(clean);
+  return docParagraph(clean);
+}
+
 export function generateFounderPackDocx(pack: FounderPackExportInput): Buffer {
   const body = [
     docParagraph(packTitle(pack), "Title"),
     pack.profile?.sector ? docParagraph(`Sector: ${pack.profile.sector}`) : "",
     pack.inputs?.founderName ? docParagraph(`Founder: ${pack.inputs.founderName}`) : "",
+    pack.createdAt ? docParagraph(`Generated: ${new Date(pack.createdAt).toLocaleString("en-GB")}`) : "",
+    docParagraph("Prepared by GrantsCopilot", "Subtitle"),
     ...buildFounderPackTextSections(pack).flatMap((section) => [
+      docPageBreak(),
       docParagraph(section.title, "Heading1"),
-      ...section.lines.map((line) => docParagraph(line)),
+      ...section.lines.map((line) => docTextLine(line)),
     ]),
     '<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr>',
   ].filter(Boolean).join("");
@@ -284,7 +306,7 @@ export function generateFounderPackDocx(pack: FounderPackExportInput): Buffer {
     "[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>`,
     "_rels/.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`,
     "word/_rels/document.xml.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>`,
-    "word/styles.xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="paragraph" w:styleId="Normal"><w:name w:val="Normal"/><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="22"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:rPr><w:b/><w:sz w:val="36"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="Heading 1"/><w:pPr><w:spacing w:before="240" w:after="120"/></w:pPr><w:rPr><w:b/><w:sz w:val="28"/></w:rPr></w:style></w:styles>`,
+    "word/styles.xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="paragraph" w:styleId="Normal"><w:name w:val="Normal"/><w:pPr><w:spacing w:after="160" w:line="300" w:lineRule="auto"/></w:pPr><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="22"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:pPr><w:spacing w:after="240"/></w:pPr><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:color w:val="071A3A"/><w:sz w:val="38"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Subtitle"><w:name w:val="Subtitle"/><w:pPr><w:spacing w:after="360"/></w:pPr><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:color w:val="2167E8"/><w:sz w:val="22"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="Heading 1"/><w:pPr><w:spacing w:before="120" w:after="180"/></w:pPr><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:color w:val="071A3A"/><w:sz w:val="30"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="Heading 2"/><w:pPr><w:spacing w:before="200" w:after="100"/></w:pPr><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:color w:val="1F5B99"/><w:sz w:val="26"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading3"><w:name w:val="Heading 3"/><w:pPr><w:spacing w:before="120" w:after="80"/></w:pPr><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:color w:val="2F4562"/><w:sz w:val="22"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="ListParagraph"><w:name w:val="List Paragraph"/><w:pPr><w:tabs><w:tab w:val="left" w:pos="720"/></w:tabs><w:spacing w:after="80" w:line="276" w:lineRule="auto"/></w:pPr><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="21"/></w:rPr></w:style></w:styles>`,
     "word/document.xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}</w:body></w:document>`,
   };
   return createZip(files);
@@ -311,28 +333,103 @@ function pdfEscape(text: string): string {
   return text.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
 }
 
+interface PdfRow {
+  text: string;
+  size: number;
+  font: "F1" | "F2";
+  indent?: number;
+  gapBefore?: number;
+  gapAfter?: number;
+}
+
+function addWrappedPdfRows(rows: PdfRow[], text: string, options: Omit<PdfRow, "text"> & { max?: number }) {
+  for (const line of wrapText(text, options.max ?? 92)) {
+    rows.push({
+      text: line,
+      size: options.size,
+      font: options.font,
+      indent: options.indent,
+      gapBefore: options.gapBefore,
+      gapAfter: options.gapAfter,
+    });
+  }
+}
+
+function buildPdfRows(pack: FounderPackExportInput): PdfRow[] {
+  const rows: PdfRow[] = [
+    { text: packTitle(pack), size: 19, font: "F2", gapAfter: 8 },
+    ...(pack.profile?.sector ? [{ text: `Sector: ${pack.profile.sector}`, size: 11, font: "F1" as const }] : []),
+    ...(pack.inputs?.founderName ? [{ text: `Founder: ${pack.inputs.founderName}`, size: 11, font: "F1" as const }] : []),
+    ...(pack.createdAt ? [{ text: `Generated: ${new Date(pack.createdAt).toLocaleString("en-GB")}`, size: 10, font: "F1" as const, gapAfter: 14 }] : []),
+  ];
+
+  for (const section of buildFounderPackTextSections(pack)) {
+    rows.push({ text: `__PAGE_BREAK__${section.title}`, size: 16, font: "F2", gapAfter: 8 });
+    for (const raw of section.lines) {
+      const line = raw.trim();
+      if (!line) continue;
+      if (/^Slide\s+\d+:/i.test(line)) {
+        rows.push({ text: line, size: 13, font: "F2", gapBefore: 8, gapAfter: 3 });
+      } else if (/^(Objective|Speaker notes|Design direction|Activities|Outputs|Assumptions|Year \d|Key Partners|Key Activities|Key Resources|Value Propositions|Customer Relationships|Channels|Customer Segments|Cost Structure|Revenue Streams)$/i.test(line)) {
+        rows.push({ text: line, size: 11, font: "F2", gapBefore: 6, gapAfter: 2 });
+      } else if (/^[-•]\s+/.test(line)) {
+        addWrappedPdfRows(rows, `• ${line.replace(/^[-•]\s*/, "")}`, {
+          size: 10,
+          font: "F1",
+          indent: 18,
+          max: 84,
+          gapAfter: 1,
+        });
+      } else {
+        addWrappedPdfRows(rows, line, {
+          size: 10.5,
+          font: "F1",
+          max: 88,
+          gapAfter: 3,
+        });
+      }
+    }
+  }
+  return rows;
+}
+
 export function generateFounderPackPdf(pack: FounderPackExportInput): Buffer {
-  const textLines = [
-    packTitle(pack),
-    pack.profile?.sector ? `Sector: ${pack.profile.sector}` : "",
-    pack.inputs?.founderName ? `Founder: ${pack.inputs.founderName}` : "",
-    "",
-    ...buildFounderPackTextSections(pack).flatMap((section) => [
-      section.title,
-      ...section.lines.flatMap((line) => wrapText(line)),
-      "",
-    ]),
-  ].filter(Boolean);
-  const pages: string[][] = [];
-  for (let i = 0; i < textLines.length; i += 42) pages.push(textLines.slice(i, i + 42));
+  const rows = buildPdfRows(pack);
+  const pages: PdfRow[][] = [];
+  let current: PdfRow[] = [];
+  let y = 742;
+  const bottom = 62;
+  for (const row of rows) {
+    const forcedBreak = row.text.startsWith("__PAGE_BREAK__");
+    const cleanRow = forcedBreak ? { ...row, text: row.text.replace("__PAGE_BREAK__", "") } : row;
+    const lineHeight = cleanRow.size + 5 + (cleanRow.gapBefore ?? 0) + (cleanRow.gapAfter ?? 0);
+    if ((forcedBreak && current.length > 0) || y - lineHeight < bottom) {
+      pages.push(current);
+      current = [];
+      y = 742;
+    }
+    current.push(cleanRow);
+    y -= lineHeight;
+  }
+  if (current.length > 0) pages.push(current);
+
   const objects: string[] = [];
   objects.push("<< /Type /Catalog /Pages 2 0 R >>");
   objects.push(`<< /Type /Pages /Kids [${pages.map((_, i) => `${3 + i * 2} 0 R`).join(" ")}] /Count ${pages.length} >>`);
   pages.forEach((page, index) => {
     const pageObj = 3 + index * 2;
     const contentObj = pageObj + 1;
-    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> /Contents ${contentObj} 0 R >>`);
-    const content = `BT /F1 11 Tf 50 742 Td 14 TL ${page.map((line) => `(${pdfEscape(line)}) Tj T*`).join(" ")} ET`;
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> /F2 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >> >> >> /Contents ${contentObj} 0 R >>`);
+    let cursorY = 742;
+    const commands: string[] = [];
+    page.forEach((row) => {
+      cursorY -= row.gapBefore ?? 0;
+      const x = 50 + (row.indent ?? 0);
+      commands.push(`BT /${row.font} ${row.size} Tf ${x} ${cursorY} Td (${pdfEscape(row.text)}) Tj ET`);
+      cursorY -= row.size + 5 + (row.gapAfter ?? 0);
+    });
+    commands.push(`BT /F1 8 Tf 50 34 Td (${pdfEscape(`GrantsCopilot • ${index + 1}/${pages.length}`)}) Tj ET`);
+    const content = commands.join("\n");
     objects.push(`<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`);
   });
   return createPdf(objects);
@@ -352,15 +449,75 @@ function createPdf(objects: string[]): Buffer {
   return Buffer.from(chunks.join(""), "utf8");
 }
 
-function slideXml(title: string, bullets: string[]): string {
-  const bulletRuns = bullets.slice(0, 6).map((bullet) => `<a:p><a:pPr marL="285750" indent="-285750"><a:buChar char="•"/></a:pPr><a:r><a:t>${xmlEscape(bullet)}</a:t></a:r></a:p>`).join("");
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr><p:sp><p:nvSpPr><p:cNvPr id="2" name="Title"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="500000" y="500000"/><a:ext cx="8200000" cy="1000000"/></a:xfrm></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr sz="3200" b="1"/><a:t>${xmlEscape(title)}</a:t></a:r></a:p></p:txBody></p:sp><p:sp><p:nvSpPr><p:cNvPr id="3" name="Bullets"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="700000" y="1800000"/><a:ext cx="7600000" cy="4300000"/></a:xfrm></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/>${bulletRuns}</p:txBody></p:sp></p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`;
+function slideTextShape(
+  id: number,
+  name: string,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  paragraphs: string,
+  fill?: string
+): string {
+  const fillXml = fill ? `<a:solidFill><a:srgbClr val="${fill}"/></a:solidFill>` : "<a:noFill/>";
+  return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${xmlEscape(name)}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${w}" cy="${h}"/></a:xfrm><a:prstGeom prst="roundRect"><a:avLst/></a:prstGeom>${fillXml}<a:ln><a:solidFill><a:srgbClr val="DCE7F5"/></a:solidFill></a:ln></p:spPr><p:txBody><a:bodyPr lIns="120000" tIns="90000" rIns="120000" bIns="90000"/><a:lstStyle/>${paragraphs}</p:txBody></p:sp>`;
+}
+
+function slideParagraph(text: string, size: number, bold = false, color = "071A3A"): string {
+  return `<a:p><a:r><a:rPr sz="${size}"${bold ? ' b="1"' : ""}><a:solidFill><a:srgbClr val="${color}"/></a:solidFill></a:rPr><a:t>${xmlEscape(text)}</a:t></a:r></a:p>`;
+}
+
+function slideBullet(text: string): string {
+  return `<a:p><a:pPr marL="285750" indent="-285750"><a:buChar char="•"/></a:pPr><a:r><a:rPr sz="1550"><a:solidFill><a:srgbClr val="2F4562"/></a:solidFill></a:rPr><a:t>${xmlEscape(text)}</a:t></a:r></a:p>`;
+}
+
+function slideXml(
+  title: string,
+  bullets: string[],
+  slideNo: number,
+  objective?: string,
+  speakerNotes?: string,
+  visualDirection?: string
+): string {
+  const bulletRuns = bullets.slice(0, 6).map(slideBullet).join("");
+  const objectiveBlock = objective
+    ? slideTextShape(4, "Objective", 6100000, 520000, 2500000, 470000, slideParagraph(objective, 1200, true, "FFFFFF"), "1F5B99")
+    : "";
+  const notes = speakerNotes || visualDirection
+    ? slideTextShape(
+        5,
+        "Speaker Notes and Design Direction",
+        1700000,
+        4100000,
+        6800000,
+        760000,
+        `${speakerNotes ? slideParagraph(`Speaker notes: ${speakerNotes}`, 1050, false, "2F4562") : ""}${visualDirection ? slideParagraph(`Design direction: ${visualDirection}`, 1050, false, "2F4562") : ""}`,
+        "F3F7FC"
+      )
+    : "";
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:bg><p:bgPr><a:solidFill><a:srgbClr val="F8FBFF"/></a:solidFill></p:bgPr></p:bg><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr><p:sp><p:nvSpPr><p:cNvPr id="2" name="Slide Number Band"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1200000" cy="5143500"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="081B36"/></a:solidFill></p:spPr><p:txBody><a:bodyPr lIns="190000" tIns="380000" rIns="90000" bIns="90000"/><a:lstStyle/>${slideParagraph("SLIDE", 1050, true, "8FB8FF")}${slideParagraph(String(slideNo), 3300, true, "FFFFFF")}${slideParagraph("GrantsCopilot", 950, true, "43C28A")}</p:txBody></p:sp><p:sp><p:nvSpPr><p:cNvPr id="3" name="Title"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="1700000" y="520000"/><a:ext cx="4200000" cy="1000000"/></a:xfrm><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/>${slideParagraph(title, 2700, true, "071A3A")}</p:txBody></p:sp>${objectiveBlock}${slideTextShape(6, "Slide Bullets", 1700000, 1700000, 6800000, 2050000, bulletRuns || slideParagraph("Add supporting evidence for this slide.", 1500), "EAF2FC")}${notes}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`;
 }
 
 export function generateFounderPackPptx(pack: FounderPackExportInput): Buffer {
-  const slides = pack.content.pitchDeck?.length
-    ? pack.content.pitchDeck.map((slide) => ({ title: slide.title, bullets: slide.bullets }))
-    : buildFounderPackTextSections(pack).slice(0, 12).map((section) => ({ title: section.title, bullets: section.lines.slice(0, 6) }));
+  const slides: {
+    title: string;
+    bullets: string[];
+    objective?: string;
+    speakerNotes?: string;
+    visualDirection?: string;
+  }[] = pack.content.pitchDeck?.length
+    ? pack.content.pitchDeck.map((slide) => ({
+        title: slide.title,
+        bullets: slide.bullets,
+        objective: slide.objective,
+        speakerNotes: slide.speakerNotes,
+        visualDirection: slide.visualDirection,
+      }))
+    : buildFounderPackTextSections(pack).slice(0, 12).map((section) => ({
+        title: section.title,
+        bullets: section.lines.slice(0, 6),
+        objective: "Summarise this funding document section.",
+      }));
   const count = Math.max(slides.length, 1);
   const files: Record<string, string | Buffer> = {
     "[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>${Array.from({ length: count }, (_, i) => `<Override PartName="/ppt/slides/slide${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`).join("")}</Types>`,
@@ -374,10 +531,17 @@ export function generateFounderPackPptx(pack: FounderPackExportInput): Buffer {
     "ppt/theme/theme1.xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="GrantsCopilot"><a:themeElements><a:clrScheme name="GrantsCopilot"><a:dk1><a:srgbClr val="081B36"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1><a:dk2><a:srgbClr val="123A6F"/></a:dk2><a:lt2><a:srgbClr val="F8FBFF"/></a:lt2><a:accent1><a:srgbClr val="3867E8"/></a:accent1><a:accent2><a:srgbClr val="43C28A"/></a:accent2><a:accent3><a:srgbClr val="8FB8FF"/></a:accent3><a:accent4><a:srgbClr val="C9E7FF"/></a:accent4><a:accent5><a:srgbClr val="1F5B99"/></a:accent5><a:accent6><a:srgbClr val="A7F3D0"/></a:accent6><a:hlink><a:srgbClr val="3867E8"/></a:hlink><a:folHlink><a:srgbClr val="3867E8"/></a:folHlink></a:clrScheme><a:fontScheme name="GrantsCopilot"><a:majorFont><a:latin typeface="Arial"/></a:majorFont><a:minorFont><a:latin typeface="Arial"/></a:minorFont></a:fontScheme><a:fmtScheme name="GrantsCopilot"><a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst><a:lnStyleLst><a:ln w="6350"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln></a:lnStyleLst><a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst><a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme></a:themeElements></a:theme>`,
   };
   slides.forEach((slide, index) => {
-    files[`ppt/slides/slide${index + 1}.xml`] = slideXml(slide.title, slide.bullets);
+    files[`ppt/slides/slide${index + 1}.xml`] = slideXml(
+      slide.title,
+      slide.bullets,
+      index + 1,
+      slide.objective,
+      slide.speakerNotes,
+      slide.visualDirection
+    );
     files[`ppt/slides/_rels/slide${index + 1}.xml.rels`] = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdLayout1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/></Relationships>`;
   });
-  if (count === 1 && slides.length === 0) files["ppt/slides/slide1.xml"] = slideXml(packTitle(pack), ["Generate a pitch deck first for richer slides."]);
+  if (count === 1 && slides.length === 0) files["ppt/slides/slide1.xml"] = slideXml(packTitle(pack), ["Generate a pitch deck first for richer slides."], 1);
   return createZip(files);
 }
 

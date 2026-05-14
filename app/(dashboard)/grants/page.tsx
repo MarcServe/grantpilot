@@ -16,6 +16,13 @@ export default async function GrantsPage() {
     .select("*")
     .order("createdAt", { ascending: false });
   const allGrants = Array.isArray(grantsData) ? grantsData.filter(isGrantLinkUsable) : [];
+  const latestGrantTimestamp = allGrants.reduce<string | null>((latest, grant) => {
+    const raw = grant as { createdAt?: string; created_at?: string; updatedAt?: string; updated_at?: string };
+    const value = raw.updatedAt ?? raw.updated_at ?? raw.createdAt ?? raw.created_at ?? null;
+    if (!value) return latest;
+    if (!latest) return value;
+    return new Date(value).getTime() > new Date(latest).getTime() ? value : latest;
+  }, null);
 
   const profile = org.profiles?.[0];
   const hasProfile = !!profile;
@@ -63,6 +70,14 @@ export default async function GrantsPage() {
           <p className="mt-1 text-muted-foreground">
             Browse grants or use GrantsCopilot matching to find the best fit for your business.
           </p>
+          {latestGrantTimestamp && (
+            <p className="mt-1 text-xs font-medium text-muted-foreground">
+              Database last updated {new Date(latestGrantTimestamp).toLocaleString("en-GB", {
+                dateStyle: "medium",
+                timeStyle: "short",
+              })}
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Link

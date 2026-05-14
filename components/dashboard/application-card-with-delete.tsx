@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import type { MouseEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Clock, Trash2 } from "lucide-react";
+import { CheckCircle2, Clock, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -35,6 +36,7 @@ interface ApplicationCardWithDeleteProps {
   createdAt: string;
   /** Highlight submitted apps still missing a terminal outcome */
   needsOutcomeReminder?: boolean;
+  canMarkSubmitted?: boolean;
 }
 
 export function ApplicationCardWithDelete({
@@ -44,9 +46,11 @@ export function ApplicationCardWithDelete({
   displayStatus,
   createdAt,
   needsOutcomeReminder,
+  canMarkSubmitted,
 }: ApplicationCardWithDeleteProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [markingSubmitted, setMarkingSubmitted] = useState(false);
 
   async function handleDelete() {
     try {
@@ -61,6 +65,26 @@ export function ApplicationCardWithDelete({
       router.refresh();
     } catch {
       toast.error("Something went wrong");
+    }
+  }
+
+  async function handleMarkSubmitted(e: MouseEvent<HTMLButtonElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    setMarkingSubmitted(true);
+    try {
+      const res = await fetch(`/api/applications/${id}/mark-submitted`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error ?? "Failed to mark submitted");
+        return;
+      }
+      toast.success("Application marked as submitted");
+      router.refresh();
+    } catch {
+      toast.error("Something went wrong");
+    } finally {
+      setMarkingSubmitted(false);
     }
   }
 
@@ -89,6 +113,18 @@ export function ApplicationCardWithDelete({
               <Clock className="h-3 w-3" />
               {new Date(createdAt).toLocaleDateString("en-GB")}
             </div>
+            {canMarkSubmitted && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1"
+                onClick={handleMarkSubmitted}
+                disabled={markingSubmitted}
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                {markingSubmitted ? "Saving..." : "Mark submitted"}
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="icon"

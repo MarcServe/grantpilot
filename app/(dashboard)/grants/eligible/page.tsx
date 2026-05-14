@@ -87,18 +87,18 @@ export default async function EligibleGrantsPage() {
   }[];
 
   const grantIds = assessments.map((a) => a.grant_id);
-  let grantsMap = new Map<string, { id: string; name: string; funder: string; deadline: string | null; funderLocations?: string[] }>();
+  let grantsMap = new Map<string, { id: string; name: string; funder: string; deadline: string | null; funderLocations?: string[]; createdAt?: string | null }>();
 
   if (grantIds.length > 0) {
     const appliedGrantIds = await getAppliedGrantIds(supabase, orgId, profileId);
     // Batch .in() queries to avoid URL length limits (Supabase/PostgREST caps ~8KB)
     const BATCH_SIZE = 200;
-    const allGrantsData: { id: string; name: string; funder: string; deadline: string | null; funderLocations?: string[]; url_status?: string }[] = [];
+    const allGrantsData: { id: string; name: string; funder: string; deadline: string | null; funderLocations?: string[]; url_status?: string; createdAt?: string | null }[] = [];
     for (let i = 0; i < grantIds.length; i += BATCH_SIZE) {
       const batch = grantIds.slice(i, i + BATCH_SIZE);
       const { data: batchData, error: grantErr } = await supabase
         .from("Grant")
-        .select("id, name, funder, deadline, funderLocations, url_status")
+        .select("id, name, funder, deadline, funderLocations, url_status, createdAt")
         .in("id", batch);
       if (grantErr) {
         console.error("[eligible-page] grants query error:", grantErr);
@@ -141,6 +141,7 @@ export default async function EligibleGrantsPage() {
       grantName: grant.name,
       funder: grant.funder,
       deadline: grant.deadline,
+      addedAt: grant.createdAt ?? null,
       score,
       decision: a.decision,
       summary: a.summary,

@@ -25,6 +25,7 @@ import { OutcomeFeedbackBanner } from "@/components/dashboard/outcome-feedback-b
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { fetchApplicationsNeedingOutcome, applicationNeedsOutcomeReminder } from "@/lib/outcome-feedback";
 import { isOpenAIChecked } from "@/lib/grant-source-policy";
+import { getSuppressedGrantIds } from "@/lib/grant-user-state";
 
 export default async function DashboardPage() {
   const { org, orgId, user } = await getActiveOrg();
@@ -124,10 +125,12 @@ export default async function DashboardPage() {
     eligibilityGrantCount = count ?? 0;
   }
 
-  const suggestedGrants: { grantId: string; grantName: string; score: number }[] = [];
-  const withinReachGrants: { grantId: string; grantName: string; score: number; summary?: string }[] = [];
+  const suggestedGrants: { grantId: string; grantName: string; score: number; addedAt?: string | null }[] = [];
+  const withinReachGrants: { grantId: string; grantName: string; score: number; summary?: string; addedAt?: string | null }[] = [];
+  let deferredGrants: { grantId: string; grantName: string; funder: string; score?: number; updatedAt?: string | null }[] = [];
   if (profile && completionScore >= 50) {
     const appliedGrantIds = await getAppliedGrantIds(supabase, orgId, profile.id);
+    const suppressedGrantIds = await getSuppressedGrantIds(supabase, orgId, profile.id);
     const { data: assessmentsData } = await supabase
       .from("EligibilityAssessment")
       .select("grant_id, score, summary, scoring_source")
@@ -138,11 +141,11 @@ export default async function DashboardPage() {
     const grantIds = (assessments as { grant_id: string; score: number; summary: string | null; scoring_source?: string | null }[]).map((a) => a.grant_id);
     if (grantIds.length > 0) {
       const BATCH = 200;
-      const allGrantsList: { id: string; name: string; funderLocations?: string[] }[] = [];
+      const allGrantsList: { id: string; name: string; funderLocations?: string[]; createdAt?: string | null }[] = [];
       for (let i = 0; i < grantIds.length; i += BATCH) {
         const { data: batch } = await supabase
           .from("Grant")
-          .select("id, name, funderLocations")
+          .select("id, name, funderLocations, createdAt")
           .in("id", grantIds.slice(i, i + BATCH));
         if (batch) allGrantsList.push(...(batch as typeof allGrantsList));
       }
@@ -153,18 +156,58 @@ export default async function DashboardPage() {
         country?: string | null;
         region?: string | null;
       });
-      const nameById = new Map(grantsList.map((g) => [g.id, g.name]));
+      const grantById = new Map(grantsList.map((g) => [g.id, g]));
       const matchesLocation = new Set(grantsList.filter((g) => grantMatchesFunderLocations(g.funderLocations, userFunderLocations)).map((g) => g.id));
       for (const a of assessments as { grant_id: string; score: number; summary: string | null; scoring_source?: string | null }[]) {
         if (appliedGrantIds.has(a.grant_id)) continue;
+        if (suppressedGrantIds.has(a.grant_id)) continue;
         if (!matchesLocation.has(a.grant_id)) continue;
-        const name = nameById.get(a.grant_id) ?? "Grant";
+        const grant = grantById.get(a.grant_id);
+        const name = grant?.name ?? "Grant";
         const source = a.scoring_source ?? (a.summary?.startsWith("Preliminary fit") ? "heuristic" : "openai");
         const score = source === "heuristic" ? Math.min(a.score, 69) : a.score;
-        if (isOpenAIChecked(source) && score >= 80) suggestedGrants.push({ grantId: a.grant_id, grantName: name, score });
-        else if (score >= 50) withinReachGrants.push({ grantId: a.grant_id, grantName: name, score, summary: a.summary ?? undefined });
+        if (isOpenAIChecked(source) && score >= 80) suggestedGrants.push({ grantId: a.grant_id, grantName: name, score, addedAt: grant?.createdAt ?? null });
+        else if (score >= 50) withinReachGrants.push({ grantId: a.grant_id, grantName: name, score, summary: a.summary ?? undefined, addedAt: grant?.createdAt ?? null });
       }
     }
+
+    const { data: deferredRows } = await supabase
+      .from("SavedGrant")
+      .select("grant_id, updated_at, Grant(id, name, funder)")
+      .eq("organisation_id", orgId)
+      .eq("profile_id", profile.id)
+      .eq("status", "deferred")
+      .order("updated_at", { ascending: false })
+      .limit(5);
+    const deferredIds = (deferredRows ?? []).map((row: { grant_id: string }) => row.grant_id);
+    const scoreByGrant = new Map<string, number>();
+    if (deferredIds.length > 0) {
+      const { data: deferredAssessments } = await supabase
+        .from("EligibilityAssessment")
+        .select("grant_id, score")
+        .eq("organisation_id", orgId)
+        .eq("profile_id", profile.id)
+        .in("grant_id", deferredIds);
+      for (const row of deferredAssessments ?? []) {
+        const r = row as { grant_id: string; score?: number };
+        if (typeof r.score === "number") scoreByGrant.set(r.grant_id, r.score);
+      }
+    }
+    deferredGrants = (deferredRows ?? []).map((row) => {
+      const r = row as {
+        grant_id: string;
+        updated_at?: string | null;
+        Grant?: { name?: string; funder?: string } | { name?: string; funder?: string }[];
+      };
+      const grant = Array.isArray(r.Grant) ? r.Grant[0] : r.Grant;
+      return {
+        grantId: r.grant_id,
+        grantName: grant?.name ?? "Grant",
+        funder: grant?.funder ?? "Funder",
+        score: scoreByGrant.get(r.grant_id),
+        updatedAt: r.updated_at ?? null,
+      };
+    });
   }
 
   const displayName =
@@ -279,6 +322,9 @@ export default async function DashboardPage() {
                           </span>
                           <span className="mt-1 block text-xs font-semibold text-[#566984]">
                             AI-ranked funding opportunity
+                            {grant.addedAt
+                              ? ` · Added ${new Date(grant.addedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`
+                              : ""}
                           </span>
                         </span>
                         <span className="rounded-lg bg-[#dff8ed] px-3 py-2 text-center text-xs font-black leading-none text-[#087f59]">
@@ -476,6 +522,41 @@ export default async function DashboardPage() {
         </div>
       )}
 
+      {deferredGrants.length > 0 && (
+        <Card className="rounded-2xl border-[#e1eaf6] bg-white shadow-[0_18px_45px_rgba(7,26,58,0.07)]">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ListTodo className="h-4 w-4 text-primary" />
+              Deferred for later
+            </CardTitle>
+            <p className="text-sm font-normal text-muted-foreground">
+              Grants you chose to attend to later. These are excluded from repeated eligibility reminders.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-2">
+              {deferredGrants.map((g) => (
+                <li key={g.grantId}>
+                  <Link
+                    href={`/grants/${g.grantId}`}
+                    className="flex items-center justify-between rounded-md p-2 hover:bg-muted"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium">{g.grantName}</span>
+                      <span className="block truncate text-xs text-muted-foreground">{g.funder}</span>
+                    </span>
+                    {g.score != null && <Badge variant="secondary">{Math.round(g.score)}%</Badge>}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+            <Link href="/grants/eligible" className="mt-3 inline-block text-sm text-primary hover:underline">
+              Review all grant matches <ArrowRight className="inline h-3 w-3" />
+            </Link>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="mt-8">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">Recent Applications</h2>
@@ -515,6 +596,7 @@ export default async function DashboardPage() {
                   ["SUBMITTED", "APPROVED"].includes(app.status) &&
                   applicationNeedsOutcomeReminder(outcomeByApplicationId.get(app.id))
                 }
+                canMarkSubmitted={!["SUBMITTED", "APPROVED"].includes(app.status)}
               />
             ))}
           </div>

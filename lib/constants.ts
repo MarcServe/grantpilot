@@ -29,6 +29,7 @@ export function grantMatchesFunderLocations(
   if (user.length === 0) return true;
   const grant = grantFunderLocations ?? [];
   if (grant.length === 0) return options?.allowUnknownGrantLocation === true;
+  if (grant.includes("Global")) return true;
   return grant.some((r) => user.includes(r));
 }
 

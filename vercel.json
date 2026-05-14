@@ -8,6 +8,10 @@
     {
       "path": "/api/cron/grant-discovery",
       "schedule": "30 6 * * *"
+    },
+    {
+      "path": "/api/cron/eligibility-refresh",
+      "schedule": "0 7 * * *"
     }
   ]
 }

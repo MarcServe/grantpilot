@@ -25,6 +25,9 @@ import type { RequiredAttachment } from "@/lib/grant-requirements";
 import { getApplicantTypeGate } from "@/lib/eligibility-hard-gates";
 import { planAllows, resolvePlanKey } from "@/lib/plan-features";
 import { grantFinderLabel } from "@/lib/grant-source-policy";
+import { getConfidenceBand } from "@/lib/claude";
+import { markGrantUserState } from "@/lib/grant-user-state";
+import { GrantStateActions } from "@/components/grants/grant-state-actions";
 
 export default async function GrantDetailPage({
   params,
@@ -48,6 +51,16 @@ export default async function GrantDetailPage({
   const grantAutoImproveEnabled = planAllows(plan, "grant_auto_improve");
   const hasProfile = !!profile && (profile.completionScore ?? 0) >= 50;
   const profileId = profile?.id ?? null;
+  if (profileId) {
+    await markGrantUserState(supabase, {
+      organisationId: orgId,
+      profileId,
+      grantId: grant.id,
+      status: "viewed",
+    }).catch((error) => {
+      console.warn("[grant-detail] could not mark viewed", error instanceof Error ? error.message : error);
+    });
+  }
 
   const { data: existingApplication } = await supabase
     .from("Application")
@@ -57,21 +70,65 @@ export default async function GrantDetailPage({
     .maybeSingle();
 
   let eligibilityScore: number | null = null;
+  let initialEligibilityResult: {
+    decision: "likely_eligible" | "review" | "unlikely";
+    reason: string;
+    confidence: number;
+    score: number;
+    summary?: string;
+    reasons?: string[];
+    alignment?: string[];
+    improvementPlan?: { gaps?: string[]; actions?: string[]; timeline?: string };
+    met?: string[];
+    missing?: string[];
+    confidenceBand?: "high" | "medium" | "low";
+    winProbability?: number;
+    evidenceStrength?: "strong" | "medium" | "weak";
+    scoringSource?: "openai" | "heuristic" | "embedding" | "manual";
+  } | null = null;
   if (profileId) {
     const { data: assessment } = await supabase
       .from("EligibilityAssessment")
-      .select("score, scoring_source, summary")
+      .select("score, decision, summary, reasons, alignment, improvement_plan, met_criteria, missing_criteria, scoring_source")
       .eq("organisation_id", orgId)
       .eq("profile_id", profileId)
       .eq("grant_id", grant.id)
       .maybeSingle();
-    const assessmentRow = assessment as { score?: number; scoring_source?: string | null; summary?: string | null } | null;
+    const assessmentRow = assessment as {
+      score?: number;
+      decision?: "likely_eligible" | "review" | "unlikely";
+      scoring_source?: "openai" | "heuristic" | "embedding" | "manual" | null;
+      summary?: string | null;
+      reasons?: string[] | null;
+      alignment?: string[] | null;
+      improvement_plan?: { gaps?: string[]; actions?: string[]; timeline?: string } | null;
+      met_criteria?: string[] | null;
+      missing_criteria?: string[] | null;
+    } | null;
     const source = assessmentRow?.scoring_source ?? (assessmentRow?.summary?.startsWith("Preliminary fit") ? "heuristic" : "openai");
     eligibilityScore = assessmentRow?.score == null
       ? null
       : source === "heuristic"
         ? Math.min(assessmentRow.score, 69)
         : assessmentRow.score;
+    if (assessmentRow && eligibilityScore != null) {
+      initialEligibilityResult = {
+        decision: assessmentRow.decision ?? "review",
+        reason: assessmentRow.summary ?? "",
+        confidence: eligibilityScore,
+        score: eligibilityScore,
+        summary: assessmentRow.summary ?? undefined,
+        reasons: assessmentRow.reasons ?? [],
+        alignment: assessmentRow.alignment ?? [],
+        improvementPlan: assessmentRow.improvement_plan ?? undefined,
+        met: assessmentRow.met_criteria ?? [],
+        missing: assessmentRow.missing_criteria ?? [],
+        confidenceBand: getConfidenceBand(eligibilityScore),
+        winProbability: eligibilityScore,
+        evidenceStrength: eligibilityScore >= 80 ? "strong" : eligibilityScore >= 55 ? "medium" : "weak",
+        scoringSource: source,
+      };
+    }
     const applicantGate = getApplicantTypeGate(
       String((profile as Record<string, unknown>).businessType ?? (profile as Record<string, unknown>).business_type ?? ""),
       {
@@ -301,6 +358,7 @@ export default async function GrantDetailPage({
                 grantId={grant.id}
                 applicationId={existingApplication?.id}
                 grantAutoImproveEnabled={grantAutoImproveEnabled}
+                initialResult={initialEligibilityResult}
               />
             </>
           )}
@@ -339,6 +397,15 @@ export default async function GrantDetailPage({
               </Button>
             </a>
           </div>
+          {hasProfile && profileId && (
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <p className="mb-2 text-sm font-medium">After reviewing this grant</p>
+              <GrantStateActions grantId={grant.id} />
+              <p className="mt-2 text-xs text-muted-foreground">
+                Viewed, deferred, and applied grants are removed from future eligibility reminders for your profile.
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

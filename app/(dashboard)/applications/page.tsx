@@ -199,6 +199,7 @@ export default async function ApplicationsPage({
                 (SUBMITTED_STATUSES as readonly string[]).includes(app.status) &&
                 applicationNeedsOutcomeReminder(outcomeByApp.get(app.id))
               }
+              canMarkSubmitted={!(SUBMITTED_STATUSES as readonly string[]).includes(app.status)}
             />
           ))}
         </div>

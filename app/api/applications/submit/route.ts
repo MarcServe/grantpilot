@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { notifyOrgMembers } from "@/lib/notify";
+import { markGrantUserState } from "@/lib/grant-user-state";
 
 const submitSchema = z.object({
   applicationId: z.string().min(1),
@@ -28,7 +29,7 @@ export async function POST(req: Request): Promise<NextResponse> {
 
     let { data: application } = await supabase
       .from("Application")
-      .select("id, status")
+      .select("id, status, grantId, profileId")
       .eq("id", applicationId)
       .eq("organisationId", orgId)
       .maybeSingle();
@@ -36,7 +37,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     if (!application) {
       const alt = await supabase
         .from("Application")
-        .select("id, status")
+        .select("id, status, grantId, profileId")
         .eq("id", applicationId)
         .eq("organisation_id", orgId)
         .maybeSingle();
@@ -73,7 +74,7 @@ export async function POST(req: Request): Promise<NextResponse> {
 
     const { data: appWithGrant } = await supabase
       .from("Application")
-      .select("id, Grant(applicationUrl, name)")
+      .select("id, grantId, profileId, Grant(applicationUrl, name)")
       .eq("id", applicationId)
       .single();
 
@@ -102,6 +103,18 @@ export async function POST(req: Request): Promise<NextResponse> {
       .from("Application")
       .update({ status: "APPROVED" })
       .eq("id", applicationId);
+
+    const appMeta = appWithGrant as { grantId?: string | null; profileId?: string | null } | null;
+    if (appMeta?.grantId && appMeta.profileId) {
+      await markGrantUserState(supabase, {
+        organisationId: orgId,
+        profileId: appMeta.profileId,
+        grantId: appMeta.grantId,
+        status: "applied",
+      }).catch((error) => {
+        console.warn("[APPLICATION_SUBMIT] Could not mark grant applied", error instanceof Error ? error.message : error);
+      });
+    }
 
     notifyOrgMembers(orgId, "application_submitted", {
       grantName: grantName ?? "Grant",

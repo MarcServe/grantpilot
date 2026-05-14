@@ -25,6 +25,9 @@ interface ExistingOutcome {
   outcome?: OutcomeValue;
   awardedAmount?: number | null;
   funderFeedback?: string | null;
+  responseText?: string | null;
+  responseScreenshotName?: string | null;
+  responseScreenshotDataUrl?: string | null;
   learningNotes?: string | null;
 }
 
@@ -52,7 +55,25 @@ export function OutcomeLearningForm({
     existingOutcome?.awardedAmount != null ? String(existingOutcome.awardedAmount) : ""
   );
   const [funderFeedback, setFunderFeedback] = useState(existingOutcome?.funderFeedback ?? "");
+  const [responseText, setResponseText] = useState(existingOutcome?.responseText ?? "");
+  const [responseScreenshotName, setResponseScreenshotName] = useState(existingOutcome?.responseScreenshotName ?? "");
+  const [responseScreenshotDataUrl, setResponseScreenshotDataUrl] = useState(existingOutcome?.responseScreenshotDataUrl ?? "");
   const [learningNotes, setLearningNotes] = useState(parseLearningNotes(existingOutcome?.learningNotes));
+
+  function handleScreenshot(file?: File) {
+    if (!file) return;
+    if (file.size > 1_500_000) {
+      toast.error("Screenshot is too large. Upload an image under 1.5MB for now.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setResponseScreenshotName(file.name);
+      setResponseScreenshotDataUrl(typeof reader.result === "string" ? reader.result : "");
+    };
+    reader.onerror = () => toast.error("Could not read screenshot");
+    reader.readAsDataURL(file);
+  }
 
   async function save() {
     setSaving(true);
@@ -64,6 +85,9 @@ export function OutcomeLearningForm({
           outcome,
           awardedAmount: awardedAmount.trim() ? Number(awardedAmount) : null,
           funderFeedback,
+          responseText,
+          responseScreenshotName,
+          responseScreenshotDataUrl,
           learningNotes,
         }),
       });
@@ -130,6 +154,37 @@ export function OutcomeLearningForm({
             onChange={(event) => setFunderFeedback(event.target.value)}
             placeholder="Paste reviewer notes, rejection reason, shortlist message, or award feedback."
           />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="responseText">Funder response text</Label>
+          <Textarea
+            id="responseText"
+            rows={4}
+            value={responseText}
+            onChange={(event) => setResponseText(event.target.value)}
+            placeholder="Paste the email, portal message, reviewer response, or award/rejection wording exactly as received."
+          />
+          <p className="text-xs text-muted-foreground">
+            This is used as outcome-learning evidence so future scoring and document drafts become more accurate.
+          </p>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="responseScreenshot">Screenshot response</Label>
+          <Input
+            id="responseScreenshot"
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            onChange={(event) => handleScreenshot(event.target.files?.[0])}
+          />
+          {responseScreenshotName && (
+            <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
+              Saved evidence: <span className="font-medium text-foreground">{responseScreenshotName}</span>
+              {responseScreenshotDataUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={responseScreenshotDataUrl} alt="Outcome response screenshot preview" className="mt-2 max-h-48 rounded border object-contain" />
+              )}
+            </div>
+          )}
         </div>
         <div className="space-y-2">
           <Label htmlFor="learningNotes">Internal notes</Label>

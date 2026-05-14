@@ -5,6 +5,7 @@ import { createStartApplicationToken } from "@/lib/start-application-token";
 import { isNineAmLocal } from "@/lib/timezone";
 import { isGrantLinkUsable } from "@/lib/grant-freshness";
 import { isOpenAIChecked } from "@/lib/grant-source-policy";
+import { getSuppressedGrantIds } from "@/lib/grant-user-state";
 
 const DEFAULT_DEADLINE_REMINDER_SCORE = 85;
 const MIN_DEADLINE_REMINDER_SCORE_FLOOR = 75;
@@ -113,6 +114,8 @@ export const deadlineReminder = inngest.createFunction(
           const profile = org.profiles[0];
           const profileId = (profile as { id?: string }).id;
           if (!profileId) continue;
+          const suppressedGrantIds = await getSuppressedGrantIds(supabase, org.id, profileId);
+          if (suppressedGrantIds.has(grant.id)) continue;
 
           const { data: prefs } = await supabase
             .from("EligibilityNotificationPreference")

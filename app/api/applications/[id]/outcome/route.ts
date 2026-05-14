@@ -16,6 +16,9 @@ const outcomeSchema = z.object({
   outcome: z.enum(["applied", "shortlisted", "awarded", "rejected", "withdrawn", "unknown"]),
   awardedAmount: z.number().nonnegative().nullable().optional(),
   funderFeedback: z.string().max(5000).optional(),
+  responseText: z.string().max(8000).optional(),
+  responseScreenshotName: z.string().max(240).optional(),
+  responseScreenshotDataUrl: z.string().max(2_000_000).optional(),
   learningNotes: z.string().max(5000).optional(),
 });
 
@@ -49,6 +52,11 @@ export async function POST(
       : application.BusinessProfile;
     const outcome = parsed.data.outcome as FundingOutcome;
     const plan = resolvePlanKey((org as { plan?: string }).plan);
+    const combinedFunderFeedback = [
+      parsed.data.funderFeedback?.trim(),
+      parsed.data.responseText?.trim() ? `Funder response text:\n${parsed.data.responseText.trim()}` : "",
+      parsed.data.responseScreenshotDataUrl ? `Screenshot evidence uploaded: ${parsed.data.responseScreenshotName ?? "response screenshot"}` : "",
+    ].filter(Boolean).join("\n\n");
 
     let insight: OutcomeLearningInsight;
     if (planAllows(plan, "outcome_learning_ai")) {
@@ -57,7 +65,7 @@ export async function POST(
         grantName: String((grant as { name?: string } | null)?.name ?? "Grant"),
         funder: String((grant as { funder?: string } | null)?.funder ?? "Funder"),
         profileSummary: buildOutcomeProfileSummary((profile ?? {}) as Record<string, unknown>),
-        funderFeedback: parsed.data.funderFeedback,
+        funderFeedback: combinedFunderFeedback || parsed.data.funderFeedback,
         learningNotes: parsed.data.learningNotes,
       }).catch(() => ({
         summary: "Outcome recorded.",
@@ -89,8 +97,16 @@ export async function POST(
           outcome,
           awardedAmount: parsed.data.awardedAmount ?? null,
           funderFeedback: parsed.data.funderFeedback?.trim() || null,
+          responseText: parsed.data.responseText?.trim() || null,
+          responseScreenshotName: parsed.data.responseScreenshotName?.trim() || null,
+          responseScreenshotDataUrl: parsed.data.responseScreenshotDataUrl?.trim() || null,
           learningNotes: JSON.stringify({
             userNotes: parsed.data.learningNotes?.trim() || null,
+            responseEvidence: {
+              hasText: Boolean(parsed.data.responseText?.trim()),
+              hasScreenshot: Boolean(parsed.data.responseScreenshotDataUrl),
+              screenshotName: parsed.data.responseScreenshotName?.trim() || null,
+            },
             insight,
           }),
           reportedAt: new Date().toISOString(),

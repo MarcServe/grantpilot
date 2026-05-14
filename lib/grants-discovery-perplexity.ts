@@ -14,7 +14,7 @@ const MAX_GRANTS = 15;
 function buildPrompt(profile: DiscoveryProfile): string {
   const regions = profile.funderLocations?.length
     ? profile.funderLocations.join(", ")
-    : "UK, and if relevant US or EU";
+    : "UK, EU, and global/international programmes open to UK applicants";
   return `Search the web and list REAL, currently open grant opportunities for this business. Use live search results — only include URLs you can verify from your search.
 
 Business profile:
@@ -27,7 +27,9 @@ Business profile:
 
 Regions: ${regions}
 
-PRIORITISE: charity/foundation grants, local authority and LEP funds, small business and startup grants, sector-specific funds, corporate CSR grants, and grants with public application forms (Google Forms, Typeform, Submittable, simple web forms).
+Also include global or international grants, accelerators, foundation funds, and corporate programmes only when the page says UK or international applicants can apply. Do not include US-only, Canada-only, or Australia-only grants unless UK applicants are eligible.
+
+PRIORITISE: charity/foundation grants, local authority and LEP funds, small business and startup grants, sector-specific funds, corporate CSR grants, global programmes open to UK applicants, and grants with public application forms (Google Forms, Typeform, Submittable, simple web forms).
 
 EXCLUDE login-only portals: Innovate UK IFS, Find a Grant account-only flows, Grants.gov workspace login as the only path, EU portal login-only.
 

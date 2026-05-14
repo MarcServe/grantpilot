@@ -14,7 +14,7 @@ const MAX_GRANTS = 20;
 function buildSearchPrompt(profile: DiscoveryProfile): string {
   const regions = profile.funderLocations?.length
     ? profile.funderLocations.join(", ")
-    : "UK, and if relevant US or EU";
+    : "UK, EU, and global/international programmes open to UK applicants";
   return `You are a grant research expert with web search. Search the internet RIGHT NOW to find REAL, currently open grant opportunities for this business.
 
 Business profile:
@@ -26,6 +26,8 @@ Business profile:
 - Purposes: ${profile.fundingPurposes.join(", ")}
 
 Search for grants in: ${regions}
+
+Also search for global or international grants, accelerators, foundation funds, and corporate programmes that explicitly accept UK applicants. Do not include US-only, Canada-only, or Australia-only grants unless the page says UK or international applicants can apply.
 
 SEARCH THESE TYPES OF FUNDERS (prioritise direct-access grants):
 - Charity and foundation grants (Wellcome Trust, Esmée Fairbairn, Garfield Weston, Paul Hamlyn, Joseph Rowntree, Lloyds Bank Foundation, Big Lottery / National Lottery Community Fund, Arts Council, Sport England, Heritage Fund)
@@ -63,6 +65,7 @@ Return a JSON array of grant objects. Each must have:
 - eligibility (string): short eligibility summary from the page
 - sectors (string array): e.g. ["Technology", "Healthcare"]
 - regions (string array): e.g. ["England", "UK", "Wales"]
+- funderLocations (string array if known): use "Global" for programmes open internationally or to UK applicants beyond a single local region
 - applicantTypes (string array): e.g. ["SME", "Charity", "Social Enterprise"]
 
 Find up to ${MAX_GRANTS} grants. Return ONLY the JSON array, no markdown or extra text.`;

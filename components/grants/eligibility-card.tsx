@@ -159,14 +159,16 @@ export function EligibilityCard({
   grantId,
   applicationId,
   grantAutoImproveEnabled = true,
+  initialResult = null,
 }: {
   grantId: string;
   applicationId?: string;
   grantAutoImproveEnabled?: boolean;
+  initialResult?: EligibilityResult | null;
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<EligibilityResult | null>(null);
+  const [result, setResult] = useState<EligibilityResult | null>(initialResult);
   const [error, setError] = useState<string | null>(null);
 
   async function handleCheck(skipCache = false) {

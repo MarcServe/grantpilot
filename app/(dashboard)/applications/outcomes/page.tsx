@@ -17,6 +17,10 @@ export default async function ApplicationsOutcomesPage() {
           Submitted applications where we still need a definitive funder outcome — awards, rejections, shortlists,
           or withdrawals — so your intelligence scores stay accurate.
         </p>
+        <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+          Record the funder response text and optional screenshot evidence on each submitted application. GrantsCopilot uses
+          those signals to improve future eligibility scoring, document preparation, and grant recommendations.
+        </p>
         <div className="mt-3 flex flex-wrap gap-2">
           <Link href="/applications" className="text-sm font-semibold text-primary underline-offset-4 hover:underline">
             All applications

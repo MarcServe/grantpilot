@@ -10,6 +10,7 @@ export interface EligibleGrant {
   grantName: string;
   funder: string;
   deadline: string | null;
+  addedAt?: string | null;
   score: number;
   decision: string | null;
   summary: string | null;
@@ -40,8 +41,20 @@ function formatDeadline(deadline: string | null): string | null {
   }
 }
 
+function formatAddedAt(value?: string | null): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 export function EligibleGrantCard({ grant }: { grant: EligibleGrant }) {
   const deadlineStr = formatDeadline(grant.deadline);
+  const addedAt = formatAddedAt(grant.addedAt);
   const isDeadlineSoon =
     grant.deadline && new Date(grant.deadline).getTime() - pageLoadedAt < ONE_WEEK_MS;
 
@@ -63,6 +76,12 @@ export function EligibleGrantCard({ grant }: { grant: EligibleGrant }) {
           </Link>
           <p className="mt-0.5 text-sm text-muted-foreground">
             {grant.funder}
+            {addedAt && (
+              <>
+                {" · "}
+                <span>Added {addedAt}</span>
+              </>
+            )}
             {deadlineStr && (
               <>
                 {" · "}

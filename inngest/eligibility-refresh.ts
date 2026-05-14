@@ -14,6 +14,7 @@ import { isEligibilityNotificationTime } from "@/lib/timezone";
 import { isGrantLinkUsable } from "@/lib/grant-freshness";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { isOpenAIChecked } from "@/lib/grant-source-policy";
+import { getSuppressedGrantIds } from "@/lib/grant-user-state";
 
 /**
  * 3-Layer Eligibility Pipeline
@@ -164,8 +165,13 @@ export async function runEligibilityRefreshJob(options?: {
         console.info(`[eligibility-refresh] Processing org=${orgId} profile=${profileId} "${profileName}" completion=${completionScore}%`);
 
         const appliedGrantIds = await getAppliedGrantIds(supabase, orgId, profileId);
-        const unappliedGrants = grantsList.filter((g) => !appliedGrantIds.has(g.id));
-        console.info(`[eligibility-refresh]   Excluding ${appliedGrantIds.size} grants with existing applications`);
+        const suppressedGrantIds = await getSuppressedGrantIds(supabase, orgId, profileId);
+        const actionableGrants = grantsList.filter(
+          (g) => !appliedGrantIds.has(g.id) && !suppressedGrantIds.has(g.id)
+        );
+        console.info(
+          `[eligibility-refresh]   Excluding ${appliedGrantIds.size} grants with existing applications and ${suppressedGrantIds.size} viewed/deferred/applied/dismissed grants`
+        );
 
         // ── Funder location pre-filter (existing) ──
         const userFunderLocations = inferFunderLocationsFromProfile(profile as {
@@ -174,8 +180,8 @@ export async function runEligibilityRefreshJob(options?: {
           country?: string | null;
           region?: string | null;
         });
-        const locationFiltered = unappliedGrants.filter((g) => grantMatchesFunderLocations(g.funderLocations, userFunderLocations));
-        console.info(`[eligibility-refresh]   ${locationFiltered.length} grants match funder locations (of ${unappliedGrants.length} unapplied, ${grantsList.length} total)`);
+        const locationFiltered = actionableGrants.filter((g) => grantMatchesFunderLocations(g.funderLocations, userFunderLocations));
+        console.info(`[eligibility-refresh]   ${locationFiltered.length} grants match funder locations (of ${actionableGrants.length} actionable, ${grantsList.length} total)`);
 
         if (locationFiltered.length === 0) {
           console.info(`[eligibility-refresh]   Skipping: no grants match user funderLocations`);

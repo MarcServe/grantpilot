@@ -47,6 +47,9 @@ interface ProfileOption {
   id: string;
   businessName: string;
   sector: string;
+  primaryContactName?: string | null;
+  primaryContactRole?: string | null;
+  directorNames?: string | null;
   founderBackground?: string | null;
   teamExpertise?: string | null;
   financialProjections?: string | null;
@@ -68,6 +71,7 @@ interface EligibleGrantOption {
   funder: string;
   score: number;
   decision: string;
+  addedAt?: string | null;
 }
 
 function contentIsReady(content?: FounderPackContent | null): content is FounderPackContent {
@@ -109,6 +113,23 @@ const legacyHiddenDocumentTypes = new Set<FounderPackDocumentType>([
 
 function hasText(value?: string | null): boolean {
   return Boolean(value?.trim());
+}
+
+function firstText(...values: Array<string | null | undefined>): string {
+  return values.map((value) => value?.trim()).find(Boolean) ?? "";
+}
+
+function firstDirectorName(value?: string | null): string {
+  if (!value?.trim()) return "";
+  const first = value.split(/\n|,|;/).map((item) => item.trim()).find(Boolean);
+  return first ?? "";
+}
+
+function formatAddedAt(value?: string | null): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
 function inferLegacyDocumentTypes(content: FounderPackContent): FounderPackDocumentType[] {
@@ -576,22 +597,31 @@ export function FounderPackClient({
   eligibleGrants,
   packs,
   allowed,
+  initialGrantId,
+  initialApplicationId,
 }: {
   profiles: ProfileOption[];
   applications: ApplicationOption[];
   eligibleGrants: EligibleGrantOption[];
   packs: PackSummary[];
   allowed: boolean;
+  initialGrantId?: string;
+  initialApplicationId?: string;
 }) {
   const router = useRouter();
+  const initialProfile = profiles[0];
+  const inferredFounderName = firstText(
+    initialProfile?.primaryContactName,
+    firstDirectorName(initialProfile?.directorNames)
+  );
   const [history, setHistory] = useState(packs);
   const [selectedPackId, setSelectedPackId] = useState(packs[0]?.id ?? "");
   const [loading, setLoading] = useState(false);
   const [generationStatus, setGenerationStatus] = useState("");
   const [form, setForm] = useState<FounderPackInputs & { profileId: string }>({
     profileId: profiles[0]?.id ?? "",
-    founderName: "",
-    founderRole: "Technical founder / CEO",
+    founderName: inferredFounderName,
+    founderRole: firstText(initialProfile?.primaryContactRole, "Technical founder / CEO"),
     founderBackground: profiles[0]?.founderBackground ?? "",
     technicalContribution: profiles[0]?.teamExpertise ?? "",
     targetUse: "innovator_founder_visa",
@@ -601,8 +631,8 @@ export function FounderPackClient({
     pricingAssumptions: "Free trial for initial onboarding, paid Pro and Business plans, with optional premium document pack generation.",
     hiringPlan: "Founder-led product development first, then hire AI engineering, grant operations, customer success, and partnerships roles as revenue grows.",
     additionalNotes: "",
-    selectedApplicationIds: [],
-    selectedEligibleGrantIds: [],
+    selectedApplicationIds: initialApplicationId ? [initialApplicationId] : [],
+    selectedEligibleGrantIds: initialGrantId ? [initialGrantId] : [],
     grantRequirementsNotes: "",
   });
 
@@ -643,11 +673,14 @@ export function FounderPackClient({
 
   function selectProfile(profileId: string) {
     const profile = profiles.find((item) => item.id === profileId);
+    const nextFounderName = firstText(profile?.primaryContactName, firstDirectorName(profile?.directorNames));
     setForm((prev) => ({
       ...prev,
       profileId,
       selectedApplicationIds: [],
       selectedEligibleGrantIds: [],
+      founderName: prev.founderName || nextFounderName,
+      founderRole: prev.founderRole || firstText(profile?.primaryContactRole, "Technical founder / CEO"),
       founderBackground: prev.founderBackground || profile?.founderBackground || "",
       technicalContribution: prev.technicalContribution || profile?.teamExpertise || "",
       pricingAssumptions: prev.pricingAssumptions || profile?.financialProjections || "",
@@ -688,6 +721,7 @@ export function FounderPackClient({
     try {
       const payload = {
         ...form,
+        founderName: form.founderName.trim() || inferredFounderName || "Founder",
         selectedApplicationIds:
           form.selectedApplicationIds?.length ? form.selectedApplicationIds : undefined,
         selectedEligibleGrantIds:
@@ -935,6 +969,7 @@ export function FounderPackClient({
                               {row.funder ? `${row.funder} · ` : ""}
                               Score {Number.isFinite(row.score) ? row.score : "—"}%
                               {band ? ` · ${band}` : ""}
+                              {formatAddedAt(row.addedAt) ? ` · Added ${formatAddedAt(row.addedAt)}` : ""}
                             </span>
                           </span>
                         </label>

@@ -217,6 +217,9 @@ model ApplicationOutcome {
   outcome        String
   awardedAmount  Float?
   funderFeedback String?         @db.Text
+  responseText   String?         @db.Text
+  responseScreenshotName String?
+  responseScreenshotDataUrl String? @db.Text
   learningNotes  String?         @db.Text
   reportedAt     DateTime        @default(now())
   createdAt      DateTime        @default(now())

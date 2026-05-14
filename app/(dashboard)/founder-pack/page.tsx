@@ -10,6 +10,9 @@ interface ProfileRow {
   id: string;
   businessName: string;
   sector: string;
+  primaryContactName?: string | null;
+  primaryContactRole?: string | null;
+  directorNames?: string | null;
   founderBackground?: string | null;
   teamExpertise?: string | null;
   financialProjections?: string | null;
@@ -50,6 +53,7 @@ interface EligibleGrantOption {
   funder: string;
   score: number;
   decision: string;
+  addedAt?: string | null;
 }
 
 function mapApplicationRows(raw: Record<string, unknown>[]): ApplicationOption[] {
@@ -82,11 +86,19 @@ function mapEligibleAssessmentRows(raw: Record<string, unknown>[]): EligibleGran
       funder: String(grant.funder ?? "").trim(),
       score: Number(row.score ?? 0),
       decision: String(row.decision ?? "").trim(),
+      addedAt: typeof grant.createdAt === "string" ? grant.createdAt : null,
     };
   });
 }
 
-export default async function FounderPackPage() {
+export default async function FounderPackPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ grantId?: string; applicationId?: string }>;
+}) {
+  const params = await searchParams;
+  const initialGrantId = params?.grantId?.trim() || "";
+  const initialApplicationId = params?.applicationId?.trim() || "";
   const { org, orgId } = await getActiveOrg();
   const supabase = getSupabaseAdmin();
   const allowed = planAllows(resolvePlanKey((org as { plan?: string } | undefined)?.plan), "founder_pack");
@@ -94,7 +106,7 @@ export default async function FounderPackPage() {
   const [{ data: profiles }, { data: packs }, { data: applicationsData }, { data: eligibilityData }] = await Promise.all([
     supabase
       .from("BusinessProfile")
-      .select("id, businessName, sector, founderBackground, teamExpertise, financialProjections")
+      .select("id, businessName, sector, primaryContactName, primaryContactRole, directorNames, founderBackground, teamExpertise, financialProjections")
       .eq("organisationId", orgId)
       .order("createdAt", { ascending: true }),
     supabase
@@ -111,7 +123,7 @@ export default async function FounderPackPage() {
       .limit(100),
     supabase
       .from("EligibilityAssessment")
-      .select("grant_id, profile_id, score, decision, summary, Grant(id, name, funder)")
+      .select("grant_id, profile_id, score, decision, summary, Grant(id, name, funder, createdAt)")
       .eq("organisation_id", orgId)
       .order("score", { ascending: false })
       .limit(500),
@@ -143,18 +155,44 @@ export default async function FounderPackPage() {
       .map((a) => `${a.profileId}:${a.grantId}`)
   );
 
-  const eligibleGrantRows = mapEligibleAssessmentRows((eligibilityData ?? []) as Record<string, unknown>[]).filter(
-    (row) => row.grantId && row.profileId && !appliedGrantByProfile.has(`${row.profileId}:${row.grantId}`)
-  );
-
   const profileRows = ((profiles ?? []) as ProfileRow[]).map((profile) => ({
     id: profile.id,
     businessName: profile.businessName,
     sector: profile.sector,
+    primaryContactName: profile.primaryContactName ?? null,
+    primaryContactRole: profile.primaryContactRole ?? null,
+    directorNames: profile.directorNames ?? null,
     founderBackground: profile.founderBackground ?? null,
     teamExpertise: profile.teamExpertise ?? null,
     financialProjections: profile.financialProjections ?? null,
   }));
+
+  let eligibleGrantRows = mapEligibleAssessmentRows((eligibilityData ?? []) as Record<string, unknown>[]).filter(
+    (row) => row.grantId && row.profileId && !appliedGrantByProfile.has(`${row.profileId}:${row.grantId}`)
+  );
+
+  if (initialGrantId && !eligibleGrantRows.some((row) => row.grantId === initialGrantId)) {
+    const { data: grant } = await supabase
+      .from("Grant")
+      .select("id, name, funder, createdAt")
+      .eq("id", initialGrantId)
+      .maybeSingle();
+    const profileId = profileRows[0]?.id;
+    if (grant && profileId) {
+      eligibleGrantRows = [
+        {
+          grantId: String(grant.id),
+          profileId,
+          grantName: String(grant.name ?? "Selected grant"),
+          funder: String(grant.funder ?? ""),
+          score: 0,
+          decision: "selected_context",
+          addedAt: String((grant as { createdAt?: string }).createdAt ?? ""),
+        },
+        ...eligibleGrantRows,
+      ];
+    }
+  }
 
   const profileById = new Map(profileRows.map((profile) => [profile.id, profile]));
   const packRows = ((packs ?? []) as PackRow[]).map((pack) => {
@@ -188,6 +226,8 @@ export default async function FounderPackPage() {
         eligibleGrants={eligibleGrantRows}
         packs={packRows}
         allowed={allowed}
+        initialGrantId={initialGrantId || undefined}
+        initialApplicationId={initialApplicationId || undefined}
       />
     </div>
   );

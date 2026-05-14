@@ -108,7 +108,7 @@ export default async function ApplicationDetailPage({
 
   const { data: outcomeRow } = await supabase
     .from("ApplicationOutcome")
-    .select("outcome, awardedAmount, funderFeedback, learningNotes")
+    .select("outcome, awardedAmount, funderFeedback, responseText, responseScreenshotName, responseScreenshotDataUrl, learningNotes")
     .eq("applicationId", application.id)
     .maybeSingle();
 
@@ -312,6 +312,9 @@ export default async function ApplicationDetailPage({
             outcome?: "applied" | "shortlisted" | "awarded" | "rejected" | "withdrawn" | "unknown";
             awardedAmount?: number | null;
             funderFeedback?: string | null;
+            responseText?: string | null;
+            responseScreenshotName?: string | null;
+            responseScreenshotDataUrl?: string | null;
             learningNotes?: string | null;
           } | null) ?? null}
         />

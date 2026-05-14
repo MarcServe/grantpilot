@@ -15,8 +15,8 @@ const MAX_GRANT_CONTEXT_CHARS = 14_000;
 
 const requestSchema = z.object({
   profileId: z.string().min(1),
-  founderName: z.string().min(2).max(120),
-  founderRole: z.string().min(2).max(160),
+  founderName: z.string().max(120).optional().default(""),
+  founderRole: z.string().max(160).optional().default(""),
   founderBackground: z.string().min(20).max(4000),
   technicalContribution: z.string().min(20).max(4000),
   targetUse: z.enum(["innovator_founder_visa", "funding_readiness", "accelerator_investor"]).default("innovator_founder_visa"),
@@ -104,9 +104,30 @@ function formatEligibilityGrantBlock(row: Record<string, unknown>): string {
   return lines.join("\n");
 }
 
+function formatStandaloneGrantBlock(grant: Record<string, unknown>): string {
+  const name = String(grant.name ?? "Grant");
+  const funder = String(grant.funder ?? "").trim();
+  const elig = String(grant.eligibility ?? "").trim().slice(0, 4500);
+  const desc = String(grant.description ?? "").trim().slice(0, 2500);
+  const obj = String(grant.objectives ?? "").trim().slice(0, 2000);
+  const deadline = grant.deadline ? `Deadline: ${String(grant.deadline)}` : "";
+  const lines = [
+    `Source: selected grant context`,
+    `Grant ID: ${String(grant.id ?? "")}`,
+    `Grant: ${name}`,
+    funder ? `Funder: ${funder}` : "",
+    deadline,
+    elig ? `Published eligibility:\n${elig}` : "",
+    desc ? `Description (excerpt):\n${desc}` : "",
+    obj ? `Objectives (excerpt):\n${obj}` : "",
+  ].filter(Boolean);
+  return lines.join("\n");
+}
+
 function assembleGrantContext(
   applications: Record<string, unknown>[],
   eligibilityRows: Record<string, unknown>[],
+  standaloneGrants: Record<string, unknown>[],
   extraNotes?: string | null
 ): string | undefined {
   const parts: string[] = [];
@@ -124,6 +145,13 @@ function assembleGrantContext(
     if (coveredGrantIds.has(gid)) continue;
     coveredGrantIds.add(gid);
     parts.push(formatEligibilityGrantBlock(row));
+  }
+
+  for (const grant of standaloneGrants) {
+    const gid = String(grant.id ?? "").trim();
+    if (!gid || coveredGrantIds.has(gid)) continue;
+    coveredGrantIds.add(gid);
+    parts.push(formatStandaloneGrantBlock(grant));
   }
 
   const notes = extraNotes?.trim();
@@ -167,9 +195,28 @@ export async function POST(req: Request): Promise<NextResponse> {
       return NextResponse.json({ error: "Business profile not found" }, { status: 404 });
     }
 
-    const profileId = parsed.data.profileId;
-    const uniqueAppIds = [...new Set(parsed.data.selectedApplicationIds ?? [])];
-    const uniqueEligGrantIds = [...new Set(parsed.data.selectedEligibleGrantIds ?? [])];
+    const firstDirector = String((profile as Record<string, unknown>).directorNames ?? "")
+      .split(/\n|,|;/)
+      .map((item) => item.trim())
+      .find(Boolean);
+    const fallbackFounderName =
+      parsed.data.founderName.trim() ||
+      String((profile as Record<string, unknown>).primaryContactName ?? "").trim() ||
+      firstDirector ||
+      "Founder";
+    const fallbackFounderRole =
+      parsed.data.founderRole.trim() ||
+      String((profile as Record<string, unknown>).primaryContactRole ?? "").trim() ||
+      "Founder";
+    const inputs = {
+      ...parsed.data,
+      founderName: fallbackFounderName,
+      founderRole: fallbackFounderRole,
+    };
+
+    const profileId = inputs.profileId;
+    const uniqueAppIds = [...new Set(inputs.selectedApplicationIds ?? [])];
+    const uniqueEligGrantIds = [...new Set(inputs.selectedEligibleGrantIds ?? [])];
 
     let applicationRows: Record<string, unknown>[] = [];
 
@@ -218,34 +265,37 @@ export async function POST(req: Request): Promise<NextResponse> {
         return NextResponse.json({ error: eligErr.message }, { status: 502 });
       }
       const rows = (eligData ?? []) as Record<string, unknown>[];
-      if (rows.length !== uniqueEligGrantIds.length) {
-        return NextResponse.json(
-          {
-            error:
-              "One or more selected grants were not found in eligibility data for this profile. Run eligibility scoring on those grants first.",
-          },
-          { status: 400 }
-        );
-      }
       eligibilityRows = rows;
     }
 
-    const grantContext = assembleGrantContext(applicationRows, eligibilityRows, parsed.data.grantRequirementsNotes);
+    const matchedEligibilityGrantIds = new Set(eligibilityRows.map((row) => String(row.grant_id ?? "").trim()).filter(Boolean));
+    const standaloneGrantIds = uniqueEligGrantIds.filter((id) => !matchedEligibilityGrantIds.has(id));
+    let standaloneGrantRows: Record<string, unknown>[] = [];
+    if (standaloneGrantIds.length > 0) {
+      const { data: grants, error: grantError } = await supabase
+        .from("Grant")
+        .select("id, name, funder, deadline, eligibility, description, objectives")
+        .in("id", standaloneGrantIds);
+      if (grantError) return NextResponse.json({ error: grantError.message }, { status: 502 });
+      standaloneGrantRows = (grants ?? []) as Record<string, unknown>[];
+    }
+
+    const grantContext = assembleGrantContext(applicationRows, eligibilityRows, standaloneGrantRows, inputs.grantRequirementsNotes);
 
     const trimmedCtx = grantContext?.trim()
       ? grantContext.trim().slice(0, MAX_GRANT_CONTEXT_CHARS)
       : undefined;
 
-    const content = await generateFounderPack(profile as Record<string, unknown>, parsed.data, trimmedCtx);
+    const content = await generateFounderPack(profile as Record<string, unknown>, inputs, trimmedCtx);
     const { data: pack, error: insertError } = await supabase
       .from("FounderFundingPack")
       .insert({
         organisationId: orgId,
-        profileId: parsed.data.profileId,
+        profileId: inputs.profileId,
         createdById: (user as { id?: string }).id ?? null,
-        type: parsed.data.targetUse,
+        type: inputs.targetUse,
         status: "generated",
-        inputs: parsed.data,
+        inputs,
         content,
       })
       .select("id, createdAt, content")

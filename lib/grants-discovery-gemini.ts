@@ -1,6 +1,6 @@
 /**
  * Grant discovery via Google Gemini: given a business profile, ask the model to list
- * relevant grants (UK/US/EU). Results are tagged source "gemini" and upserted.
+ * relevant grants, including global programmes open to UK applicants. Results are tagged source "gemini" and upserted.
  */
 
 import { GoogleGenAI } from "@google/genai";
@@ -14,7 +14,7 @@ const MAX_GRANTS = 15;
 function buildPrompt(profile: DiscoveryProfile): string {
   const regions = profile.funderLocations?.length
     ? profile.funderLocations.join(", ")
-    : "UK, and if relevant US or EU";
+    : "UK, EU, and global/international programmes open to UK applicants";
   return `You are a grant research expert. List REAL grants that currently exist and are open for this business. Focus on ${regions}.
 
 Business profile:
@@ -24,6 +24,8 @@ Business profile:
 - Location: ${profile.location}
 - Funding needed: £${profile.fundingMin.toLocaleString("en-GB")} – £${profile.fundingMax.toLocaleString("en-GB")}
 - Purposes: ${profile.fundingPurposes.join(", ")}
+
+Also include global or international grants, accelerators, foundation funds, and corporate programmes only when UK or international applicants can apply. Do not include US-only, Canada-only, or Australia-only grants unless UK applicants are eligible.
 
 PRIORITISE these funder types (direct-access grants with public forms):
 - Charity and foundation grants (Wellcome Trust, Esmée Fairbairn, Garfield Weston, Paul Hamlyn, National Lottery Community Fund, Arts Council, Sport England, Heritage Fund, Lloyds Bank Foundation)
