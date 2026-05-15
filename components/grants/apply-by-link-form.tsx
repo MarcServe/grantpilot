@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ExternalLink, Link2 } from "lucide-react";
+import { ExternalLink, Link2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { normalizeGrantApplicationUrl } from "@/lib/grant-url";
 
@@ -18,12 +18,21 @@ interface ApplyByLinkFormProps {
   fixGrantId?: string;
 }
 
-export function ApplyByLinkForm({ prefillUrl, prefillGrantName, prefillFunder }: ApplyByLinkFormProps) {
+type PreparedApplication = {
+  applicationId: string;
+  grantId: string;
+  grantName: string;
+  applicationUrl: string;
+};
+
+export function ApplyByLinkForm({ profileId, prefillUrl, prefillGrantName, prefillFunder }: ApplyByLinkFormProps) {
   const [urlInput, setUrlInput] = useState(prefillUrl ?? "");
   const [grantName, setGrantName] = useState(prefillGrantName ?? "");
   const [funder, setFunder] = useState(prefillFunder ?? "");
   const [eligibility, setEligibility] = useState("");
   const [focusNotes, setFocusNotes] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [prepared, setPrepared] = useState<PreparedApplication[]>([]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -52,12 +61,38 @@ export function ApplyByLinkForm({ prefillUrl, prefillGrantName, prefillFunder }:
       toast.error("Maximum 20 URLs per batch. Add fewer and try again.");
       return;
     }
-    if (urls.length > 1) {
-      toast.info("Batch auto-filing is moving to Version 2. Open one funder link at a time for now.");
-      return;
+    setLoading(true);
+    setPrepared([]);
+    try {
+      const links = urls.map((applicationUrl) => ({
+        applicationUrl,
+        grantName: grantName.trim() || undefined,
+        funder: funder.trim() || undefined,
+        eligibility: eligibility.trim() || undefined,
+      }));
+      const res = await fetch("/api/applications/start-with-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          profileId,
+          focusNotes: focusNotes.trim() || undefined,
+          links,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not prepare application");
+      const applications = Array.isArray(data.applications) ? data.applications : [];
+      setPrepared(applications);
+      toast.success(
+        applications.length > 1
+          ? `${applications.length} applications prepared and added to your list.`
+          : "Application prepared and added to your list."
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Something went wrong");
+    } finally {
+      setLoading(false);
     }
-    toast.success("Link verified. Opening the official funder page.");
-    window.open(urls[0], "_blank", "noopener,noreferrer");
   }
 
   return (
@@ -122,21 +157,41 @@ export function ApplyByLinkForm({ prefillUrl, prefillGrantName, prefillFunder }:
               className="mt-1 w-full min-h-[60px] rounded-md border border-input bg-background px-3 py-2 text-sm"
               maxLength={2000}
             />
-          <p className="mt-1 text-xs text-muted-foreground">
-              Keep these notes for your manual application and Founder Pack drafting. Auto-filing is moving to Version 2.
+            <p className="mt-1 text-xs text-muted-foreground">
+              Keep these notes for your manual application and Founder Pack drafting.
             </p>
           </div>
           <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
-            Version 1 verifies and prepares grant applications. Automatic external form filling is a Version 2 feature
-            while we harden support for login portals, CAPTCHAs, dynamic fields, and funder-specific forms.
+            Version 1 verifies links, saves the grant to your workspace, creates a tracked application, and prepares
+            Founder & SME Pack context. External form completion is a Version 2 workflow.
           </div>
-          <Button type="submit" className="gap-2">
-            <ExternalLink className="h-4 w-4" />
-            Verify link and open funder form
+          <Button type="submit" className="gap-2" disabled={loading}>
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
+            {loading ? "Preparing..." : "Save and prepare application"}
           </Button>
-          <Link href="/founder-pack" className="ml-0 inline-flex text-sm font-medium text-primary underline sm:ml-3">
-            Generate Founder & SME Pack
-          </Link>
+          {prepared.length > 0 && (
+            <div className="rounded-md border bg-muted/40 p-3">
+              <p className="mb-2 text-sm font-medium">Prepared applications</p>
+              <div className="space-y-2">
+                {prepared.map((item) => (
+                  <div key={item.applicationId} className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-background p-2 text-sm">
+                    <span className="font-medium">{item.grantName}</span>
+                    <div className="flex flex-wrap gap-2">
+                      <Link href={`/applications/${item.applicationId}`} className="text-primary underline-offset-4 hover:underline">
+                        View application
+                      </Link>
+                      <Link href={`/founder-pack?grantId=${item.grantId}`} className="text-primary underline-offset-4 hover:underline">
+                        Generate pack
+                      </Link>
+                      <a href={item.applicationUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline">
+                        Open funder <ExternalLink className="h-3 w-3" />
+                      </a>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </form>
       </CardContent>
     </Card>

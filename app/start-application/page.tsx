@@ -73,7 +73,8 @@ export default async function StartApplicationPage({
         <h1 className="text-lg font-semibold text-foreground">Prepare with GrantsCopilot</h1>
         <p className="mt-2 text-sm text-muted-foreground">
           This link is for <strong>{grant.name}</strong>. Version 1 helps you review fit, prepare documents, and open
-          the official funder page. Full no-login auto-filing is moving to Version 2.
+          the official funder page. External form completion is a Version 2 workflow while Version 1 focuses on
+          discovery, qualification, preparation, and tracking.
         </p>
         <StartApplicationForm token={token} grantName={grant.name} />
         <Link

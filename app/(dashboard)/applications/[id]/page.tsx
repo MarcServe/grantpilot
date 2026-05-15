@@ -4,6 +4,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { ArrowLeft, CheckCircle, XCircle, Clock, Loader2, AlertCircle } from "lucide-react";
@@ -121,6 +122,10 @@ export default async function ApplicationDetailPage({
   const progressPercent = totalItems > 0 ? (processedItems / totalItems) * 100 : 0;
   const sessionStatus = (session?.status as string) ?? "unknown";
   const isComplete = sessionStatus === "completed";
+  const showAutomationProgress =
+    session != null &&
+    ["PENDING", "FILLING", "NEEDS_INPUT"].includes(String(displayStatus)) &&
+    sessionStatus !== "unknown";
   const canSubmit =
     isComplete &&
     (application.status === "FILLING" || application.status === "REVIEW_REQUIRED");
@@ -182,10 +187,6 @@ export default async function ApplicationDetailPage({
   const pageSituation = pageSituationItem
     ? (pageSituationItem.extra_data as { page_situation?: string }).page_situation
     : null;
-  const needsDirectUrl = pageSituationItem
-    ? (pageSituationItem.extra_data as { needs_direct_url?: boolean }).needs_direct_url
-    : false;
-
   const grantId = (application.grant as { id?: string } | null)?.id ?? "";
   const pollSession =
     ["PENDING", "FILLING", "REVIEW_REQUIRED", "NEEDS_INPUT"].includes(String(displayStatus)) &&
@@ -320,40 +321,71 @@ export default async function ApplicationDetailPage({
         />
       )}
 
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle className="text-sm font-medium">
-            Execution Progress
-          </CardTitle>
-          <p className="text-xs text-muted-foreground">
-            The AI runs on our servers — you can open other pages (grant details, profile, eligibility) and return here;
-            progress is saved automatically. This page refreshes periodically while work is in progress.
-          </p>
-        </CardHeader>
-        <CardContent>
-          <div className="mb-2 flex items-center justify-between text-sm">
-            <span>
-              {processedItems} of {totalItems} steps completed
-            </span>
-            <span className="text-muted-foreground">
-              {Math.round(progressPercent)}%
-            </span>
-          </div>
-          <Progress value={progressPercent} className="h-2" />
-          <p className="mt-2 text-xs text-muted-foreground">
-            Session: {sessionStatus}
-          </p>
-        </CardContent>
-      </Card>
+      {!showAutomationProgress && (
+        <Card className="mb-6 border-blue-100 bg-blue-50/60">
+          <CardHeader>
+            <CardTitle className="text-sm font-medium">Preparation workflow</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm text-blue-950">
+            <p>
+              This application is tracked for Version 1: review eligibility, generate preparation documents, submit on
+              the official funder site, then mark it submitted here.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {grantId && (
+                <Link href={`/founder-pack?grantId=${encodeURIComponent(grantId)}`}>
+                  <Button size="sm">Generate prep documents</Button>
+                </Link>
+              )}
+              {(application.grant as { applicationUrl?: string | null })?.applicationUrl && (
+                <a
+                  href={(application.grant as { applicationUrl?: string }).applicationUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <Button size="sm" variant="outline">Open funder form</Button>
+                </a>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle className="text-sm font-medium">Steps</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {items && items.length > 0 ? (
-            <div className="space-y-3">
-              {items.map(
+      {showAutomationProgress && (
+        <>
+          <Card className="mb-6">
+            <CardHeader>
+              <CardTitle className="text-sm font-medium">
+                Version 2 form session
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Internal form-session diagnostics for applications started before the Version 1 preparation flow.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <div className="mb-2 flex items-center justify-between text-sm">
+                <span>
+                  {processedItems} of {totalItems} steps completed
+                </span>
+                <span className="text-muted-foreground">
+                  {Math.round(progressPercent)}%
+                </span>
+              </div>
+              <Progress value={progressPercent} className="h-2" />
+              <p className="mt-2 text-xs text-muted-foreground">
+                Session: {sessionStatus}
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="mb-6">
+            <CardHeader>
+              <CardTitle className="text-sm font-medium">Session steps</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {items && items.length > 0 ? (
+                <div className="space-y-3">
+                  {items.map(
                 (item: {
                   id: number;
                   action: string | null;
@@ -448,60 +480,62 @@ export default async function ApplicationDetailPage({
                     </div>
                   );
                 }
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No session steps found.
+                </p>
               )}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              No execution steps found.
-            </p>
-          )}
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
 
-      {logs && logs.length > 0 && (
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="text-sm font-medium">
-              Activity Log
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="max-h-64 space-y-2 overflow-y-auto">
-              {logs.map(
-                (log: {
-                  id: number;
-                  step: string;
-                  action: string;
-                  detail: string | null;
-                  success: boolean;
-                  created_at: string;
-                }) => (
-                  <div
-                    key={log.id}
-                    className="flex items-start gap-2 text-xs"
-                  >
-                    {log.success ? (
-                      <CheckCircle className="mt-0.5 h-3 w-3 shrink-0 text-green-600" />
-                    ) : (
-                      <XCircle className="mt-0.5 h-3 w-3 shrink-0 text-red-600" />
-                    )}
-                    <div>
-                      <span className="font-medium">
-                        {log.step}: {log.action}
-                      </span>
-                      {log.detail && (
-                        <p className="text-muted-foreground">{log.detail}</p>
-                      )}
-                      <p className="text-muted-foreground">
-                        {new Date(log.created_at).toLocaleString("en-GB")}
-                      </p>
-                    </div>
-                  </div>
-                )
-              )}
-            </div>
-          </CardContent>
-        </Card>
+          {logs && logs.length > 0 && (
+            <Card className="mb-6">
+              <CardHeader>
+                <CardTitle className="text-sm font-medium">
+                  Activity Log
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="max-h-64 space-y-2 overflow-y-auto">
+                  {logs.map(
+                    (log: {
+                      id: number;
+                      step: string;
+                      action: string;
+                      detail: string | null;
+                      success: boolean;
+                      created_at: string;
+                    }) => (
+                      <div
+                        key={log.id}
+                        className="flex items-start gap-2 text-xs"
+                      >
+                        {log.success ? (
+                          <CheckCircle className="mt-0.5 h-3 w-3 shrink-0 text-green-600" />
+                        ) : (
+                          <XCircle className="mt-0.5 h-3 w-3 shrink-0 text-red-600" />
+                        )}
+                        <div>
+                          <span className="font-medium">
+                            {log.step}: {log.action}
+                          </span>
+                          {log.detail && (
+                            <p className="text-muted-foreground">{log.detail}</p>
+                          )}
+                          <p className="text-muted-foreground">
+                            {new Date(log.created_at).toLocaleString("en-GB")}
+                          </p>
+                        </div>
+                      </div>
+                    )
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </>
       )}
 
       {showFilledSummary && filledSnapshot && (

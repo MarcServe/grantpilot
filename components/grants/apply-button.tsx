@@ -82,8 +82,8 @@ export function ApplyButton({ grantId, profileId, applicationUrl, eligibilitySco
         <DialogHeader>
           <DialogTitle>Prepare this application</DialogTitle>
           <DialogDescription>
-            Version 1 helps you qualify, prepare answers, collect documents, and apply faster. Full auto-filing across
-            external forms is moving to Version 2 while we harden dynamic form handling.
+            Version 1 helps you qualify, prepare answers, collect documents, and apply faster. You submit on the
+            official funder site, then track the result in GrantsCopilot.
           </DialogDescription>
         </DialogHeader>
         <div className="rounded-lg bg-muted p-4 text-sm">

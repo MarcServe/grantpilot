@@ -247,7 +247,7 @@ export function EditableSnapshot({
           <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">
               Open the funder&apos;s form, then drag the bookmarklet below to your bookmarks bar
-              and click it to auto-fill the form with your data. You can then review and edit directly.
+              and use it as a preparation aid on the funder site. Review every answer before submitting.
             </p>
             <div className="flex flex-wrap items-center gap-3">
               <a

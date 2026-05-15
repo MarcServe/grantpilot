@@ -3,12 +3,11 @@ import { z } from "zod";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { notifyOrgMembers } from "@/lib/notify";
-import { inngest } from "@/inngest/client";
 import { checkUsageLimit, recordUsage } from "@/lib/plan-check";
 import { enqueueGrantForScoutIfProgrammeUrl } from "@/lib/enqueue-scout";
 import { requestEligibilityRefresh } from "@/lib/eligibility-refresh-trigger";
-import { buildSessionItems, matchPortalRecipe } from "@/lib/session-items";
 import { normalizeGrantApplicationUrl } from "@/lib/grant-url";
+import { createDefaultTasksForApplication } from "@/lib/application-tasks";
 
 const linkEntrySchema = z.object({
   applicationUrl: z.string().url("Please enter a valid grant application URL"),
@@ -19,7 +18,6 @@ const linkEntrySchema = z.object({
 
 const startWithLinkSchema = z.object({
   profileId: z.string().min(1, "Profile is required"),
-  autopilot: z.boolean().optional(),
   focusNotes: z.string().max(2000).optional(),
   applicationUrl: z.string().url().optional(),
   grantName: z.string().max(300).optional(),
@@ -74,7 +72,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       return NextResponse.json({ error: msg }, { status: 400 });
     }
 
-    const { profileId, autopilot = false } = parsed.data;
+    const { profileId } = parsed.data;
     const links: { applicationUrl: string; grantName?: string; funder?: string; eligibility?: string }[] =
       parsed.data.links?.length
         ? parsed.data.links
@@ -112,7 +110,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       );
     }
 
-    const results: { applicationId: string; grantId: string; grantName: string }[] = [];
+    const results: { applicationId: string; grantId: string; grantName: string; applicationUrl: string }[] = [];
     const seenUrls = new Set<string>();
 
     for (let i = 0; i < links.length; i++) {
@@ -149,73 +147,54 @@ export async function POST(req: Request): Promise<NextResponse> {
 
       await enqueueGrantForScoutIfProgrammeUrl(grant.id).catch(() => {});
 
-      const { data: application, error: appError } = await supabase
+      const { data: existingApplication } = await supabase
         .from("Application")
-        .insert({
+        .select("id")
+        .eq("organisationId", orgId)
+        .eq("profileId", profileId)
+        .eq("grantId", grant.id)
+        .maybeSingle();
+
+      let applicationId = existingApplication?.id ?? null;
+      if (!applicationId) {
+        const now = new Date().toISOString();
+        const { data: application, error: appError } = await supabase
+          .from("Application")
+          .insert({
+            organisationId: orgId,
+            createdById: user.id,
+            grantId: grant.id,
+            profileId,
+            focusNotes: parsed.data.focusNotes?.trim() || null,
+            status: "REVIEW_REQUIRED",
+            createdAt: now,
+            updatedAt: now,
+          })
+          .select("id")
+          .single();
+
+        if (appError || !application?.id) {
+          console.error("[APPLICATION_START_WITH_LINK] application create failed", appError);
+          continue;
+        }
+
+        applicationId = application.id;
+        createDefaultTasksForApplication({
+          applicationId,
           organisationId: orgId,
-          createdById: user.id,
           grantId: grant.id,
-          profileId,
-          focusNotes: parsed.data.focusNotes?.trim() || null,
-          status: "FILLING",
-        })
-        .select("id")
-        .single();
-
-      if (appError || !application) {
-        console.error("[APPLICATION_START_WITH_LINK] application create failed", appError);
-        continue;
+          grantDeadline: null,
+        }).catch(console.error);
       }
 
-      const publicId = `grantapp_${application.id}`;
-
-      const portalRecipe = matchPortalRecipe(applicationUrl);
-      const sessionItems = buildSessionItems({ autopilot, portalRecipe });
-
-      const { data: session, error: sessionError } = await supabase
-        .from("cu_sessions")
-        .insert({
-          public_id: publicId,
-          task_type: "grant_application",
-          status: "running",
-          total_items: sessionItems.length,
-          processed_items: 0,
-          organisation_id: orgId,
-          business_profile_id: profileId,
-        })
-        .select("id")
-        .single();
-
-      if (sessionError || !session) {
-        await supabase.from("Application").update({ status: "FAILED" }).eq("id", application.id);
-        continue;
-      }
-
-      const items = sessionItems.map((item) => ({
-        session_id: session.id,
-        task_type: item.task_type,
-        action: item.action,
-        grant_id: grant.id,
-        grant_name: grant.name,
-        grant_url: grant.applicationUrl,
-        status: "pending",
-        ...(item.extra_data ? { extra_data: item.extra_data } : {}),
-      }));
-
-      await supabase.from("cu_session_items").insert(items);
       await recordUsage(orgId, "autofill");
 
       notifyOrgMembers(orgId, "application_started", {
         grantName: grant.name,
-        applicationId: application.id,
+        applicationId,
       }).catch(console.error);
 
-      inngest.send({
-        name: "app/session.started",
-        data: { applicationId: application.id, sessionPublicId: publicId },
-      }).catch(console.error);
-
-      results.push({ applicationId: application.id, grantId: grant.id, grantName: grant.name });
+      results.push({ applicationId, grantId: grant.id, grantName: grant.name, applicationUrl });
     }
 
     if (results.length === 0) {
@@ -245,7 +224,6 @@ export async function POST(req: Request): Promise<NextResponse> {
     return NextResponse.json({
       applications: results,
       applicationId: results[0].applicationId,
-      sessionPublicId: `grantapp_${results[0].applicationId}`,
       grantId: results[0].grantId,
     });
   } catch (error) {
