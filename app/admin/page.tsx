@@ -9,6 +9,7 @@ import { ShieldCheck } from "lucide-react";
 import { GrantImportUploader } from "@/components/admin/grant-import-uploader";
 import { TestNotificationButton } from "@/components/admin/test-notification-button";
 import { ScoutModeSettings } from "@/components/admin/scout-mode-settings";
+import { GrantComposer } from "@/components/admin/grant-composer";
 
 export const dynamic = "force-dynamic";
 
@@ -68,13 +69,14 @@ export default async function AdminPage() {
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-7xl p-6">
+      <main className="mx-auto max-w-7xl space-y-6 p-6">
         <div className="mb-8">
           <h1 className="text-2xl font-bold">Admin</h1>
           <p className="mt-1 text-muted-foreground">
-            You are logged in as the admin account. Grant import and other admin tools can be added here.
+            You are logged in as the admin account. Import, compose, and verify grant records here.
           </p>
         </div>
+        <GrantComposer />
         <GrantImportUploader />
         <ScoutModeSettings />
         <TestNotificationButton />

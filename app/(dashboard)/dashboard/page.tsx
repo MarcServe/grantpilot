@@ -72,7 +72,26 @@ export default async function DashboardPage() {
     .order("dueDate", { ascending: true, nullsFirst: false })
     .limit(8);
   const taskRows = (upcomingTasksData ?? []) as { id: string; name: string; status: string; dueDate: string | null; applicationId: string; grantId: string | null }[];
-  const grantIdsFromTasks = [...new Set(taskRows.map((t) => t.grantId).filter(Boolean))] as string[];
+  const applicationIdsFromTasks = [...new Set(taskRows.map((t) => t.applicationId).filter(Boolean))] as string[];
+  const validApplicationIds = new Set<string>();
+  if (applicationIdsFromTasks.length > 0) {
+    const { data: applicationRows } = await supabase
+      .from("Application")
+      .select("id")
+      .eq("organisationId", orgId)
+      .in("id", applicationIdsFromTasks);
+    for (const app of applicationRows ?? []) {
+      validApplicationIds.add((app as { id: string }).id);
+    }
+    const orphanTaskIds = taskRows
+      .filter((task) => !validApplicationIds.has(task.applicationId))
+      .map((task) => task.id);
+    if (orphanTaskIds.length > 0) {
+      await supabase.from("ApplicationTask").delete().in("id", orphanTaskIds).eq("organisationId", orgId);
+    }
+  }
+  const validTaskRows = taskRows.filter((task) => validApplicationIds.has(task.applicationId));
+  const grantIdsFromTasks = [...new Set(validTaskRows.map((t) => t.grantId).filter(Boolean))] as string[];
   const grantNameById: Record<string, string> = {};
   if (grantIdsFromTasks.length > 0) {
     const { data: grantRows } = await supabase
@@ -83,7 +102,7 @@ export default async function DashboardPage() {
       grantNameById[(g as { id: string }).id] = (g as { name: string }).name;
     }
   }
-  const upcomingTasks = taskRows.map((t) => ({
+  const upcomingTasks = validTaskRows.map((t) => ({
     id: t.id,
     name: t.name,
     status: t.status,
@@ -377,7 +396,7 @@ export default async function DashboardPage() {
                   <br /> Get funded.
                 </p>
                 <p className="mt-3 max-w-xl text-sm font-medium leading-6 text-[#2a4065]">
-                  GrantsCopilot handles discovery, scoring, drafting, and filing workflows so you can focus on growing your business.
+                  GrantsCopilot handles discovery, scoring, drafting, and preparation workflows so you can focus on growing your business.
                 </p>
               </div>
               <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-[#d6e8ff] text-[#2167e8]">

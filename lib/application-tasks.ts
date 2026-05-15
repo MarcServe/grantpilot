@@ -2,8 +2,10 @@ import { getSupabaseAdmin } from "./supabase";
 
 const DEFAULT_TASKS: { name: string; slug: string; priority: "high" | "medium" | "low"; daysOffset?: number }[] = [
   { name: "Review eligibility", slug: "review_eligibility", priority: "high", daysOffset: 2 },
-  { name: "Prepare documents", slug: "prepare_documents", priority: "medium", daysOffset: 5 },
-  { name: "Submit application", slug: "submit_application", priority: "high" },
+  { name: "Generate prep documents", slug: "generate_prep_documents", priority: "medium", daysOffset: 4 },
+  { name: "Apply on funder website", slug: "apply_on_funder_website", priority: "high" },
+  { name: "Mark submitted", slug: "mark_submitted", priority: "high" },
+  { name: "Record final outcome", slug: "record_final_outcome", priority: "medium" },
 ];
 
 function addDays(date: Date, days: number): Date {
@@ -29,7 +31,8 @@ export async function createDefaultTasksForApplication(params: {
 
   const dueDateForSubmit = deadline && deadline.getTime() > now.getTime() ? deadline : addDays(now, 14);
   const dueDateForTask = (task: (typeof DEFAULT_TASKS)[number]): string | null => {
-    if (task.slug === "submit_application") return dueDateForSubmit.toISOString();
+    if (task.slug === "apply_on_funder_website" || task.slug === "mark_submitted") return dueDateForSubmit.toISOString();
+    if (task.slug === "record_final_outcome") return addDays(dueDateForSubmit, 21).toISOString();
     if (task.daysOffset != null) return addDays(now, task.daysOffset).toISOString();
     if (deadline) return addDays(deadline, -3).toISOString();
     return addDays(now, 7).toISOString();

@@ -1,5 +1,5 @@
 -- Multi-source discovery: tag grant origin for ops/debugging.
--- source examples: "default" | "claude" | "openai" | "gemini" | "perplexity" | "grants-gov" | "bing" | "google"
+-- source examples: "default" | "claude" | "openai" | "gemini" | "perplexity" | "grants-gov" | "bing" | "google" | "admin"
 
 ALTER TABLE "Grant"
   ADD COLUMN IF NOT EXISTS "source" TEXT NOT NULL DEFAULT 'default';

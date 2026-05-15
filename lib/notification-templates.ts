@@ -63,12 +63,12 @@ export function buildEmailHtml(
 
     case "application_started":
       return {
-        subject: `Application started: ${grant}`,
+        subject: `Application prep added: ${grant}`,
         html: baseLayout(
-          "Your application has started",
-          `<p>We've started processing your application for <strong>${grant}</strong>.</p><p>GrantsCopilot is filling in the form using your business profile. We'll let you know when it's ready for review.</p>`,
+          "Your application prep workspace is ready",
+          `<p>We added <strong>${grant}</strong> to your application workspace.</p><p>Review eligibility, generate your preparation documents, open the official funder form, then mark the application submitted after you send it.</p>`,
           payload.applicationId ? `${appUrl}/applications/${payload.applicationId}` : undefined,
-          "Track Progress"
+          "Open application"
         ),
       };
 
@@ -79,13 +79,13 @@ export function buildEmailHtml(
         : undefined;
       const ctaUrl = reviewUrl;
       const extra = approveUrl
-        ? `<p style="margin-top:16px"><a href="${approveUrl}" style="color:#1B3A6B;font-weight:600">Approve &amp; submit (no login)</a></p>`
+        ? `<p style="margin-top:16px"><a href="${approveUrl}" style="color:#1B3A6B;font-weight:600">Open review link</a></p>`
         : "";
       return {
         subject: `Review required: ${grant}`,
         html: baseLayout(
-          "Your application is ready for review",
-          `<p>Your application for <strong>${grant}</strong> has been filled in by GrantsCopilot and is ready for your review.</p><p>Please review all the information carefully before approving the submission.</p>${extra}`,
+          "Your application needs review",
+          `<p>Your application workspace for <strong>${grant}</strong> is ready for review.</p><p>Check your prepared answers and documents, then submit on the official funder site when ready.</p>${extra}`,
           ctaUrl,
           "Review Application"
         ),
@@ -120,7 +120,7 @@ export function buildEmailHtml(
         subject: `Sign-in required: ${grant}`,
         html: baseLayout(
           "Sign in required to continue",
-          `<p>Your application for <strong>${grant}</strong> needs you to sign in on the funder's website.</p><p>Open the application below, then sign in or create an account on their site. After that, use the bookmarklet or click Resume to let GrantsCopilot continue filling the form.</p>`,
+          `<p>Your application for <strong>${grant}</strong> needs you to sign in on the funder's website.</p><p>Open the application below, sign in or create an account on the funder site, then use your prepared answers and documents to complete the form.</p>`,
           applicationUrl,
           "Open Application"
         ),
@@ -139,7 +139,7 @@ export function buildEmailHtml(
         subject: `More info needed: ${grant}`,
         html: baseLayout(
           "We need a few details to continue",
-          `<p>Your application for <strong>${grant}</strong> needs a few required details that aren't in your profile.</p>${detailsList}<p>Open the application below, fill in the requested fields, and click Resume so GrantsCopilot can continue.</p>`,
+          `<p>Your application for <strong>${grant}</strong> needs a few required details that aren't in your profile.</p>${detailsList}<p>Open the application below, add the missing details, and keep them with your preparation materials before you submit on the funder site.</p>`,
           applicationUrl,
           "Provide Details"
         ),
@@ -313,15 +313,15 @@ export function buildWhatsAppMessage(
 
   switch (type) {
     case "application_started":
-      return `Your application for ${grant} has started processing. We'll let you know when it's ready for review.\n\n${appUrl}/applications/${payload.applicationId ?? ""}`;
+      return `Your application prep workspace for ${grant} is ready. Review eligibility, generate prep documents, apply on the funder site, then mark it submitted.\n\n${appUrl}/applications/${payload.applicationId ?? ""}`;
 
     case "review_required": {
       const reviewLink = payload.applicationId ? `${appUrl}/applications/${payload.applicationId}` : appUrl;
       const approveLink = payload.approveToken
         ? `${appUrl}/approve?token=${encodeURIComponent(payload.approveToken)}`
         : null;
-      let msg = `Your application for ${grant} is ready for review.\n\n📋 Review: ${reviewLink}`;
-      if (approveLink) msg += `\n✅ Approve (one tap): ${approveLink}`;
+      let msg = `Your application workspace for ${grant} is ready for review.\n\nReview: ${reviewLink}`;
+      if (approveLink) msg += `\nReview link: ${approveLink}`;
       return msg;
     }
 
@@ -333,7 +333,7 @@ export function buildWhatsAppMessage(
 
     case "application_login_required": {
       const applicationUrl = payload.applicationId ? `${appUrl}/applications/${payload.applicationId}` : appUrl;
-      return `Sign-in required for ${grant}. Sign in on the funder's site, then open the application and use Resume or the bookmarklet to continue.\n\nOpen application: ${applicationUrl}`;
+      return `Sign-in required for ${grant}. Sign in on the funder's site, then use your prepared answers and documents to complete the form.\n\nOpen application: ${applicationUrl}`;
     }
 
     case "application_needs_info": {
@@ -343,7 +343,7 @@ export function buildWhatsAppMessage(
         .slice(0, 3)
         .join("; ");
       const detailLine = details ? `\n\nNeeded: ${details}` : "";
-      return `We need a few details to continue your ${grant} application.${detailLine}\n\nOpen the link, fill in the requested fields, and click Resume.\n\n${applicationUrl}`;
+      return `We need a few details for your ${grant} application.${detailLine}\n\nOpen the link and add the missing details to your preparation materials before submitting on the funder site.\n\n${applicationUrl}`;
     }
 
     case "deadline_reminder": {

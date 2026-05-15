@@ -294,7 +294,7 @@ export function generateFounderPackDocx(pack: FounderPackExportInput): Buffer {
     pack.profile?.sector ? docParagraph(`Sector: ${pack.profile.sector}`) : "",
     pack.inputs?.founderName ? docParagraph(`Founder: ${pack.inputs.founderName}`) : "",
     pack.createdAt ? docParagraph(`Generated: ${new Date(pack.createdAt).toLocaleString("en-GB")}`) : "",
-    docParagraph("Prepared by GrantsCopilot", "Subtitle"),
+    pack.profile?.businessName ? docParagraph(pack.profile.businessName, "Subtitle") : "",
     ...buildFounderPackTextSections(pack).flatMap((section) => [
       docPageBreak(),
       docParagraph(section.title, "Heading1"),

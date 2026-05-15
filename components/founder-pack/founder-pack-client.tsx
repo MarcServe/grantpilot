@@ -322,7 +322,7 @@ function PackDocument({ pack }: { pack: PackSummary }) {
         window.open(designUrl, "_blank", "noopener,noreferrer");
         toast.success("Canva deck created");
       } else {
-        toast.success("Canva autofill job started");
+        toast.success("Canva design job started");
       }
     } catch {
       toast.error("Could not send deck to Canva");
@@ -415,7 +415,7 @@ function PackDocument({ pack }: { pack: PackSummary }) {
                         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-200">Slide</p>
                         <p className="mt-1 text-4xl font-black">{index + 1}</p>
                       </div>
-                      <p className="text-xs font-medium text-emerald-200">GrantsCopilot deck</p>
+                      <p className="text-xs font-medium text-emerald-200">Pitch deck</p>
                     </div>
                     <div className="space-y-4 p-5">
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">

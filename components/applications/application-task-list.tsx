@@ -34,23 +34,31 @@ const PRIORITY_LABEL: Record<string, string> = {
 
 function taskRelatedHref(
   taskName: string,
+  taskSlug: string | null | undefined,
   grantId: string | undefined,
   applicationId: string
 ): { href: string; label: string; external: boolean } | null {
   const n = taskName.toLowerCase();
-  if ((n.includes("review") && n.includes("eligibility")) || n === "review eligibility") {
+  const slug = taskSlug ?? "";
+  if (slug === "review_eligibility" || (n.includes("review") && n.includes("eligibility")) || n === "review eligibility") {
     if (!grantId) return null;
     return { href: `/grants/${grantId}`, label: "View grant & eligibility", external: true };
   }
-  if (n.includes("prepare") && n.includes("document")) {
-    return { href: "/profile?step=5", label: "Open documents (profile)", external: true };
+  if (slug === "generate_prep_documents" || (n.includes("prep") && n.includes("document")) || (n.includes("prepare") && n.includes("document"))) {
+    return { href: `/founder-pack?applicationId=${applicationId}`, label: "Generate prep documents", external: true };
   }
-  if (n.includes("submit")) {
+  if (slug === "apply_on_funder_website" || (n.includes("apply") && n.includes("funder"))) {
     return {
       href: `/applications/${applicationId}#application-submit`,
-      label: "Jump to submit section",
+      label: "Open submit checklist",
       external: false,
     };
+  }
+  if (slug === "mark_submitted" || n.includes("mark submitted")) {
+    return { href: `/applications/${applicationId}#application-submit`, label: "Mark submitted", external: false };
+  }
+  if (slug === "record_final_outcome" || n.includes("outcome")) {
+    return { href: `/applications/${applicationId}#outcome-learning`, label: "Record outcome", external: false };
   }
   return null;
 }
@@ -73,9 +81,11 @@ export function ApplicationTaskList({ applicationId, grantId, tasks }: Applicati
   }
 
   const TASK_HINTS: Record<string, string> = {
-    "review eligibility": "Check that your business meets this grant's criteria before the AI submits on your behalf.",
-    "prepare documents": "Upload any required documents (business plan, financials, pitch deck) to your profile.",
-    "submit application": "Once the AI has filled the form, review the answers and approve the final submission.",
+    "review eligibility": "Check that your business meets this grant's criteria and note any evidence gaps.",
+    "generate prep documents": "Create funder-ready answers, checklists, and supporting pack documents before applying.",
+    "apply on funder website": "Open the official funder form and submit directly on their website or portal.",
+    "mark submitted": "After sending the form to the funder, mark it submitted here to stop repeat eligibility nudges.",
+    "record final outcome": "When the funder replies, record awarded, rejected, shortlisted, or withdrawn.",
   };
 
   if (tasks.length === 0) return null;
@@ -91,13 +101,12 @@ export function ApplicationTaskList({ applicationId, grantId, tasks }: Applicati
           <div className="space-y-1">
             <p className="font-medium">These are tasks for you, not the AI.</p>
             <p>
-              While our AI handles the form filling automatically, we recommend you complete these
-              preparation steps to improve your chances of success. Tick each item off as you go
-              &mdash; this is <span className="font-medium">optional but strongly advised</span>.
+              Use this checklist to qualify the grant, prepare your documents, submit on the funder site,
+              and track the outcome. Tick each item off as you go &mdash; this is{" "}
+              <span className="font-medium">optional but strongly advised</span>.
             </p>
             <p>
-              Use the links below to open the grant page, your profile documents, or the submit section.
-              Your application keeps running in the background &mdash; you are not stuck on this page.
+              The links below open the grant page, Founder Pack, submit checklist, or outcome form.
             </p>
           </div>
         </div>
@@ -111,7 +120,7 @@ export function ApplicationTaskList({ applicationId, grantId, tasks }: Applicati
         <ul className="space-y-3">
           {tasks.map((task) => {
             const isDone = task.status === "done";
-            const related = taskRelatedHref(task.name, grantId, applicationId);
+            const related = taskRelatedHref(task.name, task.slug, grantId, applicationId);
             return (
               <li
                 key={task.id}

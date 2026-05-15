@@ -9,7 +9,6 @@ import {
   CreditCard,
   Database,
   FileText,
-  Gauge,
   LayoutDashboard,
   Menu,
   MessageSquareReply,
@@ -34,8 +33,7 @@ const primaryNavItems = [
   { href: "/applications/outcomes", label: "Outcome feedback", icon: MessageSquareReply },
   { href: "/profile", label: "My Profile", icon: UserRound },
   { href: "/profile", label: "Data Vault", icon: Database },
-  { href: "/dashboard", label: "Activity", icon: Gauge },
-  { href: "/intelligence", label: "Analytics", icon: BarChart3 },
+  { href: "/intelligence", label: "Intelligence", icon: BarChart3 },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -45,7 +43,7 @@ const secondaryNavItems = [
 ];
 
 function isActive(pathname: string, href: string, label: string): boolean {
-  if (label === "Data Vault" || label === "Activity") return false;
+  if (label === "Data Vault") return false;
   if (href === "/dashboard") return pathname === href;
   if (href === "/applications/outcomes") {
     return pathname === href || pathname.startsWith(`${href}/`);

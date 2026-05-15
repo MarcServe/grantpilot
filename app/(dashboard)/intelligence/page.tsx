@@ -8,7 +8,7 @@ import { EligibilityNotificationPreferences } from "@/components/profile/eligibi
 import {
   Brain,
   FileSearch,
-  Send,
+  ClipboardCheck,
   Scale,
   Network,
   ArrowRight,
@@ -75,8 +75,8 @@ export default async function IntelligencePage() {
       <div className="mb-8">
         <h1 className="text-2xl font-bold">Grants-Copilot Intelligence</h1>
         <p className="mt-1 text-muted-foreground">
-          Vertical depth that general assistants can&apos;t replicate: structured form intelligence,
-          portal automation, eligibility decisions, and grant knowledge.
+          Vertical depth that general assistants can&apos;t replicate: company DNA, eligibility decisions,
+          preparation documents, grant knowledge, and outcome learning.
         </p>
       </div>
 
@@ -90,8 +90,8 @@ export default async function IntelligencePage() {
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              We parse grant forms and map your profile to fields automatically — no manual copy-paste.
-              Required attachments (videos, documents) are detected and matched to your uploads.
+              We map grant requirements against your profile and documents so you can prepare answers,
+              check evidence gaps, and apply on the funder site with fewer surprises.
             </p>
             {fieldCount > 0 && (
               <p className="text-xs text-muted-foreground">
@@ -109,18 +109,18 @@ export default async function IntelligencePage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <Send className="h-5 w-5" />
-              Portal submission automation
+              <ClipboardCheck className="h-5 w-5" />
+              Preparation workflow
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              One flow: we open the funder&apos;s portal, fill company and financial data, upload
-              documents, then pause for your review before final submit. No switching tabs.
+              Track each grant from eligibility review to prep documents, funder-site submission,
+              submitted status, and final outcome feedback.
             </p>
             <Link href="/grants">
               <Button variant="outline" size="sm" className="gap-1">
-                Start an application <ArrowRight className="h-3 w-3" />
+                Open grants <ArrowRight className="h-3 w-3" />
               </Button>
             </Link>
           </CardContent>

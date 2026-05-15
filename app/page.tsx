@@ -49,8 +49,7 @@ const menuItems = [
   { label: "Applications", icon: FileText },
   { label: "My Profile", icon: Users },
   { label: "Data Vault", icon: Database },
-  { label: "Activity", icon: Gauge },
-  { label: "Analytics", icon: BarChart3 },
+  { label: "Intelligence", icon: BarChart3 },
   { label: "Settings", icon: Settings },
 ];
 

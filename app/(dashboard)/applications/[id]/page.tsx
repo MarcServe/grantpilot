@@ -126,9 +126,9 @@ export default async function ApplicationDetailPage({
     session != null &&
     ["PENDING", "FILLING", "NEEDS_INPUT"].includes(String(displayStatus)) &&
     sessionStatus !== "unknown";
-  const canSubmit =
-    isComplete &&
-    (application.status === "FILLING" || application.status === "REVIEW_REQUIRED");
+  const canMarkSubmitted =
+    ["REVIEW_REQUIRED", "APPROVED"].includes(application.status) ||
+    (isComplete && application.status === "FILLING");
 
   const filledSnapshot = (application as {
     filled_snapshot?: {
@@ -554,7 +554,7 @@ export default async function ApplicationDetailPage({
         </div>
       )}
 
-      {canSubmit && (
+      {canMarkSubmitted && (
         <>
           <Separator className="my-6" />
           <SubmitSection applicationId={application.id} />
