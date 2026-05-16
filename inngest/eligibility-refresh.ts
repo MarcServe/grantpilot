@@ -488,5 +488,10 @@ export const eligibilityRefresh = inngest.createFunction(
 export const eligibilityRefreshRequested = inngest.createFunction(
   { id: "eligibility-refresh-requested", name: "Eligibility refresh on demand" },
   { event: "eligibility/refresh.requested" },
-  async () => runEligibilityRefreshJob()
+  async ({ event }) => {
+    const orgId = typeof event.data?.orgId === "string" ? event.data.orgId.trim() : "";
+    return runEligibilityRefreshJob(
+      orgId ? { orgIdsFilter: new Set([orgId]) } : undefined
+    );
+  }
 );

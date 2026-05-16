@@ -177,7 +177,7 @@ export function GrantsListClient({
 
   return (
     <div className="min-w-0">
-      <div className="mb-6 flex flex-wrap items-center gap-3 gap-y-2">
+      <div className="mb-6 flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center">
         <p className="text-sm text-muted-foreground">
           {filteredGrants.length} grant{filteredGrants.length !== 1 ? "s" : ""}
           {totalPages > 1 && ` \u00b7 Page ${safePage} of ${totalPages}`}
@@ -187,7 +187,7 @@ export function GrantsListClient({
           name="regionFilter"
           value={regionFilter}
           onChange={(e) => { setRegionFilter(e.target.value); setCurrentPage(1); }}
-          className="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+          className="min-w-0 rounded-md border border-input bg-background px-3 py-1.5 text-sm"
           aria-label="Filter by region"
         >
           {REGION_OPTIONS.map((o) => (
@@ -200,7 +200,7 @@ export function GrantsListClient({
             name="funderFilter"
             value={funderFilter}
             onChange={(e) => { setFunderFilter(e.target.value); setCurrentPage(1); }}
-            className="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+            className="min-w-0 rounded-md border border-input bg-background px-3 py-1.5 text-sm"
             aria-label="Filter by funder"
           >
             <option value="">All funders</option>
@@ -216,7 +216,7 @@ export function GrantsListClient({
           name="pageSize"
           value={pageSize}
           onChange={(e) => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
-          className="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+          className="min-w-0 rounded-md border border-input bg-background px-3 py-1.5 text-sm"
           aria-label="Grants per page"
         >
           {PAGE_SIZE_OPTIONS.map((n) => (
@@ -285,7 +285,7 @@ export function GrantsListClient({
       </div>
 
       {totalPages > 1 && (
-        <nav className="mt-8 flex items-center justify-center gap-2">
+        <nav className="mt-8 flex flex-wrap items-center justify-center gap-2">
           <Button
             variant="outline"
             size="sm"

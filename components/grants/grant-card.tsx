@@ -61,18 +61,18 @@ export function GrantCard({
   const scoreLabel = scoringSource === "heuristic" ? "Prelim" : "Match";
   const sourceLabel = grantFinderLabel(source);
   return (
-    <Card className="transition-shadow hover:shadow-md">
+    <Card className="min-w-0 transition-shadow hover:shadow-md">
       <CardHeader className="pb-3">
-        <div className="flex items-start justify-between gap-2">
+        <div className="flex min-w-0 flex-col gap-3 min-[420px]:flex-row min-[420px]:items-start min-[420px]:justify-between">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5">
-              <CardTitle className="text-lg">{name}</CardTitle>
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+              <CardTitle className="min-w-0 break-words text-lg leading-snug">{name}</CardTitle>
               {urlStatus && urlStatus !== "unknown" && (
                 <UrlStatusBadge status={urlStatus} checkedAt={urlCheckedAt} compact />
               )}
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm text-muted-foreground">
-              <span className="flex items-center gap-1">
+              <span className="flex min-w-0 items-center gap-1 break-words">
                 <Building2 className="h-3.5 w-3.5 shrink-0" />
                 {funder}
               </span>
@@ -83,7 +83,7 @@ export function GrantCard({
               )}
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="flex shrink-0 items-center gap-1 self-start">
             {onToggleSave && (
               <Button
                 type="button"

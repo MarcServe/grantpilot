@@ -45,10 +45,10 @@ export default async function DashboardLayout({
 
       <div className="min-w-0 lg:pl-[250px]">
         <header className="sticky top-0 z-30 border-b border-[#dfe8f5] bg-white/90 backdrop-blur-xl">
-          <div className="mx-auto flex h-20 max-w-[1280px] items-center justify-between px-5 sm:px-7 lg:px-8">
-            <div className="flex items-center gap-3">
+          <div className="mx-auto flex h-20 max-w-[1280px] items-center justify-between gap-2 px-3 sm:px-7 lg:px-8">
+            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
               <DashboardNav profileStrength={profileStrength} placement="header" />
-              <Link href="/dashboard" className="flex items-center gap-2 lg:hidden">
+              <Link href="/dashboard" className="flex min-w-0 items-center gap-2 lg:hidden">
                 <Image
                   src="/logogc.png"
                   alt=""
@@ -57,7 +57,7 @@ export default async function DashboardLayout({
                   className="h-10 w-10 object-contain"
                   priority
                 />
-                <span className="text-lg font-black">
+                <span className="hidden truncate text-lg font-black min-[390px]:inline">
                   Grants<span className="text-[#2468e8]">Copilot</span>
                 </span>
               </Link>
@@ -71,10 +71,10 @@ export default async function DashboardLayout({
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex shrink-0 items-center gap-2 sm:gap-3">
               <button
                 type="button"
-                className="flex h-10 w-10 items-center justify-center rounded-full border border-[#dce6f4] bg-white text-[#071a3a] shadow-sm"
+                className="hidden h-10 w-10 items-center justify-center rounded-full border border-[#dce6f4] bg-white text-[#071a3a] shadow-sm min-[360px]:flex"
                 aria-label="Notifications"
               >
                 <Bell className="h-5 w-5" />
@@ -84,7 +84,7 @@ export default async function DashboardLayout({
           </div>
         </header>
 
-        <main className="mx-auto w-full min-w-0 max-w-[1280px] px-5 py-7 sm:px-7 lg:px-8">{children}</main>
+        <main className="mx-auto w-full min-w-0 max-w-[1280px] px-3 py-5 sm:px-7 sm:py-7 lg:px-8">{children}</main>
       </div>
     </div>
   );

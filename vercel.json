@@ -10,6 +10,14 @@
       "schedule": "30 6 * * *"
     },
     {
+      "path": "/api/cron/grant-source-crawler",
+      "schedule": "15 */6 * * *"
+    },
+    {
+      "path": "/api/cron/grant-discovery-queue",
+      "schedule": "45 */6 * * *"
+    },
+    {
       "path": "/api/cron/eligibility-refresh",
       "schedule": "0 7 * * *"
     }

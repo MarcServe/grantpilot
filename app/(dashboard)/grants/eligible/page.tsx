@@ -23,7 +23,7 @@ export default async function EligibleGrantsPage() {
 
   if (!profile || !profileId) {
     return (
-      <div className="mx-auto max-w-4xl p-6">
+      <div className="mx-auto max-w-4xl px-4 py-6 sm:p-6">
         <Link
           href="/dashboard"
           className="mb-6 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
@@ -159,7 +159,7 @@ export default async function EligibleGrantsPage() {
   const lastUpdated = assessments[0]?.updated_at;
 
   return (
-    <div className="mx-auto max-w-4xl p-6">
+    <div className="mx-auto max-w-4xl px-4 py-6 sm:p-6">
       <Link
         href="/dashboard"
         className="mb-6 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
@@ -204,7 +204,7 @@ export default async function EligibleGrantsPage() {
               The eligibility pipeline runs daily at 8:30 AM in your timezone.
               Make sure your profile is at least 50% complete to start receiving matches.
             </p>
-            <div className="mt-4 flex gap-2">
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
               <Link href="/profile">
                 <Button variant="outline" size="sm">Complete Profile</Button>
               </Link>

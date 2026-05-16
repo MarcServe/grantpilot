@@ -1,5 +1,5 @@
 /**
- * Multi-source grant discovery: OpenAI web search first, Perplexity and Gemini as additional finders;
+ * Multi-source grant discovery: OpenAI web search first, Perplexity, Claude, and Gemini as additional finders;
  * validate every URL before upserting. Regardless of finder source, customer-facing
  * matching and notifications flow through the OpenAI eligibility checker.
  */
@@ -7,6 +7,7 @@
 import type { DiscoveryProfile } from "./grants-discovery-types";
 import { discoverGrantsWithOpenAI } from "./grants-discovery-openai";
 import { discoverGrantsWithPerplexity } from "./grants-discovery-perplexity";
+import { discoverGrantsWithClaude } from "./grants-discovery-claude";
 import { discoverGrantsWithGemini } from "./grants-discovery-gemini";
 import { upsertGrant, type GrantInput } from "./grants-ingest";
 import { checkUrlHealth } from "./url-health-check";
@@ -60,7 +61,7 @@ async function isLoginWalled(url: string): Promise<boolean> {
 }
 
 /**
- * Run OpenAI (web search), Perplexity, and Gemini in parallel.
+ * Run OpenAI (web search), Perplexity, Claude, and Gemini in parallel.
  * Merge, dedupe, validate URLs, then upsert only verified grants.
  */
 export async function runDiscoveryAndUpsert(profile: DiscoveryProfile): Promise<{
@@ -78,18 +79,18 @@ export async function runDiscoveryAndUpsert(profile: DiscoveryProfile): Promise<
       return [] as T[];
     });
 
-  const [openaiGrants, perplexityGrants, geminiGrants] = await Promise.all([
+  const [openaiGrants, perplexityGrants, claudeGrants, geminiGrants] = await Promise.all([
     safe(() => discoverGrantsWithOpenAI(profile), "openai"),
     safe(() => discoverGrantsWithPerplexity(profile), "perplexity"),
+    safe(() => discoverGrantsWithClaude(profile), "claude"),
     safe(() => discoverGrantsWithGemini(profile), "gemini"),
   ]);
-  const claudeGrants: GrantInput[] = [];
 
   console.log(
-    `[grants-discovery] raw results: openai=${openaiGrants.length}, perplexity=${perplexityGrants.length}, gemini=${geminiGrants.length}`
+    `[grants-discovery] raw results: openai=${openaiGrants.length}, perplexity=${perplexityGrants.length}, claude=${claudeGrants.length}, gemini=${geminiGrants.length}`
   );
 
-  // Prefer OpenAI > Perplexity (web-grounded) > Gemini when sources find the same grant.
+  // Prefer OpenAI > Perplexity > Claude > Gemini when sources find the same grant.
   // All source rows later flow through OpenAI eligibility scoring before becoming trusted matches.
   const byKey = new Map<string, GrantInput>();
   for (const g of openaiGrants) {

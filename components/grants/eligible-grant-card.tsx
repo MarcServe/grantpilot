@@ -65,16 +65,16 @@ export function EligibleGrantCard({ grant }: { grant: EligibleGrant }) {
   const uniqueActions = [...new Set(actions)].slice(0, 3);
 
   return (
-    <div className="flex flex-col gap-2 rounded-lg border p-4 transition-colors hover:bg-muted/50">
-      <div className="flex items-start justify-between gap-3">
+    <div className="min-w-0 rounded-lg border p-4 transition-colors hover:bg-muted/50">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
           <Link
             href={`/grants/${grant.grantId}`}
-            className="font-medium text-foreground hover:underline"
+            className="break-words font-medium text-foreground hover:underline"
           >
             {grant.grantName}
           </Link>
-          <p className="mt-0.5 text-sm text-muted-foreground">
+          <p className="mt-0.5 break-words text-sm text-muted-foreground">
             {grant.funder}
             {addedAt && (
               <>
@@ -114,7 +114,7 @@ export function EligibleGrantCard({ grant }: { grant: EligibleGrant }) {
         </div>
       )}
 
-      <div className="flex items-center gap-2 pt-1">
+      <div className="mt-2 flex flex-wrap items-center gap-2 pt-1">
         <Link href={`/grants/${grant.grantId}`}>
           <Button variant="outline" size="sm" className="gap-1.5">
             <FileText className="h-3.5 w-3.5" />

@@ -138,7 +138,7 @@ export function DashboardNav({
             <Menu className="h-5 w-5" />
           </Button>
         </SheetTrigger>
-        <SheetContent side="left" className="w-[300px] bg-white sm:max-w-[300px]">
+        <SheetContent side="left" className="w-[min(300px,calc(100vw-1rem))] bg-white sm:max-w-[300px]">
           <SheetHeader>
             <SheetTitle className="text-left text-xl font-black text-[#071a3a]">
               Grants<span className="text-[#2468e8]">Copilot</span>

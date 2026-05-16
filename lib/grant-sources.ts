@@ -22,6 +22,15 @@ export interface GrantSourceRow {
   adapter: string | null;
 }
 
+export interface GrantSourceRunResult {
+  sourceId: string;
+  sourceName: string;
+  synced: number;
+  created: number;
+  updated: number;
+  error?: string;
+}
+
 const CRAWL_INTERVAL_SQL: Record<string, string> = {
   "6h": "6 hours",
   "24h": "24 hours",
@@ -37,7 +46,9 @@ export async function getDueGrantSources(): Promise<GrantSourceRow[]> {
   const { data, error } = await supabase
     .from("grant_sources")
     .select("id, source_name, country, type, endpoint, crawl_frequency, enabled, last_crawled_at, last_content_hash, adapter")
-    .eq("enabled", true);
+    .eq("enabled", true)
+    .order("last_crawled_at", { ascending: true, nullsFirst: true })
+    .order("source_name", { ascending: true });
 
   if (error) throw new Error(`grant_sources query failed: ${error.message}`);
   if (!data?.length) return [];
@@ -185,4 +196,71 @@ export async function runSourceAndUpsert(source: GrantSourceRow): Promise<{
   }
   await updateLastCrawled(source.id, contentHash ?? undefined);
   return { synced: grants.length, created, updated };
+}
+
+/**
+ * Run due registry sources with per-source isolation. Failed sources are marked
+ * attempted so one bad portal/feed cannot starve the rest of the registry.
+ */
+export async function runDueGrantSources(options?: { limit?: number }): Promise<{
+  dueCount: number;
+  attempted: number;
+  synced: number;
+  created: number;
+  updated: number;
+  failed: number;
+  results: GrantSourceRunResult[];
+}> {
+  const due = await getDueGrantSources();
+  const limit = options?.limit;
+  const selected = typeof limit === "number" && Number.isFinite(limit) && limit > 0
+    ? due.slice(0, Math.floor(limit))
+    : due;
+  const results: GrantSourceRunResult[] = [];
+
+  let synced = 0;
+  let created = 0;
+  let updated = 0;
+  let failed = 0;
+
+  for (const source of selected) {
+    try {
+      const result = await runSourceAndUpsert(source);
+      synced += result.synced;
+      created += result.created;
+      updated += result.updated;
+      results.push({
+        sourceId: source.id,
+        sourceName: source.source_name,
+        synced: result.synced,
+        created: result.created,
+        updated: result.updated,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      failed++;
+      console.error(`[grant-source-crawler] ${source.source_name} (${source.id}):`, err);
+      await updateLastCrawled(source.id).catch((updateErr) => {
+        console.error(`[grant-source-crawler] failed to mark attempted ${source.id}:`, updateErr);
+      });
+      results.push({
+        sourceId: source.id,
+        sourceName: source.source_name,
+        synced: 0,
+        created: 0,
+        updated: 0,
+        error: message,
+      });
+    }
+  }
+
+  return {
+    dueCount: due.length,
+    attempted: selected.length,
+    synced,
+    created,
+    updated,
+    failed,
+    results,
+  };
 }

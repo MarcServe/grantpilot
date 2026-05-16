@@ -115,8 +115,8 @@ export function GrantComposer() {
           format, then you review and publish it after URL verification.
         </p>
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)]">
-          <div className="space-y-4">
+        <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)]">
+          <div className="min-w-0 space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="composer-url">Source URL</Label>
               <Input
@@ -152,14 +152,14 @@ export function GrantComposer() {
             </Button>
           </div>
 
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             {!draft ? (
               <div className="rounded-lg border border-dashed p-5 text-sm text-muted-foreground">
                 Generated grant drafts appear here for review before publishing.
               </div>
             ) : (
               <div className="space-y-3 rounded-lg border p-4">
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <p className="font-medium">Review draft</p>
                   <Badge variant="outline">Source: admin</Badge>
                 </div>
@@ -228,7 +228,7 @@ export function GrantComposer() {
             )}
 
             {result && (
-              <div className="rounded-md border border-green-500/50 bg-green-500/10 p-3 text-sm text-green-800">
+              <div className="break-words rounded-md border border-green-500/50 bg-green-500/10 p-3 text-sm text-green-800">
                 {result.created ? "Created" : "Updated"} grant <strong>{result.grantId}</strong>
                 {result.health && <>. URL status: {result.health.status} ({result.health.reason})</>}.
               </div>

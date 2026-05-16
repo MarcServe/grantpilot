@@ -36,7 +36,7 @@ export default async function SettingsPage() {
   const whatsappOptIn = Boolean(userRow.whatsappOptIn ?? userRow.whatsapp_opt_in);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 p-6">
+    <div className="mx-auto max-w-4xl space-y-6 px-4 py-6 sm:p-6">
       <div>
         <h1 className="text-2xl font-bold">Settings</h1>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -93,8 +93,8 @@ export default async function SettingsPage() {
       </Card>
 
       <details className="group rounded-lg border bg-card text-card-foreground shadow-sm">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-6">
-          <span>
+        <summary className="flex cursor-pointer list-none items-start justify-between gap-3 p-4 sm:p-6">
+          <span className="min-w-0">
             <span className="flex items-center gap-2 text-base font-semibold">
               <LockKeyhole className="h-4 w-4" />
               Version 2 portal automation
@@ -105,7 +105,7 @@ export default async function SettingsPage() {
           </span>
           <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" />
         </summary>
-        <div className="px-6 pb-6">
+        <div className="px-4 pb-4 sm:px-6 sm:pb-6">
           <PortalCredentialsManager />
         </div>
       </details>
@@ -117,7 +117,7 @@ function SettingRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md border bg-muted/30 p-3">
       <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="mt-1 font-medium text-foreground">{value}</p>
+      <p className="mt-1 break-words font-medium text-foreground">{value}</p>
     </div>
   );
 }

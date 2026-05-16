@@ -50,7 +50,7 @@ export function UserNav() {
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
-          className="h-11 gap-2 rounded-full border border-[#dce6f4] bg-white px-2.5 pr-3 text-[#071a3a] shadow-sm hover:bg-[#f5f9ff]"
+          className="h-11 gap-2 rounded-full border border-[#dce6f4] bg-white px-1.5 text-[#071a3a] shadow-sm hover:bg-[#f5f9ff] sm:px-2.5 sm:pr-3"
         >
           <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[linear-gradient(135deg,#2468e8,#35c386)] text-xs font-black text-white">
             {initials}

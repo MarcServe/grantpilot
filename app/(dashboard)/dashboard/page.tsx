@@ -258,14 +258,14 @@ export default async function DashboardPage() {
   }
 
   return (
-    <div className="space-y-7">
+    <div className="min-w-0 space-y-6 sm:space-y-7">
       <OutcomeFeedbackBanner pending={pendingOutcomes} />
       <section className="overflow-hidden rounded-[26px] bg-white shadow-[0_24px_70px_rgba(7,26,58,0.08)]">
         <div className="grid min-w-0 gap-0 xl:grid-cols-[minmax(0,1fr)_360px]">
-          <div className="@container/main min-w-0 p-6 sm:p-8">
+          <div className="@container/main min-w-0 p-4 sm:p-8">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <h1 className="text-[32px] font-black leading-tight tracking-normal text-[#071a3a]">
+                <h1 className="break-words text-[28px] font-black leading-tight tracking-normal text-[#071a3a] sm:text-[32px]">
                   Welcome back,
                   <br className="hidden sm:block" /> {displayName}! 👋
                 </h1>
@@ -317,8 +317,8 @@ export default async function DashboardPage() {
             </div>
 
             <div className="mt-5 grid min-w-0 grid-cols-1 gap-5 @min-[680px]/main:grid-cols-2">
-              <div className="min-w-0 rounded-2xl border border-[#e7edf6] bg-white p-5 shadow-[0_14px_36px_rgba(7,26,58,0.06)]">
-                <div className="flex items-center justify-between">
+              <div className="min-w-0 rounded-2xl border border-[#e7edf6] bg-white p-4 shadow-[0_14px_36px_rgba(7,26,58,0.06)] sm:p-5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <h2 className="text-lg font-black text-[#071a3a]">Top Matched Opportunities</h2>
                   <Link href="/grants/eligible" className="text-sm font-extrabold text-[#2167e8]">
                     View all
@@ -330,7 +330,7 @@ export default async function DashboardPage() {
                       <Link
                         key={grant.grantId}
                         href={`/grants/${grant.grantId}`}
-                        className="flex items-center gap-3 py-4"
+                        className="flex min-w-0 items-center gap-3 py-4"
                       >
                         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#edf5ff] text-[#2167e8]">
                           <FileText className="h-5 w-5" />
@@ -346,7 +346,7 @@ export default async function DashboardPage() {
                               : ""}
                           </span>
                         </span>
-                        <span className="rounded-lg bg-[#dff8ed] px-3 py-2 text-center text-xs font-black leading-none text-[#087f59]">
+                        <span className="shrink-0 rounded-lg bg-[#dff8ed] px-2.5 py-2 text-center text-xs font-black leading-none text-[#087f59] sm:px-3">
                           {grant.score}%
                           <br />
                           <span className="text-[10px]">Match</span>
@@ -369,10 +369,10 @@ export default async function DashboardPage() {
                 </div>
               </div>
 
-              <div className="@container/progress min-w-0 rounded-2xl border border-[#e7edf6] bg-white p-5 shadow-[0_14px_36px_rgba(7,26,58,0.06)]">
+              <div className="@container/progress min-w-0 rounded-2xl border border-[#e7edf6] bg-white p-4 shadow-[0_14px_36px_rgba(7,26,58,0.06)] sm:p-5">
                 <h2 className="text-lg font-black text-[#071a3a]">Application Progress</h2>
                 <div className="mt-6 flex flex-col items-center gap-6 @min-[320px]/progress:flex-row @min-[320px]/progress:flex-wrap @min-[320px]/progress:justify-center">
-                  <div className="grid h-40 w-40 shrink-0 place-items-center rounded-full bg-[conic-gradient(#2167e8_0_42%,#35c386_42%_73%,#4bc7ad_73%_100%)]">
+                  <div className="grid h-36 w-36 shrink-0 place-items-center rounded-full bg-[conic-gradient(#2167e8_0_42%,#35c386_42%_73%,#4bc7ad_73%_100%)] sm:h-40 sm:w-40">
                     <div className="grid h-24 w-24 place-items-center rounded-full bg-white text-center shadow-inner">
                       <div>
                         <p className="text-3xl font-black leading-none text-[#071a3a]">{activeCount}</p>
@@ -389,7 +389,7 @@ export default async function DashboardPage() {
               </div>
             </div>
 
-            <div className="mt-5 flex flex-col gap-5 rounded-2xl bg-[#e7f1ff] p-6 sm:flex-row sm:items-center sm:justify-between">
+            <div className="mt-5 flex flex-col gap-5 rounded-2xl bg-[#e7f1ff] p-4 sm:flex-row sm:items-center sm:justify-between sm:p-6">
               <div>
                 <p className="text-xl font-black leading-snug text-[#071a3a]">
                   Save time. Increase success.
@@ -405,7 +405,7 @@ export default async function DashboardPage() {
             </div>
           </div>
 
-          <div className="min-w-0 border-t border-[#e7edf6] bg-[linear-gradient(180deg,#eef6ff,#ffffff)] p-6 xl:border-l xl:border-t-0">
+          <div className="min-w-0 border-t border-[#e7edf6] bg-[linear-gradient(180deg,#eef6ff,#ffffff)] p-4 sm:p-6 xl:border-l xl:border-t-0">
             <div className="rounded-2xl border border-[#dbe7f6] bg-white p-5 shadow-[0_14px_36px_rgba(7,26,58,0.06)]">
               <div className="flex items-center justify-between">
                 <div>
@@ -493,9 +493,9 @@ export default async function DashboardPage() {
                     <li key={g.grantId}>
                       <Link
                         href={`/grants/${g.grantId}`}
-                        className="flex items-center justify-between rounded-md p-2 hover:bg-muted"
+                        className="flex min-w-0 flex-col gap-2 rounded-md p-2 hover:bg-muted min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between"
                       >
-                        <span className="font-medium">{g.grantName}</span>
+                        <span className="min-w-0 break-words font-medium">{g.grantName}</span>
                         <Badge variant="default">{g.score}%</Badge>
                       </Link>
                     </li>
@@ -524,9 +524,9 @@ export default async function DashboardPage() {
                     <li key={g.grantId}>
                       <Link
                         href={`/grants/${g.grantId}`}
-                        className="flex items-center justify-between rounded-md p-2 hover:bg-muted"
+                        className="flex min-w-0 flex-col gap-2 rounded-md p-2 hover:bg-muted min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between"
                       >
-                        <span className="font-medium">{g.grantName}</span>
+                        <span className="min-w-0 break-words font-medium">{g.grantName}</span>
                         <Badge variant="secondary">{g.score}%</Badge>
                       </Link>
                     </li>
@@ -558,7 +558,7 @@ export default async function DashboardPage() {
                 <li key={g.grantId}>
                   <Link
                     href={`/grants/${g.grantId}`}
-                    className="flex items-center justify-between rounded-md p-2 hover:bg-muted"
+                    className="flex min-w-0 flex-col gap-2 rounded-md p-2 hover:bg-muted min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between"
                   >
                     <span className="min-w-0">
                       <span className="block truncate font-medium">{g.grantName}</span>

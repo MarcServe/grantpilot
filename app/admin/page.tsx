@@ -47,29 +47,29 @@ export default async function AdminPage() {
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b bg-white">
-        <div className="mx-auto flex h-24 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-          <Link href="/admin" className="flex items-center gap-2">
+        <div className="mx-auto flex h-20 max-w-7xl items-center justify-between gap-3 px-4 sm:h-24 sm:px-6 lg:px-8">
+          <Link href="/admin" className="flex min-w-0 items-center gap-2">
             <div className="relative flex items-center">
               <Image 
                 src="/logogc.png" 
                 alt="GrantsCopilot Logo" 
                 width={480} 
                 height={120} 
-                className="h-20 w-auto object-contain"
+                className="h-12 w-auto object-contain sm:h-20"
                 priority
               />
             </div>
             <span className="text-xl font-bold">Admin</span>
           </Link>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">{user.email}</span>
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="hidden max-w-[220px] truncate text-sm text-muted-foreground sm:inline">{user.email}</span>
             <Link href="/dashboard">
               <Button variant="ghost" size="sm">Dashboard</Button>
             </Link>
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-7xl space-y-6 p-6">
+      <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:p-6">
         <div className="mb-8">
           <h1 className="text-2xl font-bold">Admin</h1>
           <p className="mt-1 text-muted-foreground">
