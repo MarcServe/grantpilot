@@ -8,6 +8,12 @@ import { toast } from "sonner";
 const PAGE_SIZE_OPTIONS = [15, 30, 50, 100, 200, 500, 1000] as const;
 const DEFAULT_PAGE_SIZE = 30;
 
+const SORT_OPTIONS = [
+  { value: "newest", label: "Newest first" },
+  { value: "recommended", label: "Recommended for you" },
+  { value: "deadline", label: "Deadline soonest" },
+] as const;
+
 const REGION_OPTIONS = [
   { value: "", label: "All regions" },
   { value: "UK", label: "UK" },
@@ -60,8 +66,21 @@ function matchesFunderLocations(
   userFL: string[]
 ): boolean {
   if (userFL.length === 0) return true;
-  if (grantFL.length === 0) return false;
+  if (grantFL.length === 0) return true;
+  if (grantFL.includes("Global")) return true;
   return grantFL.some((r) => userFL.includes(r));
+}
+
+function timeValue(value?: string | null): number {
+  if (!value) return 0;
+  const n = new Date(value).getTime();
+  return Number.isFinite(n) ? n : 0;
+}
+
+function deadlineValue(value?: string | null): number {
+  if (!value) return Number.MAX_SAFE_INTEGER;
+  const n = new Date(value).getTime();
+  return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER;
 }
 
 function generatePageNumbers(current: number, total: number): (number | "...")[] {
@@ -85,6 +104,7 @@ export function GrantsListClient({
   savedGrantIds = [],
 }: GrantsListClientProps) {
   const [savedSet, setSavedSet] = useState<Set<string>>(() => new Set(savedGrantIds));
+  const [sortMode, setSortMode] = useState<(typeof SORT_OPTIONS)[number]["value"]>("newest");
   const [funderFilter, setFunderFilter] = useState<string>("");
   const [regionFilter, setRegionFilter] = useState<string>("");
   const [hideExpired, setHideExpired] = useState(true);
@@ -156,15 +176,24 @@ export function GrantsListClient({
       result = result.filter((g) => g.funder === funderFilter);
     }
 
-    // Always sort by cached score if available
     result = [...result].sort((a, b) => {
       const scoreA = cachedScores[a.id]?.score ?? 0;
       const scoreB = cachedScores[b.id]?.score ?? 0;
-      return scoreB - scoreA;
+      const newestDiff = timeValue(b.createdAt) - timeValue(a.createdAt);
+
+      if (sortMode === "recommended") {
+        return scoreB - scoreA || newestDiff;
+      }
+
+      if (sortMode === "deadline") {
+        return deadlineValue(a.deadline) - deadlineValue(b.deadline) || newestDiff;
+      }
+
+      return newestDiff || scoreB - scoreA;
     });
 
     return result;
-  }, [grants, regionFilter, funderFilter, cachedScores, userFunderLocations, hideExpired, hideBroken, savedSet]);
+  }, [grants, regionFilter, funderFilter, cachedScores, userFunderLocations, hideExpired, hideBroken, savedSet, sortMode]);
 
   const totalPages = Math.max(1, Math.ceil(filteredGrants.length / pageSize));
   const safePage = Math.min(currentPage, totalPages);
@@ -180,6 +209,18 @@ export function GrantsListClient({
           {filteredGrants.length} grant{filteredGrants.length !== 1 ? "s" : ""}
           {totalPages > 1 && ` \u00b7 Page ${safePage} of ${totalPages}`}
         </p>
+        <select
+          id="grants-sort"
+          name="sortMode"
+          value={sortMode}
+          onChange={(e) => { setSortMode(e.target.value as typeof sortMode); setCurrentPage(1); }}
+          className="min-w-0 rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+          aria-label="Sort grants"
+        >
+          {SORT_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
         <select
           id="grants-region-filter"
           name="regionFilter"

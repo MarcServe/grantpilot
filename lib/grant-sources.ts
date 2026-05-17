@@ -76,6 +76,21 @@ function parseIntervalToMs(interval: string): number {
   return n * 60 * 60 * 1000;
 }
 
+function sourceRunPriority(source: GrantSourceRow): number {
+  const adapter = (source.adapter ?? source.type).toLowerCase();
+  if (adapter === "rss" || adapter === "feed" || adapter === "json") return 0;
+  if (["grants-gov", "grants_gov", "uk", "eu", "au", "australia", "ca", "canada", "nih", "us-nih"].includes(adapter)) {
+    return 1;
+  }
+  return 2;
+}
+
+function sourceLastCrawledTime(source: GrantSourceRow): number {
+  if (!source.last_crawled_at) return 0;
+  const time = new Date(source.last_crawled_at).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
 /**
  * Run the appropriate fetcher for a source and return grants. Does not upsert; caller does that.
  */
@@ -213,9 +228,14 @@ export async function runDueGrantSources(options?: { limit?: number }): Promise<
 }> {
   const due = await getDueGrantSources();
   const limit = options?.limit;
+  const prioritized = [...due].sort((a, b) =>
+    sourceRunPriority(a) - sourceRunPriority(b) ||
+    sourceLastCrawledTime(a) - sourceLastCrawledTime(b) ||
+    a.source_name.localeCompare(b.source_name)
+  );
   const selected = typeof limit === "number" && Number.isFinite(limit) && limit > 0
-    ? due.slice(0, Math.floor(limit))
-    : due;
+    ? prioritized.slice(0, Math.floor(limit))
+    : prioritized;
   const results: GrantSourceRunResult[] = [];
 
   let synced = 0;
