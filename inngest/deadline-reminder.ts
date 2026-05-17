@@ -14,10 +14,14 @@ function reminderMinScore(preferenceScore: number | undefined): number {
   return Math.max(preferenceScore ?? DEFAULT_DEADLINE_REMINDER_SCORE, MIN_DEADLINE_REMINDER_SCORE_FLOOR);
 }
 
-export const deadlineReminder = inngest.createFunction(
-  { id: "deadline-reminder", name: "Grant Deadline Reminder" },
-  { cron: "0 * * * *" }, // Every hour; send only when it's 9am in the org's timezone
-  async () => {
+/** Shared by Inngest hourly cron and GET /api/cron/deadline-reminder (Vercel Hobby daily fallback). */
+export async function runDeadlineReminderJob(): Promise<{
+  profilesWithScore50: number;
+  orgsWithProfile: number;
+  orgsAt9amLocal: number;
+  grantsByDay: Record<number, number>;
+  sent: number;
+}> {
     const supabase = getSupabaseAdmin();
     const now = new Date();
     const reminderDays = [7, 3, 1] as const;
@@ -164,5 +168,10 @@ export const deadlineReminder = inngest.createFunction(
       console.info("[deadline-reminder] No reminders sent; run output has diagnostics", diagnostics);
     }
     return { ...diagnostics };
-  }
+}
+
+export const deadlineReminder = inngest.createFunction(
+  { id: "deadline-reminder", name: "Grant Deadline Reminder" },
+  { cron: "0 * * * *" }, // Every hour; send only when it's 9am in the org's timezone
+  async () => runDeadlineReminderJob()
 );
