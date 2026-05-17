@@ -108,7 +108,7 @@ export default async function ApplicationsPage({
   ).length;
 
   return (
-    <div className="mx-auto max-w-7xl p-6">
+    <div className="mx-auto max-w-7xl min-w-0 px-4 py-6 sm:p-6">
       <div className="mb-8">
         <h1 className="text-2xl font-bold">Applications</h1>
         <p className="mt-1 text-muted-foreground">
@@ -192,7 +192,7 @@ export default async function ApplicationsPage({
               key={app.id}
               id={app.id}
               grantName={app.grant.name}
-              funder={app.grant.funder + (app.grant.amount != null ? ` — ${Number(app.grant.amount).toLocaleString("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 })}` : "")}
+              funder={app.grant.funder + (app.grant.amount != null ? ` - ${Number(app.grant.amount).toLocaleString("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 })}` : "")}
               displayStatus={app.displayStatus ?? app.status}
               createdAt={app.createdAt}
               needsOutcomeReminder={
