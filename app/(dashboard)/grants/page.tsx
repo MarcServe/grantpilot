@@ -7,6 +7,14 @@ import { isGrantLinkUsable } from "@/lib/grant-freshness";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { inferFunderLocationsFromProfile } from "@/lib/constants";
 
+function latestDate(values: (string | null)[]): string | null {
+  return values.reduce<string | null>((latest, value) => {
+    if (!value) return latest;
+    if (!latest) return value;
+    return new Date(value).getTime() > new Date(latest).getTime() ? value : latest;
+  }, null);
+}
+
 export default async function GrantsPage() {
   const { org, orgId } = await getActiveOrg();
   const supabase = getSupabaseAdmin();
@@ -16,13 +24,21 @@ export default async function GrantsPage() {
     .select("*")
     .order("createdAt", { ascending: false });
   const allGrants = Array.isArray(grantsData) ? grantsData.filter(isGrantLinkUsable) : [];
-  const latestGrantTimestamp = allGrants.reduce<string | null>((latest, grant) => {
+  const grantTimestamps = allGrants.map((grant) => {
     const raw = grant as { createdAt?: string; created_at?: string; updatedAt?: string; updated_at?: string };
-    const value = raw.updatedAt ?? raw.updated_at ?? raw.createdAt ?? raw.created_at ?? null;
-    if (!value) return latest;
-    if (!latest) return value;
-    return new Date(value).getTime() > new Date(latest).getTime() ? value : latest;
-  }, null);
+    return {
+      createdAt: raw.createdAt ?? raw.created_at ?? null,
+      refreshedAt: raw.updatedAt ?? raw.updated_at ?? raw.createdAt ?? raw.created_at ?? null,
+    };
+  });
+  const latestCreatedAt = latestDate(grantTimestamps.map((item) => item.createdAt));
+  const latestRefreshAt = latestDate(grantTimestamps.map((item) => item.refreshedAt));
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const startOfWeek = new Date();
+  startOfWeek.setDate(startOfWeek.getDate() - 7);
+  const newTodayCount = grantTimestamps.filter((item) => item.createdAt && new Date(item.createdAt) >= startOfToday).length;
+  const newThisWeekCount = grantTimestamps.filter((item) => item.createdAt && new Date(item.createdAt) >= startOfWeek).length;
 
   const profile = org.profiles?.[0];
   const hasProfile = !!profile;
@@ -70,14 +86,25 @@ export default async function GrantsPage() {
           <p className="mt-1 text-muted-foreground">
             Browse grants or use GrantsCopilot matching to find the best fit for your business.
           </p>
-          {latestGrantTimestamp && (
-            <p className="mt-1 text-xs font-medium text-muted-foreground">
-              Database last updated {new Date(latestGrantTimestamp).toLocaleString("en-GB", {
-                dateStyle: "medium",
-                timeStyle: "short",
-              })}
-            </p>
-          )}
+          <div className="mt-2 space-y-1 text-xs font-medium text-muted-foreground">
+            {latestCreatedAt && (
+              <p>
+                Latest new grant added {new Date(latestCreatedAt).toLocaleString("en-GB", {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                })}
+              </p>
+            )}
+            {latestRefreshAt && (
+              <p>
+                Source refresh last touched records {new Date(latestRefreshAt).toLocaleString("en-GB", {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                })}
+              </p>
+            )}
+            <p>{newTodayCount} new today - {newThisWeekCount} new in the last 7 days</p>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Link

@@ -20,6 +20,10 @@
     {
       "path": "/api/cron/eligibility-refresh",
       "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/deadline-reminder",
+      "schedule": "0 * * * *"
     }
   ]
 }

@@ -15,6 +15,23 @@ export type ApplicationNeedingOutcome = {
   outcomeRecorded: string | null;
 };
 
+export type RecordedOutcomeInsight = {
+  applicationId: string;
+  grantId: string;
+  grantName: string;
+  funder: string;
+  outcome: string;
+  reportedAt: string | null;
+  funderFeedback: string | null;
+  responseText: string | null;
+  userNotes: string | null;
+  summary: string;
+  strengths: string[];
+  weaknesses: string[];
+  nextActions: string[];
+  scoringAdjustment: number | null;
+};
+
 /** True when we still want the user to record or refine an outcome for fundraising intelligence */
 export function applicationNeedsOutcomeReminder(recordedOutcome: string | null | undefined): boolean {
   const v = recordedOutcome ?? null;
@@ -26,6 +43,51 @@ function grantNameFromRow(app: Record<string, unknown>): string {
   if (!g || typeof g !== "object") return "Grant";
   const row = g as Record<string, unknown>;
   return String(row.name ?? row.title ?? "Grant");
+}
+
+function grantFromOutcomeRow(row: Record<string, unknown>): { name: string; funder: string } {
+  const grant = Array.isArray(row.Grant) ? row.Grant[0] : row.Grant;
+  if (!grant || typeof grant !== "object") return { name: "Grant", funder: "Funder" };
+  const g = grant as Record<string, unknown>;
+  return {
+    name: String(g.name ?? "Grant"),
+    funder: String(g.funder ?? "Funder"),
+  };
+}
+
+function parseLearningNotes(value: unknown): {
+  userNotes: string | null;
+  insight?: {
+    summary?: unknown;
+    strengths?: unknown;
+    weaknesses?: unknown;
+    nextActions?: unknown;
+    scoringAdjustment?: unknown;
+  };
+} {
+  if (typeof value !== "string" || !value.trim()) return { userNotes: null };
+  try {
+    const parsed = JSON.parse(value) as {
+      userNotes?: string | null;
+      insight?: {
+        summary?: unknown;
+        strengths?: unknown;
+        weaknesses?: unknown;
+        nextActions?: unknown;
+        scoringAdjustment?: unknown;
+      };
+    };
+    return {
+      userNotes: parsed.userNotes ?? null,
+      insight: parsed.insight,
+    };
+  } catch {
+    return { userNotes: value };
+  }
+}
+
+function toStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String).map((item) => item.trim()).filter(Boolean) : [];
 }
 
 async function fetchSubmittedApplicationsForOrg(orgId: string): Promise<Record<string, unknown>[]> {
@@ -100,4 +162,43 @@ export async function fetchApplicationsNeedingOutcome(orgId: string): Promise<Ap
   }
 
   return result;
+}
+
+export async function fetchRecordedOutcomeInsights(orgId: string): Promise<RecordedOutcomeInsight[]> {
+  const supabase = getSupabaseAdmin();
+  const { data } = await supabase
+    .from("ApplicationOutcome")
+    .select("applicationId, grantId, outcome, funderFeedback, responseText, learningNotes, reportedAt, updatedAt, Grant(name, funder)")
+    .eq("organisationId", orgId)
+    .order("updatedAt", { ascending: false })
+    .limit(25);
+
+  return (data ?? []).map((row) => {
+    const item = row as Record<string, unknown>;
+    const grant = grantFromOutcomeRow(item);
+    const notes = parseLearningNotes(item.learningNotes);
+    const insight = notes.insight;
+    const fallbackSummary =
+      typeof item.funderFeedback === "string" && item.funderFeedback.trim()
+        ? item.funderFeedback.trim()
+        : "Outcome recorded. Future eligibility scoring can use this result as a funding signal.";
+    const scoringAdjustment = Number(insight?.scoringAdjustment);
+
+    return {
+      applicationId: String(item.applicationId ?? ""),
+      grantId: String(item.grantId ?? ""),
+      grantName: grant.name,
+      funder: grant.funder,
+      outcome: String(item.outcome ?? "unknown"),
+      reportedAt: (item.reportedAt ?? item.updatedAt ?? null) as string | null,
+      funderFeedback: typeof item.funderFeedback === "string" ? item.funderFeedback : null,
+      responseText: typeof item.responseText === "string" ? item.responseText : null,
+      userNotes: notes.userNotes,
+      summary: typeof insight?.summary === "string" && insight.summary.trim() ? insight.summary : fallbackSummary,
+      strengths: toStringArray(insight?.strengths),
+      weaknesses: toStringArray(insight?.weaknesses),
+      nextActions: toStringArray(insight?.nextActions),
+      scoringAdjustment: Number.isFinite(scoringAdjustment) ? scoringAdjustment : null,
+    };
+  });
 }

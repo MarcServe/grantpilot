@@ -30,6 +30,14 @@ interface ExistingOutcome {
   learningNotes?: string | null;
 }
 
+interface OutcomeLearningInsight {
+  summary?: string;
+  strengths?: string[];
+  weaknesses?: string[];
+  nextActions?: string[];
+  scoringAdjustment?: number;
+}
+
 function parseLearningNotes(value?: string | null): string {
   if (!value) return "";
   try {
@@ -37,6 +45,16 @@ function parseLearningNotes(value?: string | null): string {
     return parsed.userNotes ?? "";
   } catch {
     return value;
+  }
+}
+
+function parseLearningInsight(value?: string | null): OutcomeLearningInsight | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as { insight?: OutcomeLearningInsight | null };
+    return parsed.insight ?? null;
+  } catch {
+    return null;
   }
 }
 
@@ -58,6 +76,9 @@ export function OutcomeLearningForm({
   const [responseScreenshotName, setResponseScreenshotName] = useState(existingOutcome?.responseScreenshotName ?? "");
   const [responseScreenshotDataUrl, setResponseScreenshotDataUrl] = useState(existingOutcome?.responseScreenshotDataUrl ?? "");
   const [learningNotes, setLearningNotes] = useState(parseLearningNotes(existingOutcome?.learningNotes));
+  const [savedInsight, setSavedInsight] = useState<OutcomeLearningInsight | null>(
+    parseLearningInsight(existingOutcome?.learningNotes)
+  );
 
   function handleScreenshot(file?: File) {
     if (!file) return;
@@ -114,6 +135,7 @@ export function OutcomeLearningForm({
         toast.error(data.error ?? "Could not save outcome");
         return;
       }
+      setSavedInsight((data.insight ?? null) as OutcomeLearningInsight | null);
       toast.success("Outcome saved. Funding intelligence will use this signal.");
       router.refresh();
     } catch {
@@ -220,7 +242,38 @@ export function OutcomeLearningForm({
           {saving && <Loader2 className="h-4 w-4 animate-spin" />}
           Save outcome signal
         </Button>
+        {savedInsight?.summary && (
+          <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-semibold text-foreground">What GrantsCopilot learned</p>
+              {typeof savedInsight.scoringAdjustment === "number" && (
+                <span className="rounded-full bg-background px-2 py-1 text-xs font-medium text-muted-foreground">
+                  {savedInsight.scoringAdjustment >= 0 ? "+" : ""}{savedInsight.scoringAdjustment} scoring signal
+                </span>
+              )}
+            </div>
+            <p className="mt-2 break-words text-sm leading-6 text-muted-foreground">{savedInsight.summary}</p>
+            <LearningInsightList title="Strengths to repeat" items={savedInsight.strengths} />
+            <LearningInsightList title="Gaps to improve" items={savedInsight.weaknesses} />
+            <LearningInsightList title="Next actions" items={savedInsight.nextActions} />
+          </div>
+        )}
       </CardContent>
     </Card>
+  );
+}
+
+function LearningInsightList({ title, items }: { title: string; items?: string[] }) {
+  const list = Array.isArray(items) ? items.filter(Boolean).slice(0, 4) : [];
+  if (list.length === 0) return null;
+  return (
+    <div className="mt-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
+      <ul className="mt-1 space-y-1 text-sm text-foreground">
+        {list.map((item) => (
+          <li key={item} className="break-words">- {item}</li>
+        ))}
+      </ul>
+    </div>
   );
 }

@@ -86,9 +86,7 @@ export function GrantsListClient({
 }: GrantsListClientProps) {
   const [savedSet, setSavedSet] = useState<Set<string>>(() => new Set(savedGrantIds));
   const [funderFilter, setFunderFilter] = useState<string>("");
-  const [regionFilter, setRegionFilter] = useState<string>(
-    userFunderLocations.length > 0 ? "recommended" : ""
-  );
+  const [regionFilter, setRegionFilter] = useState<string>("");
   const [hideExpired, setHideExpired] = useState(true);
   const [hideBroken, setHideBroken] = useState(false);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
