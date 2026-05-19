@@ -29,7 +29,7 @@ export async function runDeadlineReminderJob(): Promise<{
 }> {
     const supabase = getSupabaseAdmin();
     const now = new Date();
-    const reminderDays = [7, 3, 1] as const;
+    const reminderDays = [7, 3, 1, 0] as const;
     let sent = 0;
     const diagnostics: {
       profilesWithScore50: number;
@@ -41,7 +41,7 @@ export async function runDeadlineReminderJob(): Promise<{
       profilesWithScore50: 0,
       orgsWithProfile: 0,
       orgsAt9amLocal: 0,
-      grantsByDay: { 7: 0, 3: 0, 1: 0 },
+      grantsByDay: { 7: 0, 3: 0, 1: 0, 0: 0 },
       sent: 0,
     };
 
@@ -123,7 +123,9 @@ export async function runDeadlineReminderJob(): Promise<{
           const profile = org.profiles[0];
           const profileId = (profile as { id?: string }).id;
           if (!profileId) continue;
-          const suppressedGrantIds = await getSuppressedGrantIds(supabase, org.id, profileId);
+          const suppressedGrantIds = await getSuppressedGrantIds(supabase, org.id, profileId, {
+            includeViewed: false,
+          });
           if (suppressedGrantIds.has(grant.id)) continue;
 
           const { data: prefs } = await supabase

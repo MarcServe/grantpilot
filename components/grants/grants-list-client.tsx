@@ -4,6 +4,7 @@ import { useState, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { GrantCard } from "./grant-card";
 import { toast } from "sonner";
+import { grantMatchesFunderLocations } from "@/lib/constants";
 
 const PAGE_SIZE_OPTIONS = [15, 30, 50, 100, 200, 500, 1000] as const;
 const DEFAULT_PAGE_SIZE = 30;
@@ -65,10 +66,7 @@ function matchesFunderLocations(
   grantFL: string[],
   userFL: string[]
 ): boolean {
-  if (userFL.length === 0) return true;
-  if (grantFL.length === 0) return true;
-  if (grantFL.includes("Global")) return true;
-  return grantFL.some((r) => userFL.includes(r));
+  return grantMatchesFunderLocations(grantFL, userFL);
 }
 
 function timeValue(value?: string | null): number {
@@ -106,7 +104,9 @@ export function GrantsListClient({
   const [savedSet, setSavedSet] = useState<Set<string>>(() => new Set(savedGrantIds));
   const [sortMode, setSortMode] = useState<(typeof SORT_OPTIONS)[number]["value"]>("newest");
   const [funderFilter, setFunderFilter] = useState<string>("");
-  const [regionFilter, setRegionFilter] = useState<string>("");
+  const [regionFilter, setRegionFilter] = useState<string>(() =>
+    hasProfile && userFunderLocations.length > 0 ? "recommended" : ""
+  );
   const [hideExpired, setHideExpired] = useState(true);
   const [hideBroken, setHideBroken] = useState(false);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -168,7 +168,7 @@ export function GrantsListClient({
       result = result.filter((g) => savedSet.has(g.id));
     } else if (regionFilter) {
       result = result.filter(
-        (g) => g.funderLocations.includes(regionFilter)
+        (g) => grantMatchesFunderLocations(g.funderLocations, [regionFilter])
       );
     }
 
