@@ -16,6 +16,9 @@ export interface FounderPackExportInput {
     businessName?: string | null;
     sector?: string | null;
   } | null;
+  exportOptions?: {
+    includePitchDeckNotes?: boolean;
+  } | null;
 }
 
 interface TextSection {
@@ -99,6 +102,10 @@ function includes(pack: FounderPackExportInput, type: FounderPackDocumentType): 
   return selectedTypes(pack).includes(type);
 }
 
+function includePitchDeckNotes(pack: FounderPackExportInput): boolean {
+  return pack.exportOptions?.includePitchDeckNotes === true;
+}
+
 function splitParagraphs(text: string): string[] {
   return String(text || "")
     .split(/\n{2,}|\r?\n/)
@@ -125,14 +132,15 @@ export function buildFounderPackTextSections(pack: FounderPackExportInput): Text
   addText("business_plan", "Business Plan", content.businessPlan);
 
   if (includes(pack, "pitch_deck") && content.pitchDeck?.length) {
+    const includeNotes = includePitchDeckNotes(pack);
     sections.push({
       title: "Canvas Standard Pitch Deck",
       lines: content.pitchDeck.flatMap((slide, index) => [
         `Slide ${index + 1}: ${slide.title}`,
         slide.objective ? `Objective: ${slide.objective}` : "",
         ...listLines(slide.bullets),
-        slide.speakerNotes ? `Speaker notes: ${slide.speakerNotes}` : "",
-        slide.visualDirection ? `Design direction: ${slide.visualDirection}` : "",
+        includeNotes && slide.speakerNotes ? `Speaker notes: ${slide.speakerNotes}` : "",
+        includeNotes && slide.visualDirection ? `Design direction: ${slide.visualDirection}` : "",
         "",
       ]).filter(Boolean),
     });
@@ -511,7 +519,11 @@ function buildPitchSlideTitleRows(title: string, slideNo: number): PdfRow[] {
   }));
 }
 
-function buildPitchSlidePdfRows(slide: FounderPackContent["pitchDeck"][number], index: number): PdfRow[] {
+function buildPitchSlidePdfRows(
+  slide: FounderPackContent["pitchDeck"][number],
+  index: number,
+  options: { includeNotes?: boolean } = {}
+): PdfRow[] {
   const rows: PdfRow[] = buildPitchSlideTitleRows(slide.title, index + 1);
   if (slide.objective) {
     addWrappedPdfRows(rows, `Objective: ${slide.objective}`, {
@@ -533,7 +545,7 @@ function buildPitchSlidePdfRows(slide: FounderPackContent["pitchDeck"][number], 
       gapAfter: 3,
     });
   });
-  if (slide.speakerNotes) {
+  if (options.includeNotes && slide.speakerNotes) {
     addWrappedPdfRows(rows, `Speaker notes: ${slide.speakerNotes}`, {
       size: 10.5,
       font: "F2",
@@ -544,7 +556,7 @@ function buildPitchSlidePdfRows(slide: FounderPackContent["pitchDeck"][number], 
       gapAfter: 8,
     });
   }
-  if (slide.visualDirection) {
+  if (options.includeNotes && slide.visualDirection) {
     addWrappedPdfRows(rows, `Design direction: ${slide.visualDirection}`, {
       size: 10.5,
       font: "F2",
@@ -578,10 +590,11 @@ function paginatePdfRows(rows: PdfRow[]): PdfRow[][] {
 
 function buildPdfPages(pack: FounderPackExportInput): PdfRow[][] {
   const pages = paginatePdfRows(buildPdfTitleRows(pack));
+  const includeNotes = includePitchDeckNotes(pack);
   for (const section of buildFounderPackTextSections(pack)) {
     if (section.title === "Canvas Standard Pitch Deck" && includes(pack, "pitch_deck") && pack.content.pitchDeck?.length) {
       pack.content.pitchDeck.forEach((slide, index) => {
-        pages.push(buildPitchSlidePdfRows(slide, index));
+        pages.push(buildPitchSlidePdfRows(slide, index, { includeNotes }));
       });
       continue;
     }
@@ -710,6 +723,7 @@ function slideXml(
 }
 
 export function generateFounderPackPptx(pack: FounderPackExportInput): Buffer {
+  const includeNotes = includePitchDeckNotes(pack);
   const slides: {
     title: string;
     bullets: string[];
@@ -721,8 +735,8 @@ export function generateFounderPackPptx(pack: FounderPackExportInput): Buffer {
         title: slide.title,
         bullets: slide.bullets,
         objective: slide.objective,
-        speakerNotes: slide.speakerNotes,
-        visualDirection: slide.visualDirection,
+        speakerNotes: includeNotes ? slide.speakerNotes : undefined,
+        visualDirection: includeNotes ? slide.visualDirection : undefined,
       }))
     : buildFounderPackTextSections(pack).slice(0, 12).map((section) => ({
         title: section.title,

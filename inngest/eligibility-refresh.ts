@@ -18,7 +18,7 @@ import { getSuppressedGrantIds } from "@/lib/grant-user-state";
 import {
   applyOutcomeScoreAdjustment,
   buildFundingOutcomeSignals,
-  deriveOutcomeScoreAdjustment,
+  deriveOutcomeLearningAdvisory,
 } from "@/lib/outcome-learning";
 
 /**
@@ -292,7 +292,7 @@ export async function runEligibilityRefreshJob(options?: {
           .order("reportedAt", { ascending: false })
           .limit(8);
         const fundingOutcomeSignals = buildFundingOutcomeSignals(outcomeRows ?? []);
-        const outcomeScoreAdjustment = deriveOutcomeScoreAdjustment(outcomeRows ?? []);
+        const outcomeAdvisory = deriveOutcomeLearningAdvisory(outcomeRows ?? []);
 
         for (const grantId of layer3Ids) {
           const grant = locationFiltered.find((g) => g.id === grantId);
@@ -317,7 +317,7 @@ export async function runEligibilityRefreshJob(options?: {
                 regions: grant.regions ?? [],
               }
             );
-            const adjustedResult = applyOutcomeScoreAdjustment(result, outcomeScoreAdjustment);
+            const adjustedResult = applyOutcomeScoreAdjustment(result, outcomeAdvisory);
             diagnostics.layer3Scored++;
 
             const score = adjustedResult.score ?? adjustedResult.confidence;

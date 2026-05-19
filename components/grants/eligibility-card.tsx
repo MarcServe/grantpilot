@@ -38,6 +38,8 @@ interface EligibilityResult {
   winProbability?: number;
   evidenceStrength?: "strong" | "medium" | "weak";
   scoringSource?: "openai" | "heuristic" | "embedding" | "manual";
+  outcomeWarnings?: string[];
+  outcomeStrengths?: string[];
 }
 
 function AutoImproveButton({ grantId, applicationId }: { grantId: string; applicationId?: string }) {
@@ -296,6 +298,19 @@ export function EligibilityCard({
                   <li key={i}>{r}</li>
                 ))}
               </ul>
+            )}
+            {result.outcomeWarnings && result.outcomeWarnings.length > 0 && (
+              <div className="rounded-md border border-amber-200 bg-amber-50/70 p-3 dark:border-amber-800 dark:bg-amber-950/30">
+                <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-amber-800 dark:text-amber-200">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  Outcome feedback checks before applying
+                </p>
+                <ul className="list-inside list-disc space-y-0.5 text-sm text-muted-foreground">
+                  {result.outcomeWarnings.map((warning, i) => (
+                    <li key={i}>{warning}</li>
+                  ))}
+                </ul>
+              </div>
             )}
             {result.alignment && result.alignment.length > 0 && (
               <div>

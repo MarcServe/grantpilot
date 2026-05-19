@@ -258,6 +258,7 @@ function CanvasBlock({ title, items }: { title: string; items: string[] }) {
 function PackDocument({ pack }: { pack: PackSummary }) {
   const [exporting, setExporting] = useState<string | null>(null);
   const [activeSlideIndex, setActiveSlideIndex] = useState(0);
+  const [includePitchDeckNotes, setIncludePitchDeckNotes] = useState(false);
   const content = pack.content;
   const pitchDeck = content.pitchDeck ?? [];
   const visibleSlideIndex = pitchDeck.length > 0 ? Math.min(activeSlideIndex, pitchDeck.length - 1) : 0;
@@ -284,7 +285,14 @@ function PackDocument({ pack }: { pack: PackSummary }) {
   async function downloadExport(format: "pdf" | "docx" | "pptx" | "md" | "json") {
     setExporting(format);
     try {
-      const res = await fetch(`/api/founder-pack/${pack.id}/export?format=${format}&v=${Date.now()}`, {
+      const params = new URLSearchParams({
+        format,
+        v: String(Date.now()),
+      });
+      if (hasPitchDeck && includePitchDeckNotes && format !== "json") {
+        params.set("includePitchDeckNotes", "true");
+      }
+      const res = await fetch(`/api/founder-pack/${pack.id}/export?${params.toString()}`, {
         cache: "no-store",
       });
       const blob = await res.blob();
@@ -364,25 +372,36 @@ function PackDocument({ pack }: { pack: PackSummary }) {
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2 print:hidden">
-          {(["pptx", "docx", "pdf", "md", "json"] as const).map((format) => (
-            <Button
-              key={format}
-              type="button"
-              variant={format === "pptx" && hasPitchDeck ? "default" : "outline"}
-              size="sm"
-              className="gap-2"
-              disabled={Boolean(exporting)}
-              onClick={() => downloadExport(format)}
-            >
-              {exporting === format ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-              {format === "pptx" && hasPitchDeck ? "PPTX deck" : format.toUpperCase()}
+        <div className="flex flex-col items-start gap-2 print:hidden sm:items-end">
+          <div className="flex flex-wrap gap-2 sm:justify-end">
+            {(["pptx", "docx", "pdf", "md", "json"] as const).map((format) => (
+              <Button
+                key={format}
+                type="button"
+                variant={format === "pptx" && hasPitchDeck ? "default" : "outline"}
+                size="sm"
+                className="gap-2"
+                disabled={Boolean(exporting)}
+                onClick={() => downloadExport(format)}
+              >
+                {exporting === format ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                {format === "pptx" && hasPitchDeck ? "PPTX deck" : format.toUpperCase()}
+              </Button>
+            ))}
+            <Button type="button" variant="outline" size="sm" className="gap-2" disabled={Boolean(exporting)} onClick={sendToCanva}>
+              {exporting === "canva" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
+              Canva
             </Button>
-          ))}
-          <Button type="button" variant="outline" size="sm" className="gap-2" disabled={Boolean(exporting)} onClick={sendToCanva}>
-            {exporting === "canva" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
-            Canva
-          </Button>
+          </div>
+          {hasPitchDeck && (
+            <Label className="flex cursor-pointer items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium shadow-sm">
+              <Checkbox
+                checked={includePitchDeckNotes}
+                onCheckedChange={(checked) => setIncludePitchDeckNotes(checked === true)}
+              />
+              Include speaker/design notes
+            </Label>
+          )}
         </div>
       </CardHeader>
       <CardContent className="space-y-6">

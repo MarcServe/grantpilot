@@ -10,7 +10,7 @@ import { resolvePlanKey } from "@/lib/plan-features";
 import {
   applyOutcomeScoreAdjustment,
   buildFundingOutcomeSignals,
-  deriveOutcomeScoreAdjustment,
+  deriveOutcomeLearningAdvisory,
 } from "@/lib/outcome-learning";
 
 function profileToMatching(profile: Record<string, unknown>) {
@@ -150,7 +150,7 @@ export async function GET(
             winProbability: score,
             evidenceStrength: score >= 80 ? "strong" : score >= 55 ? "medium" : "weak",
           }
-        ), deriveOutcomeScoreAdjustment(outcomeRows ?? []));
+        ), deriveOutcomeLearningAdvisory(outcomeRows ?? []));
         const cachedScore = cachedResult.score ?? cachedResult.confidence;
         return NextResponse.json({
           ...cachedResult,
@@ -188,7 +188,7 @@ export async function GET(
         regions: g.regions ?? [],
       }
     );
-    const adjustedResult = applyOutcomeScoreAdjustment(result, deriveOutcomeScoreAdjustment(outcomeRows ?? []));
+    const adjustedResult = applyOutcomeScoreAdjustment(result, deriveOutcomeLearningAdvisory(outcomeRows ?? []));
 
     const score = adjustedResult.score ?? adjustedResult.confidence;
     await supabase.from("EligibilityAssessment").upsert(

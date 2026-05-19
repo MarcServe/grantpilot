@@ -11,7 +11,7 @@ import { isGrantLinkUsable } from "@/lib/grant-freshness";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { isOpenAIChecked } from "@/lib/grant-source-policy";
 import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
-import { applyOutcomeScoreAdjustment, deriveOutcomeScoreAdjustment } from "@/lib/outcome-learning";
+import { applyOutcomeScoreAdjustment, deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
 import type { EligibilityResult } from "@/lib/claude";
 
 function profileForEligibilityGuards(profile: Record<string, unknown>) {
@@ -110,7 +110,7 @@ export default async function EligibleGrantsPage() {
     .eq("profileId", profileId)
     .order("reportedAt", { ascending: false })
     .limit(8);
-  const outcomeAdjustment = deriveOutcomeScoreAdjustment(outcomeRows ?? []);
+  const outcomeAdvisory = deriveOutcomeLearningAdvisory(outcomeRows ?? []);
 
   if (grantIds.length > 0) {
     const appliedGrantIds = await getAppliedGrantIds(supabase, orgId, profileId);
@@ -175,7 +175,7 @@ export default async function EligibleGrantsPage() {
         winProbability: baseScore,
         evidenceStrength: baseScore >= 80 ? "strong" : baseScore >= 55 ? "medium" : "weak",
       }
-    ), outcomeAdjustment);
+    ), outcomeAdvisory);
     const score = guarded.score ?? guarded.confidence;
     allGrants.push({
       grantId: a.grant_id,
@@ -188,6 +188,7 @@ export default async function EligibleGrantsPage() {
       summary: guarded.summary ?? a.summary,
       missingCriteria: guarded.missing ?? a.missing_criteria,
       improvementPlan: guarded.improvementPlan ?? a.improvement_plan,
+      outcomeWarnings: guarded.outcomeWarnings ?? [],
       scoringSource,
     });
 

@@ -136,7 +136,7 @@ export function OutcomeLearningForm({
         return;
       }
       setSavedInsight((data.insight ?? null) as OutcomeLearningInsight | null);
-      toast.success("Outcome saved. Future eligibility scoring will use this signal.");
+      toast.success("Outcome saved. Future grant checks will show this as advisory context.");
       router.refresh();
     } catch {
       toast.error("Could not save outcome");
@@ -207,7 +207,7 @@ export function OutcomeLearningForm({
             placeholder="Paste the email, portal message, reviewer response, or award/rejection wording exactly as received."
           />
           <p className="text-xs text-muted-foreground">
-            This is used as outcome-learning evidence so future scoring and document drafts become more accurate.
+            This is used as outcome-learning evidence so future checks can show better warnings and document drafts become more accurate.
           </p>
         </div>
         <div className="space-y-2">
@@ -248,7 +248,7 @@ export function OutcomeLearningForm({
               <p className="text-sm font-semibold text-foreground">Learning signal saved</p>
               {typeof savedInsight.scoringAdjustment === "number" && (
                 <span className="rounded-full bg-background px-2 py-1 text-xs font-medium text-muted-foreground">
-                  {savedInsight.scoringAdjustment >= 0 ? "+" : ""}{savedInsight.scoringAdjustment} scoring calibration
+                  {savedInsight.scoringAdjustment >= 0 ? "+" : ""}{savedInsight.scoringAdjustment} advisory signal
                 </span>
               )}
             </div>

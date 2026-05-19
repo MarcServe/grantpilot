@@ -7,7 +7,7 @@ import { isGrantLinkUsable } from "@/lib/grant-freshness";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { inferFunderLocationsFromProfile } from "@/lib/constants";
 import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
-import { applyOutcomeScoreAdjustment, deriveOutcomeScoreAdjustment } from "@/lib/outcome-learning";
+import { applyOutcomeScoreAdjustment, deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
 import type { EligibilityResult } from "@/lib/claude";
 
 function latestDate(values: (string | null)[]): string | null {
@@ -82,7 +82,7 @@ export default async function GrantsPage() {
       .eq("profileId", profile.id)
       .order("reportedAt", { ascending: false })
       .limit(8);
-    const outcomeAdjustment = deriveOutcomeScoreAdjustment(outcomeRows ?? []);
+    const outcomeAdvisory = deriveOutcomeLearningAdvisory(outcomeRows ?? []);
     const grantById = new Map(allGrants.map((grant) => [grant.id, grant]));
     const rows = Array.isArray(rowsData) ? rowsData : [];
     for (const row of rows as { grant_id: string; score: number; decision?: string | null; summary: string | null; missing_criteria?: string[] | null; improvement_plan?: { gaps?: string[]; actions?: string[]; timeline?: string } | null; scoring_source?: string | null }[]) {
@@ -107,7 +107,7 @@ export default async function GrantsPage() {
               winProbability: baseScore,
               evidenceStrength: baseScore >= 80 ? "strong" : baseScore >= 55 ? "medium" : "weak",
             }
-          ), outcomeAdjustment)
+          ), outcomeAdvisory)
         : null;
       const score = guarded ? (guarded.score ?? guarded.confidence) : baseScore;
       cachedScores[row.grant_id] = {

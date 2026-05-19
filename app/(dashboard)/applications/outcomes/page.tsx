@@ -19,11 +19,11 @@ export default async function ApplicationsOutcomesPage() {
         <h1 className="text-2xl font-bold">Outcome feedback</h1>
         <p className="mt-1 text-muted-foreground">
           Submitted applications where we still need a definitive funder outcome — awards, rejections, shortlists,
-          or withdrawals — so your intelligence scores stay accurate.
+          or withdrawals — so GrantsCopilot can show better pre-application warnings.
         </p>
         <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
           Record the funder response text and optional screenshot evidence on each submitted application. GrantsCopilot uses
-          those signals to improve future eligibility scoring, document preparation, and grant recommendations.
+          those signals as advisory context for future grant checks, document preparation, and recommendations.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           <Link href="/applications" className="text-sm font-semibold text-primary underline-offset-4 hover:underline">
@@ -139,7 +139,7 @@ function OutcomeInsightCard({ item }: { item: RecordedOutcomeInsight }) {
             <Badge>{item.outcome.replace(/_/g, " ")}</Badge>
             {item.scoringAdjustment != null && (
               <Badge variant={item.scoringAdjustment >= 0 ? "secondary" : "outline"}>
-                {item.scoringAdjustment >= 0 ? "+" : ""}{item.scoringAdjustment} scoring calibration
+                {item.scoringAdjustment >= 0 ? "+" : ""}{item.scoringAdjustment} advisory signal
               </Badge>
             )}
           </div>

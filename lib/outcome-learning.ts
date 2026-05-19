@@ -11,6 +11,13 @@ export interface OutcomeLearningInsight {
   scoringAdjustment: number;
 }
 
+export interface OutcomeLearningAdvisory {
+  signal: number;
+  warnings: string[];
+  strengths: string[];
+  nextActions: string[];
+}
+
 export function outcomeToScoreSignal(outcome: FundingOutcome): number {
   switch (outcome) {
     case "awarded":
@@ -64,6 +71,7 @@ Rules:
 - Do not overfit to one outcome.
 - Awarded and shortlisted outcomes should identify repeatable strengths.
 - Rejected outcomes should identify likely gaps without assuming facts not provided.
+- scoringAdjustment is stored only as an advisory signal for warnings and reporting. It must not be used as a hidden score penalty or boost.
 - scoringAdjustment should be conservative: awarded 8-20, shortlisted 5-12, applied 0-5, rejected -12 to -3, withdrawn -5 to 0.`,
     1200
   );
@@ -78,7 +86,7 @@ Rules:
     };
   } catch {
     return {
-      summary: "Outcome recorded. Future scoring can use this as a funding signal once more outcomes are available.",
+      summary: "Outcome recorded. Future grant checks can show this as advisory context once more outcomes are available.",
       strengths: [],
       weaknesses: [],
       nextActions: [],
@@ -128,12 +136,6 @@ function unique(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
-function decisionForScore(score: number): "likely_eligible" | "review" | "unlikely" {
-  if (score >= 75) return "likely_eligible";
-  if (score >= 40) return "review";
-  return "unlikely";
-}
-
 export function buildFundingOutcomeSignals(outcomes: unknown[] | null): string {
   const rows = Array.isArray(outcomes) ? outcomes : [];
   if (rows.length === 0) return "";
@@ -154,10 +156,9 @@ export function buildFundingOutcomeSignals(outcomes: unknown[] | null): string {
       const feedback = item.funderFeedback ? `, funder feedback: ${item.funderFeedback.slice(0, 240)}` : "";
       const learning = insight
         ? [
-            insight.summary ? `learning: ${insight.summary.slice(0, 320)}` : "",
-            insight.weaknesses.length ? `gaps: ${insight.weaknesses.slice(0, 3).join("; ")}` : "",
-            insight.nextActions.length ? `next actions: ${insight.nextActions.slice(0, 3).join("; ")}` : "",
-            Number.isFinite(insight.scoringAdjustment) ? `scoring adjustment: ${insight.scoringAdjustment}` : "",
+            insight.summary ? `advisory learning: ${insight.summary.slice(0, 320)}` : "",
+            insight.weaknesses.length ? `warnings to check before applying: ${insight.weaknesses.slice(0, 3).join("; ")}` : "",
+            insight.nextActions.length ? `pre-application checks: ${insight.nextActions.slice(0, 3).join("; ")}` : "",
           ].filter(Boolean).join(", ")
         : "";
       return `${grant?.name ?? "Grant"} (${grant?.funder ?? "Funder"}): ${item.outcome ?? "unknown"}${amount}${feedback}${learning ? `, ${learning}` : ""}`;
@@ -188,57 +189,73 @@ export function deriveOutcomeScoreAdjustment(outcomes: unknown[] | null): number
   return Math.max(-10, Math.min(10, Math.round(weighted / totalWeight)));
 }
 
+export function deriveOutcomeLearningAdvisory(outcomes: unknown[] | null): OutcomeLearningAdvisory {
+  const rows = Array.isArray(outcomes) ? outcomes.slice(0, 8) : [];
+  const signal = deriveOutcomeScoreAdjustment(rows);
+  const warnings: string[] = [];
+  const strengths: string[] = [];
+  const nextActions: string[] = [];
+
+  rows.forEach((row) => {
+    const item = row as { outcome?: FundingOutcome; learningNotes?: string | null; funderFeedback?: string | null };
+    const insight = parseStoredInsight(item.learningNotes);
+    if (insight) {
+      warnings.push(...insight.weaknesses);
+      strengths.push(...insight.strengths);
+      nextActions.push(...insight.nextActions);
+      return;
+    }
+    if (item.outcome === "rejected" || item.outcome === "withdrawn") {
+      warnings.push("Previous outcome feedback suggests checking the official funder criteria and evidence requirements before applying.");
+    }
+    if (item.outcome === "awarded" || item.outcome === "shortlisted") {
+      strengths.push("Previous positive outcome suggests reusing the strongest evidence and positioning from that application.");
+    }
+  });
+
+  return {
+    signal,
+    warnings: unique(warnings).slice(0, 4),
+    strengths: unique(strengths).slice(0, 4),
+    nextActions: unique(nextActions).slice(0, 4),
+  };
+}
+
 export function applyOutcomeScoreAdjustment(
   result: EligibilityResult,
-  adjustment: number
+  adjustmentOrAdvisory: number | OutcomeLearningAdvisory
 ): EligibilityResult {
-  if (!Number.isFinite(adjustment) || adjustment === 0) return result;
+  const advisory =
+    typeof adjustmentOrAdvisory === "number"
+      ? { signal: adjustmentOrAdvisory, warnings: [], strengths: [], nextActions: [] }
+      : adjustmentOrAdvisory;
+  const signal = Number.isFinite(advisory.signal) ? advisory.signal : 0;
+  if (signal === 0 && advisory.warnings.length === 0 && advisory.strengths.length === 0 && advisory.nextActions.length === 0) {
+    return result;
+  }
   const alreadyApplied = [
     result.summary ?? "",
     result.reason ?? "",
     ...(result.reasons ?? []),
-  ].some((value) => value.includes("Outcome learning calibration"));
+    ...(result.outcomeWarnings ?? []),
+  ].some((value) => value.includes("Outcome feedback advisory"));
   if (alreadyApplied) return result;
 
-  const currentScore = Math.max(0, Math.min(100, result.score ?? result.confidence));
-  const adjustedRaw = currentScore + adjustment;
-  const adjustedScore = Math.max(0, Math.min(100, adjustment > 0 && currentScore < 40 ? Math.min(adjustedRaw, 39) : adjustedRaw));
-  if (adjustedScore === currentScore) return result;
-
   const label =
-    adjustment < 0
-      ? `Outcome learning calibration: recent funder outcomes apply a ${adjustment} score adjustment.`
-      : `Outcome learning calibration: recent funder outcomes apply a +${adjustment} score adjustment.`;
-  const action =
-    adjustment < 0
-      ? "Review recorded outcome feedback and resolve repeated eligibility gaps before prioritising this grant."
-      : "Use the recorded strengths from previous successful outcomes when preparing this application.";
+    signal < 0
+      ? "Outcome feedback advisory: review prior funder feedback before applying. This warning does not reduce the eligibility score."
+      : "Outcome feedback advisory: reuse strengths from previous positive outcomes where relevant. This signal does not increase the eligibility score.";
+  const genericWarning =
+    "Check the official funder page, eligibility criteria, and required evidence before applying; outcome feedback is advisory, not a screening rule.";
+  const outcomeWarnings = unique([
+    label,
+    ...(advisory.warnings.length > 0 ? advisory.warnings : signal < 0 ? [genericWarning] : []),
+    ...advisory.nextActions.map((action) => `Before applying: ${action}`),
+  ]).slice(0, 6);
 
   return {
     ...result,
-    decision: decisionForScore(adjustedScore),
-    score: adjustedScore,
-    confidence: adjustedScore,
-    winProbability: Math.max(0, Math.min(100, (result.winProbability ?? currentScore) + adjustment)),
-    evidenceStrength: adjustedScore >= 80 ? "strong" : adjustedScore >= 55 ? "medium" : "weak",
-    reasons: unique([...(result.reasons ?? []), label]),
-    missing: adjustment < 0 ? unique([...(result.missing ?? []), "Prior outcome feedback indicates qualification risk"]) : result.missing,
-    improvementPlan:
-      adjustedScore >= 75
-        ? result.improvementPlan
-        : {
-            ...(result.improvementPlan ?? {}),
-            gaps: adjustment < 0
-              ? unique([...(result.improvementPlan?.gaps ?? []), "Prior outcome feedback indicates qualification risk"])
-              : result.improvementPlan?.gaps,
-            actions: unique([...(result.improvementPlan?.actions ?? []), action]),
-            timeline: result.improvementPlan?.timeline ?? "Before applying",
-          },
-    summary: result.summary && result.summary.includes("Outcome learning calibration")
-      ? result.summary
-      : `${result.summary ?? result.reason ?? "Eligibility scored."} ${label}`,
-    reason: result.reason && result.reason.includes("Outcome learning calibration")
-      ? result.reason
-      : `${result.reason ?? result.summary ?? "Eligibility scored."} ${label}`,
+    outcomeWarnings: unique([...(result.outcomeWarnings ?? []), ...outcomeWarnings]),
+    outcomeStrengths: unique([...(result.outcomeStrengths ?? []), ...advisory.strengths]).slice(0, 4),
   };
 }

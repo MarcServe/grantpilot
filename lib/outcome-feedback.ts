@@ -181,7 +181,7 @@ export async function fetchRecordedOutcomeInsights(orgId: string): Promise<Recor
     const fallbackSummary =
       typeof item.funderFeedback === "string" && item.funderFeedback.trim()
         ? item.funderFeedback.trim()
-        : "Outcome recorded. Future eligibility scoring can use this result as a funding signal.";
+        : "Outcome recorded. Future grant checks can show this result as advisory context.";
     const scoringAdjustment = Number(insight?.scoringAdjustment);
 
     return {

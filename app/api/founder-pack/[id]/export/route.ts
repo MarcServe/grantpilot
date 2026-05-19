@@ -21,6 +21,7 @@ export async function GET(req: Request, context: RouteContext): Promise<NextResp
     if (!isFounderPackExportFormat(format)) {
       return NextResponse.json({ error: "Unsupported export format" }, { status: 400 });
     }
+    const includePitchDeckNotes = url.searchParams.get("includePitchDeckNotes") === "true";
 
     const { orgId } = await getActiveOrg();
     const { id } = await context.params;
@@ -55,6 +56,9 @@ export async function GET(req: Request, context: RouteContext): Promise<NextResp
         businessName,
         sector: String(profile?.sector ?? ""),
       },
+      exportOptions: {
+        includePitchDeckNotes,
+      },
     };
     const body = generateFounderPackExport(exportPack, format);
 
@@ -65,7 +69,7 @@ export async function GET(req: Request, context: RouteContext): Promise<NextResp
         "Cache-Control": "no-store, no-cache, max-age=0, must-revalidate",
         "Pragma": "no-cache",
         "Expires": "0",
-        "X-Founder-Pack-Export-Version": "slide-pages-v2",
+        "X-Founder-Pack-Export-Version": "slide-pages-v3-notes-toggle",
       },
     });
   } catch (e) {

@@ -27,7 +27,7 @@ import { fetchApplicationsNeedingOutcome, applicationNeedsOutcomeReminder } from
 import { isOpenAIChecked } from "@/lib/grant-source-policy";
 import { getSuppressedGrantIds } from "@/lib/grant-user-state";
 import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
-import { applyOutcomeScoreAdjustment, deriveOutcomeScoreAdjustment } from "@/lib/outcome-learning";
+import { applyOutcomeScoreAdjustment, deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
 import type { EligibilityResult } from "@/lib/claude";
 
 function profileForEligibilityGuards(profile: Record<string, unknown>) {
@@ -199,7 +199,7 @@ export default async function DashboardPage() {
         .eq("profileId", profile.id)
         .order("reportedAt", { ascending: false })
         .limit(8);
-      const outcomeAdjustment = deriveOutcomeScoreAdjustment(outcomeRows ?? []);
+      const outcomeAdvisory = deriveOutcomeLearningAdvisory(outcomeRows ?? []);
       for (const a of assessments as { grant_id: string; score: number; decision?: string | null; summary: string | null; missing_criteria?: string[] | null; improvement_plan?: { gaps?: string[]; actions?: string[]; timeline?: string } | null; scoring_source?: string | null }[]) {
         if (appliedGrantIds.has(a.grant_id)) continue;
         if (suppressedGrantIds.has(a.grant_id)) continue;
@@ -225,7 +225,7 @@ export default async function DashboardPage() {
                 winProbability: baseScore,
                 evidenceStrength: baseScore >= 80 ? "strong" : baseScore >= 55 ? "medium" : "weak",
               }
-            ), outcomeAdjustment)
+            ), outcomeAdvisory)
           : null;
         const score = guarded ? (guarded.score ?? guarded.confidence) : baseScore;
         if (isOpenAIChecked(source) && score >= 80) suggestedGrants.push({ grantId: a.grant_id, grantName: name, score, addedAt: grant?.createdAt ?? null });

@@ -28,7 +28,7 @@ import { getConfidenceBand } from "@/lib/claude";
 import { markGrantUserState } from "@/lib/grant-user-state";
 import { GrantStateActions } from "@/components/grants/grant-state-actions";
 import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
-import { applyOutcomeScoreAdjustment, deriveOutcomeScoreAdjustment } from "@/lib/outcome-learning";
+import { applyOutcomeScoreAdjustment, deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
 
 function profileForEligibilityGuards(profile: Record<string, unknown>) {
   return {
@@ -119,6 +119,8 @@ export default async function GrantDetailPage({
     winProbability?: number;
     evidenceStrength?: "strong" | "medium" | "weak";
     scoringSource?: "openai" | "heuristic" | "embedding" | "manual";
+    outcomeWarnings?: string[];
+    outcomeStrengths?: string[];
   } | null = null;
   if (profileId) {
     const [{ data: assessment }, { data: outcomeRows }] = await Promise.all([
@@ -175,7 +177,7 @@ export default async function GrantDetailPage({
         profileForEligibilityGuards(profile as Record<string, unknown>),
         grant,
         initialEligibilityResult
-      ), deriveOutcomeScoreAdjustment(outcomeRows ?? []));
+      ), deriveOutcomeLearningAdvisory(outcomeRows ?? []));
       eligibilityScore = guarded.score ?? guarded.confidence;
       initialEligibilityResult = {
         ...guarded,
