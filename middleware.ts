@@ -47,16 +47,21 @@ export async function middleware(request: NextRequest) {
 
   if (isProtected && !user) {
     const url = request.nextUrl.clone();
+    const redirectPath = `${request.nextUrl.pathname}${request.nextUrl.search}`;
     url.pathname = "/sign-in";
-    url.searchParams.set("redirect", request.nextUrl.pathname);
+    url.search = "";
+    url.searchParams.set("redirect", redirectPath);
     return NextResponse.redirect(url);
   }
 
   if (user && (request.nextUrl.pathname === "/sign-in" || request.nextUrl.pathname === "/sign-up")) {
     const url = request.nextUrl.clone();
     const redirectTo = url.searchParams.get("redirect");
-    url.pathname = redirectTo && redirectTo.startsWith("/") && !redirectTo.startsWith("//") ? redirectTo : "/dashboard";
-    url.searchParams.delete("redirect");
+    if (redirectTo && redirectTo.startsWith("/") && !redirectTo.startsWith("//")) {
+      return NextResponse.redirect(new URL(redirectTo, request.url));
+    }
+    url.pathname = "/dashboard";
+    url.search = "";
     return NextResponse.redirect(url);
   }
 
