@@ -22,12 +22,25 @@ import { UrlStatusBadge } from "@/components/grants/url-status-badge";
 import { computeUrgency } from "@/lib/urgency";
 import { checkRequirementsAgainstDocuments } from "@/lib/grant-requirements";
 import type { RequiredAttachment } from "@/lib/grant-requirements";
-import { getApplicantTypeGate } from "@/lib/eligibility-hard-gates";
 import { planAllows, resolvePlanKey } from "@/lib/plan-features";
 import { grantFinderLabel } from "@/lib/grant-source-policy";
 import { getConfidenceBand } from "@/lib/claude";
 import { markGrantUserState } from "@/lib/grant-user-state";
 import { GrantStateActions } from "@/components/grants/grant-state-actions";
+import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
+import { applyOutcomeScoreAdjustment, deriveOutcomeScoreAdjustment } from "@/lib/outcome-learning";
+
+function profileForEligibilityGuards(profile: Record<string, unknown>) {
+  return {
+    location: String(profile.location ?? ""),
+    sector: String(profile.sector ?? ""),
+    fundingPurposes: Array.isArray(profile.fundingPurposes) ? profile.fundingPurposes as string[] : (Array.isArray(profile.funding_purposes) ? profile.funding_purposes as string[] : []),
+    businessType: String(profile.businessType ?? profile.business_type ?? "") || null,
+    employeeCount: profile.employeeCount != null ? Number(profile.employeeCount) : (profile.employee_count != null ? Number(profile.employee_count) : null),
+    annualRevenue: profile.annualRevenue != null ? Number(profile.annualRevenue) : (profile.annual_revenue != null ? Number(profile.annual_revenue) : null),
+    yearEstablished: profile.yearEstablished != null ? Number(profile.yearEstablished) : (profile.year_established != null ? Number(profile.year_established) : null),
+  };
+}
 
 const BACK_LINKS = {
   matches: { href: "/grants/eligible", label: "Back to My Matches" },
@@ -108,13 +121,22 @@ export default async function GrantDetailPage({
     scoringSource?: "openai" | "heuristic" | "embedding" | "manual";
   } | null = null;
   if (profileId) {
-    const { data: assessment } = await supabase
-      .from("EligibilityAssessment")
-      .select("score, decision, summary, reasons, alignment, improvement_plan, met_criteria, missing_criteria, scoring_source")
-      .eq("organisation_id", orgId)
-      .eq("profile_id", profileId)
-      .eq("grant_id", grant.id)
-      .maybeSingle();
+    const [{ data: assessment }, { data: outcomeRows }] = await Promise.all([
+      supabase
+        .from("EligibilityAssessment")
+        .select("score, decision, summary, reasons, alignment, improvement_plan, met_criteria, missing_criteria, scoring_source")
+        .eq("organisation_id", orgId)
+        .eq("profile_id", profileId)
+        .eq("grant_id", grant.id)
+        .maybeSingle(),
+      supabase
+        .from("ApplicationOutcome")
+        .select("outcome, awardedAmount, funderFeedback, learningNotes, Grant(name, funder)")
+        .eq("organisationId", orgId)
+        .eq("profileId", profileId)
+        .order("reportedAt", { ascending: false })
+        .limit(8),
+    ]);
     const assessmentRow = assessment as {
       score?: number;
       decision?: "likely_eligible" | "review" | "unlikely";
@@ -149,16 +171,21 @@ export default async function GrantDetailPage({
         evidenceStrength: eligibilityScore >= 80 ? "strong" : eligibilityScore >= 55 ? "medium" : "weak",
         scoringSource: source,
       };
-    }
-    const applicantGate = getApplicantTypeGate(
-      String((profile as Record<string, unknown>).businessType ?? (profile as Record<string, unknown>).business_type ?? ""),
-      {
-        eligibility: (grant as { eligibility?: string | null }).eligibility,
-        applicantTypes: (grant as { applicantTypes?: string[] | null }).applicantTypes,
-      }
-    );
-    if (applicantGate && !applicantGate.profileMatches) {
-      eligibilityScore = eligibilityScore == null ? 25 : Math.min(eligibilityScore, 25);
+      const guarded = applyOutcomeScoreAdjustment(applyEligibilityScoreGuards(
+        profileForEligibilityGuards(profile as Record<string, unknown>),
+        grant,
+        initialEligibilityResult
+      ), deriveOutcomeScoreAdjustment(outcomeRows ?? []));
+      eligibilityScore = guarded.score ?? guarded.confidence;
+      initialEligibilityResult = {
+        ...guarded,
+        confidence: eligibilityScore,
+        score: eligibilityScore,
+        confidenceBand: getConfidenceBand(eligibilityScore),
+        winProbability: guarded.winProbability ?? eligibilityScore,
+        evidenceStrength: guarded.evidenceStrength ?? (eligibilityScore >= 80 ? "strong" : eligibilityScore >= 55 ? "medium" : "weak"),
+        scoringSource: source,
+      };
     }
   }
 

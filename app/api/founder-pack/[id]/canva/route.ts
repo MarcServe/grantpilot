@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildFounderPackTextSections, type FounderPackExportInput } from "@/lib/founder-pack-export";
-import type { FounderPackContent, FounderPackDocumentType } from "@/lib/founder-pack";
+import { sanitiseFounderPackContent, type FounderPackContent, type FounderPackDocumentType } from "@/lib/founder-pack";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -113,6 +113,7 @@ async function loadPack(id: string, orgId: string): Promise<FounderPackExportInp
     ? (pack.inputs as Record<string, unknown>)
     : {};
 
+  const businessName = String(profile?.businessName ?? "Founder Pack");
   return {
     id: String(pack.id),
     createdAt: String(pack.createdAt ?? ""),
@@ -124,9 +125,9 @@ async function loadPack(id: string, orgId: string): Promise<FounderPackExportInp
         ? inputs.documentTypes.map((item) => String(item) as FounderPackDocumentType)
         : undefined,
     },
-    content: pack.content as FounderPackContent,
+    content: sanitiseFounderPackContent(pack.content as FounderPackContent, { businessName }),
     profile: {
-      businessName: String(profile?.businessName ?? "Founder Pack"),
+      businessName,
       sector: String(profile?.sector ?? ""),
     },
   };

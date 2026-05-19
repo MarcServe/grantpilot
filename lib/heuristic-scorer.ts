@@ -5,6 +5,7 @@
  */
 
 import { getApplicantTypeGate } from "@/lib/eligibility-hard-gates";
+import { evaluateEligibilityPreScreen } from "@/lib/eligibility-prescreen";
 
 interface HeuristicProfile {
   location: string;
@@ -14,6 +15,7 @@ interface HeuristicProfile {
   fundingPurposes: string[];
   employeeCount: number | null;
   annualRevenue: number | null;
+  yearEstablished?: number | null;
   businessType: string | null;
 }
 
@@ -173,6 +175,16 @@ export function scoreGrantHeuristic(
     };
   }
 
+  const preScreen = evaluateEligibilityPreScreen(profile, grant);
+  if (!preScreen.passed) {
+    return {
+      grantId: grant.id,
+      score: preScreen.scoreCap ?? 25,
+      passed: false,
+      reasons: preScreen.gaps.length > 0 ? preScreen.gaps : ["Failed measurable eligibility pre-screen"],
+    };
+  }
+
   if (regionMatches(profile.location, grant.regions)) {
     score += 20;
     reasons.push("Region match");
@@ -229,11 +241,21 @@ export function scoreGrantHeuristic(
     }
   }
 
+  if (preScreen.met.length > 0) {
+    score += Math.min(10, preScreen.met.length * 3);
+    reasons.push(...preScreen.met.slice(0, 2));
+  }
+  if (preScreen.gaps.length > 0 && preScreen.scoreCap != null) {
+    score = Math.min(score, preScreen.scoreCap);
+    reasons.push(...preScreen.gaps.slice(0, 2));
+  }
+
   const PASS_THRESHOLD = 30;
+  const finalScore = Math.max(0, Math.min(100, score));
   return {
     grantId: grant.id,
-    score: Math.max(0, Math.min(100, score)),
-    passed: score >= PASS_THRESHOLD,
+    score: finalScore,
+    passed: finalScore >= PASS_THRESHOLD,
     reasons,
   };
 }

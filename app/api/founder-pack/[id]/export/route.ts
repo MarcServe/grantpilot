@@ -8,7 +8,7 @@ import {
   isFounderPackExportFormat,
   type FounderPackExportInput,
 } from "@/lib/founder-pack-export";
-import type { FounderPackContent, FounderPackDocumentType } from "@/lib/founder-pack";
+import { sanitiseFounderPackContent, type FounderPackContent, type FounderPackDocumentType } from "@/lib/founder-pack";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -44,14 +44,15 @@ export async function GET(req: Request, context: RouteContext): Promise<NextResp
 
     if (profileError) return NextResponse.json({ error: profileError.message }, { status: 502 });
 
+    const businessName = String(profile?.businessName ?? "Founder Pack");
     const exportPack: FounderPackExportInput = {
       id: String(pack.id),
       createdAt: String(pack.createdAt ?? ""),
       type: String(pack.type ?? ""),
       inputs: normaliseInputs(pack.inputs),
-      content: pack.content as FounderPackContent,
+      content: sanitiseFounderPackContent(pack.content as FounderPackContent, { businessName }),
       profile: {
-        businessName: String(profile?.businessName ?? "Founder Pack"),
+        businessName,
         sector: String(profile?.sector ?? ""),
       },
     };

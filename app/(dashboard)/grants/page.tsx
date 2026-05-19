@@ -6,6 +6,9 @@ import { computeUrgency } from "@/lib/urgency";
 import { isGrantLinkUsable } from "@/lib/grant-freshness";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { inferFunderLocationsFromProfile } from "@/lib/constants";
+import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
+import { applyOutcomeScoreAdjustment, deriveOutcomeScoreAdjustment } from "@/lib/outcome-learning";
+import type { EligibilityResult } from "@/lib/claude";
 
 function latestDate(values: (string | null)[]): string | null {
   return values.reduce<string | null>((latest, value) => {
@@ -13,6 +16,18 @@ function latestDate(values: (string | null)[]): string | null {
     if (!latest) return value;
     return new Date(value).getTime() > new Date(latest).getTime() ? value : latest;
   }, null);
+}
+
+function profileForEligibilityGuards(profile: Record<string, unknown>) {
+  return {
+    location: String(profile.location ?? ""),
+    sector: String(profile.sector ?? ""),
+    fundingPurposes: Array.isArray(profile.fundingPurposes) ? profile.fundingPurposes as string[] : (Array.isArray(profile.funding_purposes) ? profile.funding_purposes as string[] : []),
+    businessType: String(profile.businessType ?? profile.business_type ?? "") || null,
+    employeeCount: profile.employeeCount != null ? Number(profile.employeeCount) : (profile.employee_count != null ? Number(profile.employee_count) : null),
+    annualRevenue: profile.annualRevenue != null ? Number(profile.annualRevenue) : (profile.annual_revenue != null ? Number(profile.annual_revenue) : null),
+    yearEstablished: profile.yearEstablished != null ? Number(profile.yearEstablished) : (profile.year_established != null ? Number(profile.year_established) : null),
+  };
 }
 
 export default async function GrantsPage() {
@@ -57,16 +72,47 @@ export default async function GrantsPage() {
   if (profileComplete && profile) {
     const { data: rowsData } = await supabase
       .from("EligibilityAssessment")
-      .select("grant_id, score, summary, scoring_source")
+      .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, scoring_source")
       .eq("organisation_id", orgId)
       .eq("profile_id", profile.id);
+    const { data: outcomeRows } = await supabase
+      .from("ApplicationOutcome")
+      .select("outcome, awardedAmount, funderFeedback, learningNotes, Grant(name, funder)")
+      .eq("organisationId", orgId)
+      .eq("profileId", profile.id)
+      .order("reportedAt", { ascending: false })
+      .limit(8);
+    const outcomeAdjustment = deriveOutcomeScoreAdjustment(outcomeRows ?? []);
+    const grantById = new Map(allGrants.map((grant) => [grant.id, grant]));
     const rows = Array.isArray(rowsData) ? rowsData : [];
-    for (const row of rows as { grant_id: string; score: number; summary: string | null; scoring_source?: string | null }[]) {
+    for (const row of rows as { grant_id: string; score: number; decision?: string | null; summary: string | null; missing_criteria?: string[] | null; improvement_plan?: { gaps?: string[]; actions?: string[]; timeline?: string } | null; scoring_source?: string | null }[]) {
       if (appliedGrantIds.has(row.grant_id)) continue;
       const scoringSource = row.scoring_source ?? (row.summary?.startsWith("Preliminary fit") ? "heuristic" : "openai");
+      const baseScore = scoringSource === "heuristic" ? Math.min(row.score, 69) : row.score;
+      const grant = grantById.get(row.grant_id);
+      const guarded = grant
+        ? applyOutcomeScoreAdjustment(applyEligibilityScoreGuards(
+            profileForEligibilityGuards(profile as Record<string, unknown>),
+            grant,
+            {
+              decision: row.decision === "likely_eligible" || row.decision === "review" || row.decision === "unlikely" ? row.decision : "review",
+              reason: row.summary ?? "",
+              confidence: baseScore,
+              score: baseScore,
+              summary: row.summary ?? undefined,
+              reasons: [],
+              improvementPlan: row.improvement_plan as EligibilityResult["improvementPlan"],
+              met: [],
+              missing: row.missing_criteria ?? [],
+              winProbability: baseScore,
+              evidenceStrength: baseScore >= 80 ? "strong" : baseScore >= 55 ? "medium" : "weak",
+            }
+          ), outcomeAdjustment)
+        : null;
+      const score = guarded ? (guarded.score ?? guarded.confidence) : baseScore;
       cachedScores[row.grant_id] = {
-        score: scoringSource === "heuristic" ? Math.min(row.score, 69) : row.score,
-        summary: row.summary ?? undefined,
+        score,
+        summary: guarded?.summary ?? row.summary ?? undefined,
         scoringSource,
       };
     }

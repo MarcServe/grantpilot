@@ -26,6 +26,21 @@ import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { fetchApplicationsNeedingOutcome, applicationNeedsOutcomeReminder } from "@/lib/outcome-feedback";
 import { isOpenAIChecked } from "@/lib/grant-source-policy";
 import { getSuppressedGrantIds } from "@/lib/grant-user-state";
+import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
+import { applyOutcomeScoreAdjustment, deriveOutcomeScoreAdjustment } from "@/lib/outcome-learning";
+import type { EligibilityResult } from "@/lib/claude";
+
+function profileForEligibilityGuards(profile: Record<string, unknown>) {
+  return {
+    location: String(profile.location ?? ""),
+    sector: String(profile.sector ?? ""),
+    fundingPurposes: Array.isArray(profile.fundingPurposes) ? profile.fundingPurposes as string[] : (Array.isArray(profile.funding_purposes) ? profile.funding_purposes as string[] : []),
+    businessType: String(profile.businessType ?? profile.business_type ?? "") || null,
+    employeeCount: profile.employeeCount != null ? Number(profile.employeeCount) : (profile.employee_count != null ? Number(profile.employee_count) : null),
+    annualRevenue: profile.annualRevenue != null ? Number(profile.annualRevenue) : (profile.annual_revenue != null ? Number(profile.annual_revenue) : null),
+    yearEstablished: profile.yearEstablished != null ? Number(profile.yearEstablished) : (profile.year_established != null ? Number(profile.year_established) : null),
+  };
+}
 
 export default async function DashboardPage() {
   const { org, orgId, user } = await getActiveOrg();
@@ -152,7 +167,7 @@ export default async function DashboardPage() {
     const suppressedGrantIds = await getSuppressedGrantIds(supabase, orgId, profile.id);
     const { data: assessmentsData } = await supabase
       .from("EligibilityAssessment")
-      .select("grant_id, score, summary, scoring_source")
+      .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, scoring_source")
       .eq("organisation_id", orgId)
       .eq("profile_id", profile.id)
       .order("score", { ascending: false });
@@ -160,11 +175,11 @@ export default async function DashboardPage() {
     const grantIds = (assessments as { grant_id: string; score: number; summary: string | null; scoring_source?: string | null }[]).map((a) => a.grant_id);
     if (grantIds.length > 0) {
       const BATCH = 200;
-      const allGrantsList: { id: string; name: string; funderLocations?: string[]; createdAt?: string | null }[] = [];
+      const allGrantsList: { id: string; name: string; funderLocations?: string[]; createdAt?: string | null; eligibility?: string | null; description?: string | null; objectives?: string | null; applicantTypes?: string[]; sectors?: string[]; regions?: string[] }[] = [];
       for (let i = 0; i < grantIds.length; i += BATCH) {
         const { data: batch } = await supabase
           .from("Grant")
-          .select("id, name, funderLocations, createdAt")
+          .select("id, name, funderLocations, createdAt, eligibility, description, objectives, applicantTypes, sectors, regions")
           .in("id", grantIds.slice(i, i + BATCH));
         if (batch) allGrantsList.push(...(batch as typeof allGrantsList));
       }
@@ -177,16 +192,44 @@ export default async function DashboardPage() {
       });
       const grantById = new Map(grantsList.map((g) => [g.id, g]));
       const matchesLocation = new Set(grantsList.filter((g) => grantMatchesFunderLocations(g.funderLocations, userFunderLocations)).map((g) => g.id));
-      for (const a of assessments as { grant_id: string; score: number; summary: string | null; scoring_source?: string | null }[]) {
+      const { data: outcomeRows } = await supabase
+        .from("ApplicationOutcome")
+        .select("outcome, awardedAmount, funderFeedback, learningNotes, Grant(name, funder)")
+        .eq("organisationId", orgId)
+        .eq("profileId", profile.id)
+        .order("reportedAt", { ascending: false })
+        .limit(8);
+      const outcomeAdjustment = deriveOutcomeScoreAdjustment(outcomeRows ?? []);
+      for (const a of assessments as { grant_id: string; score: number; decision?: string | null; summary: string | null; missing_criteria?: string[] | null; improvement_plan?: { gaps?: string[]; actions?: string[]; timeline?: string } | null; scoring_source?: string | null }[]) {
         if (appliedGrantIds.has(a.grant_id)) continue;
         if (suppressedGrantIds.has(a.grant_id)) continue;
         if (!matchesLocation.has(a.grant_id)) continue;
         const grant = grantById.get(a.grant_id);
         const name = grant?.name ?? "Grant";
         const source = a.scoring_source ?? (a.summary?.startsWith("Preliminary fit") ? "heuristic" : "openai");
-        const score = source === "heuristic" ? Math.min(a.score, 69) : a.score;
+        const baseScore = source === "heuristic" ? Math.min(a.score, 69) : a.score;
+        const guarded = grant
+          ? applyOutcomeScoreAdjustment(applyEligibilityScoreGuards(
+              profileForEligibilityGuards(profile as Record<string, unknown>),
+              grant,
+              {
+                decision: a.decision === "likely_eligible" || a.decision === "review" || a.decision === "unlikely" ? a.decision : "review",
+                reason: a.summary ?? "",
+                confidence: baseScore,
+                score: baseScore,
+                summary: a.summary ?? undefined,
+                reasons: [],
+                improvementPlan: a.improvement_plan as EligibilityResult["improvementPlan"],
+                met: [],
+                missing: a.missing_criteria ?? [],
+                winProbability: baseScore,
+                evidenceStrength: baseScore >= 80 ? "strong" : baseScore >= 55 ? "medium" : "weak",
+              }
+            ), outcomeAdjustment)
+          : null;
+        const score = guarded ? (guarded.score ?? guarded.confidence) : baseScore;
         if (isOpenAIChecked(source) && score >= 80) suggestedGrants.push({ grantId: a.grant_id, grantName: name, score, addedAt: grant?.createdAt ?? null });
-        else if (score >= 50) withinReachGrants.push({ grantId: a.grant_id, grantName: name, score, summary: a.summary ?? undefined, addedAt: grant?.createdAt ?? null });
+        else if (score >= 50) withinReachGrants.push({ grantId: a.grant_id, grantName: name, score, summary: guarded?.summary ?? a.summary ?? undefined, addedAt: grant?.createdAt ?? null });
       }
     }
 

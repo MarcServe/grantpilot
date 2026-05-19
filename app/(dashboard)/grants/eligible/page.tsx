@@ -10,6 +10,21 @@ import { EligibleGrantsList } from "@/components/grants/eligible-grants-list";
 import { isGrantLinkUsable } from "@/lib/grant-freshness";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { isOpenAIChecked } from "@/lib/grant-source-policy";
+import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
+import { applyOutcomeScoreAdjustment, deriveOutcomeScoreAdjustment } from "@/lib/outcome-learning";
+import type { EligibilityResult } from "@/lib/claude";
+
+function profileForEligibilityGuards(profile: Record<string, unknown>) {
+  return {
+    location: String(profile.location ?? ""),
+    sector: String(profile.sector ?? ""),
+    fundingPurposes: Array.isArray(profile.fundingPurposes) ? profile.fundingPurposes as string[] : (Array.isArray(profile.funding_purposes) ? profile.funding_purposes as string[] : []),
+    businessType: String(profile.businessType ?? profile.business_type ?? "") || null,
+    employeeCount: profile.employeeCount != null ? Number(profile.employeeCount) : (profile.employee_count != null ? Number(profile.employee_count) : null),
+    annualRevenue: profile.annualRevenue != null ? Number(profile.annualRevenue) : (profile.annual_revenue != null ? Number(profile.annual_revenue) : null),
+    yearEstablished: profile.yearEstablished != null ? Number(profile.yearEstablished) : (profile.year_established != null ? Number(profile.year_established) : null),
+  };
+}
 
 export default async function EligibleGrantsPage() {
   const { org, orgId } = await getActiveOrg();
@@ -87,18 +102,26 @@ export default async function EligibleGrantsPage() {
   }[];
 
   const grantIds = assessments.map((a) => a.grant_id);
-  let grantsMap = new Map<string, { id: string; name: string; funder: string; deadline: string | null; funderLocations?: string[]; createdAt?: string | null }>();
+  let grantsMap = new Map<string, { id: string; name: string; funder: string; deadline: string | null; funderLocations?: string[]; createdAt?: string | null; eligibility?: string | null; description?: string | null; objectives?: string | null; applicantTypes?: string[]; sectors?: string[]; regions?: string[] }>();
+  const { data: outcomeRows } = await supabase
+    .from("ApplicationOutcome")
+    .select("outcome, awardedAmount, funderFeedback, learningNotes, Grant(name, funder)")
+    .eq("organisationId", orgId)
+    .eq("profileId", profileId)
+    .order("reportedAt", { ascending: false })
+    .limit(8);
+  const outcomeAdjustment = deriveOutcomeScoreAdjustment(outcomeRows ?? []);
 
   if (grantIds.length > 0) {
     const appliedGrantIds = await getAppliedGrantIds(supabase, orgId, profileId);
     // Batch .in() queries to avoid URL length limits (Supabase/PostgREST caps ~8KB)
     const BATCH_SIZE = 200;
-    const allGrantsData: { id: string; name: string; funder: string; deadline: string | null; funderLocations?: string[]; url_status?: string; createdAt?: string | null }[] = [];
+    const allGrantsData: { id: string; name: string; funder: string; deadline: string | null; funderLocations?: string[]; url_status?: string; createdAt?: string | null; eligibility?: string | null; description?: string | null; objectives?: string | null; applicantTypes?: string[]; sectors?: string[]; regions?: string[] }[] = [];
     for (let i = 0; i < grantIds.length; i += BATCH_SIZE) {
       const batch = grantIds.slice(i, i + BATCH_SIZE);
       const { data: batchData, error: grantErr } = await supabase
         .from("Grant")
-        .select("id, name, funder, deadline, funderLocations, url_status, createdAt")
+        .select("id, name, funder, deadline, funderLocations, url_status, createdAt, eligibility, description, objectives, applicantTypes, sectors, regions")
         .in("id", batch);
       if (grantErr) {
         console.error("[eligible-page] grants query error:", grantErr);
@@ -135,7 +158,25 @@ export default async function EligibleGrantsPage() {
     if (!grant) continue;
 
     const scoringSource = a.scoring_source ?? (a.summary?.startsWith("Preliminary fit") ? "heuristic" : "openai");
-    const score = scoringSource === "heuristic" ? Math.min(a.score, 69) : a.score;
+    const baseScore = scoringSource === "heuristic" ? Math.min(a.score, 69) : a.score;
+    const guarded = applyOutcomeScoreAdjustment(applyEligibilityScoreGuards(
+      profileForEligibilityGuards(profile as Record<string, unknown>),
+      grant,
+      {
+        decision: a.decision === "likely_eligible" || a.decision === "review" || a.decision === "unlikely" ? a.decision : "review",
+        reason: a.summary ?? "",
+        confidence: baseScore,
+        score: baseScore,
+        summary: a.summary ?? undefined,
+        reasons: [],
+        improvementPlan: a.improvement_plan as EligibilityResult["improvementPlan"],
+        met: [],
+        missing: a.missing_criteria ?? [],
+        winProbability: baseScore,
+        evidenceStrength: baseScore >= 80 ? "strong" : baseScore >= 55 ? "medium" : "weak",
+      }
+    ), outcomeAdjustment);
+    const score = guarded.score ?? guarded.confidence;
     allGrants.push({
       grantId: a.grant_id,
       grantName: grant.name,
@@ -143,10 +184,10 @@ export default async function EligibleGrantsPage() {
       deadline: grant.deadline,
       addedAt: grant.createdAt ?? null,
       score,
-      decision: a.decision,
-      summary: a.summary,
-      missingCriteria: a.missing_criteria,
-      improvementPlan: a.improvement_plan,
+      decision: guarded.decision,
+      summary: guarded.summary ?? a.summary,
+      missingCriteria: guarded.missing ?? a.missing_criteria,
+      improvementPlan: guarded.improvementPlan ?? a.improvement_plan,
       scoringSource,
     });
 

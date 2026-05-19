@@ -15,6 +15,11 @@ import { isGrantLinkUsable } from "@/lib/grant-freshness";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { isOpenAIChecked } from "@/lib/grant-source-policy";
 import { getSuppressedGrantIds } from "@/lib/grant-user-state";
+import {
+  applyOutcomeScoreAdjustment,
+  buildFundingOutcomeSignals,
+  deriveOutcomeScoreAdjustment,
+} from "@/lib/outcome-learning";
 
 /**
  * 3-Layer Eligibility Pipeline
@@ -49,6 +54,7 @@ function profileToMatching(profile: Record<string, unknown>) {
     location: String(get("location") ?? ""),
     employeeCount: profile.employeeCount != null ? Number(profile.employeeCount) : (profile.employee_count != null ? Number(profile.employee_count) : null),
     annualRevenue: profile.annualRevenue != null ? Number(profile.annualRevenue) : (profile.annual_revenue != null ? Number(profile.annual_revenue) : null),
+    yearEstablished: profile.yearEstablished != null ? Number(profile.yearEstablished) : (profile.year_established != null ? Number(profile.year_established) : null),
     fundingMin: Number(get("fundingMin") ?? get("funding_min") ?? 0),
     fundingMax: Number(get("fundingMax") ?? get("funding_max") ?? 0),
     fundingPurposes: Array.isArray(profile.fundingPurposes) ? profile.fundingPurposes as string[] : (Array.isArray(profile.funding_purposes) ? profile.funding_purposes as string[] : []),
@@ -56,20 +62,6 @@ function profileToMatching(profile: Record<string, unknown>) {
     businessType: String(get("businessType") ?? get("business_type") ?? ""),
     fundingOutcomeSignals: profile.fundingOutcomeSignals != null ? String(profile.fundingOutcomeSignals) : null,
   };
-}
-
-function buildOutcomeSignals(outcomes: unknown[] | null): string {
-  const rows = Array.isArray(outcomes) ? outcomes : [];
-  return rows
-    .slice(0, 8)
-    .map((row) => {
-      const item = row as { outcome?: string; awardedAmount?: number | null; funderFeedback?: string | null; Grant?: { name?: string; funder?: string } | { name?: string; funder?: string }[] };
-      const grant = Array.isArray(item.Grant) ? item.Grant[0] : item.Grant;
-      const amount = item.awardedAmount ? `, awarded £${Number(item.awardedAmount).toLocaleString("en-GB")}` : "";
-      const feedback = item.funderFeedback ? `, feedback: ${item.funderFeedback.slice(0, 240)}` : "";
-      return `${grant?.name ?? "Grant"} (${grant?.funder ?? "Funder"}): ${item.outcome ?? "unknown"}${amount}${feedback}`;
-    })
-    .join("\n");
 }
 
 function getProfileOrgId(p: { organisationId?: string; organisation_id?: string }): string | null {
@@ -93,6 +85,8 @@ function shouldNotifyForEligibility(score: number, decision?: string | null, sco
 
 export async function runEligibilityRefreshJob(options?: {
   orgIdsFilter?: Set<string>;
+  bypassCache?: boolean;
+  refreshReason?: string;
 }): Promise<{
   totalGrants: number;
   orgsWithProfile: number;
@@ -105,6 +99,7 @@ export async function runEligibilityRefreshJob(options?: {
   cacheHits: number;
 }> {
     const orgIdsFilter = options?.orgIdsFilter;
+    const bypassCache = options?.bypassCache === true;
     const supabase = getSupabaseAdmin();
     const { data: grantsData } = await supabase.from("Grant").select("id, name, funder, amount, deadline, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, required_attachments, url_status");
     const allGrants = (grantsData ?? []).filter(isGrantLinkUsable);
@@ -162,7 +157,7 @@ export async function runEligibilityRefreshJob(options?: {
       try {
         const completionScore = getProfileCompletionScore(profile as Record<string, unknown>);
         const profileName = (profile as { businessName?: string }).businessName ?? profileId;
-        console.info(`[eligibility-refresh] Processing org=${orgId} profile=${profileId} "${profileName}" completion=${completionScore}%`);
+        console.info(`[eligibility-refresh] Processing org=${orgId} profile=${profileId} "${profileName}" completion=${completionScore}% reason=${options?.refreshReason ?? "scheduled"} bypassCache=${bypassCache}`);
 
         const appliedGrantIds = await getAppliedGrantIds(supabase, orgId, profileId);
         const suppressedGrantIds = await getSuppressedGrantIds(supabase, orgId, profileId);
@@ -197,6 +192,7 @@ export async function runEligibilityRefreshJob(options?: {
           fundingPurposes: Array.isArray((profile as Record<string, unknown>).fundingPurposes) ? (profile as Record<string, unknown>).fundingPurposes as string[] : [],
           employeeCount: (profile as Record<string, unknown>).employeeCount != null ? Number((profile as Record<string, unknown>).employeeCount) : null,
           annualRevenue: (profile as Record<string, unknown>).annualRevenue != null ? Number((profile as Record<string, unknown>).annualRevenue) : null,
+          yearEstablished: (profile as Record<string, unknown>).yearEstablished != null ? Number((profile as Record<string, unknown>).yearEstablished) : ((profile as Record<string, unknown>).year_established != null ? Number((profile as Record<string, unknown>).year_established) : null),
           businessType: String((profile as Record<string, unknown>).businessType ?? (profile as Record<string, unknown>).business_type ?? "") || null,
         };
 
@@ -224,13 +220,15 @@ export async function runEligibilityRefreshJob(options?: {
 
         // ── CACHE CHECK: skip grants already scored recently ──
         const candidateIds = heuristicResults.map((r) => r.grantId);
-        const { data: cachedRows } = await supabase
-          .from("EligibilityAssessment")
-          .select("grant_id, updated_at, score, decision, summary")
-          .eq("organisation_id", orgId)
-          .eq("profile_id", profileId)
-          .in("grant_id", candidateIds)
-          .gte("updated_at", cacheThreshold.toISOString());
+        const { data: cachedRows } = bypassCache
+          ? { data: [] }
+          : await supabase
+            .from("EligibilityAssessment")
+            .select("grant_id, updated_at, score, decision, summary")
+            .eq("organisation_id", orgId)
+            .eq("profile_id", profileId)
+            .in("grant_id", candidateIds)
+            .gte("updated_at", cacheThreshold.toISOString());
 
         const cachedGrantIds = new Set((cachedRows ?? []).map((r: { grant_id: string }) => r.grant_id));
         const uncachedIds = candidateIds.filter((id) => !cachedGrantIds.has(id));
@@ -288,12 +286,13 @@ export async function runEligibilityRefreshJob(options?: {
         }));
         const { data: outcomeRows } = await supabase
           .from("ApplicationOutcome")
-          .select("outcome, awardedAmount, funderFeedback, Grant(name, funder)")
+          .select("outcome, awardedAmount, funderFeedback, learningNotes, Grant(name, funder)")
           .eq("organisationId", orgId)
           .eq("profileId", profileId)
           .order("reportedAt", { ascending: false })
           .limit(8);
-        const fundingOutcomeSignals = buildOutcomeSignals(outcomeRows ?? []);
+        const fundingOutcomeSignals = buildFundingOutcomeSignals(outcomeRows ?? []);
+        const outcomeScoreAdjustment = deriveOutcomeScoreAdjustment(outcomeRows ?? []);
 
         for (const grantId of layer3Ids) {
           const grant = locationFiltered.find((g) => g.id === grantId);
@@ -318,10 +317,11 @@ export async function runEligibilityRefreshJob(options?: {
                 regions: grant.regions ?? [],
               }
             );
+            const adjustedResult = applyOutcomeScoreAdjustment(result, outcomeScoreAdjustment);
             diagnostics.layer3Scored++;
 
-            const score = result.score ?? result.confidence;
-            const summary = result.summary ?? result.reason ?? undefined;
+            const score = adjustedResult.score ?? adjustedResult.confidence;
+            const summary = adjustedResult.summary ?? adjustedResult.reason ?? undefined;
 
             const { error: upsertErr } = await supabase.from("EligibilityAssessment").upsert(
               {
@@ -329,13 +329,13 @@ export async function runEligibilityRefreshJob(options?: {
                 profile_id: profileId,
                 grant_id: grant.id,
                 score,
-                decision: result.decision,
+                decision: adjustedResult.decision,
                 summary,
-                reasons: result.reasons ?? [],
-                alignment: result.alignment ?? null,
-                improvement_plan: result.improvementPlan ?? null,
-                met_criteria: result.met ?? [],
-                missing_criteria: result.missing ?? [],
+                reasons: adjustedResult.reasons ?? [],
+                alignment: adjustedResult.alignment ?? null,
+                improvement_plan: adjustedResult.improvementPlan ?? null,
+                met_criteria: adjustedResult.met ?? [],
+                missing_criteria: adjustedResult.missing ?? [],
                 scoring_source: "openai",
                 updated_at: new Date().toISOString(),
               },
@@ -346,7 +346,7 @@ export async function runEligibilityRefreshJob(options?: {
             const inRange =
               score >= minScore &&
               score <= maxScore &&
-              shouldNotifyForEligibility(score, result.decision, "openai");
+              shouldNotifyForEligibility(score, adjustedResult.decision, "openai");
 
             if (inRange) {
               const { data: existing } = await supabase
@@ -377,8 +377,8 @@ export async function runEligibilityRefreshJob(options?: {
                     "Full company-DNA assessment found a strong match between your profile and this grant.",
                   startApplicationToken,
                   missingDocuments: missing.length > 0 ? missing.map((r) => r.label) : undefined,
-                  improvementPlan: result.improvementPlan ?? undefined,
-                  missingCriteria: result.missing ?? undefined,
+                  improvementPlan: adjustedResult.improvementPlan ?? undefined,
+                  missingCriteria: adjustedResult.missing ?? undefined,
                 });
               }
             }
@@ -490,8 +490,12 @@ export const eligibilityRefreshRequested = inngest.createFunction(
   { event: "eligibility/refresh.requested" },
   async ({ event }) => {
     const orgId = typeof event.data?.orgId === "string" ? event.data.orgId.trim() : "";
+    const source = typeof event.data?.source === "string" ? event.data.source : "manual";
+    const bypassCache = /^(application\.outcome|profile\.)/.test(source);
     return runEligibilityRefreshJob(
-      orgId ? { orgIdsFilter: new Set([orgId]) } : undefined
+      orgId
+        ? { orgIdsFilter: new Set([orgId]), bypassCache, refreshReason: source }
+        : { bypassCache, refreshReason: source }
     );
   }
 );

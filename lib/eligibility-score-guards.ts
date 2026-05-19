@@ -1,10 +1,14 @@
 import { getApplicantTypeGate } from "@/lib/eligibility-hard-gates";
+import { evaluateEligibilityPreScreen } from "@/lib/eligibility-prescreen";
 import type { EligibilityResult } from "@/lib/claude";
 
 interface GuardProfile {
   location: string;
   sector: string;
   fundingPurposes: string[];
+  employeeCount?: number | null;
+  annualRevenue?: number | null;
+  yearEstablished?: number | null;
   businessType?: string | null;
 }
 
@@ -66,12 +70,15 @@ function purposeLooksAligned(profilePurposes: string[], grant: GuardGrant): bool
   );
 }
 
-function capResult(result: EligibilityResult, maxScore: number, reason: string): EligibilityResult {
+function capResult(result: EligibilityResult, maxScore: number, reason: string, actions?: string[]): EligibilityResult {
   const current = result.score ?? result.confidence;
   if (current <= maxScore) return result;
   const score = Math.max(0, Math.min(maxScore, current));
   const missing = [...(result.missing ?? []), reason].filter((value, index, arr) => arr.indexOf(value) === index);
   const reasons = [...(result.reasons ?? []), reason].filter((value, index, arr) => arr.indexOf(value) === index);
+  const currentActions = result.improvementPlan?.actions ?? [];
+  const nextActions = [...currentActions, ...(actions ?? ["Review the grant criteria against your company DNA before applying."])]
+    .filter((value, index, arr) => arr.indexOf(value) === index);
   return {
     ...result,
     decision: score >= 75 ? "likely_eligible" : score >= 40 ? "review" : "unlikely",
@@ -83,10 +90,11 @@ function capResult(result: EligibilityResult, maxScore: number, reason: string):
     improvementPlan:
       score >= 75
         ? result.improvementPlan
-        : result.improvementPlan ?? {
-            gaps: [reason],
-            actions: ["Review the grant criteria against your company DNA before applying."],
-            timeline: "Before applying",
+        : {
+            ...(result.improvementPlan ?? {}),
+            gaps: [...(result.improvementPlan?.gaps ?? []), reason].filter((value, index, arr) => arr.indexOf(value) === index),
+            actions: nextActions,
+            timeline: result.improvementPlan?.timeline ?? "Before applying",
           },
     missing,
     reasons,
@@ -119,6 +127,26 @@ export function applyEligibilityScoreGuards(
   }
   if (!purposeLooksAligned(profile.fundingPurposes, grant)) {
     guarded = capResult(guarded, 60, "Funding purpose does not clearly match the grant objectives");
+  }
+
+  const preScreen = evaluateEligibilityPreScreen(profile, grant);
+  if (preScreen.scoreCap != null && preScreen.gaps.length > 0) {
+    guarded = capResult(
+      guarded,
+      preScreen.scoreCap,
+      `Measurable eligibility pre-screen: ${preScreen.gaps.join("; ")}`,
+      preScreen.actions
+    );
+    guarded = {
+      ...guarded,
+      met: [...(guarded.met ?? []), ...preScreen.met].filter((value, index, arr) => arr.indexOf(value) === index),
+      missing: [...(guarded.missing ?? []), ...preScreen.gaps].filter((value, index, arr) => arr.indexOf(value) === index),
+    };
+  } else if (preScreen.met.length > 0) {
+    guarded = {
+      ...guarded,
+      met: [...(guarded.met ?? []), ...preScreen.met].filter((value, index, arr) => arr.indexOf(value) === index),
+    };
   }
 
   const warningText = [...(guarded.missing ?? []), ...(guarded.reasons ?? [])].join(" ").toLowerCase();

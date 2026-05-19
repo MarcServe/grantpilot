@@ -1,6 +1,6 @@
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import type { FounderPackContent, FounderPackDocumentType } from "@/lib/founder-pack";
+import { sanitiseFounderPackContent, type FounderPackContent, type FounderPackDocumentType } from "@/lib/founder-pack";
 import { FounderPackClient } from "@/components/founder-pack/founder-pack-client";
 import { planAllows, resolvePlanKey } from "@/lib/plan-features";
 
@@ -202,7 +202,7 @@ export default async function FounderPackPage({
       createdAt: pack.createdAt,
       createdAtLabel: formatDateLabel(pack.createdAt),
       type: pack.type,
-      content: pack.content,
+      content: sanitiseFounderPackContent(pack.content, { businessName: profile?.businessName }),
       documentTypes: pack.inputs?.documentTypes ?? null,
       profileBusinessName: profile?.businessName ?? null,
       profileSector: profile?.sector ?? null,

@@ -136,7 +136,7 @@ export function OutcomeLearningForm({
         return;
       }
       setSavedInsight((data.insight ?? null) as OutcomeLearningInsight | null);
-      toast.success("Outcome saved. Funding intelligence will use this signal.");
+      toast.success("Outcome saved. Future eligibility scoring will use this signal.");
       router.refresh();
     } catch {
       toast.error("Could not save outcome");
@@ -245,10 +245,10 @@ export function OutcomeLearningForm({
         {savedInsight?.summary && (
           <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm font-semibold text-foreground">What GrantsCopilot learned</p>
+              <p className="text-sm font-semibold text-foreground">Learning signal saved</p>
               {typeof savedInsight.scoringAdjustment === "number" && (
                 <span className="rounded-full bg-background px-2 py-1 text-xs font-medium text-muted-foreground">
-                  {savedInsight.scoringAdjustment >= 0 ? "+" : ""}{savedInsight.scoringAdjustment} scoring signal
+                  {savedInsight.scoringAdjustment >= 0 ? "+" : ""}{savedInsight.scoringAdjustment} scoring calibration
                 </span>
               )}
             </div>

@@ -387,8 +387,8 @@ function PackDocument({ pack }: { pack: PackSummary }) {
         )}
         {hasPitchDeck && (
           <div className="rounded-md border border-blue-100 bg-blue-50 p-3 text-sm text-blue-900 print:hidden">
-            Pitch decks export best as <span className="font-semibold">PPTX deck</span>. PDF and DOCX exports are written
-            outlines for review and notes.
+            Pitch decks export best as <span className="font-semibold">PPTX deck</span>. PDF keeps the deck-style review
+            layout; DOCX keeps an editable Word structure for copy and notes.
           </div>
         )}
         {includes("executive_summary") && content.executiveSummary && (

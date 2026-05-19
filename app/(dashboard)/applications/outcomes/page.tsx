@@ -139,7 +139,7 @@ function OutcomeInsightCard({ item }: { item: RecordedOutcomeInsight }) {
             <Badge>{item.outcome.replace(/_/g, " ")}</Badge>
             {item.scoringAdjustment != null && (
               <Badge variant={item.scoringAdjustment >= 0 ? "secondary" : "outline"}>
-                {item.scoringAdjustment >= 0 ? "+" : ""}{item.scoringAdjustment} scoring signal
+                {item.scoringAdjustment >= 0 ? "+" : ""}{item.scoringAdjustment} scoring calibration
               </Badge>
             )}
           </div>

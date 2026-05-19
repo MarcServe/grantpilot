@@ -122,6 +122,11 @@ export interface FounderPackContent {
 }
 
 type BusinessProfileLike = Record<string, unknown>;
+interface FounderPackSanitiseContext {
+  businessName?: string | null;
+  founderName?: string | null;
+  founderRole?: string | null;
+}
 
 function text(value: unknown): string {
   if (Array.isArray(value)) return value.filter(Boolean).join(", ");
@@ -275,6 +280,106 @@ function normaliseContent(raw: unknown): FounderPackContent {
   };
 }
 
+function possessiveName(name: string): string {
+  return name.endsWith("s") ? `${name}'` : `${name}'s`;
+}
+
+function sanitiseText(value: string, context: FounderPackSanitiseContext): string {
+  const businessName = context.businessName?.trim() || "the business";
+  const founderName = context.founderName?.trim() || "the founder";
+  const founderRole = context.founderRole?.trim() || "founder";
+  let next = String(value ?? "");
+
+  const replacementPairs: Array<[RegExp, string]> = [
+    [/\bTalkWeb(?:'s|’s)\b/gi, possessiveName(businessName)],
+    [/\bTalkWeb\b/gi, businessName],
+    [/\bAcme(?:\s+(?:Ltd|Limited|Inc|Corp|Corporation|Company|Co))?(?:'s|’s)\b/gi, possessiveName(businessName)],
+    [/\bAcme(?:\s+(?:Ltd|Limited|Inc|Corp|Corporation|Company|Co))?\b/gi, businessName],
+    [/\bExample\s+(?:Ltd|Limited|Company|Co|Startup|Business)(?:'s|’s)\b/gi, possessiveName(businessName)],
+    [/\bExample\s+(?:Ltd|Limited|Company|Co|Startup|Business)\b/gi, businessName],
+    [/\bSample\s+(?:Ltd|Limited|Company|Co|Startup|Business)(?:'s|’s)\b/gi, possessiveName(businessName)],
+    [/\bSample\s+(?:Ltd|Limited|Company|Co|Startup|Business)\b/gi, businessName],
+    [/\bDemo\s+(?:Ltd|Limited|Company|Co|Startup|Business)(?:'s|’s)\b/gi, possessiveName(businessName)],
+    [/\bDemo\s+(?:Ltd|Limited|Company|Co|Startup|Business)\b/gi, businessName],
+    [/\bTest\s+(?:Ltd|Limited|Company|Co|Startup|Business)(?:'s|’s)\b/gi, possessiveName(businessName)],
+    [/\bTest\s+(?:Ltd|Limited|Company|Co|Startup|Business)\b/gi, businessName],
+    [/\[(?:company|company name|business|business name)\]/gi, businessName],
+    [/\{(?:company|company name|business|business name)\}/gi, businessName],
+    [/\[(?:founder|founder name)\]/gi, founderName],
+    [/\{(?:founder|founder name)\}/gi, founderName],
+    [/\[(?:founder role|role)\]/gi, founderRole],
+    [/\{(?:founder role|role)\}/gi, founderRole],
+  ];
+
+  for (const [pattern, replacement] of replacementPairs) {
+    next = next.replace(pattern, replacement);
+  }
+
+  return next.trim();
+}
+
+function sanitiseList(values: string[], context: FounderPackSanitiseContext): string[] {
+  return values.map((item) => sanitiseText(item, context)).filter(Boolean);
+}
+
+export function sanitiseFounderPackContent(
+  content: FounderPackContent,
+  context: FounderPackSanitiseContext = {}
+): FounderPackContent {
+  return {
+    executiveSummary: sanitiseText(content.executiveSummary, context),
+    businessPlan: sanitiseText(content.businessPlan, context),
+    pitchDeck: (content.pitchDeck ?? []).map((slide) => ({
+      title: sanitiseText(slide.title, context),
+      objective: sanitiseText(slide.objective, context),
+      bullets: sanitiseList(slide.bullets ?? [], context),
+      speakerNotes: sanitiseText(slide.speakerNotes, context),
+      visualDirection: sanitiseText(slide.visualDirection, context),
+    })).filter((slide) => slide.title),
+    businessModelCanvas: {
+      keyPartners: sanitiseList(content.businessModelCanvas?.keyPartners ?? [], context),
+      keyActivities: sanitiseList(content.businessModelCanvas?.keyActivities ?? [], context),
+      keyResources: sanitiseList(content.businessModelCanvas?.keyResources ?? [], context),
+      valuePropositions: sanitiseList(content.businessModelCanvas?.valuePropositions ?? [], context),
+      customerRelationships: sanitiseList(content.businessModelCanvas?.customerRelationships ?? [], context),
+      channels: sanitiseList(content.businessModelCanvas?.channels ?? [], context),
+      customerSegments: sanitiseList(content.businessModelCanvas?.customerSegments ?? [], context),
+      costStructure: sanitiseList(content.businessModelCanvas?.costStructure ?? [], context),
+      revenueStreams: sanitiseList(content.businessModelCanvas?.revenueStreams ?? [], context),
+    },
+    innovationStatement: sanitiseText(content.innovationStatement, context),
+    marketAnalysis: sanitiseText(content.marketAnalysis, context),
+    financialProjections: {
+      assumptions: sanitiseList(content.financialProjections?.assumptions ?? [], context),
+      year1: sanitiseList(content.financialProjections?.year1 ?? [], context),
+      year2: sanitiseList(content.financialProjections?.year2 ?? [], context),
+      year3: sanitiseList(content.financialProjections?.year3 ?? [], context),
+    },
+    grantApplicationDraft: (content.grantApplicationDraft ?? []).map((item) => ({
+      question: sanitiseText(item.question, context),
+      answer: sanitiseText(item.answer, context),
+    })).filter((item) => item.question && item.answer),
+    budgetNarrative: sanitiseText(content.budgetNarrative, context),
+    impactMeasurementPlan: sanitiseText(content.impactMeasurementPlan, context),
+    projectWorkplan: (content.projectWorkplan ?? []).map((phase) => ({
+      phase: sanitiseText(phase.phase, context),
+      timeline: sanitiseText(phase.timeline, context),
+      activities: sanitiseList(phase.activities ?? [], context),
+      outputs: sanitiseList(phase.outputs ?? [], context),
+    })).filter((phase) => phase.phase),
+    supportLetterTemplate: sanitiseText(content.supportLetterTemplate, context),
+    founderPositioning: sanitiseText(content.founderPositioning, context),
+    scalabilityPlan: sanitiseText(content.scalabilityPlan, context),
+    riskMitigation: (content.riskMitigation ?? []).map((item) => ({
+      risk: sanitiseText(item.risk, context),
+      mitigation: sanitiseText(item.mitigation, context),
+    })).filter((item) => item.risk && item.mitigation),
+    evidenceChecklist: sanitiseList(content.evidenceChecklist ?? [], context),
+    nextSteps: sanitiseList(content.nextSteps ?? [], context),
+    disclaimer: sanitiseText(content.disclaimer, context),
+  };
+}
+
 function emptyBusinessModelCanvas(): BusinessModelCanvas {
   return {
     keyPartners: [],
@@ -407,6 +512,7 @@ When selected grants or applications are supplied, explicitly tailor the grant a
 Never populate riskMitigation, evidenceChecklist, or nextSteps unless those exact document types are selected. Do not hide generic risks, evidence items, or next actions inside another section unless they are directly required by the selected document type.
 
 Write in polished UK business English. Be specific to this company. Do not invent exact revenue, customers, contracts, awards, grants, patents, or endorsements unless present in the profile or inputs. Where evidence is missing, use cautious planning language and add the missing evidence to the checklist.
+Never use mock, demo, or placeholder company details. Do not mention placeholder businesses such as TalkWeb, Acme, Example Company, Sample Company, Demo Company, or Test Company. Use only the supplied business profile, founder inputs, and grant context. If a detail is missing, write "To be confirmed" or frame it as a planning assumption.
 For the Canvas Standard Pitch Deck, make pitchDeck the primary output: create 10-12 practical slides with concise slide copy, speaker notes, and visual direction suitable for a clean Canva-style deck. It must read as a slide deck, not a report. If grant context is provided, include at least 3 slides that explicitly connect the company to the selected grant's criteria, use of funds, delivery plan, or impact priorities. Do not generate image URLs.
 For grant application documents, write editable funder-ready drafts that cover the problem, project, beneficiaries, delivery, impact, value for money, risks, and evidence needs.
 
@@ -460,7 +566,12 @@ Return ONLY valid JSON with this exact shape:
 
   try {
     const raw = await completeJson(prompt, maxTokens);
-    return filterFounderPackContent(parseFounderPackResponse(raw), selectedTypes);
+    const content = filterFounderPackContent(parseFounderPackResponse(raw), selectedTypes);
+    return sanitiseFounderPackContent(content, {
+      businessName: text(profile.businessName),
+      founderName: inputs.founderName,
+      founderRole: inputs.founderRole,
+    });
   } catch (err) {
     console.warn("[founder-pack] Initial JSON generation failed, retrying with stricter output limits", err);
   }
@@ -479,7 +590,12 @@ Do not include markdown fences or commentary.`;
 
   try {
     const raw = await completeJson(retryPrompt, maxTokens);
-    return filterFounderPackContent(parseFounderPackResponse(raw), selectedTypes);
+    const content = filterFounderPackContent(parseFounderPackResponse(raw), selectedTypes);
+    return sanitiseFounderPackContent(content, {
+      businessName: text(profile.businessName),
+      founderName: inputs.founderName,
+      founderRole: inputs.founderRole,
+    });
   } catch (err) {
     console.error("[founder-pack] Retry JSON generation failed", err);
     throw new Error("The AI response was too long to save as structured JSON. Select fewer document types or use a quick preset, then try again.");
