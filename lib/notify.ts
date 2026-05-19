@@ -100,7 +100,12 @@ export async function notifyUser(
     // Org opted out of WhatsApp for this notification type (e.g. eligibility digest).
   } else if (user.whatsappOptIn && user.phoneNumber) {
     const grantMatchSid = (process.env.TWILIO_WHATSAPP_GRANT_MATCH_CONTENT_SID ?? "").trim();
-    const deadlineSid = (process.env.TWILIO_WHATSAPP_DEADLINE_CONTENT_SID ?? "").trim();
+    const deadlineSid = (
+      process.env.TWILIO_WHATSAPP_DEADLINE_CONTENT_SID ??
+      process.env.TWILIO_WHATSAPP_DEADLINE_TEMPLATE_SID ??
+      process.env.TWILIO_DEADLINE_CONTENT_SID ??
+      ""
+    ).trim();
     const needsInfoSid = (process.env.TWILIO_WHATSAPP_APPLICATION_NEEDS_INFO_CONTENT_SID ?? "").trim();
 
     const useGrantTemplate =
@@ -108,7 +113,8 @@ export async function notifyUser(
     const useDeadlineTemplate = type === "deadline_reminder" && deadlineSid.length > 0;
     const useNeedsInfoTemplate = type === "application_needs_info" && needsInfoSid.length > 0;
 
-    // WhatsApp business-initiated messages require Content Templates (Twilio 63016). Never use body.
+    // Prefer approved Content Templates. Deadline reminders keep a legacy body fallback
+    // so a missing template env var does not silently suppress urgent notifications.
     if (useGrantTemplate) {
       const linkUrl =
         type === "grant_match_high" && payload.startApplicationToken
@@ -177,6 +183,23 @@ export async function notifyUser(
       };
       if (result.twilioSid ?? result.twilioStatus) {
         logPayload.metadata = { twilioSid: result.twilioSid ?? null, twilioStatus: result.twilioStatus ?? null };
+      }
+      await supabase.from("NotificationLog").insert(logPayload);
+    } else if (type === "deadline_reminder") {
+      const result = await sendWhatsApp(user.phoneNumber, buildWhatsAppMessage(type, payload, appUrl));
+      const logPayload: Record<string, unknown> = {
+        userId: user.id,
+        channel: "whatsapp",
+        type,
+        status: result.success ? "sent" : "failed",
+        error: result.error ?? null,
+      };
+      if (result.twilioSid ?? result.twilioStatus) {
+        logPayload.metadata = {
+          twilioSid: result.twilioSid ?? null,
+          twilioStatus: result.twilioStatus ?? null,
+          fallback: "legacy_body",
+        };
       }
       await supabase.from("NotificationLog").insert(logPayload);
     } else {
