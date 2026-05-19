@@ -284,7 +284,9 @@ function PackDocument({ pack }: { pack: PackSummary }) {
   async function downloadExport(format: "pdf" | "docx" | "pptx" | "md" | "json") {
     setExporting(format);
     try {
-      const res = await fetch(`/api/founder-pack/${pack.id}/export?format=${format}`);
+      const res = await fetch(`/api/founder-pack/${pack.id}/export?format=${format}&v=${Date.now()}`, {
+        cache: "no-store",
+      });
       const blob = await res.blob();
       if (!res.ok) {
         const error = await blob.text().catch(() => "");

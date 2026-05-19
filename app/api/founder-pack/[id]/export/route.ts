@@ -62,7 +62,10 @@ export async function GET(req: Request, context: RouteContext): Promise<NextResp
       headers: {
         "Content-Type": founderPackExportMime(format),
         "Content-Disposition": `attachment; filename="${founderPackExportFilename(exportPack, format)}"`,
-        "Cache-Control": "no-store",
+        "Cache-Control": "no-store, no-cache, max-age=0, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+        "X-Founder-Pack-Export-Version": "slide-pages-v2",
       },
     });
   } catch (e) {

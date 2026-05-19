@@ -439,6 +439,153 @@ function buildPdfRows(pack: FounderPackExportInput): PdfRow[] {
   return rows;
 }
 
+function buildPdfTitleRows(pack: FounderPackExportInput): PdfRow[] {
+  return [
+    { text: packTitle(pack), size: 19, font: "F2", gapAfter: 8 },
+    ...(pack.profile?.sector ? [{ text: `Sector: ${pack.profile.sector}`, size: 11, font: "F1" as const }] : []),
+    ...(pack.inputs?.founderName ? [{ text: `Founder: ${pack.inputs.founderName}`, size: 11, font: "F1" as const }] : []),
+    ...(pack.createdAt
+      ? [{ text: `Generated: ${new Date(pack.createdAt).toLocaleString("en-GB")}`, size: 10, font: "F1" as const, gapAfter: 14 }]
+      : []),
+  ];
+}
+
+function appendStandardPdfLine(rows: PdfRow[], raw: string): void {
+  const line = raw.trim();
+  if (!line) return;
+  if (/^Slide\s+\d+:/i.test(line)) {
+    const slideNo = Number(line.match(/^Slide\s+(\d+):/i)?.[1] ?? 0);
+    rows.push({
+      text: line.replace(/^Slide\s+\d+:\s*/i, ""),
+      size: 14,
+      font: "F2",
+      kind: "slideTitle",
+      slideNo: Number.isFinite(slideNo) ? slideNo : undefined,
+      indent: 66,
+      gapBefore: 14,
+      gapAfter: 22,
+    });
+    return;
+  }
+  if (/^(Objective|Speaker notes|Design direction|Activities|Outputs|Assumptions|Year \d|Key Partners|Key Activities|Key Resources|Value Propositions|Customer Relationships|Channels|Customer Segments|Cost Structure|Revenue Streams)$/i.test(line)) {
+    rows.push({ text: line, size: 11, font: "F2", kind: "subheading", gapBefore: 6, gapAfter: 2 });
+    return;
+  }
+  if (/^[-•]\s+/.test(line)) {
+    addWrappedPdfRows(rows, `- ${line.replace(/^[-•]\s*/, "")}`, {
+      size: 10,
+      font: "F1",
+      kind: "bullet",
+      indent: 18,
+      max: 84,
+      gapAfter: 1,
+    });
+    return;
+  }
+  addWrappedPdfRows(rows, line, {
+    size: 10.5,
+    font: "F1",
+    max: 88,
+    gapAfter: 3,
+  });
+}
+
+function buildPdfSectionRows(section: TextSection): PdfRow[] {
+  const rows: PdfRow[] = [{ text: section.title, size: 16, font: "F2", kind: "section", gapAfter: 8 }];
+  section.lines.forEach((line) => appendStandardPdfLine(rows, line));
+  return rows;
+}
+
+function buildPitchSlidePdfRows(slide: FounderPackContent["pitchDeck"][number], index: number): PdfRow[] {
+  const rows: PdfRow[] = [
+    {
+      text: slide.title,
+      size: 18,
+      font: "F2",
+      kind: "slideTitle",
+      slideNo: index + 1,
+      indent: 80,
+      gapBefore: 10,
+      gapAfter: 24,
+    },
+  ];
+  if (slide.objective) {
+    addWrappedPdfRows(rows, `Objective: ${slide.objective}`, {
+      size: 11,
+      font: "F2",
+      kind: "note",
+      indent: 94,
+      max: 70,
+      gapAfter: 10,
+    });
+  }
+  slide.bullets.slice(0, 8).forEach((bullet) => {
+    addWrappedPdfRows(rows, `- ${bullet}`, {
+      size: 11,
+      font: "F1",
+      kind: "bullet",
+      indent: 104,
+      max: 68,
+      gapAfter: 3,
+    });
+  });
+  if (slide.speakerNotes) {
+    addWrappedPdfRows(rows, `Speaker notes: ${slide.speakerNotes}`, {
+      size: 10.5,
+      font: "F2",
+      kind: "note",
+      indent: 94,
+      max: 70,
+      gapBefore: 18,
+      gapAfter: 8,
+    });
+  }
+  if (slide.visualDirection) {
+    addWrappedPdfRows(rows, `Design direction: ${slide.visualDirection}`, {
+      size: 10.5,
+      font: "F2",
+      kind: "note",
+      indent: 94,
+      max: 70,
+      gapAfter: 8,
+    });
+  }
+  return rows;
+}
+
+function paginatePdfRows(rows: PdfRow[]): PdfRow[][] {
+  const pages: PdfRow[][] = [];
+  let current: PdfRow[] = [];
+  let y = 742;
+  const bottom = 62;
+  for (const row of rows) {
+    const lineHeight = row.size + 5 + (row.gapBefore ?? 0) + (row.gapAfter ?? 0);
+    if (current.length > 0 && y - lineHeight < bottom) {
+      pages.push(current);
+      current = [];
+      y = 742;
+    }
+    current.push(row);
+    y -= lineHeight;
+  }
+  if (current.length > 0) pages.push(current);
+  return pages;
+}
+
+function buildPdfPages(pack: FounderPackExportInput): PdfRow[][] {
+  const pages = paginatePdfRows(buildPdfTitleRows(pack));
+  for (const section of buildFounderPackTextSections(pack)) {
+    if (section.title === "Canvas Standard Pitch Deck" && includes(pack, "pitch_deck") && pack.content.pitchDeck?.length) {
+      pack.content.pitchDeck.forEach((slide, index) => {
+        pages.push(buildPitchSlidePdfRows(slide, index));
+      });
+      continue;
+    }
+    pages.push(...paginatePdfRows(buildPdfSectionRows(section)));
+  }
+  return pages.filter((page) => page.length > 0);
+}
+
 function rgb(hex: string): [number, number, number] {
   const clean = hex.replace(/^#/, "");
   const value = /^[0-9a-f]{6}$/i.test(clean) ? clean : "000000";
@@ -456,24 +603,7 @@ function textAt(font: "F1" | "F2", size: number, x: number, y: number, text: str
 }
 
 export function generateFounderPackPdf(pack: FounderPackExportInput): Buffer {
-  const rows = buildPdfRows(pack);
-  const pages: PdfRow[][] = [];
-  let current: PdfRow[] = [];
-  let y = 742;
-  const bottom = 62;
-  for (const row of rows) {
-    const forcedBreak = row.text.startsWith("__PAGE_BREAK__");
-    const cleanRow = forcedBreak ? { ...row, text: row.text.replace("__PAGE_BREAK__", "") } : row;
-    const lineHeight = cleanRow.size + 5 + (cleanRow.gapBefore ?? 0) + (cleanRow.gapAfter ?? 0);
-    if ((forcedBreak && current.length > 0) || y - lineHeight < bottom) {
-      pages.push(current);
-      current = [];
-      y = 742;
-    }
-    current.push(cleanRow);
-    y -= lineHeight;
-  }
-  if (current.length > 0) pages.push(current);
+  const pages = buildPdfPages(pack);
 
   const objects: string[] = [];
   objects.push("<< /Type /Catalog /Pages 2 0 R >>");
