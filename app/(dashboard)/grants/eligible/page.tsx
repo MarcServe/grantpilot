@@ -26,6 +26,61 @@ function profileForEligibilityGuards(profile: Record<string, unknown>) {
   };
 }
 
+function latestIsoDate(values: (string | null | undefined)[]): string | null {
+  let latest: { value: string; time: number } | null = null;
+  for (const value of values) {
+    if (!value) continue;
+    const time = new Date(value).getTime();
+    if (!Number.isFinite(time)) continue;
+    if (!latest || time > latest.time) latest = { value, time };
+  }
+  return latest?.value ?? null;
+}
+
+function dateKey(date: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+function resolveTimeZone(value: unknown): string {
+  const timeZone = typeof value === "string" && value.trim() ? value.trim() : "Europe/London";
+  try {
+    new Intl.DateTimeFormat("en-GB", { timeZone }).format(new Date());
+    return timeZone;
+  } catch {
+    return "Europe/London";
+  }
+}
+
+function formatLastScoredAt(value: string | null, timeZone: string): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+
+  const now = new Date();
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  const time = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+
+  if (dateKey(date, timeZone) === dateKey(now, timeZone)) return `Today, ${time}`;
+  if (dateKey(date, timeZone) === dateKey(yesterday, timeZone)) return `Yesterday, ${time}`;
+
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    day: "numeric",
+    month: "short",
+  }).format(date);
+}
+
 export default async function EligibleGrantsPage() {
   const { org, orgId } = await getActiveOrg();
   const supabase = getSupabaseAdmin();
@@ -198,7 +253,9 @@ export default async function EligibleGrantsPage() {
   }
 
   const totalScored = allGrants.length;
-  const lastUpdated = assessments[0]?.updated_at;
+  const timezone = resolveTimeZone((org as { preferredTimezone?: string | null }).preferredTimezone);
+  const lastScoredAt = latestIsoDate(assessments.map((assessment) => assessment.updated_at));
+  const lastScoredLabel = formatLastScoredAt(lastScoredAt, timezone);
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-6 sm:p-6">
@@ -215,7 +272,7 @@ export default async function EligibleGrantsPage() {
         <p className="mt-1 text-muted-foreground">
           Grants scored against your profile, ranked by eligibility.
           {totalScored > 0 && (
-            <> {totalScored} grants scored{lastUpdated && <> · Last updated {new Date(lastUpdated).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</>}.</>
+            <> {totalScored} grants scored{lastScoredLabel && <> · Latest score updated {lastScoredLabel}</>}.</>
           )}
         </p>
       </div>
