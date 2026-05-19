@@ -136,6 +136,56 @@ function unique(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
+function decisionForScore(score: number): "likely_eligible" | "review" | "unlikely" {
+  if (score >= 75) return "likely_eligible";
+  if (score >= 40) return "review";
+  return "unlikely";
+}
+
+function stripLegacyOutcomeCalibrationText(value?: string): string | undefined {
+  if (!value) return value;
+  return value
+    .replace(/\s*Outcome learning calibration: recent funder outcomes apply a [+-]?\d+ score adjustment\.\s*/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function restoreLegacyOutcomeAdjustedScore(result: EligibilityResult): EligibilityResult {
+  const text = [result.summary ?? "", result.reason ?? "", ...(result.reasons ?? [])].join(" ");
+  const match = text.match(/Outcome learning calibration: recent funder outcomes apply a ([+-]?\d+) score adjustment/i);
+  if (!match) return result;
+
+  const previousAdjustment = Number(match[1]);
+  if (!Number.isFinite(previousAdjustment) || previousAdjustment === 0) return result;
+
+  const currentScore = Math.max(0, Math.min(100, result.score ?? result.confidence));
+  const restoredScore = Math.max(0, Math.min(100, currentScore - previousAdjustment));
+  const currentWinProbability = result.winProbability ?? currentScore;
+  const restoredWinProbability = Math.max(0, Math.min(100, currentWinProbability - previousAdjustment));
+
+  return {
+    ...result,
+    decision: decisionForScore(restoredScore),
+    score: restoredScore,
+    confidence: restoredScore,
+    winProbability: restoredWinProbability,
+    evidenceStrength: restoredScore >= 80 ? "strong" : restoredScore >= 55 ? "medium" : "weak",
+    summary: stripLegacyOutcomeCalibrationText(result.summary),
+    reason: stripLegacyOutcomeCalibrationText(result.reason) || result.reason || result.summary || "",
+    reasons: (result.reasons ?? []).filter((reason) => !/Outcome learning calibration:/i.test(reason)),
+    missing: (result.missing ?? []).filter((item) => item !== "Prior outcome feedback indicates qualification risk"),
+    improvementPlan: result.improvementPlan
+      ? {
+          ...result.improvementPlan,
+          gaps: result.improvementPlan.gaps?.filter((item) => item !== "Prior outcome feedback indicates qualification risk"),
+          actions: result.improvementPlan.actions?.filter(
+            (item) => item !== "Review recorded outcome feedback and resolve repeated eligibility gaps before prioritising this grant."
+          ),
+        }
+      : result.improvementPlan,
+  };
+}
+
 export function buildFundingOutcomeSignals(outcomes: unknown[] | null): string {
   const rows = Array.isArray(outcomes) ? outcomes : [];
   if (rows.length === 0) return "";
@@ -225,21 +275,22 @@ export function applyOutcomeScoreAdjustment(
   result: EligibilityResult,
   adjustmentOrAdvisory: number | OutcomeLearningAdvisory
 ): EligibilityResult {
+  const restoredResult = restoreLegacyOutcomeAdjustedScore(result);
   const advisory =
     typeof adjustmentOrAdvisory === "number"
       ? { signal: adjustmentOrAdvisory, warnings: [], strengths: [], nextActions: [] }
       : adjustmentOrAdvisory;
   const signal = Number.isFinite(advisory.signal) ? advisory.signal : 0;
   if (signal === 0 && advisory.warnings.length === 0 && advisory.strengths.length === 0 && advisory.nextActions.length === 0) {
-    return result;
+    return restoredResult;
   }
   const alreadyApplied = [
-    result.summary ?? "",
-    result.reason ?? "",
-    ...(result.reasons ?? []),
-    ...(result.outcomeWarnings ?? []),
+    restoredResult.summary ?? "",
+    restoredResult.reason ?? "",
+    ...(restoredResult.reasons ?? []),
+    ...(restoredResult.outcomeWarnings ?? []),
   ].some((value) => value.includes("Outcome feedback advisory"));
-  if (alreadyApplied) return result;
+  if (alreadyApplied) return restoredResult;
 
   const label =
     signal < 0
@@ -254,8 +305,8 @@ export function applyOutcomeScoreAdjustment(
   ]).slice(0, 6);
 
   return {
-    ...result,
-    outcomeWarnings: unique([...(result.outcomeWarnings ?? []), ...outcomeWarnings]),
-    outcomeStrengths: unique([...(result.outcomeStrengths ?? []), ...advisory.strengths]).slice(0, 4),
+    ...restoredResult,
+    outcomeWarnings: unique([...(restoredResult.outcomeWarnings ?? []), ...outcomeWarnings]),
+    outcomeStrengths: unique([...(restoredResult.outcomeStrengths ?? []), ...advisory.strengths]).slice(0, 4),
   };
 }
