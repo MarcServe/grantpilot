@@ -29,12 +29,33 @@ import { getConfidenceBand } from "@/lib/claude";
 import { markGrantUserState } from "@/lib/grant-user-state";
 import { GrantStateActions } from "@/components/grants/grant-state-actions";
 
+const BACK_LINKS = {
+  matches: { href: "/grants/eligible", label: "Back to My Matches" },
+  dashboard: { href: "/dashboard", label: "Back to Dashboard" },
+  applications: { href: "/applications", label: "Back to Applications" },
+  grants: { href: "/grants", label: "Back to Grants" },
+} as const;
+
+function resolveBackLink(searchParams?: Record<string, string | string[] | undefined>) {
+  const rawFrom = searchParams?.from;
+  const from = Array.isArray(rawFrom) ? rawFrom[0] : rawFrom;
+
+  if (from === "matches") return BACK_LINKS.matches;
+  if (from === "dashboard") return BACK_LINKS.dashboard;
+  if (from === "applications") return BACK_LINKS.applications;
+  return BACK_LINKS.grants;
+}
+
 export default async function GrantDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { id } = await params;
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const backLink = resolveBackLink(resolvedSearchParams);
   const supabase = getSupabaseAdmin();
 
   const { data: grant, error: grantError } = await supabase
@@ -173,11 +194,11 @@ export default async function GrantDetailPage({
         eligibilityScore={eligibilityScore}
       />
       <Link
-        href="/grants"
+        href={backLink.href}
         className="mb-6 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft className="h-4 w-4" />
-        Back to Grants
+        {backLink.label}
       </Link>
 
       {((grant as { url_status?: string }).url_status === "dead" ||
@@ -402,7 +423,7 @@ export default async function GrantDetailPage({
               <p className="mb-2 text-sm font-medium">After reviewing this grant</p>
               <GrantStateActions grantId={grant.id} />
               <p className="mt-2 text-xs text-muted-foreground">
-                Viewed, deferred, and applied grants are removed from future eligibility reminders for your profile.
+                Deferred and applied grants are removed from repeated eligibility reminders. Viewing a grant will not stop deadline reminders.
               </p>
             </div>
           )}

@@ -53,6 +53,7 @@ function formatAddedAt(value?: string | null): string | null {
 }
 
 export function EligibleGrantCard({ grant }: { grant: EligibleGrant }) {
+  const detailHref = `/grants/${grant.grantId}?from=matches`;
   const deadlineStr = formatDeadline(grant.deadline);
   const addedAt = formatAddedAt(grant.addedAt);
   const isDeadlineSoon =
@@ -69,7 +70,7 @@ export function EligibleGrantCard({ grant }: { grant: EligibleGrant }) {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
           <Link
-            href={`/grants/${grant.grantId}`}
+            href={detailHref}
             className="break-words font-medium text-foreground hover:underline"
           >
             {grant.grantName}
@@ -115,13 +116,13 @@ export function EligibleGrantCard({ grant }: { grant: EligibleGrant }) {
       )}
 
       <div className="mt-2 flex flex-wrap items-center gap-2 pt-1">
-        <Link href={`/grants/${grant.grantId}`}>
+        <Link href={detailHref}>
           <Button variant="outline" size="sm" className="gap-1.5">
             <FileText className="h-3.5 w-3.5" />
             View details
           </Button>
         </Link>
-        <Link href={`/grants/${grant.grantId}`}>
+        <Link href={detailHref}>
           <Button size="sm" className="gap-1.5">
             Apply
             <ArrowRight className="h-3.5 w-3.5" />

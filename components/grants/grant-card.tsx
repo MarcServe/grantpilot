@@ -183,7 +183,7 @@ export function GrantCard({
           </div>
         )}
 
-        <Link href={`/grants/${id}`}>
+        <Link href={`/grants/${id}?from=grants`}>
           <Button variant="outline" size="sm" className="mt-2 w-full gap-2">
             View Details <ArrowRight className="h-4 w-4" />
           </Button>

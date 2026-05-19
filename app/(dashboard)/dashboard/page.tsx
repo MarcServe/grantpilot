@@ -329,7 +329,7 @@ export default async function DashboardPage() {
                     topMatches.map((grant) => (
                       <Link
                         key={grant.grantId}
-                        href={`/grants/${grant.grantId}`}
+                        href={`/grants/${grant.grantId}?from=dashboard`}
                         className="flex min-w-0 items-center gap-3 py-4"
                       >
                         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#edf5ff] text-[#2167e8]">
@@ -492,7 +492,7 @@ export default async function DashboardPage() {
                   {suggestedGrants.slice(0, 5).map((g) => (
                     <li key={g.grantId}>
                       <Link
-                        href={`/grants/${g.grantId}`}
+                        href={`/grants/${g.grantId}?from=dashboard`}
                         className="flex min-w-0 flex-col gap-2 rounded-md p-2 hover:bg-muted min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between"
                       >
                         <span className="min-w-0 break-words font-medium">{g.grantName}</span>
@@ -523,7 +523,7 @@ export default async function DashboardPage() {
                   {withinReachGrants.slice(0, 5).map((g) => (
                     <li key={g.grantId}>
                       <Link
-                        href={`/grants/${g.grantId}`}
+                        href={`/grants/${g.grantId}?from=dashboard`}
                         className="flex min-w-0 flex-col gap-2 rounded-md p-2 hover:bg-muted min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between"
                       >
                         <span className="min-w-0 break-words font-medium">{g.grantName}</span>
@@ -557,7 +557,7 @@ export default async function DashboardPage() {
               {deferredGrants.map((g) => (
                 <li key={g.grantId}>
                   <Link
-                    href={`/grants/${g.grantId}`}
+                    href={`/grants/${g.grantId}?from=dashboard`}
                     className="flex min-w-0 flex-col gap-2 rounded-md p-2 hover:bg-muted min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between"
                   >
                     <span className="min-w-0">

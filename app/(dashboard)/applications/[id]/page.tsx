@@ -209,7 +209,7 @@ export default async function ApplicationDetailPage({
         <div>
           {grantId ? (
             <Link
-              href={`/grants/${grantId}`}
+              href={`/grants/${grantId}?from=applications`}
               className="group inline-block rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <h1 className="text-2xl font-bold transition-colors group-hover:text-primary group-hover:underline decoration-primary/40 underline-offset-4">
@@ -261,7 +261,7 @@ export default async function ApplicationDetailPage({
                     This link goes to a list of schemes. Open the specific grant you want to apply for, copy its URL, and update the application URL for this grant, then retry.
                   </p>
                   <Link
-                    href={`/grants/${(application as { grant?: { id?: string } }).grant?.id ?? ""}`}
+                    href={`/grants/${(application as { grant?: { id?: string } }).grant?.id ?? ""}?from=applications`}
                     className="mt-2 inline-block text-sm font-medium text-amber-800 underline hover:no-underline"
                   >
                     Edit application URL on grant page
@@ -283,7 +283,7 @@ export default async function ApplicationDetailPage({
                     The application URL for this grant returns a &quot;page not found&quot; error. Please find the correct application page and update the URL, then retry.
                   </p>
                   <Link
-                    href={`/grants/${(application as { grant?: { id?: string } }).grant?.id ?? ""}`}
+                    href={`/grants/${(application as { grant?: { id?: string } }).grant?.id ?? ""}?from=applications`}
                     className="mt-2 inline-block text-sm font-medium text-amber-800 underline hover:no-underline"
                   >
                     Edit application URL on grant page
