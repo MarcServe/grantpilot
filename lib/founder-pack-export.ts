@@ -354,7 +354,7 @@ interface PdfRow {
   text: string;
   size: number;
   font: "F1" | "F2";
-  kind?: "section" | "slideTitle" | "subheading" | "bullet" | "note" | "body";
+  kind?: "section" | "slideTitle" | "slideTitleContinuation" | "subheading" | "bullet" | "note" | "body";
   slideNo?: number;
   indent?: number;
   gapBefore?: number;
@@ -496,19 +496,23 @@ function buildPdfSectionRows(section: TextSection): PdfRow[] {
   return rows;
 }
 
+function buildPitchSlideTitleRows(title: string, slideNo: number): PdfRow[] {
+  const titleLines = wrapText(pdfSafeText(title), 42);
+  const lines = titleLines.length > 0 ? titleLines : ["Untitled slide"];
+  return lines.map((line, index) => ({
+    text: line,
+    size: 18,
+    font: "F2" as const,
+    kind: index === 0 ? "slideTitle" as const : "slideTitleContinuation" as const,
+    slideNo: index === 0 ? slideNo : undefined,
+    indent: 80,
+    gapBefore: index === 0 ? 10 : 0,
+    gapAfter: index === lines.length - 1 ? 24 : 2,
+  }));
+}
+
 function buildPitchSlidePdfRows(slide: FounderPackContent["pitchDeck"][number], index: number): PdfRow[] {
-  const rows: PdfRow[] = [
-    {
-      text: slide.title,
-      size: 18,
-      font: "F2",
-      kind: "slideTitle",
-      slideNo: index + 1,
-      indent: 80,
-      gapBefore: 10,
-      gapAfter: 24,
-    },
-  ];
+  const rows: PdfRow[] = buildPitchSlideTitleRows(slide.title, index + 1);
   if (slide.objective) {
     addWrappedPdfRows(rows, `Objective: ${slide.objective}`, {
       size: 11,
