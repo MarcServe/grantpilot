@@ -7,6 +7,8 @@ import {
   BriefcaseBusiness,
   CalendarClock,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Download,
   ExternalLink,
   FileJson,
@@ -255,8 +257,11 @@ function CanvasBlock({ title, items }: { title: string; items: string[] }) {
 
 function PackDocument({ pack }: { pack: PackSummary }) {
   const [exporting, setExporting] = useState<string | null>(null);
+  const [activeSlideIndex, setActiveSlideIndex] = useState(0);
   const content = pack.content;
   const pitchDeck = content.pitchDeck ?? [];
+  const visibleSlideIndex = pitchDeck.length > 0 ? Math.min(activeSlideIndex, pitchDeck.length - 1) : 0;
+  const visibleSlide = pitchDeck[visibleSlideIndex];
   const businessModelCanvas = content.businessModelCanvas ?? {
     keyPartners: [],
     keyActivities: [],
@@ -403,48 +408,74 @@ function PackDocument({ pack }: { pack: PackSummary }) {
         )}
         {includes("pitch_deck") && pitchDeck.length > 0 && (
           <Section title="Canvas Standard Pitch Deck">
-            <div className="grid gap-4">
-              {pitchDeck.map((slide, index) => (
-                <div
-                  key={`${slide.title}-${index}`}
-                  className="overflow-hidden rounded-lg border bg-white shadow-sm"
-                >
-                  <div className="grid min-h-[260px] gap-0 sm:grid-cols-[110px_1fr]">
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 print:hidden">
+                <Badge variant="outline">
+                  Slide {visibleSlideIndex + 1} of {pitchDeck.length}
+                </Badge>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    disabled={visibleSlideIndex === 0}
+                    onClick={() => setActiveSlideIndex((index) => Math.max(0, index - 1))}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Previous
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    disabled={visibleSlideIndex >= pitchDeck.length - 1}
+                    onClick={() => setActiveSlideIndex((index) => Math.min(pitchDeck.length - 1, index + 1))}
+                  >
+                    Next
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+              {visibleSlide && (
+                <div className="overflow-hidden rounded-lg border bg-white shadow-sm">
+                  <div className="grid min-h-[360px] gap-0 sm:grid-cols-[120px_1fr]">
                     <div className="flex flex-col justify-between bg-[#071a3a] p-4 text-white">
                       <div>
                         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-200">Slide</p>
-                        <p className="mt-1 text-4xl font-black">{index + 1}</p>
+                        <p className="mt-1 text-5xl font-black">{visibleSlideIndex + 1}</p>
                       </div>
                       <p className="text-xs font-medium text-emerald-200">Pitch deck</p>
                     </div>
-                    <div className="space-y-4 p-5">
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                        <h3 className="max-w-xl text-xl font-black leading-tight text-[#071a3a]">{slide.title}</h3>
-                        {slide.objective && (
-                          <Badge variant="secondary" className="w-fit whitespace-normal text-left">
-                            {slide.objective}
-                          </Badge>
+                    <div className="space-y-5 p-5 sm:p-6">
+                      <div className="space-y-3">
+                        <h3 className="max-w-2xl text-2xl font-black leading-tight text-[#071a3a]">{visibleSlide.title}</h3>
+                        {visibleSlide.objective && (
+                          <p className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium leading-5 text-white">
+                            {visibleSlide.objective}
+                          </p>
                         )}
                       </div>
                       <div className="rounded-md bg-blue-50 p-4">
-                        <BulletList items={slide.bullets} />
+                        <BulletList items={visibleSlide.bullets} />
                       </div>
-                      {slide.speakerNotes && (
+                      {visibleSlide.speakerNotes && (
                         <p className="whitespace-pre-line text-sm leading-6 text-muted-foreground">
                           <span className="font-medium text-foreground">Speaker notes: </span>
-                          {slide.speakerNotes}
+                          {visibleSlide.speakerNotes}
                         </p>
                       )}
-                      {slide.visualDirection && (
+                      {visibleSlide.visualDirection && (
                         <p className="rounded-md border border-dashed p-3 text-sm leading-6 text-muted-foreground">
                           <span className="font-medium text-foreground">Design direction: </span>
-                          {slide.visualDirection}
+                          {visibleSlide.visualDirection}
                         </p>
                       )}
                     </div>
                   </div>
                 </div>
-              ))}
+              )}
             </div>
           </Section>
         )}

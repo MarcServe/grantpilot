@@ -385,31 +385,42 @@ function buildPdfRows(pack: FounderPackExportInput): PdfRow[] {
   ];
 
   for (const section of buildFounderPackTextSections(pack)) {
-    rows.push({ text: `__PAGE_BREAK__${section.title}`, size: 16, font: "F2", kind: "section", gapAfter: 8 });
+    const isPitchDeckSection = section.title === "Canvas Standard Pitch Deck";
+    if (!isPitchDeckSection) {
+      rows.push({ text: `__PAGE_BREAK__${section.title}`, size: 16, font: "F2", kind: "section", gapAfter: 8 });
+    }
     for (const raw of section.lines) {
       const line = raw.trim();
       if (!line) continue;
       if (/^Slide\s+\d+:/i.test(line)) {
         const slideNo = Number(line.match(/^Slide\s+(\d+):/i)?.[1] ?? 0);
         rows.push({
-          text: line.replace(/^Slide\s+\d+:\s*/i, ""),
+          text: `${isPitchDeckSection ? "__PAGE_BREAK__" : ""}${line.replace(/^Slide\s+\d+:\s*/i, "")}`,
           size: 14,
           font: "F2",
           kind: "slideTitle",
           slideNo: Number.isFinite(slideNo) ? slideNo : undefined,
           indent: 66,
           gapBefore: 14,
-          gapAfter: 8,
+          gapAfter: 22,
         });
       } else if (/^(Objective|Speaker notes|Design direction|Activities|Outputs|Assumptions|Year \d|Key Partners|Key Activities|Key Resources|Value Propositions|Customer Relationships|Channels|Customer Segments|Cost Structure|Revenue Streams)$/i.test(line)) {
-        rows.push({ text: line, size: 11, font: "F2", kind: "subheading", gapBefore: 6, gapAfter: 2 });
+        rows.push({
+          text: line,
+          size: 11,
+          font: "F2",
+          kind: "subheading",
+          indent: isPitchDeckSection ? 82 : undefined,
+          gapBefore: 6,
+          gapAfter: 2,
+        });
       } else if (/^[-•]\s+/.test(line)) {
         addWrappedPdfRows(rows, `- ${line.replace(/^[-•]\s*/, "")}`, {
           size: 10,
           font: "F1",
           kind: "bullet",
-          indent: 18,
-          max: 84,
+          indent: isPitchDeckSection ? 96 : 18,
+          max: isPitchDeckSection ? 72 : 84,
           gapAfter: 1,
         });
       } else {
@@ -418,7 +429,8 @@ function buildPdfRows(pack: FounderPackExportInput): PdfRow[] {
           size: 10.5,
           font: isNote ? "F2" : "F1",
           kind: isNote ? "note" : "body",
-          max: 88,
+          indent: isPitchDeckSection ? 82 : undefined,
+          max: isPitchDeckSection ? 74 : 88,
           gapAfter: 3,
         });
       }
@@ -484,10 +496,10 @@ export function generateFounderPackPdf(pack: FounderPackExportInput): Buffer {
         commands.push(textAt("F2", 18, 59, cursorY - 18, String(row.slideNo || ""), "FFFFFF"));
       }
       if (row.kind === "bullet") {
-        commands.push(fillRect(50, cursorY - row.size - 5, 500, row.size + 8, "F3F7FC"));
+        commands.push(fillRect(Math.max(44, x - 8), cursorY - row.size - 5, Math.max(120, 560 - x), row.size + 8, "F3F7FC"));
       }
       if (row.kind === "note") {
-        commands.push(fillRect(50, cursorY - row.size - 5, 500, row.size + 8, "F8FBFF"));
+        commands.push(fillRect(Math.max(44, x - 8), cursorY - row.size - 5, Math.max(120, 560 - x), row.size + 8, "F8FBFF"));
       }
       commands.push(textAt(row.font, row.size, x, cursorY, row.text, row.kind === "subheading" ? "1F5B99" : "111827"));
       cursorY -= row.size + 5 + (row.gapAfter ?? 0);
