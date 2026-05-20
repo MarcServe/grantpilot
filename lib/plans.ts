@@ -27,6 +27,17 @@ export const PLAN_LIMITS = {
 
 export type PlanKey = keyof typeof PLAN_LIMITS;
 
+export const PLAN_RANK: Record<PlanKey, number> = {
+  FREE_TRIAL: 0,
+  GROWTH: 1,
+  PRO: 2,
+  BUSINESS: 3,
+};
+
+export function comparePlans(left: PlanKey, right: PlanKey): number {
+  return PLAN_RANK[left] - PLAN_RANK[right];
+}
+
 export type StripePriceIdEnv =
   | "NEXT_PUBLIC_STRIPE_GROWTH_PRICE_ID"
   | "NEXT_PUBLIC_STRIPE_PRO_PRICE_ID"

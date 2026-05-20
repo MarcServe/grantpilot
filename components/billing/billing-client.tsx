@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Check, RefreshCw, X } from "lucide-react";
 import { toast } from "sonner";
-import { PLAN_CATALOG, getPublicStripePriceId } from "@/lib/plans";
+import { PLAN_CATALOG, comparePlans, getPublicStripePriceId, type PlanKey } from "@/lib/plans";
 
 interface BillingClientProps {
   currentPlan: string;
@@ -25,6 +25,31 @@ const PLANS = PLAN_CATALOG.map((plan) => ({
   ...plan,
   priceId: getPublicStripePriceId(plan.value),
 }));
+
+type BillingCheckoutResponse = {
+  url?: string;
+  success?: boolean;
+  plan?: PlanKey;
+  changed?: boolean;
+  scheduled?: boolean;
+  effectiveAt?: string;
+  error?: string;
+};
+
+function isPlanKey(value: string): value is PlanKey {
+  return PLAN_CATALOG.some((plan) => plan.value === value);
+}
+
+function formatEffectiveDate(value?: string): string {
+  if (!value) return "the end of the current billing period";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "the end of the current billing period";
+  return date.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
 
 export function BillingClient({
   currentPlan,
@@ -84,7 +109,7 @@ export function BillingClient({
     }
   }
 
-  async function handleUpgrade(priceId: string, planValue: string) {
+  async function handlePlanChange(priceId: string, planValue: PlanKey) {
     if (!priceId) {
       toast.error("Price ID not configured");
       return;
@@ -98,15 +123,26 @@ export function BillingClient({
         body: JSON.stringify({ priceId }),
       });
 
-      const data = await res.json().catch(() => ({}));
+      const data = (await res.json().catch(() => ({}))) as BillingCheckoutResponse;
       if (res.ok && data.url) {
         window.location.href = data.url;
+        return;
+      }
+      if (res.ok && data.success) {
+        if (data.scheduled) {
+          toast.success(`Downgrade scheduled for ${formatEffectiveDate(data.effectiveAt)}.`);
+        } else if (data.changed) {
+          toast.success("Plan updated successfully.");
+        } else {
+          toast.success("You are already on this plan.");
+        }
+        router.refresh();
         return;
       }
       const message =
         data.error ||
         (res.status === 403
-          ? "Only organisation owners or admins can upgrade. Switch to an owner/admin account."
+          ? "Only organisation owners or admins can manage billing. Switch to an owner/admin account."
           : res.status === 500
             ? "Server error. Please try again or contact support."
             : "Failed to open checkout. Please try again.");
@@ -162,6 +198,9 @@ export function BillingClient({
       <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
         {PLANS.map((plan) => {
           const isCurrent = plan.value === currentPlan;
+          const currentPlanKey = isPlanKey(currentPlan) ? currentPlan : "FREE_TRIAL";
+          const planDirection = comparePlans(plan.value, currentPlanKey);
+          const buttonLabel = planDirection < 0 ? "Downgrade" : "Upgrade";
           return (
             <Card
               key={plan.value}
@@ -203,13 +242,13 @@ export function BillingClient({
                 {!isCurrent && plan.priceId && (
                   <Button
                     className="w-full"
-                    onClick={() => handleUpgrade(plan.priceId, plan.value)}
+                    onClick={() => handlePlanChange(plan.priceId, plan.value)}
                     disabled={!!loading}
                   >
                     {loading === plan.value && (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     )}
-                    Upgrade
+                    {buttonLabel}
                   </Button>
                 )}
                 {isCurrent && (
