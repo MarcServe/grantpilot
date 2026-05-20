@@ -166,21 +166,21 @@ export default function LandingPage() {
           <div className="order-2 w-full max-w-[610px] shrink-0 lg:order-1 lg:max-w-[min(100%,610px)] lg:basis-[min(610px,44%)]">
             <div className="inline-flex min-h-8 max-w-full items-center gap-2 rounded-full bg-[#e8f0ff] px-3 py-1.5 text-[13px] font-bold text-[#105fdf] sm:px-4 sm:text-[14px]">
               <Sparkles className="h-4 w-4" />
-              <span className="truncate">Grant discovery, eligibility scoring & application prep</span>
+              <span className="truncate">Automated grant discovery, eligibility scoring & application prep</span>
             </div>
 
             <h1 className="mt-7 text-[clamp(2.55rem,11vw,4.4rem)] font-black leading-[1.06] tracking-normal text-[#071a3a] sm:mt-8 lg:text-[72px]">
               Find Grants.
               <br />
-              Check Eligibility.
+              <span className="text-[#2167e8]">Check Eligibility.</span>
               <br />
-              <span className="text-[#35c386]">Prepare Applications.</span>
+              <span className="text-[#35c386]">Prepare Automatically.</span>
             </h1>
 
             <p className="mt-5 max-w-[560px] text-[18px] font-medium leading-[1.55] text-[#09224a] sm:mt-6 sm:text-[20px]">
-              GrantsCopilot is an AI funding workspace for startups and SMEs. It finds fresh grants, scores each
-              opportunity against your Business DNA, prepares funder-ready answers and documents, and keeps deadlines in
-              view.
+              GrantsCopilot is an AI funding workspace for startups and SMEs. It automatically finds fresh grants,
+              scores each opportunity against your Business DNA, prepares funder-ready answers and documents, and keeps
+              deadlines in view.
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:mt-9 sm:flex-row sm:gap-4">
@@ -205,7 +205,7 @@ export default function LandingPage() {
             <div className="mt-8 grid max-w-[640px] grid-cols-2 gap-4 text-[14px] font-bold text-[#09224a] min-[560px]:grid-cols-4 sm:mt-10 sm:gap-5">
               <Feature icon={Search} title="Fresh grant" detail="discovery" />
               <Feature icon={Target} title="Eligibility" detail="scoring" />
-              <Feature icon={FileCheck2} title="Application" detail="documents" />
+              <Feature icon={FileCheck2} title="Automated" detail="prep" />
               <Feature icon={Bell} title="Deadline" detail="reminders" />
             </div>
           </div>
