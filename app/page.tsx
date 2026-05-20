@@ -34,7 +34,7 @@ const stats = [
   { label: "Opportunities", value: "12", detail: "New matches", icon: BriefcaseBusiness, tone: "blue" },
   { label: "In Progress", value: "7", detail: "Applications", icon: FileCheck2, tone: "green" },
   { label: "Submitted", value: "5", detail: "Applications", icon: ClipboardCheck, tone: "purple" },
-  { label: "Success Rate", value: "78%", detail: "Above avg.", icon: Gauge, tone: "mint" },
+  { label: "Readiness", value: "85%", detail: "High fit", icon: Gauge, tone: "mint" },
 ];
 
 const opportunities = [
@@ -53,7 +53,7 @@ const menuItems = [
   { label: "Settings", icon: Settings },
 ];
 
-const trustLogos = ["startpath", "LaunchHub", "Founders.Space", "UKTN", "Enterprise Nation", "tech spark"];
+const audienceSegments = ["Startup founders", "SMEs", "Social enterprises", "Advisors", "Innovation teams", "Community groups"];
 
 const featureCards = [
   {
@@ -63,8 +63,8 @@ const featureCards = [
   },
   {
     icon: Target,
-    title: "Predictive Grant Scoring",
-    text: "Ranks grants by fit, gaps, location, deadline, and probability so users know what to apply for first.",
+    title: "Eligibility & Fit Scoring",
+    text: "Scores grants by eligibility fit, evidence gaps, location, deadline, and readiness so users know what to review first.",
   },
   {
     icon: FileCheck2,
@@ -98,8 +98,8 @@ const resources = [
     href: "#features",
   },
   {
-    title: "Direct vs Login Grants",
-    text: "Understand which grants can be prepared quickly and which require portal login or human judgement.",
+    title: "Direct vs Portal Grants",
+    text: "Understand which grants can be prepared quickly and which require portal login or human review.",
     href: "#how-it-works",
   },
   {
@@ -282,9 +282,9 @@ export default function LandingPage() {
             </div>
 
             <div className="grid items-center gap-6 lg:grid-cols-[1fr_0.36fr_1fr_0.36fr_1fr_0.36fr_1.5fr]">
-              <Step icon={Search} title="1. Find" text="We scan thousands of sources daily to find relevant grants for your business." />
+              <Step icon={Search} title="1. Find" text="We scan grant feeds, databases, and web sources to find relevant opportunities for your business." />
               <ArrowDivider />
-              <Step icon={Target} title="2. Match" text="Our AI checks your eligibility and ranks opportunities by your chance of success." accent="green" />
+              <Step icon={Target} title="2. Match" text="Our AI checks eligibility signals and ranks opportunities by fit, gaps, and readiness." accent="green" />
               <ArrowDivider />
               <Step icon={Send} title="3. Prepare" text="Generate funder-ready answers, document checklists, pitch decks, and application tasks." accent="purple" />
               <ArrowDivider />
@@ -297,7 +297,7 @@ export default function LandingPage() {
                 <div>
                   <h3 className="text-[22px] font-black">Apply Faster</h3>
                   <p className="mt-2 text-[14px] font-medium leading-6 text-white/90">
-                    Stop searching, guessing, and missing deadlines. Auto-filing arrives in V2.
+                    Stop searching, guessing, and missing deadlines. Full auto-filing is planned for V2.
                   </p>
                 </div>
               </div>
@@ -311,7 +311,8 @@ export default function LandingPage() {
             <h2 className="mt-4 text-[32px] font-black leading-tight text-[#071a3a] sm:text-[40px]">Start with funding intelligence. Scale into automation.</h2>
             <p className="mx-auto mt-4 max-w-2xl text-lg font-medium leading-8 text-[#51627d]">
               Pick the level of funding support that matches your team. Upgrade when you are ready for deeper scoring,
-              application preparation, and founder pack generation. Auto-filing is marked as a V2 workflow while we harden it.
+              application preparation, and founder pack generation. Today, GrantsCopilot focuses on discovery, scoring,
+              preparation, and reminders; full auto-filing remains a V2 workflow.
             </p>
           </div>
 
@@ -439,7 +440,7 @@ export default function LandingPage() {
               <AboutStat value="24/7" label="Funding discovery and monitoring" />
               <AboutStat value="AI" label="Eligibility reasoning and application drafting" />
               <AboutStat value="UK+" label="Built for UK SMEs with global expansion in mind" />
-              <AboutStat value="HITL" label="Human approval before sensitive submission steps" />
+              <AboutStat value="Review" label="Human approval before sensitive submission steps" />
             </div>
           </div>
         </section>
@@ -468,12 +469,12 @@ export default function LandingPage() {
         </section>
 
         <section className="mx-auto max-w-[1200px] px-4 pb-12 pt-4 text-center sm:px-6">
-          <p className="text-[16px] font-semibold text-[#09224a]">Trusted by ambitious founders and growing businesses</p>
+          <p className="text-[16px] font-semibold text-[#09224a]">Built for founders, SMEs, and funding teams</p>
           <div className="mt-7 grid grid-cols-2 items-center gap-8 text-[#071a3a] sm:grid-cols-3 lg:grid-cols-6">
-            {trustLogos.map((logo) => (
-              <div key={logo} className="flex items-center justify-center gap-2 text-[21px] font-black tracking-tight">
+            {audienceSegments.map((segment) => (
+              <div key={segment} className="flex items-center justify-center gap-2 text-[18px] font-black tracking-tight">
                 <span className="h-5 w-5 rounded-[4px] bg-[#071a3a]" />
-                <span>{logo}</span>
+                <span>{segment}</span>
               </div>
             ))}
           </div>
@@ -530,14 +531,14 @@ function DashboardPreview() {
         <div className="@container/preview min-w-0 p-5 sm:p-7">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h2 className="text-[21px] font-black text-[#071a3a]">Welcome back, Andrew! 👋</h2>
+              <h2 className="text-[21px] font-black text-[#071a3a]">Welcome back</h2>
               <p className="mt-1 text-[12px] font-medium text-[#54657f]">Here&apos;s your funding overview</p>
             </div>
             <div className="flex items-center gap-4">
               <Bell className="h-5 w-5 text-[#071a3a]" />
               <div className="hidden items-center gap-2 sm:flex">
                 <div className="h-8 w-8 rounded-full bg-[linear-gradient(135deg,#123577,#35c386)]" />
-                <span className="text-[12px] font-bold">Andrew McCaw</span>
+                <span className="text-[12px] font-bold">Funding team</span>
               </div>
             </div>
           </div>
@@ -619,7 +620,7 @@ function DashboardPreview() {
           <div className="mt-4 overflow-hidden rounded-lg bg-[#eaf3ff] px-8 py-5">
             <div className="flex items-center justify-between gap-5">
               <div>
-                <p className="text-[17px] font-black text-[#071a3a]">Save time. Increase success. Get funded.</p>
+                <p className="text-[17px] font-black text-[#071a3a]">Save time. Apply smarter. Stay deadline-ready.</p>
                 <p className="mt-2 text-[12px] font-medium text-[#2a4065]">
                   GrantsCopilot handles the heavy lifting, so you can focus on growing your business.
                 </p>
