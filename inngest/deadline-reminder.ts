@@ -161,7 +161,7 @@ export async function runDeadlineReminderJob(): Promise<{
               grantId: grant.id,
               deadline: grant.deadline ? new Date(grant.deadline).toLocaleDateString("en-GB") : undefined,
               startApplicationToken,
-            });
+            }, { sendEmail: true, sendWhatsApp: false });
             sent++;
           } catch (err) {
             console.error(`[deadline-reminder] Error:`, err);
