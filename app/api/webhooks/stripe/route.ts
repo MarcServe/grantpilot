@@ -5,6 +5,8 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { notifyOrgMembers } from "@/lib/notify";
 import type Stripe from "stripe";
 
+const ACTIVE_GRANTSCOPILOT_SUBSCRIPTION_STATUSES = new Set(["active", "trialing"]);
+
 export async function POST(req: Request): Promise<NextResponse> {
   const body = await req.text();
   const sig = req.headers.get("stripe-signature");
@@ -135,10 +137,22 @@ export async function POST(req: Request): Promise<NextResponse> {
       case "customer.subscription.deleted": {
         const subscription = event.data.object as Stripe.Subscription;
         const customerId = subscription.customer as string;
+        const priceId = subscription.items.data[0]?.price.id ?? "";
+        const plan = getPlanFromPriceId(priceId);
+        if (!plan) {
+          console.log("[STRIPE_WEBHOOK] customer.subscription.deleted ignored non-GrantsCopilot price:", {
+            customerId,
+            priceId,
+          });
+          break;
+        }
+
+        const replacementPlan = await findCurrentGrantsCopilotPlan(stripe, customerId);
+        const nextPlan: PlanKey = replacementPlan ?? "FREE_TRIAL";
 
         const { data, error } = await supabase
           .from("Organisation")
-          .update({ plan: "FREE_TRIAL" })
+          .update({ plan: nextPlan })
           .eq("stripeId", customerId)
           .select("id");
         if (error) {
@@ -146,16 +160,21 @@ export async function POST(req: Request): Promise<NextResponse> {
         } else {
           const rows = Array.isArray(data) ? data : (data ? [data] : []);
           if (rows.length === 0) {
-            await updatePlanByCustomerEmail(stripe, supabase, customerId, "FREE_TRIAL");
+            await updatePlanByCustomerEmail(stripe, supabase, customerId, nextPlan);
           } else {
-            console.log("[STRIPE_WEBHOOK] customer.subscription.deleted", { customerId, rows: rows.length });
+            console.log("[STRIPE_WEBHOOK] customer.subscription.deleted", {
+              customerId,
+              oldPlan: plan,
+              nextPlan,
+              rows: rows.length,
+            });
           }
           let orgId: string | null = rows.length > 0 ? (rows[0] as { id: string }).id : null;
           if (!orgId) {
             const { data: orgRow } = await supabase.from("Organisation").select("id").eq("stripeId", customerId).maybeSingle();
             orgId = (orgRow as { id: string } | null)?.id ?? null;
           }
-          if (orgId) {
+          if (orgId && !replacementPlan) {
             await notifyOrgMembers(orgId, "subscription_cancelled", {}).catch(console.error);
           }
         }
@@ -168,6 +187,30 @@ export async function POST(req: Request): Promise<NextResponse> {
   }
 
   return NextResponse.json({ received: true });
+}
+
+async function findCurrentGrantsCopilotPlan(
+  stripe: ReturnType<typeof getStripe>,
+  customerId: string
+): Promise<PlanKey | null> {
+  const subscriptions = await stripe.subscriptions.list({
+    customer: customerId,
+    status: "all",
+    limit: 10,
+  });
+
+  const current = subscriptions.data
+    .filter((subscription) => ACTIVE_GRANTSCOPILOT_SUBSCRIPTION_STATUSES.has(subscription.status))
+    .sort((a, b) => b.created - a.created);
+
+  for (const subscription of current) {
+    for (const item of subscription.items.data) {
+      const plan = getPlanFromPriceId(item.price.id);
+      if (plan) return plan;
+    }
+  }
+
+  return null;
 }
 
 /**

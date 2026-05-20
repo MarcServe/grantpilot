@@ -45,6 +45,7 @@ export type PlanCatalogRow = {
   price: string;
   detail: string;
   stripePriceIdEnv?: StripePriceIdEnv;
+  stripePriceId?: string;
   /** Logical groupings aligned with PLAN_CAPABILITIES + PLAN_LIMITS enforcement */
   features: PlanCatalogFeatureBlock[];
   homepageFeatures: string[];
@@ -98,6 +99,7 @@ export const PLAN_CATALOG: PlanCatalogRow[] = [
     price: "£29/mo",
     detail: "Entry paid automation for founders & sole SMEs",
     stripePriceIdEnv: "NEXT_PUBLIC_STRIPE_GROWTH_PRICE_ID",
+    stripePriceId: "price_1TSmtoP8zypO5fiCQ5fs9USz",
     features: [
       {
         heading: "Workspace",
@@ -139,6 +141,7 @@ export const PLAN_CATALOG: PlanCatalogRow[] = [
     price: "£99/mo",
     detail: "For teams scaling grant volume across profiles",
     stripePriceIdEnv: "NEXT_PUBLIC_STRIPE_PRO_PRICE_ID",
+    stripePriceId: "price_1T6LUJP8zypO5fiCTSH92fYM",
     features: [
       {
         heading: "Workspace",
@@ -181,6 +184,7 @@ export const PLAN_CATALOG: PlanCatalogRow[] = [
     price: "£199/mo",
     detail: "For teams, advisors, and operators",
     stripePriceIdEnv: "NEXT_PUBLIC_STRIPE_BUSINESS_PRICE_ID",
+    stripePriceId: "price_1T6LUuP8zypO5fiCgUzxEh7v",
     features: [
       {
         heading: "Workspace",
@@ -226,5 +230,5 @@ export function planNotifyDisplayName(plan: PlanKey): string {
 export function getPublicStripePriceId(plan: PlanKey): string {
   const item = PLAN_CATALOG.find((p) => p.value === plan);
   if (!item?.stripePriceIdEnv) return "";
-  return process.env[item.stripePriceIdEnv] ?? "";
+  return item.stripePriceId ?? process.env[item.stripePriceIdEnv] ?? "";
 }
