@@ -174,7 +174,7 @@ export default function LandingPage() {
               <br />
               <span className="text-[#2167e8]">Check Eligibility.</span>
               <br />
-              <span className="text-[#35c386]">Prepare Automatically.</span>
+              <span className="text-[#35c386]">Get Funded.</span>
             </h1>
 
             <p className="mt-5 max-w-[560px] text-[18px] font-medium leading-[1.55] text-[#09224a] sm:mt-6 sm:text-[20px]">
