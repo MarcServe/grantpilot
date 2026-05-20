@@ -2,6 +2,8 @@ import { sendEmail } from "./email";
 import { sendWhatsApp, sendWhatsAppWithTemplate } from "./whatsapp";
 import { getSupabaseAdmin } from "./supabase";
 import { buildEmailHtml, buildWhatsAppMessage } from "./notification-templates";
+import { getOrganisationPlanKey } from "./plan-check";
+import { planAllows } from "./plan-features";
 
 interface NotifyUser {
   id: string;
@@ -72,6 +74,50 @@ export interface NotifyOptions {
   sendEmail?: boolean;
   /** When false, skip WhatsApp for this notification (e.g. org preference for eligibility digest). */
   sendWhatsApp?: boolean;
+}
+
+const PLAN_GATED_NOTIFICATION_TYPES = new Set<NotificationType>([
+  "deadline_reminder",
+  "grant_match",
+  "grant_match_high",
+  "grant_scan_digest",
+  "outcome_feedback_reminder",
+]);
+
+function notificationRequiresPaidPlan(type: NotificationType): boolean {
+  return PLAN_GATED_NOTIFICATION_TYPES.has(type);
+}
+
+async function logPlanSkippedNotification(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  users: NotifyUser[],
+  type: NotificationType,
+  options?: NotifyOptions
+): Promise<void> {
+  const rows: Record<string, unknown>[] = [];
+  for (const user of users) {
+    if (options?.sendEmail !== false && user.email) {
+      rows.push({
+        userId: user.id,
+        channel: "email",
+        type,
+        status: "skipped",
+        error: "plan_requires_paid_notifications",
+      });
+    }
+    if (options?.sendWhatsApp !== false && user.whatsappOptIn && user.phoneNumber) {
+      rows.push({
+        userId: user.id,
+        channel: "whatsapp",
+        type,
+        status: "skipped",
+        error: "plan_requires_paid_notifications",
+      });
+    }
+  }
+  if (rows.length > 0) {
+    await supabase.from("NotificationLog").insert(rows);
+  }
 }
 
 export async function notifyUser(
@@ -283,6 +329,14 @@ export async function notifyOrgMembers(
   const withUser = list
     .map((m: Record<string, unknown>) => toNotifyUser((m.User ?? m.user) as Record<string, unknown> | null))
     .filter((u): u is NotifyUser => u != null);
+
+  if (notificationRequiresPaidPlan(type)) {
+    const plan = await getOrganisationPlanKey(organisationId);
+    if (!planAllows(plan, "proactive_notifications")) {
+      await logPlanSkippedNotification(supabase, withUser, type, options);
+      return;
+    }
+  }
 
   await Promise.allSettled(
     withUser.map((u) => notifyUser(u, type, payload, options))

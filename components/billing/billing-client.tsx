@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Check, RefreshCw } from "lucide-react";
+import { Loader2, Check, RefreshCw, X } from "lucide-react";
 import { toast } from "sonner";
 import { PLAN_CATALOG, getPublicStripePriceId } from "@/lib/plans";
 
@@ -182,12 +182,20 @@ export function BillingClient({
                         {block.heading}
                       </p>
                       <ul className="space-y-2">
-                        {block.bullets.map((bullet) => (
-                          <li key={bullet} className="flex items-start gap-2 text-sm">
-                            <Check className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
-                            <span>{bullet}</span>
-                          </li>
-                        ))}
+                        {block.bullets.map((bullet) => {
+                          const notIncluded = block.heading.toLowerCase() === "not included";
+                          const Icon = notIncluded ? X : Check;
+                          return (
+                            <li key={bullet} className="flex items-start gap-2 text-sm">
+                              <Icon
+                                className={`mt-0.5 h-4 w-4 shrink-0 ${
+                                  notIncluded ? "text-muted-foreground" : "text-accent"
+                                }`}
+                              />
+                              <span className={notIncluded ? "text-muted-foreground" : undefined}>{bullet}</span>
+                            </li>
+                          );
+                        })}
                       </ul>
                     </div>
                   ))}

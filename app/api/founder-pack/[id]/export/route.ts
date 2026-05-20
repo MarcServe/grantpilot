@@ -9,6 +9,7 @@ import {
   type FounderPackExportInput,
 } from "@/lib/founder-pack-export";
 import { sanitiseFounderPackContent, type FounderPackContent, type FounderPackDocumentType } from "@/lib/founder-pack";
+import { planAllows, PLAN_CAPABILITY_MESSAGES, resolvePlanKey } from "@/lib/plan-features";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -23,7 +24,15 @@ export async function GET(req: Request, context: RouteContext): Promise<NextResp
     }
     const includePitchDeckNotes = url.searchParams.get("includePitchDeckNotes") === "true";
 
-    const { orgId } = await getActiveOrg();
+    const { org, orgId } = await getActiveOrg();
+    const plan = resolvePlanKey((org as { plan?: string }).plan);
+    if (!planAllows(plan, "founder_pack")) {
+      return NextResponse.json(
+        { error: PLAN_CAPABILITY_MESSAGES.founder_pack, code: "FEATURE_FORBIDDEN" },
+        { status: 402 }
+      );
+    }
+
     const { id } = await context.params;
     const supabase = getSupabaseAdmin();
     const { data: pack, error: packError } = await supabase

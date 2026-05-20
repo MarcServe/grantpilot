@@ -15,6 +15,7 @@ import { isGrantLinkUsable } from "@/lib/grant-freshness";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { isOpenAIChecked } from "@/lib/grant-source-policy";
 import { getSuppressedGrantIds } from "@/lib/grant-user-state";
+import { checkUsageLimit, recordUsage } from "@/lib/plan-check";
 import {
   applyOutcomeScoreAdjustment,
   buildFundingOutcomeSignals,
@@ -258,6 +259,7 @@ export async function runEligibilityRefreshJob(options?: {
 
         // ── LAYER 3: OpenAI deep scoring (EXPENSIVE — only top N) ──
         const layer3Ids = layer2Candidates.slice(0, LAYER3_TOP_N);
+        const scoredByOpenAIIds = new Set<string>();
         console.info(`[eligibility-refresh]   LAYER 3 (OpenAI): scoring ${layer3Ids.length} grants`);
 
         const { data: prefs } = await supabase
@@ -299,6 +301,14 @@ export async function runEligibilityRefreshJob(options?: {
           if (!grant) continue;
 
           try {
+            const usage = await checkUsageLimit(orgId, "match");
+            if (!usage.allowed) {
+              console.info(
+                `[eligibility-refresh]   Match quota reached for org=${orgId}; keeping remaining grants as preliminary heuristic scores`
+              );
+              break;
+            }
+
             const result = await getEligibilityDecision(
               profileToMatching({
                 ...(profile as Record<string, unknown>),
@@ -342,6 +352,12 @@ export async function runEligibilityRefreshJob(options?: {
               { onConflict: "organisation_id,profile_id,grant_id" }
             );
             if (upsertErr) console.error("[eligibility-refresh] upsert", upsertErr);
+            if (!upsertErr) {
+              scoredByOpenAIIds.add(grant.id);
+              await recordUsage(orgId, "match").catch((usageErr) =>
+                console.error("[eligibility-refresh] record usage", usageErr)
+              );
+            }
 
             const inRange =
               score >= minScore &&
@@ -394,7 +410,6 @@ export async function runEligibilityRefreshJob(options?: {
 
         // Persist low-confidence heuristic scores for grants not sent to OpenAI.
         // These keep the list ordered without pretending a full AI eligibility assessment has run.
-        const scoredByOpenAIIds = new Set(layer3Ids);
         const unscoredHeuristic = heuristicResults.filter(
           (r) => !scoredByOpenAIIds.has(r.grantId) && !cachedGrantIds.has(r.grantId)
         );
