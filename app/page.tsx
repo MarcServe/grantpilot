@@ -134,7 +134,7 @@ export default function LandingPage() {
               Grants<span className="text-[#2468e8]">Copilot</span>
             </div>
             <div className="mt-1 hidden text-[12px] font-semibold text-[#071a3a] min-[430px]:block sm:text-[13px]">
-              Find it. Qualify it. Prepare it. <span className="text-[#2fbf84]">Apply on autopilot.</span>
+              Find it. Fill it. Fund it. <span className="text-[#2fbf84]">Apply on autopilot.</span>
             </div>
           </div>
         </Link>
