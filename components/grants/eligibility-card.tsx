@@ -45,6 +45,7 @@ interface EligibilityResult {
 function cleanOutcomeWarning(value: string): string {
   const warning = value
     .replace(/^Outcome feedback advisory:\s*/i, "")
+    .replace(/^Before applying:\s*/i, "")
     .replace(/This warning does not reduce the eligibility score\.?/gi, "")
     .replace(/\s*;\s*/g, "; ")
     .replace(/\s+/g, " ")
@@ -56,6 +57,22 @@ function cleanOutcomeWarning(value: string): string {
 
   if (/revenue|employee|registration age|company age/i.test(warning)) {
     return "Confirm whether this funder asks for revenue, employee-count, or company-age evidence.";
+  }
+
+  if (/early-stage|startup stage|business maturity|startup/i.test(warning)) {
+    return "Check whether this funder is suitable for early-stage businesses or expects more trading history.";
+  }
+
+  if (/eligibility pre-screening|eligibility criteria|qualification checks/i.test(warning)) {
+    return "Review the funder's eligibility criteria before starting the application.";
+  }
+
+  if (/^advise\s+/i.test(warning)) {
+    return warning.replace(/^advise\s+/i, "Consider whether ").replace(/\.$/, "") + ".";
+  }
+
+  if (/^provide guidance/i.test(warning)) {
+    return "Review the application guidance before starting the submission.";
   }
 
   return warning;
