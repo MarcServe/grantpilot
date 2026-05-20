@@ -66,7 +66,7 @@ export default async function DashboardLayout({
                   Autonomous Funding Infrastructure
                 </p>
                 <p className="mt-1 text-sm font-semibold text-[#243a5a]">
-                  Find it. Qualify it. Prepare it.
+                  Find it. Qualify it. Prepare it. Apply on autopilot.
                 </p>
               </div>
             </div>
