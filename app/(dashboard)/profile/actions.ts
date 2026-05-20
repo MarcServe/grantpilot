@@ -412,6 +412,48 @@ export async function saveStep6(data: Step6Data) {
   return { success: true };
 }
 
+export async function saveTeamVault(data: Pick<
+  Step6Data,
+  "directorNames" | "directorProfiles" | "teamMembers" | "boardMembers" | "teamExpertise"
+>) {
+  const parsed = step6Schema
+    .pick({
+      directorNames: true,
+      directorProfiles: true,
+      teamMembers: true,
+      boardMembers: true,
+      teamExpertise: true,
+    })
+    .safeParse(data);
+  if (!parsed.success) return { error: "Invalid data" };
+
+  const orgId = await getOrgId();
+  const profile = await getOrCreateProfile(orgId);
+
+  const supabase = getSupabaseAdmin();
+  const { data: updated, error: updateError } = await supabase
+    .from("BusinessProfile")
+    .update({
+      directorNames: parsed.data.directorNames || null,
+      directorProfiles: parsed.data.directorProfiles || null,
+      teamMembers: parsed.data.teamMembers || null,
+      boardMembers: parsed.data.boardMembers || null,
+      teamExpertise: parsed.data.teamExpertise || null,
+    })
+    .eq("id", profile.id)
+    .select()
+    .single();
+
+  if (updateError || !updated) return { error: updateError?.message ?? "Update failed" };
+
+  await recalcAndSaveCompletionScore(profile.id);
+  await syncGrantMemoryForProfile(profile.id);
+  await refreshProfileEmbedding(profile.id);
+  await triggerEligibilityForOrg(orgId, "data-vault.team.saved");
+
+  return { success: true };
+}
+
 export async function saveDocument(doc: {
   name: string;
   url: string;

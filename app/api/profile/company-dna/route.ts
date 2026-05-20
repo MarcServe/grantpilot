@@ -61,7 +61,12 @@ function profileText(profile: Record<string, unknown>): string {
     "sustainabilityInitiatives",
     "communityEngagement",
     "keyAchievements",
+    "directorNames",
+    "directorProfiles",
+    "teamMembers",
     "teamExpertise",
+    "boardMembers",
+    "founderBackground",
   ];
   return keys
     .map((key) => `${key}: ${Array.isArray(profile[key]) ? (profile[key] as unknown[]).join(", ") : String(profile[key] ?? "")}`)

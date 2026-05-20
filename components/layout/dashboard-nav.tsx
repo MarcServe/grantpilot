@@ -32,7 +32,7 @@ const primaryNavItems = [
   { href: "/applications", label: "Applications", icon: FileText },
   { href: "/applications/outcomes", label: "Outcome feedback", icon: MessageSquareReply },
   { href: "/profile", label: "My Profile", icon: UserRound },
-  { href: "/profile", label: "Data Vault", icon: Database },
+  { href: "/data-vault", label: "Data Vault", icon: Database },
   { href: "/intelligence", label: "Intelligence", icon: BarChart3 },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
@@ -42,8 +42,7 @@ const secondaryNavItems = [
   { href: "/billing", label: "Billing", icon: CreditCard },
 ];
 
-function isActive(pathname: string, href: string, label: string): boolean {
-  if (label === "Data Vault") return false;
+function isActive(pathname: string, href: string): boolean {
   if (href === "/dashboard") return pathname === href;
   if (href === "/applications/outcomes") {
     return pathname === href || pathname.startsWith(`${href}/`);
@@ -80,7 +79,7 @@ function NavLinks({
           <div className="space-y-1.5">
             {items.map((item) => {
               const Icon = item.icon;
-              const active = isActive(pathname, item.href, item.label);
+              const active = isActive(pathname, item.href);
               return (
                 <Link
                   key={`${item.href}-${item.label}`}
