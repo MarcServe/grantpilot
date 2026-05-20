@@ -23,6 +23,7 @@ import { generateAndStoreProfileEmbedding } from "@/lib/embeddings";
 import { PLAN_LIMITS } from "@/lib/plans";
 import { planAllows } from "@/lib/plan-features";
 import { getOrganisationPlanKey } from "@/lib/plan-check";
+import { syncEligibilityWhatsAppPreference } from "@/lib/eligibility-preferences";
 
 async function getOrgId(): Promise<string> {
   const { orgId } = await getActiveOrg();
@@ -464,7 +465,7 @@ export async function updateNotificationPreferences(data: NotificationPreference
   const parsed = notificationPreferencesSchema.safeParse(data);
   if (!parsed.success) return { error: "Invalid data" };
 
-  const { user } = await getActiveOrg();
+  const { user, orgId } = await getActiveOrg();
   const userId = (user as { id?: string }).id;
   if (!userId) return { error: "User not found" };
 
@@ -480,5 +481,10 @@ export async function updateNotificationPreferences(data: NotificationPreference
   const { error } = await supabase.from("User").update(update).eq("id", userId);
 
   if (error) return { error: error.message };
+  try {
+    await syncEligibilityWhatsAppPreference(orgId, parsed.data.whatsappOptIn);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Could not sync eligibility WhatsApp preference" };
+  }
   return { success: true };
 }

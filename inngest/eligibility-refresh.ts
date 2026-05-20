@@ -268,7 +268,7 @@ export async function runEligibilityRefreshJob(options?: {
         const minScore = notificationMinScore((prefs as { min_score?: number } | null)?.min_score);
         const maxScore = (prefs as { max_score?: number } | null)?.max_score ?? 100;
         const eligibleThreshold = notificationMinScore((prefs as { eligible_threshold?: number } | null)?.eligible_threshold);
-        const sendWhatsApp = (prefs as { notify_whatsapp?: boolean } | null)?.notify_whatsapp ?? false;
+        const sendWhatsApp = (prefs as { notify_whatsapp?: boolean } | null)?.notify_whatsapp ?? true;
         const sendNotifyEmail = (prefs as { notify_email?: boolean } | null)?.notify_email !== false;
 
         const cooldown = new Date();
@@ -426,7 +426,7 @@ export async function runEligibilityRefreshJob(options?: {
             profileName,
           }, {
             sendEmail: sendNotifyEmail,
-            sendWhatsApp: !sendWhatsApp ? false : undefined,
+            sendWhatsApp: false,
           });
           for (const item of digestGrants) {
             if (item.score >= eligibleThreshold && sendWhatsApp) {
