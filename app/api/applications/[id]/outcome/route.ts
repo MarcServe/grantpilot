@@ -10,7 +10,7 @@ import {
   type OutcomeLearningInsight,
 } from "@/lib/outcome-learning";
 import { requestEligibilityRefresh } from "@/lib/eligibility-refresh-trigger";
-import { planAllows, resolvePlanKey } from "@/lib/plan-features";
+import { planAllowsForOrg } from "@/lib/plan-features";
 
 const outcomeSchema = z.object({
   outcome: z.enum(["applied", "shortlisted", "awarded", "rejected", "withdrawn", "unknown"]),
@@ -51,7 +51,6 @@ export async function POST(
       ? application.BusinessProfile[0]
       : application.BusinessProfile;
     const outcome = parsed.data.outcome as FundingOutcome;
-    const plan = resolvePlanKey((org as { plan?: string }).plan);
     const combinedFunderFeedback = [
       parsed.data.funderFeedback?.trim(),
       parsed.data.responseText?.trim() ? `Funder response text:\n${parsed.data.responseText.trim()}` : "",
@@ -59,7 +58,7 @@ export async function POST(
     ].filter(Boolean).join("\n\n");
 
     let insight: OutcomeLearningInsight;
-    if (planAllows(plan, "outcome_learning_ai")) {
+    if (planAllowsForOrg(org as { plan?: string; createdAt?: string | Date | null }, "outcome_learning_ai")) {
       insight = await generateOutcomeLearningInsight({
         outcome,
         grantName: String((grant as { name?: string } | null)?.name ?? "Grant"),

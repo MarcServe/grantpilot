@@ -22,7 +22,7 @@ import { UrlStatusBadge } from "@/components/grants/url-status-badge";
 import { computeUrgency } from "@/lib/urgency";
 import { checkRequirementsAgainstDocuments } from "@/lib/grant-requirements";
 import type { RequiredAttachment } from "@/lib/grant-requirements";
-import { planAllows, resolvePlanKey } from "@/lib/plan-features";
+import { planAllowsForOrg } from "@/lib/plan-features";
 import { grantFinderLabel } from "@/lib/grant-source-policy";
 import { getConfidenceBand } from "@/lib/claude";
 import { markGrantUserState } from "@/lib/grant-user-state";
@@ -81,8 +81,10 @@ export default async function GrantDetailPage({
 
   const { org, orgId } = await getActiveOrg();
   const profile = org.profiles?.[0];
-  const plan = resolvePlanKey((org as { plan?: string }).plan);
-  const grantAutoImproveEnabled = planAllows(plan, "grant_auto_improve");
+  const grantAutoImproveEnabled = planAllowsForOrg(
+    org as { plan?: string; createdAt?: string | Date | null },
+    "grant_auto_improve"
+  );
   const hasProfile = !!profile && (profile.completionScore ?? 0) >= 50;
   const profileId = profile?.id ?? null;
   if (profileId) {

@@ -6,7 +6,7 @@ import type { EligibilityResult } from "@/lib/claude";
 import { getApplicantTypeGate } from "@/lib/eligibility-hard-gates";
 import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
 import { checkUsageLimit, recordUsage } from "@/lib/plan-check";
-import { resolvePlanKey } from "@/lib/plan-features";
+import { isFreeTrialActive, resolvePlanKey } from "@/lib/plan-features";
 import {
   applyOutcomeScoreAdjustment,
   buildFundingOutcomeSignals,
@@ -163,8 +163,13 @@ export async function GET(
     const plan = resolvePlanKey((org as { plan?: string }).plan);
     const { allowed, remaining } = await checkUsageLimit(orgId, "match");
     if (!allowed) {
+      const trialExpired =
+        plan === "FREE_TRIAL" &&
+        !isFreeTrialActive(org as { plan?: string; createdAt?: string | Date | null });
       const message =
-        plan === "FREE_TRIAL"
+        trialExpired
+          ? "Your 7-day Starter trial has expired. Upgrade to continue full company-DNA eligibility checks."
+          : plan === "FREE_TRIAL"
           ? "You've used all Starter full eligibility checks this month. Cached scores still appear for grants you've already assessed. Upgrade for unlimited company-DNA scoring."
           : "Monthly eligibility check quota reached.";
       return NextResponse.json({ error: message, code: "MATCH_LIMIT", remaining }, { status: 402 });

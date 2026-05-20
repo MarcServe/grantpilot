@@ -2,7 +2,7 @@ import { getProfile } from "./actions";
 import { getActiveOrg } from "@/lib/auth";
 import { ProfileForm } from "@/components/profile/profile-form";
 import { NotificationPreferences } from "@/components/profile/notification-preferences";
-import { planAllows, resolvePlanKey } from "@/lib/plan-features";
+import { planAllowsForOrg } from "@/lib/plan-features";
 
 function getFirstIncompleteStep(profile: {
   businessName: string;
@@ -35,8 +35,8 @@ export default async function ProfilePage({
     Number.isFinite(stepParam) && stepParam >= 1 && stepParam <= 6 ? stepParam : null;
 
   const [profile, activeOrg] = await Promise.all([getProfile(), getActiveOrg()]);
-  const companyDnaAiEnabled = planAllows(
-    resolvePlanKey((activeOrg.org as { plan?: string }).plan),
+  const companyDnaAiEnabled = planAllowsForOrg(
+    activeOrg.org as { plan?: string; createdAt?: string | Date | null },
     "company_dna_ai"
   );
 

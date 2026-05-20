@@ -2,7 +2,7 @@ import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { sanitiseFounderPackContent, type FounderPackContent, type FounderPackDocumentType } from "@/lib/founder-pack";
 import { FounderPackClient } from "@/components/founder-pack/founder-pack-client";
-import { planAllows, resolvePlanKey } from "@/lib/plan-features";
+import { planAllowsForOrg } from "@/lib/plan-features";
 
 export const dynamic = "force-dynamic";
 
@@ -101,7 +101,7 @@ export default async function FounderPackPage({
   const initialApplicationId = params?.applicationId?.trim() || "";
   const { org, orgId } = await getActiveOrg();
   const supabase = getSupabaseAdmin();
-  const allowed = planAllows(resolvePlanKey((org as { plan?: string } | undefined)?.plan), "founder_pack");
+  const allowed = planAllowsForOrg(org as { plan?: string; createdAt?: string | Date | null }, "founder_pack");
 
   const [{ data: profiles }, { data: packs }, { data: applicationsData }, { data: eligibilityData }] = await Promise.all([
     supabase

@@ -63,25 +63,31 @@ export const PLAN_CATALOG: PlanCatalogRow[] = [
     features: [
       {
         heading: "Workspace",
-        bullets: ["7-day Starter trial", "1 business profile"],
+        bullets: ["7-day full-access trial", "1 business profile"],
       },
       {
         heading: "Discovery & scoring",
         bullets: [
-          "5 full company-DNA eligibility checks per month (cached scores don’t count)",
+          "5 full company-DNA eligibility checks during the trial (cached scores don’t count)",
           "Preliminary fit signals while browsing grants",
         ],
       },
       {
         heading: "Applications",
-        bullets: ["Application prep checklist and official-link handoff"],
+        bullets: ["1 grant-specific application prep run during the trial"],
       },
       {
-        heading: "Not included",
-        bullets: ["Company DNA autofill & website intelligence refresh", "Grant auto-improve", "Founder Funding Pack", "AI outcome learning insights"],
+        heading: "Trial access",
+        bullets: [
+          "Company DNA autofill and website intelligence refresh",
+          "Grant auto-improve",
+          "Founder Funding Pack",
+          "AI outcome learning insights",
+          "Email & WhatsApp notifications",
+        ],
       },
     ],
-    homepageFeatures: ["Manual profile & uploads", "Browse grants with preliminary fit", "5 full DNA scores per month"],
+    homepageFeatures: ["7-day full-access trial", "Browse grants with preliminary fit", "5 full DNA scores during trial"],
     cta: "Start Free",
     href: "/sign-up",
   },

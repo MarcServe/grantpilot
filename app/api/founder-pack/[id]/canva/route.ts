@@ -3,7 +3,7 @@ import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildFounderPackTextSections, type FounderPackExportInput } from "@/lib/founder-pack-export";
 import { sanitiseFounderPackContent, type FounderPackContent, type FounderPackDocumentType } from "@/lib/founder-pack";
-import { planAllows, PLAN_CAPABILITY_MESSAGES, resolvePlanKey } from "@/lib/plan-features";
+import { planAllowsForOrg, PLAN_CAPABILITY_MESSAGES } from "@/lib/plan-features";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -18,8 +18,7 @@ const CANVA_API_BASE = process.env.CANVA_API_BASE ?? "https://api.canva.com/rest
 export async function POST(_req: Request, context: RouteContext): Promise<NextResponse> {
   try {
     const { org, orgId } = await getActiveOrg();
-    const plan = resolvePlanKey((org as { plan?: string }).plan);
-    if (!planAllows(plan, "founder_pack")) {
+    if (!planAllowsForOrg(org as { plan?: string; createdAt?: string | Date | null }, "founder_pack")) {
       return NextResponse.json(
         { error: PLAN_CAPABILITY_MESSAGES.founder_pack, code: "FEATURE_FORBIDDEN" },
         { status: 402 }

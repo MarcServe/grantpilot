@@ -1,11 +1,35 @@
 import { getSupabaseAdmin } from "./supabase";
 import { PLAN_LIMITS, type PlanKey } from "./plans";
-import { resolvePlanKey } from "./plan-features";
+import { isFreeTrialActive, planAllowsForOrg, resolvePlanKey, type PlanCapability, type PlanAccessSource } from "./plan-features";
+
+type OrganisationPlanRow = {
+  plan?: string | null;
+  createdAt?: string | Date | null;
+  created_at?: string | Date | null;
+};
 
 export async function getOrganisationPlanKey(organisationId: string): Promise<PlanKey> {
   const supabase = getSupabaseAdmin();
   const { data } = await supabase.from("Organisation").select("plan").eq("id", organisationId).maybeSingle();
   return resolvePlanKey(data?.plan);
+}
+
+async function getOrganisationPlanAccess(organisationId: string): Promise<OrganisationPlanRow | null> {
+  const supabase = getSupabaseAdmin();
+  const { data } = await supabase
+    .from("Organisation")
+    .select("plan, createdAt")
+    .eq("id", organisationId)
+    .maybeSingle();
+  return (data as OrganisationPlanRow | null) ?? null;
+}
+
+export async function organisationAllowsCapability(
+  organisationId: string,
+  capability: PlanCapability
+): Promise<boolean> {
+  const org = await getOrganisationPlanAccess(organisationId);
+  return planAllowsForOrg(org as PlanAccessSource, capability);
 }
 
 export async function checkUsageLimit(
@@ -15,12 +39,17 @@ export async function checkUsageLimit(
   const supabase = getSupabaseAdmin();
   const { data: org } = await supabase
     .from("Organisation")
-    .select("plan")
+    .select("plan, createdAt")
     .eq("id", organisationId)
     .single();
   if (!org) return { allowed: false, remaining: 0 };
 
-  const plan = resolvePlanKey((org as { plan?: string }).plan);
+  const orgAccess = org as OrganisationPlanRow;
+  const plan = resolvePlanKey(orgAccess.plan);
+  if (plan === "FREE_TRIAL" && !isFreeTrialActive(orgAccess)) {
+    return { allowed: false, remaining: 0 };
+  }
+
   const limits = PLAN_LIMITS[plan];
 
   const limitKey = type === "autofill" ? "autoFillsPerMonth" : "matchesPerMonth";

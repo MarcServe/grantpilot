@@ -2,8 +2,7 @@ import { sendEmail } from "./email";
 import { sendWhatsApp, sendWhatsAppWithTemplate } from "./whatsapp";
 import { getSupabaseAdmin } from "./supabase";
 import { buildEmailHtml, buildWhatsAppMessage } from "./notification-templates";
-import { getOrganisationPlanKey } from "./plan-check";
-import { planAllows } from "./plan-features";
+import { organisationAllowsCapability } from "./plan-check";
 
 interface NotifyUser {
   id: string;
@@ -331,8 +330,7 @@ export async function notifyOrgMembers(
     .filter((u): u is NotifyUser => u != null);
 
   if (notificationRequiresPaidPlan(type)) {
-    const plan = await getOrganisationPlanKey(organisationId);
-    if (!planAllows(plan, "proactive_notifications")) {
+    if (!(await organisationAllowsCapability(organisationId, "proactive_notifications"))) {
       await logPlanSkippedNotification(supabase, withUser, type, options);
       return;
     }

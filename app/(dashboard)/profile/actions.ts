@@ -21,8 +21,7 @@ import { requestEligibilityRefresh } from "@/lib/eligibility-refresh-trigger";
 import { analyseWebsite } from "@/lib/website-intelligence";
 import { generateAndStoreProfileEmbedding } from "@/lib/embeddings";
 import { PLAN_LIMITS } from "@/lib/plans";
-import { planAllows } from "@/lib/plan-features";
-import { getOrganisationPlanKey } from "@/lib/plan-check";
+import { getOrganisationPlanKey, organisationAllowsCapability } from "@/lib/plan-check";
 import { syncEligibilityWhatsAppPreference } from "@/lib/eligibility-preferences";
 
 async function getOrgId(): Promise<string> {
@@ -245,8 +244,7 @@ async function analyseAndSaveWebsiteIntelligence(
   organisationId: string
 ): Promise<void> {
   try {
-    const plan = await getOrganisationPlanKey(organisationId);
-    if (!planAllows(plan, "website_intelligence_refresh")) return;
+    if (!(await organisationAllowsCapability(organisationId, "website_intelligence_refresh"))) return;
 
     console.info(`[website-intelligence] Analysing ${url} for profile ${profileId}`);
     const intelligence = await analyseWebsite(url);

@@ -7,7 +7,7 @@ import { analyseWebsite } from "@/lib/website-intelligence";
 import { syncGrantMemoryFromProfile } from "@/lib/grant-memory";
 import { requestEligibilityRefresh } from "@/lib/eligibility-refresh-trigger";
 import { generateAndStoreProfileEmbedding } from "@/lib/embeddings";
-import { planAllows, PLAN_CAPABILITY_MESSAGES, resolvePlanKey } from "@/lib/plan-features";
+import { planAllowsForOrg, PLAN_CAPABILITY_MESSAGES } from "@/lib/plan-features";
 
 const PROFILE_DNA_FIELDS = {
   sector: "Sector",
@@ -144,8 +144,7 @@ async function getProfileForOrg(orgId: string): Promise<Record<string, unknown> 
 export async function POST(): Promise<NextResponse> {
   try {
     const { orgId, org } = await getActiveOrg();
-    const plan = resolvePlanKey((org as { plan?: string }).plan);
-    if (!planAllows(plan, "company_dna_ai")) {
+    if (!planAllowsForOrg(org as { plan?: string; createdAt?: string | Date | null }, "company_dna_ai")) {
       return NextResponse.json(
         { error: PLAN_CAPABILITY_MESSAGES.company_dna_ai, code: "FEATURE_FORBIDDEN" },
         { status: 402 }
@@ -232,8 +231,7 @@ Return 5-12 high-value suggestions. Avoid fields where the current profile alrea
 export async function PATCH(req: Request): Promise<NextResponse> {
   try {
     const { orgId, org } = await getActiveOrg();
-    const plan = resolvePlanKey((org as { plan?: string }).plan);
-    if (!planAllows(plan, "company_dna_ai")) {
+    if (!planAllowsForOrg(org as { plan?: string; createdAt?: string | Date | null }, "company_dna_ai")) {
       return NextResponse.json(
         { error: PLAN_CAPABILITY_MESSAGES.company_dna_ai, code: "FEATURE_FORBIDDEN" },
         { status: 402 }
