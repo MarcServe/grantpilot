@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg } from "@/lib/auth";
 import { grantMatchesFunderLocations, inferFunderLocationsFromProfile } from "@/lib/constants";
@@ -30,6 +31,18 @@ import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
 import { applyOutcomeScoreAdjustment, deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
 import type { EligibilityResult } from "@/lib/claude";
 
+const DASHBOARD_MATCH_PREVIEW_LIMIT = 120;
+const GRANT_QUERY_BATCH_SIZE = 200;
+
+type SupabaseAdmin = ReturnType<typeof getSupabaseAdmin>;
+type DashboardMatchGrant = { grantId: string; grantName: string; score: number; summary?: string; addedAt?: string | null };
+type DeferredGrant = { grantId: string; grantName: string; funder: string; score?: number; updatedAt?: string | null };
+type DashboardMatchesData = {
+  suggestedGrants: DashboardMatchGrant[];
+  withinReachGrants: DashboardMatchGrant[];
+  deferredGrants: DeferredGrant[];
+};
+
 function profileForEligibilityGuards(profile: Record<string, unknown>) {
   return {
     location: String(profile.location ?? ""),
@@ -40,6 +53,154 @@ function profileForEligibilityGuards(profile: Record<string, unknown>) {
     annualRevenue: profile.annualRevenue != null ? Number(profile.annualRevenue) : (profile.annual_revenue != null ? Number(profile.annual_revenue) : null),
     yearEstablished: profile.yearEstablished != null ? Number(profile.yearEstablished) : (profile.year_established != null ? Number(profile.year_established) : null),
   };
+}
+
+async function loadDashboardMatches({
+  supabase,
+  orgId,
+  profile,
+  completionScore,
+}: {
+  supabase: SupabaseAdmin;
+  orgId: string;
+  profile?: ({ id: string } & Record<string, unknown>) | null;
+  completionScore: number;
+}): Promise<DashboardMatchesData> {
+  const suggestedGrants: DashboardMatchGrant[] = [];
+  const withinReachGrants: DashboardMatchGrant[] = [];
+  let deferredGrants: DeferredGrant[] = [];
+
+  if (!profile || completionScore < 50) {
+    return { suggestedGrants, withinReachGrants, deferredGrants };
+  }
+
+  const [
+    appliedGrantIds,
+    suppressedGrantIds,
+    assessmentsResult,
+    outcomeRowsResult,
+  ] = await Promise.all([
+    getAppliedGrantIds(supabase, orgId, profile.id),
+    getSuppressedGrantIds(supabase, orgId, profile.id),
+    supabase
+      .from("EligibilityAssessment")
+      .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, scoring_source")
+      .eq("organisation_id", orgId)
+      .eq("profile_id", profile.id)
+      .order("score", { ascending: false })
+      .limit(DASHBOARD_MATCH_PREVIEW_LIMIT),
+    supabase
+      .from("ApplicationOutcome")
+      .select("outcome, awardedAmount, funderFeedback, learningNotes, Grant(name, funder)")
+      .eq("organisationId", orgId)
+      .eq("profileId", profile.id)
+      .order("reportedAt", { ascending: false })
+      .limit(8),
+  ]);
+  const assessments = assessmentsResult.data ?? [];
+  const grantIds = [
+    ...new Set((assessments as { grant_id: string; score: number; summary: string | null; scoring_source?: string | null }[]).map((a) => a.grant_id)),
+  ];
+
+  if (grantIds.length > 0) {
+    const allGrantsList: { id: string; name: string; funderLocations?: string[]; createdAt?: string | null; eligibility?: string | null; description?: string | null; objectives?: string | null; applicantTypes?: string[]; sectors?: string[]; regions?: string[] }[] = [];
+    const grantIdBatches = Array.from(
+      { length: Math.ceil(grantIds.length / GRANT_QUERY_BATCH_SIZE) },
+      (_, index) => grantIds.slice(index * GRANT_QUERY_BATCH_SIZE, (index + 1) * GRANT_QUERY_BATCH_SIZE)
+    );
+    const grantBatchResults = await Promise.all(
+      grantIdBatches.map((ids) =>
+        supabase
+          .from("Grant")
+          .select("id, name, funderLocations, createdAt, eligibility, description, objectives, applicantTypes, sectors, regions")
+          .in("id", ids)
+      )
+    );
+    for (const { data: batch } of grantBatchResults) {
+      if (batch) allGrantsList.push(...(batch as typeof allGrantsList));
+    }
+    const grantsList = allGrantsList;
+    const userFunderLocations = inferFunderLocationsFromProfile(profile as {
+      funderLocations?: string[] | null;
+      location?: string | null;
+      country?: string | null;
+      region?: string | null;
+    });
+    const grantById = new Map(grantsList.map((g) => [g.id, g]));
+    const matchesLocation = new Set(grantsList.filter((g) => grantMatchesFunderLocations(g.funderLocations, userFunderLocations)).map((g) => g.id));
+    const outcomeAdvisory = deriveOutcomeLearningAdvisory(outcomeRowsResult.data ?? []);
+    for (const a of assessments as { grant_id: string; score: number; decision?: string | null; summary: string | null; missing_criteria?: string[] | null; improvement_plan?: { gaps?: string[]; actions?: string[]; timeline?: string } | null; scoring_source?: string | null }[]) {
+      if (appliedGrantIds.has(a.grant_id)) continue;
+      if (suppressedGrantIds.has(a.grant_id)) continue;
+      if (!matchesLocation.has(a.grant_id)) continue;
+      const grant = grantById.get(a.grant_id);
+      const name = grant?.name ?? "Grant";
+      const source = a.scoring_source ?? (a.summary?.startsWith("Preliminary fit") ? "heuristic" : "openai");
+      const baseScore = source === "heuristic" ? Math.min(a.score, 69) : a.score;
+      const guarded = grant
+        ? applyOutcomeScoreAdjustment(applyEligibilityScoreGuards(
+            profileForEligibilityGuards(profile as Record<string, unknown>),
+            grant,
+            {
+              decision: a.decision === "likely_eligible" || a.decision === "review" || a.decision === "unlikely" ? a.decision : "review",
+              reason: a.summary ?? "",
+              confidence: baseScore,
+              score: baseScore,
+              summary: a.summary ?? undefined,
+              reasons: [],
+              improvementPlan: a.improvement_plan as EligibilityResult["improvementPlan"],
+              met: [],
+              missing: a.missing_criteria ?? [],
+              winProbability: baseScore,
+              evidenceStrength: baseScore >= 80 ? "strong" : baseScore >= 55 ? "medium" : "weak",
+            }
+          ), outcomeAdvisory)
+        : null;
+      const score = guarded ? (guarded.score ?? guarded.confidence) : baseScore;
+      if (isOpenAIChecked(source) && score >= 80) suggestedGrants.push({ grantId: a.grant_id, grantName: name, score, addedAt: grant?.createdAt ?? null });
+      else if (score >= 50) withinReachGrants.push({ grantId: a.grant_id, grantName: name, score, summary: guarded?.summary ?? a.summary ?? undefined, addedAt: grant?.createdAt ?? null });
+    }
+  }
+
+  const { data: deferredRows } = await supabase
+    .from("SavedGrant")
+    .select("grant_id, updated_at, Grant(id, name, funder)")
+    .eq("organisation_id", orgId)
+    .eq("profile_id", profile.id)
+    .eq("status", "deferred")
+    .order("updated_at", { ascending: false })
+    .limit(5);
+  const deferredIds = (deferredRows ?? []).map((row: { grant_id: string }) => row.grant_id);
+  const scoreByGrant = new Map<string, number>();
+  if (deferredIds.length > 0) {
+    const { data: deferredAssessments } = await supabase
+      .from("EligibilityAssessment")
+      .select("grant_id, score")
+      .eq("organisation_id", orgId)
+      .eq("profile_id", profile.id)
+      .in("grant_id", deferredIds);
+    for (const row of deferredAssessments ?? []) {
+      const r = row as { grant_id: string; score?: number };
+      if (typeof r.score === "number") scoreByGrant.set(r.grant_id, r.score);
+    }
+  }
+  deferredGrants = (deferredRows ?? []).map((row) => {
+    const r = row as {
+      grant_id: string;
+      updated_at?: string | null;
+      Grant?: { name?: string; funder?: string } | { name?: string; funder?: string }[];
+    };
+    const grant = Array.isArray(r.Grant) ? r.Grant[0] : r.Grant;
+    return {
+      grantId: r.grant_id,
+      grantName: grant?.name ?? "Grant",
+      funder: grant?.funder ?? "Funder",
+      score: scoreByGrant.get(r.grant_id),
+      updatedAt: r.updated_at ?? null,
+    };
+  });
+
+  return { suggestedGrants, withinReachGrants, deferredGrants };
 }
 
 export default async function DashboardPage() {
@@ -54,38 +215,64 @@ export default async function DashboardPage() {
   const profile = org.profiles?.[0];
   const completionScore = profile?.completionScore ?? 0;
 
-  const { data: recentApplications = [] } = await supabase
-    .from("Application")
-    .select("*, Grant(*)")
-    .eq("organisationId", orgId)
-    .order("createdAt", { ascending: false })
-    .limit(5);
-
-  const { count: totalApplications } = await supabase
-    .from("Application")
-    .select("id", { count: "exact", head: true })
-    .eq("organisationId", orgId);
-
-  const { count: activeApplications } = await supabase
-    .from("Application")
-    .select("id", { count: "exact", head: true })
-    .eq("organisationId", orgId)
-    .in("status", ["FILLING", "REVIEW_REQUIRED"]);
-
-  const { count: submittedApplications } = await supabase
-    .from("Application")
-    .select("id", { count: "exact", head: true })
-    .eq("organisationId", orgId)
-    .in("status", ["SUBMITTED", "APPROVED"]);
-
-  const { data: upcomingTasksData = [] } = await supabase
-    .from("ApplicationTask")
-    .select("id, name, status, dueDate, applicationId, grantId")
-    .eq("organisationId", orgId)
-    .neq("status", "done")
-    .neq("status", "cancelled")
-    .order("dueDate", { ascending: true, nullsFirst: false })
-    .limit(8);
+  const [
+    recentApplicationsResult,
+    totalApplicationsResult,
+    activeApplicationsResult,
+    submittedApplicationsResult,
+    upcomingTasksResult,
+    latestAssessmentResult,
+    eligibilityCountResult,
+    pendingOutcomes,
+    outcomeRowsForRecent,
+  ] = await Promise.all([
+    supabase
+      .from("Application")
+      .select("*, Grant(*)")
+      .eq("organisationId", orgId)
+      .order("createdAt", { ascending: false })
+      .limit(5),
+    supabase
+      .from("Application")
+      .select("id", { count: "exact", head: true })
+      .eq("organisationId", orgId),
+    supabase
+      .from("Application")
+      .select("id", { count: "exact", head: true })
+      .eq("organisationId", orgId)
+      .in("status", ["FILLING", "REVIEW_REQUIRED"]),
+    supabase
+      .from("Application")
+      .select("id", { count: "exact", head: true })
+      .eq("organisationId", orgId)
+      .in("status", ["SUBMITTED", "APPROVED"]),
+    supabase
+      .from("ApplicationTask")
+      .select("id, name, status, dueDate, applicationId, grantId")
+      .eq("organisationId", orgId)
+      .neq("status", "done")
+      .neq("status", "cancelled")
+      .order("dueDate", { ascending: true, nullsFirst: false })
+      .limit(8),
+    supabase
+      .from("EligibilityAssessment")
+      .select("updated_at")
+      .eq("organisation_id", orgId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("EligibilityAssessment")
+      .select("id", { count: "exact", head: true })
+      .eq("organisation_id", orgId),
+    fetchApplicationsNeedingOutcome(orgId),
+    supabase.from("ApplicationOutcome").select("applicationId, outcome").eq("organisationId", orgId),
+  ]);
+  const recentApplications = recentApplicationsResult.data ?? [];
+  const totalApplications = totalApplicationsResult.count ?? 0;
+  const activeApplications = activeApplicationsResult.count ?? 0;
+  const submittedApplications = submittedApplicationsResult.count ?? 0;
+  const upcomingTasksData = upcomingTasksResult.data ?? [];
   const taskRows = (upcomingTasksData ?? []) as { id: string; name: string; status: string; dueDate: string | null; applicationId: string; grantId: string | null }[];
   const applicationIdsFromTasks = [...new Set(taskRows.map((t) => t.applicationId).filter(Boolean))] as string[];
   const validApplicationIds = new Set<string>();
@@ -141,136 +328,16 @@ export default async function DashboardPage() {
 
   let lastEligibilityRun: string | null = null;
   let eligibilityGrantCount = 0;
-  {
-    const { data: latestAssessment } = await supabase
-      .from("EligibilityAssessment")
-      .select("updated_at")
-      .eq("organisation_id", orgId)
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (latestAssessment?.updated_at) {
-      lastEligibilityRun = latestAssessment.updated_at as string;
-    }
-    const { count } = await supabase
-      .from("EligibilityAssessment")
-      .select("id", { count: "exact", head: true })
-      .eq("organisation_id", orgId);
-    eligibilityGrantCount = count ?? 0;
+  if (latestAssessmentResult.data?.updated_at) {
+    lastEligibilityRun = latestAssessmentResult.data.updated_at as string;
   }
-
-  const suggestedGrants: { grantId: string; grantName: string; score: number; addedAt?: string | null }[] = [];
-  const withinReachGrants: { grantId: string; grantName: string; score: number; summary?: string; addedAt?: string | null }[] = [];
-  let deferredGrants: { grantId: string; grantName: string; funder: string; score?: number; updatedAt?: string | null }[] = [];
-  if (profile && completionScore >= 50) {
-    const appliedGrantIds = await getAppliedGrantIds(supabase, orgId, profile.id);
-    const suppressedGrantIds = await getSuppressedGrantIds(supabase, orgId, profile.id);
-    const { data: assessmentsData } = await supabase
-      .from("EligibilityAssessment")
-      .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, scoring_source")
-      .eq("organisation_id", orgId)
-      .eq("profile_id", profile.id)
-      .order("score", { ascending: false });
-    const assessments = assessmentsData ?? [];
-    const grantIds = (assessments as { grant_id: string; score: number; summary: string | null; scoring_source?: string | null }[]).map((a) => a.grant_id);
-    if (grantIds.length > 0) {
-      const BATCH = 200;
-      const allGrantsList: { id: string; name: string; funderLocations?: string[]; createdAt?: string | null; eligibility?: string | null; description?: string | null; objectives?: string | null; applicantTypes?: string[]; sectors?: string[]; regions?: string[] }[] = [];
-      for (let i = 0; i < grantIds.length; i += BATCH) {
-        const { data: batch } = await supabase
-          .from("Grant")
-          .select("id, name, funderLocations, createdAt, eligibility, description, objectives, applicantTypes, sectors, regions")
-          .in("id", grantIds.slice(i, i + BATCH));
-        if (batch) allGrantsList.push(...(batch as typeof allGrantsList));
-      }
-      const grantsList = allGrantsList;
-      const userFunderLocations = inferFunderLocationsFromProfile(profile as {
-        funderLocations?: string[] | null;
-        location?: string | null;
-        country?: string | null;
-        region?: string | null;
-      });
-      const grantById = new Map(grantsList.map((g) => [g.id, g]));
-      const matchesLocation = new Set(grantsList.filter((g) => grantMatchesFunderLocations(g.funderLocations, userFunderLocations)).map((g) => g.id));
-      const { data: outcomeRows } = await supabase
-        .from("ApplicationOutcome")
-        .select("outcome, awardedAmount, funderFeedback, learningNotes, Grant(name, funder)")
-        .eq("organisationId", orgId)
-        .eq("profileId", profile.id)
-        .order("reportedAt", { ascending: false })
-        .limit(8);
-      const outcomeAdvisory = deriveOutcomeLearningAdvisory(outcomeRows ?? []);
-      for (const a of assessments as { grant_id: string; score: number; decision?: string | null; summary: string | null; missing_criteria?: string[] | null; improvement_plan?: { gaps?: string[]; actions?: string[]; timeline?: string } | null; scoring_source?: string | null }[]) {
-        if (appliedGrantIds.has(a.grant_id)) continue;
-        if (suppressedGrantIds.has(a.grant_id)) continue;
-        if (!matchesLocation.has(a.grant_id)) continue;
-        const grant = grantById.get(a.grant_id);
-        const name = grant?.name ?? "Grant";
-        const source = a.scoring_source ?? (a.summary?.startsWith("Preliminary fit") ? "heuristic" : "openai");
-        const baseScore = source === "heuristic" ? Math.min(a.score, 69) : a.score;
-        const guarded = grant
-          ? applyOutcomeScoreAdjustment(applyEligibilityScoreGuards(
-              profileForEligibilityGuards(profile as Record<string, unknown>),
-              grant,
-              {
-                decision: a.decision === "likely_eligible" || a.decision === "review" || a.decision === "unlikely" ? a.decision : "review",
-                reason: a.summary ?? "",
-                confidence: baseScore,
-                score: baseScore,
-                summary: a.summary ?? undefined,
-                reasons: [],
-                improvementPlan: a.improvement_plan as EligibilityResult["improvementPlan"],
-                met: [],
-                missing: a.missing_criteria ?? [],
-                winProbability: baseScore,
-                evidenceStrength: baseScore >= 80 ? "strong" : baseScore >= 55 ? "medium" : "weak",
-              }
-            ), outcomeAdvisory)
-          : null;
-        const score = guarded ? (guarded.score ?? guarded.confidence) : baseScore;
-        if (isOpenAIChecked(source) && score >= 80) suggestedGrants.push({ grantId: a.grant_id, grantName: name, score, addedAt: grant?.createdAt ?? null });
-        else if (score >= 50) withinReachGrants.push({ grantId: a.grant_id, grantName: name, score, summary: guarded?.summary ?? a.summary ?? undefined, addedAt: grant?.createdAt ?? null });
-      }
-    }
-
-    const { data: deferredRows } = await supabase
-      .from("SavedGrant")
-      .select("grant_id, updated_at, Grant(id, name, funder)")
-      .eq("organisation_id", orgId)
-      .eq("profile_id", profile.id)
-      .eq("status", "deferred")
-      .order("updated_at", { ascending: false })
-      .limit(5);
-    const deferredIds = (deferredRows ?? []).map((row: { grant_id: string }) => row.grant_id);
-    const scoreByGrant = new Map<string, number>();
-    if (deferredIds.length > 0) {
-      const { data: deferredAssessments } = await supabase
-        .from("EligibilityAssessment")
-        .select("grant_id, score")
-        .eq("organisation_id", orgId)
-        .eq("profile_id", profile.id)
-        .in("grant_id", deferredIds);
-      for (const row of deferredAssessments ?? []) {
-        const r = row as { grant_id: string; score?: number };
-        if (typeof r.score === "number") scoreByGrant.set(r.grant_id, r.score);
-      }
-    }
-    deferredGrants = (deferredRows ?? []).map((row) => {
-      const r = row as {
-        grant_id: string;
-        updated_at?: string | null;
-        Grant?: { name?: string; funder?: string } | { name?: string; funder?: string }[];
-      };
-      const grant = Array.isArray(r.Grant) ? r.Grant[0] : r.Grant;
-      return {
-        grantId: r.grant_id,
-        grantName: grant?.name ?? "Grant",
-        funder: grant?.funder ?? "Funder",
-        score: scoreByGrant.get(r.grant_id),
-        updatedAt: r.updated_at ?? null,
-      };
-    });
-  }
+  eligibilityGrantCount = eligibilityCountResult.count ?? 0;
+  const matchesPromise = loadDashboardMatches({
+    supabase,
+    orgId,
+    profile: profile as ({ id: string } & Record<string, unknown>) | undefined,
+    completionScore,
+  });
 
   const displayName =
     String(
@@ -287,13 +354,6 @@ export default async function DashboardPage() {
   const submittedCount = submittedApplications ?? 0;
   const draftCount = Math.max(totalCount - activeCount - submittedCount, 0);
   const successRate = totalCount > 0 ? Math.round((submittedCount / totalCount) * 100) : 0;
-  const qualifiedOpportunityCount = suggestedGrants.length + withinReachGrants.length;
-  const topMatches = [...suggestedGrants, ...withinReachGrants].slice(0, 3);
-
-  const [pendingOutcomes, outcomeRowsForRecent] = await Promise.all([
-    fetchApplicationsNeedingOutcome(orgId),
-    supabase.from("ApplicationOutcome").select("applicationId, outcome").eq("organisationId", orgId),
-  ]);
   const outcomeByApplicationId = new Map<string, string>();
   for (const row of outcomeRowsForRecent.data ?? []) {
     const r = row as { applicationId?: string; outcome?: string };
@@ -328,8 +388,8 @@ export default async function DashboardPage() {
               <MetricCard
                 icon={Search}
                 label="Opportunities"
-                value={qualifiedOpportunityCount || eligibilityGrantCount}
-                detail={qualifiedOpportunityCount ? "Qualified matches" : "Scored grants"}
+                value={eligibilityGrantCount}
+                detail="Scored grants"
                 tone="blue"
                 href="/grants/eligible"
               />
@@ -360,57 +420,9 @@ export default async function DashboardPage() {
             </div>
 
             <div className="mt-5 grid min-w-0 grid-cols-1 gap-5 @min-[680px]/main:grid-cols-2">
-              <div className="min-w-0 rounded-2xl border border-[#e7edf6] bg-white p-4 shadow-[0_14px_36px_rgba(7,26,58,0.06)] sm:p-5">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h2 className="text-lg font-black text-[#071a3a]">Top Matched Opportunities</h2>
-                  <Link href="/grants/eligible" className="text-sm font-extrabold text-[#2167e8]">
-                    View all
-                  </Link>
-                </div>
-                <div className="mt-4 divide-y divide-[#edf2f7]">
-                  {topMatches.length > 0 ? (
-                    topMatches.map((grant) => (
-                      <Link
-                        key={grant.grantId}
-                        href={`/grants/${grant.grantId}?from=dashboard`}
-                        className="flex min-w-0 items-center gap-3 py-4"
-                      >
-                        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#edf5ff] text-[#2167e8]">
-                          <FileText className="h-5 w-5" />
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-black text-[#071a3a]">
-                            {grant.grantName}
-                          </span>
-                          <span className="mt-1 block text-xs font-semibold text-[#566984]">
-                            AI-ranked funding opportunity
-                            {grant.addedAt
-                              ? ` · Added ${new Date(grant.addedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`
-                              : ""}
-                          </span>
-                        </span>
-                        <span className="shrink-0 rounded-lg bg-[#dff8ed] px-2.5 py-2 text-center text-xs font-black leading-none text-[#087f59] sm:px-3">
-                          {grant.score}%
-                          <br />
-                          <span className="text-[10px]">Match</span>
-                        </span>
-                        <ChevronRight className="h-4 w-4 text-[#9aabc1]" />
-                      </Link>
-                    ))
-                  ) : (
-                    <div className="flex flex-col items-start gap-3 py-8">
-                      <p className="text-sm font-semibold text-[#51627d]">
-                        Complete your profile and run eligibility scoring to surface your best funding matches.
-                      </p>
-                      <Link href="/grants">
-                        <Button size="sm" className="gap-2 rounded-lg bg-[#2167e8]">
-                          Browse Grants <ArrowRight className="h-4 w-4" />
-                        </Button>
-                      </Link>
-                    </div>
-                  )}
-                </div>
-              </div>
+              <Suspense fallback={<TopMatchedOpportunitiesSkeleton />}>
+                <TopMatchedOpportunities matchesPromise={matchesPromise} />
+              </Suspense>
 
               <div className="@container/progress min-w-0 rounded-2xl border border-[#e7edf6] bg-white p-4 shadow-[0_14px_36px_rgba(7,26,58,0.06)] sm:p-5">
                 <h2 className="text-lg font-black text-[#071a3a]">Application Progress</h2>
@@ -517,6 +529,148 @@ export default async function DashboardPage() {
         </Card>
       )}
 
+      <Suspense fallback={null}>
+        <DashboardMatchSections matchesPromise={matchesPromise} />
+      </Suspense>
+
+      <div className="mt-8">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Recent Applications</h2>
+          {(totalApplications ?? 0) > 0 && (
+            <Link href="/applications">
+              <Button variant="ghost" size="sm">
+                View All
+              </Button>
+            </Link>
+          )}
+        </div>
+
+        {appsWithGrant.length === 0 ? (
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+              <FileText className="h-10 w-10 text-muted-foreground" />
+              <h3 className="mt-4 font-medium">No applications yet</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Browse grants and click Apply to get started.
+              </p>
+              <Link href="/grants" className="mt-4">
+                <Button size="sm">Browse Grants</Button>
+              </Link>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-3">
+            {appsWithGrant.map((app) => (
+              <ApplicationCardWithDelete
+                key={app.id}
+                id={app.id}
+                grantName={app.grant.name}
+                funder={app.grant.funder}
+                displayStatus={app.displayStatus}
+                createdAt={app.createdAt}
+                needsOutcomeReminder={
+                  ["SUBMITTED", "APPROVED"].includes(app.status) &&
+                  applicationNeedsOutcomeReminder(outcomeByApplicationId.get(app.id))
+                }
+                canMarkSubmitted={!["SUBMITTED", "APPROVED"].includes(app.status)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+async function TopMatchedOpportunities({ matchesPromise }: { matchesPromise: Promise<DashboardMatchesData> }) {
+  const { suggestedGrants, withinReachGrants } = await matchesPromise;
+  const topMatches = [...suggestedGrants, ...withinReachGrants].slice(0, 3);
+
+  return (
+    <div className="min-w-0 rounded-2xl border border-[#e7edf6] bg-white p-4 shadow-[0_14px_36px_rgba(7,26,58,0.06)] sm:p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-lg font-black text-[#071a3a]">Top Matched Opportunities</h2>
+        <Link href="/grants/eligible" className="text-sm font-extrabold text-[#2167e8]">
+          View all
+        </Link>
+      </div>
+      <div className="mt-4 divide-y divide-[#edf2f7]">
+        {topMatches.length > 0 ? (
+          topMatches.map((grant) => (
+            <Link
+              key={grant.grantId}
+              href={`/grants/${grant.grantId}?from=dashboard`}
+              className="flex min-w-0 items-center gap-3 py-4"
+            >
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#edf5ff] text-[#2167e8]">
+                <FileText className="h-5 w-5" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-black text-[#071a3a]">
+                  {grant.grantName}
+                </span>
+                <span className="mt-1 block text-xs font-semibold text-[#566984]">
+                  AI-ranked funding opportunity
+                  {grant.addedAt
+                    ? ` · Added ${new Date(grant.addedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`
+                    : ""}
+                </span>
+              </span>
+              <span className="shrink-0 rounded-lg bg-[#dff8ed] px-2.5 py-2 text-center text-xs font-black leading-none text-[#087f59] sm:px-3">
+                {grant.score}%
+                <br />
+                <span className="text-[10px]">Match</span>
+              </span>
+              <ChevronRight className="h-4 w-4 text-[#9aabc1]" />
+            </Link>
+          ))
+        ) : (
+          <div className="flex flex-col items-start gap-3 py-8">
+            <p className="text-sm font-semibold text-[#51627d]">
+              Complete your profile and run eligibility scoring to surface your best funding matches.
+            </p>
+            <Link href="/grants">
+              <Button size="sm" className="gap-2 rounded-lg bg-[#2167e8]">
+                Browse Grants <ArrowRight className="h-4 w-4" />
+              </Button>
+            </Link>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TopMatchedOpportunitiesSkeleton() {
+  return (
+    <div className="min-w-0 rounded-2xl border border-[#e7edf6] bg-white p-4 shadow-[0_14px_36px_rgba(7,26,58,0.06)] sm:p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-lg font-black text-[#071a3a]">Top Matched Opportunities</h2>
+        <Link href="/grants/eligible" className="text-sm font-extrabold text-[#2167e8]">
+          View all
+        </Link>
+      </div>
+      <div className="mt-4 space-y-4" aria-hidden="true">
+        {[0, 1, 2].map((row) => (
+          <div key={row} className="flex items-center gap-3 py-1">
+            <span className="h-11 w-11 shrink-0 animate-pulse rounded-full bg-[#eef3f8]" />
+            <span className="min-w-0 flex-1 space-y-2">
+              <span className="block h-4 w-4/5 animate-pulse rounded bg-[#eef3f8]" />
+              <span className="block h-3 w-3/5 animate-pulse rounded bg-[#eef3f8]" />
+            </span>
+            <span className="h-9 w-14 shrink-0 animate-pulse rounded-lg bg-[#eef3f8]" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+async function DashboardMatchSections({ matchesPromise }: { matchesPromise: Promise<DashboardMatchesData> }) {
+  const { suggestedGrants, withinReachGrants, deferredGrants } = await matchesPromise;
+
+  return (
+    <>
       {(suggestedGrants.length > 0 || withinReachGrants.length > 0) && (
         <div className="mt-8 grid gap-6 md:grid-cols-2">
           {suggestedGrants.length > 0 && (
@@ -618,53 +772,7 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
       )}
-
-      <div className="mt-8">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Recent Applications</h2>
-          {(totalApplications ?? 0) > 0 && (
-            <Link href="/applications">
-              <Button variant="ghost" size="sm">
-                View All
-              </Button>
-            </Link>
-          )}
-        </div>
-
-        {appsWithGrant.length === 0 ? (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-              <FileText className="h-10 w-10 text-muted-foreground" />
-              <h3 className="mt-4 font-medium">No applications yet</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Browse grants and click Apply to get started.
-              </p>
-              <Link href="/grants" className="mt-4">
-                <Button size="sm">Browse Grants</Button>
-              </Link>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="space-y-3">
-            {appsWithGrant.map((app) => (
-              <ApplicationCardWithDelete
-                key={app.id}
-                id={app.id}
-                grantName={app.grant.name}
-                funder={app.grant.funder}
-                displayStatus={app.displayStatus}
-                createdAt={app.createdAt}
-                needsOutcomeReminder={
-                  ["SUBMITTED", "APPROVED"].includes(app.status) &&
-                  applicationNeedsOutcomeReminder(outcomeByApplicationId.get(app.id))
-                }
-                canMarkSubmitted={!["SUBMITTED", "APPROVED"].includes(app.status)}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
+    </>
   );
 }
 
