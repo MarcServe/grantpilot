@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { Suspense } from "react";
 import { Bell } from "lucide-react";
 import { UserNav } from "@/components/layout/user-nav";
 import { DashboardNav } from "@/components/layout/dashboard-nav";
@@ -7,15 +8,19 @@ import { getActiveOrg } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
-export default async function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+async function SidebarNavWithProfileStrength() {
   const { org } = await getActiveOrg();
   const profile = org.profiles?.[0];
   const profileStrength = profile?.completionScore ?? 0;
 
+  return <DashboardNav profileStrength={profileStrength} placement="sidebar" />;
+}
+
+export default function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <div className="min-h-screen bg-[#f4f8ff] text-[#071a3a]">
       <aside className="fixed inset-y-0 left-0 z-40 hidden h-screen max-h-screen w-[250px] flex-col overflow-hidden bg-[#041d38] px-5 py-7 text-white lg:flex">
@@ -39,7 +44,9 @@ export default async function DashboardLayout({
         </Link>
 
         <div className="mt-8 flex min-h-0 flex-1 flex-col overflow-hidden">
-          <DashboardNav profileStrength={profileStrength} placement="sidebar" />
+          <Suspense fallback={<DashboardNav profileStrength={0} placement="sidebar" />}>
+            <SidebarNavWithProfileStrength />
+          </Suspense>
         </div>
       </aside>
 
@@ -47,7 +54,7 @@ export default async function DashboardLayout({
         <header className="sticky top-0 z-30 border-b border-[#dfe8f5] bg-white/90 backdrop-blur-xl">
           <div className="mx-auto flex h-20 max-w-[1280px] items-center justify-between gap-2 px-3 sm:px-7 lg:px-8">
             <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-              <DashboardNav profileStrength={profileStrength} placement="header" />
+              <DashboardNav profileStrength={0} placement="header" />
               <Link href="/dashboard" className="flex min-w-0 items-center gap-2 lg:hidden">
                 <Image
                   src="/logogc.png"
