@@ -36,7 +36,7 @@ const LAYER2_TOP_N = 15;
 const LAYER3_TOP_N = 10;
 const DIGEST_SCORE_THRESHOLD = 85;
 const MIN_NOTIFICATION_SCORE_FLOOR = 75;
-const NOTIFY_COOLDOWN_DAYS = 1;
+const NOTIFY_COOLDOWN_HOURS = 20;
 const CACHE_DAYS = 1;
 
 function scoreToDecision(score: number): "likely_eligible" | "review" | "unlikely" {
@@ -83,6 +83,23 @@ function notificationMinScore(preferenceScore: number | undefined): number {
 function shouldNotifyForEligibility(score: number, decision?: string | null, scoringSource?: string | null): boolean {
   return isOpenAIChecked(scoringSource) && decision === "likely_eligible" && score >= MIN_NOTIFICATION_SCORE_FLOOR;
 }
+
+function isOutsideNotificationCooldown(notifiedAt: string | null | undefined, cooldown: Date): boolean {
+  if (!notifiedAt) return true;
+  const notifiedAtTime = new Date(notifiedAt).getTime();
+  return !Number.isFinite(notifiedAtTime) || notifiedAtTime < cooldown.getTime();
+}
+
+type CachedEligibilityRow = {
+  grant_id: string;
+  score: number | null;
+  decision: string | null;
+  summary: string | null;
+  notified_at: string | null;
+  missing_criteria: string[] | null;
+  improvement_plan: DigestGrantItem["improvementPlan"] | null;
+  scoring_source: string | null;
+};
 
 export async function runEligibilityRefreshJob(options?: {
   orgIdsFilter?: Set<string>;
@@ -225,7 +242,7 @@ export async function runEligibilityRefreshJob(options?: {
           ? { data: [] }
           : await supabase
             .from("EligibilityAssessment")
-            .select("grant_id, updated_at, score, decision, summary")
+            .select("grant_id, updated_at, score, decision, summary, notified_at, missing_criteria, improvement_plan, scoring_source")
             .eq("organisation_id", orgId)
             .eq("profile_id", profileId)
             .in("grant_id", candidateIds)
@@ -274,7 +291,7 @@ export async function runEligibilityRefreshJob(options?: {
         const sendNotifyEmail = (prefs as { notify_email?: boolean } | null)?.notify_email !== false;
 
         const cooldown = new Date();
-        cooldown.setDate(cooldown.getDate() - NOTIFY_COOLDOWN_DAYS);
+        cooldown.setHours(cooldown.getHours() - NOTIFY_COOLDOWN_HOURS);
         const digestGrants: DigestGrantItem[] = [];
 
         const { data: profileDocsData } = await supabase.from("Document").select("name, type, category").eq("profileId", profileId);
@@ -295,6 +312,44 @@ export async function runEligibilityRefreshJob(options?: {
           .limit(8);
         const fundingOutcomeSignals = buildFundingOutcomeSignals(outcomeRows ?? []);
         const outcomeAdvisory = deriveOutcomeLearningAdvisory(outcomeRows ?? []);
+
+        for (const cached of (cachedRows ?? []) as CachedEligibilityRow[]) {
+          const score = Number(cached.score ?? 0);
+          if (
+            !Number.isFinite(score) ||
+            score < minScore ||
+            score > maxScore ||
+            !shouldNotifyForEligibility(score, cached.decision, cached.scoring_source) ||
+            !isOutsideNotificationCooldown(cached.notified_at, cooldown)
+          ) {
+            continue;
+          }
+
+          const grant = locationFiltered.find((g) => g.id === cached.grant_id);
+          if (!grant) continue;
+
+          const startApplicationToken = createStartApplicationToken({
+            grantId: grant.id,
+            profileId: profileId,
+            organisationId: orgId,
+          });
+          const rawRequired = (grant as { required_attachments?: unknown }).required_attachments;
+          const required = (Array.isArray(rawRequired) ? rawRequired : []) as RequiredAttachment[];
+          const { missing } = checkRequirementsAgainstDocuments(required, profileDocuments);
+
+          digestGrants.push({
+            grantId: grant.id,
+            grantName: grant.name,
+            score,
+            summary:
+              cached.summary ??
+              "Full company-DNA assessment found a strong match between your profile and this grant.",
+            startApplicationToken,
+            missingDocuments: missing.length > 0 ? missing.map((r) => r.label) : undefined,
+            improvementPlan: cached.improvement_plan ?? undefined,
+            missingCriteria: cached.missing_criteria ?? undefined,
+          });
+        }
 
         for (const grantId of layer3Ids) {
           const grant = locationFiltered.find((g) => g.id === grantId);
@@ -374,7 +429,7 @@ export async function runEligibilityRefreshJob(options?: {
                 .single();
 
               const notifiedAt = (existing as { notified_at: string | null } | null)?.notified_at;
-              const includeInDigest = !notifiedAt || new Date(notifiedAt) < cooldown;
+              const includeInDigest = isOutsideNotificationCooldown(notifiedAt, cooldown);
               if (includeInDigest) {
                 const startApplicationToken = createStartApplicationToken({
                   grantId: grant.id,
