@@ -3,6 +3,7 @@ import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getApplicantTypeGate } from "@/lib/eligibility-hard-gates";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
+import { getGrantFreshnessStatus } from "@/lib/grant-freshness";
 
 /**
  * GET /api/grants/eligibility-scores
@@ -29,11 +30,11 @@ export async function GET(): Promise<NextResponse> {
     const { data: grants = [] } = grantIds.length > 0
       ? await supabase
           .from("Grant")
-          .select("id, eligibility, applicantTypes")
+          .select("id, deadline, url_status, eligibility, description, objectives, applicantTypes")
           .in("id", grantIds)
       : { data: [] };
     const grantsById = new Map(
-      (grants as { id: string; eligibility?: string | null; applicantTypes?: string[] | null }[]).map((grant) => [grant.id, grant])
+      (grants as { id: string; deadline?: string | null; url_status?: string | null; eligibility?: string | null; description?: string | null; objectives?: string | null; applicantTypes?: string[] | null }[]).map((grant) => [grant.id, grant])
     );
     const profileBusinessType = String(
       (profile as Record<string, unknown>).businessType ?? (profile as Record<string, unknown>).business_type ?? ""
@@ -45,7 +46,9 @@ export async function GET(): Promise<NextResponse> {
     > = {};
     for (const row of rows as { grant_id: string; score: number; summary: string | null; reasons: unknown; alignment: unknown; improvement_plan: unknown; met_criteria: unknown; missing_criteria: unknown; scoring_source?: string | null }[]) {
       if (appliedGrantIds.has(row.grant_id)) continue;
-      const applicantGate = getApplicantTypeGate(profileBusinessType, grantsById.get(row.grant_id) ?? {});
+      const grant = grantsById.get(row.grant_id);
+      if (grant && !getGrantFreshnessStatus(grant).usable) continue;
+      const applicantGate = getApplicantTypeGate(profileBusinessType, grant ?? {});
       const source = row.scoring_source ?? (row.summary?.startsWith("Preliminary fit") ? "heuristic" : "openai");
       const sourceCappedScore = source === "heuristic" ? Math.min(row.score, 69) : row.score;
       const score = applicantGate && !applicantGate.profileMatches ? Math.min(sourceCappedScore, 25) : sourceCappedScore;

@@ -1,5 +1,6 @@
 import { getApplicantTypeGate } from "@/lib/eligibility-hard-gates";
 import { evaluateEligibilityPreScreen } from "@/lib/eligibility-prescreen";
+import { getGrantFreshnessStatus } from "@/lib/grant-freshness";
 import type { EligibilityResult } from "@/lib/claude";
 
 interface GuardProfile {
@@ -13,6 +14,10 @@ interface GuardProfile {
 }
 
 interface GuardGrant {
+  name?: string | null;
+  deadline?: string | Date | null;
+  url_status?: string | null;
+  urlStatus?: string | null;
   eligibility?: string | null;
   description?: string | null;
   objectives?: string | null;
@@ -115,6 +120,12 @@ export function applyEligibilityScoreGuards(
   result: EligibilityResult
 ): EligibilityResult {
   let guarded = result;
+  const freshness = getGrantFreshnessStatus(grant);
+  if (!freshness.usable) {
+    return capResult(guarded, 0, freshness.message ?? "Opportunity appears closed or temporally stale", [
+      "Do not apply through this listing unless the funder confirms the programme is still open.",
+    ]);
+  }
   const applicantGate = getApplicantTypeGate(profile.businessType, grant);
   if (applicantGate && !applicantGate.profileMatches) {
     guarded = capResult(guarded, 25, `Applicant type mismatch: ${applicantGate.reason}`);

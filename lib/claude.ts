@@ -121,6 +121,7 @@ Return ONLY valid JSON. No markdown. Use this exact shape:
 Rules:
 - score and confidence should match (0-100). likely_eligible => score >= 75, review => 40-74, unlikely => < 40.
 - Treat legal applicant type as a hard gate. If the grant is only for charities, non-profits, CICs, or social enterprises and the business type does not match, decision must be unlikely and score must be below 30 even if sector, region, and purpose align.
+- Treat expired opportunities and past project windows as hard gates. If the grant text says applications have closed, the deadline has passed, or projects must start/end in a period that is already over, decision must be unlikely and score must be below 10.
 - Treat explicit measurable criteria as hard qualification gates. If the grant requires minimum revenue, minimum employee count, maximum employee count, or minimum trading/company age and the profile does not meet it, decision must be unlikely and score must be below 40.
 - If revenue, employee count, or year established is missing and the grant depends on it, do not recommend as high fit; mark it review and call out the missing profile data.
 - Treat prior funding outcome advisories as warning/context only. Do not lower or raise score, confidence, winProbability, or decision because of prior outcomes. If relevant, mention them only as checks before applying, and only when the current grant text explicitly supports that concern. Do not invent revenue, employee-count, age, or other criteria that are not stated in the current grant.

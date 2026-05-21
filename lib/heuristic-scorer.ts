@@ -6,6 +6,7 @@
 
 import { getApplicantTypeGate } from "@/lib/eligibility-hard-gates";
 import { evaluateEligibilityPreScreen } from "@/lib/eligibility-prescreen";
+import { getGrantFreshnessStatus } from "@/lib/grant-freshness";
 
 interface HeuristicProfile {
   location: string;
@@ -144,15 +145,6 @@ function fundingRangeOverlaps(profileMin: number, profileMax: number, grantAmoun
   return grantAmount >= profileMin * 0.5 && grantAmount <= effectiveMax * 3;
 }
 
-function deadlineIsValid(deadline: string | null | undefined): boolean {
-  if (!deadline) return true;
-  try {
-    return new Date(deadline) > new Date();
-  } catch {
-    return true;
-  }
-}
-
 export function scoreGrantHeuristic(
   profile: HeuristicProfile,
   grant: HeuristicGrant
@@ -161,8 +153,9 @@ export function scoreGrantHeuristic(
   const reasons: string[] = [];
   const grantText = [grant.eligibility, grant.description, grant.objectives].filter(Boolean).join(" ");
 
-  if (!deadlineIsValid(grant.deadline)) {
-    return { grantId: grant.id, score: 0, passed: false, reasons: ["Deadline passed"] };
+  const freshness = getGrantFreshnessStatus(grant);
+  if (!freshness.usable) {
+    return { grantId: grant.id, score: 0, passed: false, reasons: [freshness.message ?? "Opportunity appears closed"] };
   }
 
   const applicantGate = getApplicantTypeGate(profile.businessType, grant);

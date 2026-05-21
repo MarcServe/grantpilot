@@ -7,6 +7,7 @@ import { getApplicantTypeGate } from "@/lib/eligibility-hard-gates";
 import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
 import { checkUsageLimit, recordUsage } from "@/lib/plan-check";
 import { isFreeTrialActive, resolvePlanKey } from "@/lib/plan-features";
+import { getGrantFreshnessStatus } from "@/lib/grant-freshness";
 import {
   applyOutcomeScoreAdjustment,
   buildFundingOutcomeSignals,
@@ -33,6 +34,29 @@ function profileToMatching(profile: Record<string, unknown>) {
   };
 }
 
+function closedEligibilityPayload(message: string, scoringSource: "openai" | "heuristic" | "embedding" | "manual" = "manual") {
+  return {
+    decision: "unlikely" as const,
+    reason: message,
+    confidence: 0,
+    score: 0,
+    summary: message,
+    reasons: [message],
+    alignment: [],
+    improvementPlan: {
+      gaps: ["Opportunity appears closed or temporally stale"],
+      actions: ["Do not apply through this listing unless the funder confirms the programme is still open."],
+      timeline: "Before applying",
+    },
+    met: [],
+    missing: ["Opportunity appears closed or temporally stale"],
+    confidenceBand: getConfidenceBand(0),
+    winProbability: 0,
+    evidenceStrength: "weak" as const,
+    scoringSource,
+  };
+}
+
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -54,7 +78,7 @@ export async function GET(
 
     const { data: grant, error: grantError } = await supabase
       .from("Grant")
-      .select("id, name, funder, amount, eligibility, description, objectives, applicantTypes, sectors, regions")
+      .select("id, name, funder, amount, deadline, url_status, eligibility, description, objectives, applicantTypes, sectors, regions")
       .eq("id", grantId)
       .single();
 
@@ -67,6 +91,8 @@ export async function GET(
       name: string;
       funder: string;
       amount: number | null;
+      deadline?: string | null;
+      url_status?: string | null;
       eligibility: string;
       description?: string;
       objectives?: string;
@@ -74,6 +100,10 @@ export async function GET(
       sectors: string[];
       regions: string[];
     };
+    const freshness = getGrantFreshnessStatus(g);
+    if (!freshness.usable) {
+      return NextResponse.json(closedEligibilityPayload(freshness.message ?? "This opportunity appears closed or stale."));
+    }
 
     const { data: outcomeRows } = await supabase
       .from("ApplicationOutcome")

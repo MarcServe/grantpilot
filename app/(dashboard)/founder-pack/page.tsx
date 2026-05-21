@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { sanitiseFounderPackContent, type FounderPackContent, type FounderPackDocumentType } from "@/lib/founder-pack";
 import { FounderPackClient } from "@/components/founder-pack/founder-pack-client";
 import { planAllowsForOrg } from "@/lib/plan-features";
+import { getGrantFreshnessStatus } from "@/lib/grant-freshness";
 
 export const dynamic = "force-dynamic";
 
@@ -123,7 +124,7 @@ export default async function FounderPackPage({
       .limit(100),
     supabase
       .from("EligibilityAssessment")
-      .select("grant_id, profile_id, score, decision, summary, Grant(id, name, funder, createdAt)")
+      .select("grant_id, profile_id, score, decision, summary, Grant(id, name, funder, createdAt, deadline, url_status, eligibility, description, objectives)")
       .eq("organisation_id", orgId)
       .order("score", { ascending: false })
       .limit(500),
@@ -167,18 +168,23 @@ export default async function FounderPackPage({
     financialProjections: profile.financialProjections ?? null,
   }));
 
-  let eligibleGrantRows = mapEligibleAssessmentRows((eligibilityData ?? []) as Record<string, unknown>[]).filter(
+  const freshEligibilityRows = ((eligibilityData ?? []) as Record<string, unknown>[]).filter((row) => {
+    const gRaw = row.Grant ?? row.grant;
+    const g = Array.isArray(gRaw) ? gRaw[0] : gRaw;
+    return !g || typeof g !== "object" || getGrantFreshnessStatus(g as Record<string, unknown>).usable;
+  });
+  let eligibleGrantRows = mapEligibleAssessmentRows(freshEligibilityRows).filter(
     (row) => row.grantId && row.profileId && !appliedGrantByProfile.has(`${row.profileId}:${row.grantId}`)
   );
 
   if (initialGrantId && !eligibleGrantRows.some((row) => row.grantId === initialGrantId)) {
     const { data: grant } = await supabase
       .from("Grant")
-      .select("id, name, funder, createdAt")
+      .select("id, name, funder, createdAt, deadline, url_status, eligibility, description, objectives")
       .eq("id", initialGrantId)
       .maybeSingle();
     const profileId = profileRows[0]?.id;
-    if (grant && profileId) {
+    if (grant && profileId && getGrantFreshnessStatus(grant).usable) {
       eligibleGrantRows = [
         {
           grantId: String(grant.id),

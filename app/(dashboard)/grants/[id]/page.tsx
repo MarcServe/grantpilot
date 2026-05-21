@@ -29,6 +29,7 @@ import { markGrantUserState } from "@/lib/grant-user-state";
 import { GrantStateActions } from "@/components/grants/grant-state-actions";
 import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
 import { applyOutcomeScoreAdjustment, deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
+import { getGrantFreshnessStatus, type GrantFreshnessStatus } from "@/lib/grant-freshness";
 
 function profileForEligibilityGuards(profile: Record<string, unknown>) {
   return {
@@ -59,6 +60,30 @@ function resolveBackLink(searchParams?: Record<string, string | string[] | undef
   return BACK_LINKS.grants;
 }
 
+function closedEligibilityResult(freshness: GrantFreshnessStatus) {
+  const message = freshness.message ?? "This opportunity appears closed or stale.";
+  return {
+    decision: "unlikely" as const,
+    reason: message,
+    confidence: 0,
+    score: 0,
+    summary: message,
+    reasons: [message],
+    alignment: [],
+    improvementPlan: {
+      gaps: ["Opportunity appears closed or temporally stale"],
+      actions: ["Do not apply through this listing unless the funder confirms the programme is still open."],
+      timeline: "Before applying",
+    },
+    met: [],
+    missing: ["Opportunity appears closed or temporally stale"],
+    confidenceBand: "low" as const,
+    winProbability: 0,
+    evidenceStrength: "weak" as const,
+    scoringSource: "manual" as const,
+  };
+}
+
 export default async function GrantDetailPage({
   params,
   searchParams,
@@ -80,6 +105,7 @@ export default async function GrantDetailPage({
   if (grantError || !grant) notFound();
 
   const { org, orgId } = await getActiveOrg();
+  const freshness = getGrantFreshnessStatus(grant);
   const profile = org.profiles?.[0];
   const grantAutoImproveEnabled = planAllowsForOrg(
     org as { plan?: string; createdAt?: string | Date | null },
@@ -194,6 +220,12 @@ export default async function GrantDetailPage({
   }
 
   const urgency = computeUrgency(grant.deadline ?? null);
+  if (!freshness.usable) {
+    eligibilityScore = 0;
+    if (hasProfile && profileId) {
+      initialEligibilityResult = closedEligibilityResult(freshness);
+    }
+  }
 
   let missingDocLabels: string[] = [];
   if (profileId) {
@@ -219,11 +251,13 @@ export default async function GrantDetailPage({
 
   return (
     <div className="mx-auto max-w-4xl min-w-0 overflow-hidden px-4 py-6 sm:p-6">
-      <EnsureFormLinkScout
-        grantId={grant.id}
-        applicationUrl={grant.applicationUrl ?? ""}
-        eligibilityScore={eligibilityScore}
-      />
+      {freshness.usable && (
+        <EnsureFormLinkScout
+          grantId={grant.id}
+          applicationUrl={grant.applicationUrl ?? ""}
+          eligibilityScore={eligibilityScore}
+        />
+      )}
       <Link
         href={backLink.href}
         className="mb-6 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
@@ -232,9 +266,8 @@ export default async function GrantDetailPage({
         {backLink.label}
       </Link>
 
-      {((grant as { url_status?: string }).url_status === "dead" ||
-        (grant as { url_status?: string }).url_status === "expired") && (() => {
-        const isDead = (grant as { url_status?: string }).url_status === "dead";
+      {!freshness.usable && (() => {
+        const isDead = freshness.reason === "url_dead";
         const applyByLinkHref = `/grants/apply-by-link?name=${encodeURIComponent(grant.name ?? "")}&funder=${encodeURIComponent(grant.funder ?? "")}&fixGrantId=${grant.id}`;
         return (
           <div className={`mb-6 flex gap-3 rounded-lg border p-4 ${
@@ -251,14 +284,14 @@ export default async function GrantDetailPage({
               }`}>
                 {isDead
                   ? "This grant link appears to be broken"
-                  : "This grant programme appears to be closed"}
+                  : "This grant programme appears to be closed or stale"}
               </p>
               <p className={`mt-1 text-sm ${
                 isDead ? "text-red-700 dark:text-red-300" : "text-amber-700 dark:text-amber-300"
               }`}>
                 {isDead
                   ? "Our automated check found the application link is broken or returns an error. The grant may have been removed or the URL may have changed."
-                  : "Our automated check detected that this programme may no longer be accepting applications."}
+                  : freshness.message ?? "Our automated check detected that this programme may no longer be accepting applications."}
               </p>
               <Link
                 href={applyByLinkHref}
@@ -424,7 +457,7 @@ export default async function GrantDetailPage({
                   View Application
                 </Button>
               </Link>
-            ) : hasProfile && profileId ? (
+            ) : hasProfile && profileId && freshness.usable ? (
               <ApplyButton
                 key={grant.id}
                 grantId={grant.id}
@@ -432,6 +465,10 @@ export default async function GrantDetailPage({
                 applicationUrl={grant.applicationUrl ?? ""}
                 eligibilityScore={eligibilityScore ?? undefined}
               />
+            ) : hasProfile && profileId && !freshness.usable ? (
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                Application prep is disabled because this opportunity appears closed or stale.
+              </div>
             ) : (
               <div className="text-sm text-muted-foreground">
                 Complete at least 50% of your business profile to apply.
