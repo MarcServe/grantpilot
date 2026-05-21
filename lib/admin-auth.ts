@@ -1,6 +1,6 @@
 import { getCurrentUser } from "./auth";
 
-const ADMIN_EMAIL = "michaelorji5111@gmail.com";
+export const ADMIN_EMAIL = "michaelorji5111@gmail.com";
 
 /**
  * True if the current user can access /admin. Uses ADMIN_EMAIL and optionally ADMIN_EMAILS (comma-separated).
