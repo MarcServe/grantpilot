@@ -9,6 +9,8 @@ import { organisationAllowsCapability } from "@/lib/plan-check";
 const NOTIFY_COOLDOWN_HOURS = 20;
 const DEFAULT_DIGEST_SCORE_THRESHOLD = 85;
 const MIN_NOTIFICATION_SCORE_FLOOR = 75;
+const GRANT_COUNT_BATCH_SIZE = 1000;
+const MAX_GRANTS_TO_COUNT = 10000;
 const DAILY_ELIGIBILITY_NOTIFICATION_TYPES: NotificationType[] = [
   "daily_grant_update",
   "grant_scan_digest",
@@ -71,6 +73,25 @@ function notificationMinScore(preferenceScore: number | undefined): number {
   return Math.max(preferenceScore ?? DEFAULT_DIGEST_SCORE_THRESHOLD, MIN_NOTIFICATION_SCORE_FLOOR);
 }
 
+async function countUsableGrants(supabase: ReturnType<typeof getSupabaseAdmin>): Promise<number> {
+  let count = 0;
+
+  for (let offset = 0; offset < MAX_GRANTS_TO_COUNT; offset += GRANT_COUNT_BATCH_SIZE) {
+    const { data, error } = await supabase
+      .from("Grant")
+      .select("id, url_status, deadline, eligibility, description, objectives")
+      .order("createdAt", { ascending: false })
+      .range(offset, offset + GRANT_COUNT_BATCH_SIZE - 1);
+
+    if (error) throw error;
+    const batch = data ?? [];
+    count += batch.filter(isGrantLinkUsable).length;
+    if (batch.length < GRANT_COUNT_BATCH_SIZE) break;
+  }
+
+  return count;
+}
+
 async function countStrongEligibleForOrg(
   supabase: ReturnType<typeof getSupabaseAdmin>,
   orgId: string,
@@ -103,10 +124,7 @@ export async function runDailyNotificationSafeguardJob(options?: {
   const recentWindow = recentNotificationWindow();
   const respectLocalTime = options?.respectLocalTime !== false;
 
-  const { data: grants = [] } = await supabase
-    .from("Grant")
-    .select("id, url_status, deadline, applicationUrl");
-  const checkedGrantsCount = (grants ?? []).filter(isGrantLinkUsable).length;
+  const checkedGrantsCount = await countUsableGrants(supabase);
 
   const { data: profiles = [] } = await supabase
     .from("BusinessProfile")

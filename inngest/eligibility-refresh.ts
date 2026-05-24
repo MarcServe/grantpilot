@@ -35,6 +35,8 @@ import {
 
 const LAYER2_TOP_N = 15;
 const LAYER3_TOP_N = 10;
+const GRANT_FETCH_BATCH_SIZE = 1000;
+const MAX_GRANTS_PER_REFRESH = 10000;
 const DIGEST_SCORE_THRESHOLD = 85;
 const MIN_NOTIFICATION_SCORE_FLOOR = 75;
 const NOTIFY_COOLDOWN_HOURS = 20;
@@ -108,6 +110,62 @@ type CachedEligibilityRow = {
   scoring_source: string | null;
 };
 
+type GrantRow = {
+  id: string;
+  name: string;
+  funder: string;
+  amount?: number;
+  deadline?: string;
+  eligibility: string;
+  description?: string;
+  objectives?: string;
+  applicantTypes?: string[];
+  sectors: string[];
+  regions: string[];
+  funderLocations?: string[];
+  required_attachments?: unknown;
+  url_status?: string | null;
+  createdAt?: string | null;
+};
+
+function grantCreatedTime(grant: GrantRow | undefined): number {
+  if (!grant?.createdAt) return 0;
+  const time = new Date(grant.createdAt).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function uniqueGrantIds(ids: string[]): string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const id of ids) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    unique.push(id);
+  }
+  return unique;
+}
+
+async function fetchCurrentGrants(
+  supabase: ReturnType<typeof getSupabaseAdmin>
+): Promise<GrantRow[]> {
+  const rows: GrantRow[] = [];
+
+  for (let offset = 0; offset < MAX_GRANTS_PER_REFRESH; offset += GRANT_FETCH_BATCH_SIZE) {
+    const { data, error } = await supabase
+      .from("Grant")
+      .select("id, name, funder, amount, deadline, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, required_attachments, url_status, createdAt")
+      .order("createdAt", { ascending: false })
+      .range(offset, offset + GRANT_FETCH_BATCH_SIZE - 1);
+
+    if (error) throw error;
+    const batch = (data ?? []) as GrantRow[];
+    rows.push(...batch);
+    if (batch.length < GRANT_FETCH_BATCH_SIZE) break;
+  }
+
+  return rows.filter(isGrantLinkUsable);
+}
+
 async function countStrongEligibleAssessments(
   supabase: ReturnType<typeof getSupabaseAdmin>,
   orgId: string,
@@ -146,8 +204,7 @@ export async function runEligibilityRefreshJob(options?: {
     const orgIdsFilter = options?.orgIdsFilter;
     const bypassCache = options?.bypassCache === true;
     const supabase = getSupabaseAdmin();
-    const { data: grantsData } = await supabase.from("Grant").select("id, name, funder, amount, deadline, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, required_attachments, url_status");
-    const allGrants = (grantsData ?? []).filter(isGrantLinkUsable);
+    const allGrants = await fetchCurrentGrants(supabase);
     const diagnostics = {
       totalGrants: allGrants.length,
       orgsWithProfile: 0,
@@ -192,7 +249,6 @@ export async function runEligibilityRefreshJob(options?: {
 
     let notifiedCount = 0;
 
-    type GrantRow = { id: string; name: string; funder: string; amount?: number; deadline?: string; eligibility: string; description?: string; objectives?: string; applicantTypes?: string[]; sectors: string[]; regions: string[]; funderLocations?: string[]; required_attachments?: unknown };
     const grantsList = allGrants as GrantRow[];
 
     const cacheThreshold = new Date();
@@ -344,18 +400,31 @@ export async function runEligibilityRefreshJob(options?: {
         if (uncachedIds.length <= LAYER3_TOP_N) {
           layer2Candidates = uncachedIds;
         } else {
+          const grantsById = new Map(locationFiltered.map((grant) => [grant.id, grant]));
+          const newestHighHeuristicIds = heuristicResults
+            .filter((result) => uncachedIds.includes(result.grantId))
+            .sort((a, b) => {
+              if (b.score !== a.score) return b.score - a.score;
+              return grantCreatedTime(grantsById.get(b.grantId)) - grantCreatedTime(grantsById.get(a.grantId));
+            })
+            .map((result) => result.grantId);
           try {
             await generateAndStoreProfileEmbedding(profileId);
             const embeddingRanked = await rankGrantsByEmbedding(profileId, uncachedIds, LAYER2_TOP_N);
-            layer2Candidates = embeddingRanked.map((r) => r.grantId);
+            layer2Candidates = uniqueGrantIds([
+              ...embeddingRanked.map((r) => r.grantId),
+              ...newestHighHeuristicIds,
+            ]).slice(0, LAYER2_TOP_N);
             diagnostics.layer2Ranked += embeddingRanked.length;
             if (embeddingRanked.length > 0) {
               const topSims = embeddingRanked.slice(0, 5).map((r) => `${r.grantId.slice(0, 12)}:${r.similarity.toFixed(3)}`);
               console.info(`[eligibility-refresh]   LAYER 2 (embeddings): ${uncachedIds.length} → ${embeddingRanked.length}, top: ${topSims.join(", ")}`);
+            } else {
+              console.info(`[eligibility-refresh]   LAYER 2 (embeddings): no grant embeddings available; using newest/high-heuristic fallback`);
             }
           } catch (embErr) {
             console.warn(`[eligibility-refresh]   LAYER 2 failed (falling back to heuristic order): ${embErr instanceof Error ? embErr.message : embErr}`);
-            layer2Candidates = uncachedIds.slice(0, LAYER2_TOP_N);
+            layer2Candidates = newestHighHeuristicIds.slice(0, LAYER2_TOP_N);
             diagnostics.layer2Ranked += layer2Candidates.length;
           }
         }
