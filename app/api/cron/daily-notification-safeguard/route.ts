@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { runDailyNotificationSafeguardJob } from "@/inngest/daily-notification-safeguard";
+import { runWithCronLog } from "@/lib/cron-run-log";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -17,7 +18,14 @@ export async function GET(req: Request) {
   }
 
   try {
-    const result = await runDailyNotificationSafeguardJob({ respectLocalTime: true });
+    const result = await runWithCronLog(
+      {
+        jobName: "Daily Notification Safeguard",
+        route: "/api/cron/daily-notification-safeguard",
+        trigger: "vercel",
+      },
+      () => runDailyNotificationSafeguardJob({ respectLocalTime: true })
+    );
     return NextResponse.json({ ok: true, result });
   } catch (error) {
     console.error("[cron/daily-notification-safeguard]", error);

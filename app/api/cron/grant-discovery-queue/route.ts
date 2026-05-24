@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { runDiscoveryEnqueue } from "@/lib/grant-discovery-enqueue";
 import { processGrantDiscoveryQueue } from "@/lib/grant-discovery-processor";
+import { runWithCronLog } from "@/lib/cron-run-log";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -22,8 +23,14 @@ export async function GET(req: Request) {
   }
 
   try {
-    const enqueue = await runDiscoveryEnqueue();
-    const process = await processGrantDiscoveryQueue(processLimit());
+    const { enqueue, process } = await runWithCronLog(
+      { jobName: "Grant Discovery Queue", route: "/api/cron/grant-discovery-queue", trigger: "vercel" },
+      async () => {
+        const enqueue = await runDiscoveryEnqueue();
+        const process = await processGrantDiscoveryQueue(processLimit());
+        return { enqueue, process };
+      }
+    );
     return NextResponse.json({ ok: true, enqueue, process });
   } catch (error) {
     console.error("[cron/grant-discovery-queue]", error);

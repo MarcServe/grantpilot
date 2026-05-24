@@ -6,6 +6,7 @@ import { isNineAmLocal } from "@/lib/timezone";
 import { isGrantLinkUsable } from "@/lib/grant-freshness";
 import { isOpenAIChecked } from "@/lib/grant-source-policy";
 import { getSuppressedGrantIds } from "@/lib/grant-user-state";
+import { runWithCronLog } from "@/lib/cron-run-log";
 
 const DEFAULT_DEADLINE_REMINDER_SCORE = 85;
 const MIN_DEADLINE_REMINDER_SCORE_FLOOR = 75;
@@ -17,7 +18,10 @@ function reminderMinScore(preferenceScore: number | undefined): number {
 export const deadlineReminder = inngest.createFunction(
   { id: "deadline-reminder", name: "Grant Deadline Reminder" },
   { cron: "0 * * * *" }, // Every hour; send only when it's 9am in the org's timezone
-  async () => runDeadlineReminderJob()
+  async () => runWithCronLog(
+    { jobName: "Grant Deadline Reminder", route: "inngest/deadline-reminder", trigger: "inngest" },
+    () => runDeadlineReminderJob()
+  )
 );
 
 export async function runDeadlineReminderJob(): Promise<{

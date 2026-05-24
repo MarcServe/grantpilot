@@ -14,6 +14,7 @@ import {
   Mail,
   MessageCircle,
   SearchCheck,
+  ServerCrash,
   ShieldCheck,
   Users,
 } from "lucide-react";
@@ -77,6 +78,17 @@ type QueueStatus = {
   failed: number;
 };
 
+type CronRunLogRow = {
+  job_name: string | null;
+  route: string | null;
+  trigger: string | null;
+  status: string | null;
+  error: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  duration_ms: number | null;
+};
+
 const NOTIFICATION_LABELS: Record<OpsNotificationType, string> = {
   grant_scan_digest: "Paid eligibility digest",
   grant_match_high: "WhatsApp high-match alert",
@@ -109,6 +121,15 @@ function formatRelative(value?: string | null): string {
   const hours = Math.round(minutes / 60);
   if (hours < 48) return `${hours}h ago`;
   return `${Math.round(hours / 24)}d ago`;
+}
+
+function formatDurationMs(value?: number | null): string {
+  if (!value || value < 0) return "0ms";
+  if (value < 1000) return `${value}ms`;
+  const seconds = value / 1000;
+  if (seconds < 60) return `${seconds.toFixed(seconds >= 10 ? 0 : 1)}s`;
+  const minutes = seconds / 60;
+  return `${minutes.toFixed(minutes >= 10 ? 0 : 1)}m`;
 }
 
 function isSince(value: string | null | undefined, since: Date): boolean {
@@ -224,6 +245,7 @@ export default async function AdminPage() {
     linksFoundResult,
     linksManualReviewResult,
     linksFailedResult,
+    cronRunsResult,
   ] = await Promise.all([
     supabase.from("Grant").select("id", { count: "exact", head: true }).gte("createdAt", last24h.toISOString()),
     supabase.from("Grant").select("id", { count: "exact", head: true }).gte("createdAt", last7d.toISOString()),
@@ -265,6 +287,12 @@ export default async function AdminPage() {
     supabase.from("grant_links").select("id", { count: "exact", head: true }).eq("status", "found"),
     supabase.from("grant_links").select("id", { count: "exact", head: true }).eq("status", "manual_review_needed"),
     supabase.from("grant_links").select("id", { count: "exact", head: true }).eq("status", "failed"),
+    supabase
+      .from("CronRunLog")
+      .select("job_name, route, trigger, status, error, started_at, finished_at, duration_ms")
+      .gte("started_at", last7d.toISOString())
+      .order("started_at", { ascending: false })
+      .limit(200),
   ]);
 
   const notificationRows = (notificationResult.data ?? []) as NotificationLogRow[];
@@ -291,6 +319,14 @@ export default async function AdminPage() {
   const latestGrants = (latestGrantsResult.data ?? []) as GrantRow[];
   const upcomingDeadlines = (upcomingDeadlineResult.data ?? []) as GrantRow[];
   const grantSources = (grantSourcesResult.data ?? []) as GrantSourceRow[];
+  if (cronRunsResult.error) {
+    console.warn("[admin] CronRunLog query failed:", cronRunsResult.error.message);
+  }
+  const cronRuns = (cronRunsResult.data ?? []) as CronRunLogRow[];
+  const latestCronRun = cronRuns[0] ?? null;
+  const failedCronRunsLast24h = cronRuns.filter((row) => row.status === "failed" && isSince(row.started_at, last24h));
+  const failedCronRunsLast7d = cronRuns.filter((row) => row.status === "failed" && isSince(row.started_at, last7d));
+  const recentFailedCronRuns = failedCronRunsLast7d.slice(0, 6);
   const dueSources = grantSources.filter((source) => isSourceDue(source)).length;
   const enabledSources = grantSources.filter((source) => source.enabled).length;
   const latestSourceCrawl = grantSources
@@ -390,7 +426,7 @@ export default async function AdminPage() {
             </p>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
@@ -443,17 +479,32 @@ export default async function AdminPage() {
                 <p className="mt-1 text-sm text-muted-foreground">{assessmentLast7dResult.count ?? 0} score rows updated in 7 days</p>
               </CardContent>
             </Card>
+            <Card className={failedCronRunsLast24h.length > 0 ? "border-red-200 bg-red-50/60" : ""}>
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                  <ServerCrash className={`h-4 w-4 ${failedCronRunsLast24h.length > 0 ? "text-red-600" : "text-blue-600"}`} />
+                  Cron failures
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold">{failedCronRunsLast24h.length}</div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {failedCronRunsLast7d.length} in 7 days
+                  {latestCronRun?.started_at && <> · latest {formatRelative(latestCronRun.started_at)}</>}
+                </p>
+              </CardContent>
+            </Card>
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-3">
-            <Card>
+          <div className="grid items-start gap-4 xl:grid-cols-2 2xl:grid-cols-4">
+            <Card className="min-w-0 overflow-hidden">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
                   <Mail className="h-4 w-4 text-blue-600" />
                   Morning notification trace
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3 text-sm">
+              <CardContent className="max-h-[28rem] space-y-3 overflow-y-auto pr-2 text-sm">
                 <div className="grid grid-cols-2 gap-3">
                   <div className="rounded-md border bg-muted/30 p-3">
                     <div className="text-xs text-muted-foreground">Eligibility emails</div>
@@ -495,14 +546,14 @@ export default async function AdminPage() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="min-w-0 overflow-hidden">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
                   <CalendarClock className="h-4 w-4 text-blue-600" />
                   Deadlines
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3 text-sm">
+              <CardContent className="max-h-[28rem] space-y-3 overflow-y-auto pr-2 text-sm">
                 <div>
                   <div className="text-3xl font-bold">{upcomingDeadlineResult.count ?? 0}</div>
                   <p className="text-muted-foreground">grant deadlines in the next 7 days</p>
@@ -524,14 +575,14 @@ export default async function AdminPage() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="min-w-0 overflow-hidden">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
                   <SearchCheck className="h-4 w-4 text-blue-600" />
                   Crawler health
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3 text-sm">
+              <CardContent className="max-h-[28rem] space-y-3 overflow-y-auto pr-2 text-sm">
                 <div className="grid grid-cols-2 gap-3">
                   <div className="rounded-md border bg-muted/30 p-3">
                     <div className="text-xs text-muted-foreground">Enabled sources</div>
@@ -558,6 +609,72 @@ export default async function AdminPage() {
                 </p>
               </CardContent>
             </Card>
+
+            <Card className="min-w-0 overflow-hidden">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <ServerCrash className={`h-4 w-4 ${failedCronRunsLast24h.length > 0 ? "text-red-600" : "text-blue-600"}`} />
+                  Cron runs
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="max-h-[28rem] space-y-3 overflow-y-auto pr-2 text-sm">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-md border bg-muted/30 p-3">
+                    <div className="text-xs text-muted-foreground">Failed 24h</div>
+                    <div className="text-2xl font-semibold">{failedCronRunsLast24h.length}</div>
+                  </div>
+                  <div className="rounded-md border bg-muted/30 p-3">
+                    <div className="text-xs text-muted-foreground">Failed 7d</div>
+                    <div className="text-2xl font-semibold">{failedCronRunsLast7d.length}</div>
+                  </div>
+                </div>
+                {latestCronRun ? (
+                  <p className="text-muted-foreground">
+                    Latest run: {latestCronRun.job_name ?? latestCronRun.route ?? "Cron"} · {latestCronRun.status ?? "unknown"} · {formatRelative(latestCronRun.started_at)}
+                  </p>
+                ) : (
+                  <p className="text-muted-foreground">
+                    Cron run logging starts after this deployment and the database migration is applied.
+                  </p>
+                )}
+                {recentFailedCronRuns.length > 0 ? (
+                  <div className="rounded-md border border-red-200 bg-red-50 p-3 text-red-900">
+                    <div className="mb-2 flex items-center gap-2 font-medium">
+                      <AlertTriangle className="h-4 w-4" />
+                      Recent failed cron runs
+                    </div>
+                    <ul className="space-y-2">
+                      {recentFailedCronRuns.map((run, index) => (
+                        <li key={`${run.route}-${run.started_at}-${index}`} className="text-xs">
+                          <div className="font-medium">{run.job_name ?? run.route ?? "Cron job"}</div>
+                          <div>{formatDateTime(run.started_at)} · {formatDurationMs(run.duration_ms)}</div>
+                          {run.error && <div className="mt-1 break-words">{run.error}</div>}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No failed cron runs in the last 7 days.</p>
+                )}
+                {cronRuns.length > 0 && (
+                  <div className="space-y-2">
+                    {cronRuns.slice(0, 8).map((run, index) => (
+                      <div key={`cron-run-${run.route}-${run.started_at}-${index}`} className="rounded-md border p-3 text-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="min-w-0 truncate font-medium">{run.job_name ?? run.route ?? "Cron job"}</span>
+                          <span className={run.status === "failed" ? "font-medium text-red-600" : "text-emerald-700"}>
+                            {run.status ?? "unknown"}
+                          </span>
+                        </div>
+                        <div className="mt-1 text-muted-foreground">
+                          {run.trigger ?? "cron"} · {formatRelative(run.started_at)} · {formatDurationMs(run.duration_ms)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </div>
 
           <Card>
@@ -565,7 +682,7 @@ export default async function AdminPage() {
               <CardTitle className="text-base">Notification breakdown</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto">
+              <div className="max-h-[28rem] overflow-auto">
                 <table className="w-full min-w-[760px] text-left text-sm">
                   <thead className="border-b text-xs uppercase tracking-wide text-muted-foreground">
                     <tr>
@@ -605,20 +722,22 @@ export default async function AdminPage() {
               <CardTitle className="text-base">Latest grants added</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-                {latestGrants.length > 0 ? (
-                  latestGrants.map((grant) => (
-                    <div key={grant.id} className="rounded-md border p-3 text-sm">
-                      <div className="line-clamp-2 font-medium">{grant.name ?? "Untitled grant"}</div>
-                      <div className="mt-1 text-xs text-muted-foreground">{grant.funder ?? "Unknown funder"}</div>
-                      <div className="mt-2 text-xs text-muted-foreground">
-                        {grant.source ?? "database"} - {formatRelative(grant.createdAt)}
+              <div className="max-h-[24rem] overflow-y-auto pr-2">
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                  {latestGrants.length > 0 ? (
+                    latestGrants.map((grant) => (
+                      <div key={grant.id} className="rounded-md border p-3 text-sm">
+                        <div className="line-clamp-2 font-medium">{grant.name ?? "Untitled grant"}</div>
+                        <div className="mt-1 text-xs text-muted-foreground">{grant.funder ?? "Unknown funder"}</div>
+                        <div className="mt-2 text-xs text-muted-foreground">
+                          {grant.source ?? "database"} - {formatRelative(grant.createdAt)}
+                        </div>
                       </div>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-sm text-muted-foreground">No grants found in the database.</p>
-                )}
+                    ))
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No grants found in the database.</p>
+                  )}
+                </div>
               </div>
             </CardContent>
           </Card>

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { runDueGrantSources } from "@/lib/grant-sources";
+import { runWithCronLog } from "@/lib/cron-run-log";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -21,7 +22,10 @@ export async function GET(req: Request) {
   }
 
   try {
-    const result = await runDueGrantSources({ limit: cronLimit() });
+    const result = await runWithCronLog(
+      { jobName: "Grant Source Registry Crawler", route: "/api/cron/grant-source-crawler", trigger: "vercel" },
+      () => runDueGrantSources({ limit: cronLimit() })
+    );
     return NextResponse.json({ ok: true, result });
   } catch (error) {
     console.error("[cron/grant-source-crawler]", error);

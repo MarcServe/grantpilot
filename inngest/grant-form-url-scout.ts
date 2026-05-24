@@ -1,6 +1,7 @@
 import { inngest } from "./client";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { isLikelyProgrammeInfoUrl } from "@/lib/grant-url-validation";
+import { runWithCronLog } from "@/lib/cron-run-log";
 
 const MAX_GRANTS_PER_RUN = 50;
 const MAX_CANDIDATE_GRANTS = 500;
@@ -15,7 +16,7 @@ const RECENT_FOUND_DAYS = 14;
 export const grantFormUrlScout = inngest.createFunction(
   { id: "grant-form-url-scout", name: "Nightly Grant Form URL Scout (enqueue)" },
   { cron: "0 2 * * *" }, // 2:00 UTC — after sync, before users wake
-  async () => {
+  async () => runWithCronLog({ jobName: "Nightly Grant Form URL Scout", route: "inngest/grant-form-url-scout", trigger: "inngest" }, async () => {
     const supabase = getSupabaseAdmin();
 
     const { data: grantsData, error: grantsError } = await supabase
@@ -125,5 +126,5 @@ export const grantFormUrlScout = inngest.createFunction(
       skippedActive: activeIds.size,
       skippedRecent: recentlyFoundIds.size,
     };
-  }
+  })
 );

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { runDeadlineReminderJob } from "@/inngest/deadline-reminder";
+import { runWithCronLog } from "@/lib/cron-run-log";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -16,7 +17,10 @@ export async function GET(req: Request) {
   }
 
   try {
-    const result = await runDeadlineReminderJob();
+    const result = await runWithCronLog(
+      { jobName: "Grant Deadline Reminder", route: "/api/cron/deadline-reminder", trigger: "vercel" },
+      () => runDeadlineReminderJob()
+    );
     return NextResponse.json({ ok: true, result });
   } catch (error) {
     console.error("[cron/deadline-reminder]", error);

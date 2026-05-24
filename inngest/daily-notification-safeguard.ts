@@ -1,4 +1,5 @@
 import { inngest } from "./client";
+import { runWithCronLog } from "@/lib/cron-run-log";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { isNineAmLocal } from "@/lib/timezone";
 import { isGrantLinkUsable } from "@/lib/grant-freshness";
@@ -219,5 +220,8 @@ export async function runDailyNotificationSafeguardJob(options?: {
 export const dailyNotificationSafeguard = inngest.createFunction(
   { id: "daily-notification-safeguard", name: "Daily Notification Safeguard" },
   { cron: "15 * * * *" },
-  async () => runDailyNotificationSafeguardJob({ respectLocalTime: true })
+  async () => runWithCronLog(
+    { jobName: "Daily Notification Safeguard", route: "inngest/daily-notification-safeguard", trigger: "inngest" },
+    () => runDailyNotificationSafeguardJob({ respectLocalTime: true })
+  )
 );

@@ -14,6 +14,7 @@ import { isEligibilityNotificationTime } from "@/lib/timezone";
 import { isGrantLinkUsable } from "@/lib/grant-freshness";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { isOpenAIChecked } from "@/lib/grant-source-policy";
+import { runWithCronLog } from "@/lib/cron-run-log";
 import { getSuppressedGrantIds } from "@/lib/grant-user-state";
 import { checkUsageLimit, organisationAllowsCapability, recordUsage } from "@/lib/plan-check";
 import {
@@ -632,7 +633,7 @@ export async function runEligibilityRefreshJob(options?: {
 export const eligibilityRefresh = inngest.createFunction(
   { id: "eligibility-refresh", name: "Eligibility 8:30 AM local (hourly check)" },
   { cron: "30 * * * *" },
-  async () => {
+  async () => runWithCronLog({ jobName: "Eligibility 8:30 AM local", route: "inngest/eligibility-refresh", trigger: "inngest" }, async () => {
     const supabase = getSupabaseAdmin();
 
     const { data: orgsData } = await supabase
@@ -652,7 +653,7 @@ export const eligibilityRefresh = inngest.createFunction(
     const orgIds = new Set(eligible.map((o) => o.id));
     console.info(`[eligibility-refresh] ${eligible.length}/${allOrgs.length} orgs at 8:30 AM local — running pipeline`);
     return runEligibilityRefreshJob({ orgIdsFilter: orgIds });
-  }
+  })
 );
 
 export const eligibilityRefreshRequested = inngest.createFunction(
