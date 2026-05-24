@@ -3,15 +3,174 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { isAdmin } from "@/lib/admin-auth";
 import { getCurrentUser } from "@/lib/auth";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ShieldCheck } from "lucide-react";
+import {
+  AlertTriangle,
+  Bell,
+  CalendarClock,
+  Database,
+  Mail,
+  MessageCircle,
+  SearchCheck,
+  ShieldCheck,
+  Users,
+} from "lucide-react";
 import { GrantImportUploader } from "@/components/admin/grant-import-uploader";
 import { TestNotificationButton } from "@/components/admin/test-notification-button";
 import { ScoutModeSettings } from "@/components/admin/scout-mode-settings";
 import { GrantComposer } from "@/components/admin/grant-composer";
 
 export const dynamic = "force-dynamic";
+
+const OPS_NOTIFICATION_TYPES = [
+  "grant_scan_digest",
+  "grant_match_high",
+  "daily_grant_update",
+  "eligibility_upgrade_prompt",
+  "deadline_reminder",
+  "deadline_daily_update",
+] as const;
+
+type OpsNotificationType = (typeof OPS_NOTIFICATION_TYPES)[number];
+
+type NotificationLogRow = {
+  userId: string | null;
+  channel: string | null;
+  type: string | null;
+  status: string | null;
+  error: string | null;
+  createdAt: string | null;
+};
+
+type GrantRow = {
+  id: string;
+  name: string | null;
+  funder: string | null;
+  source: string | null;
+  deadline: string | null;
+  createdAt: string | null;
+};
+
+type OrganisationMemberRow = {
+  userId?: string | null;
+  user_id?: string | null;
+  organisationId?: string | null;
+  organisation_id?: string | null;
+};
+
+type GrantSourceRow = {
+  source_name: string | null;
+  type: string | null;
+  adapter: string | null;
+  enabled: boolean | null;
+  crawl_frequency: string | null;
+  last_crawled_at: string | null;
+};
+
+type QueueStatus = {
+  pending: number;
+  crawled?: number;
+  found?: number;
+  manualReview?: number;
+  failed: number;
+};
+
+const NOTIFICATION_LABELS: Record<OpsNotificationType, string> = {
+  grant_scan_digest: "Paid eligibility digest",
+  grant_match_high: "WhatsApp high-match alert",
+  daily_grant_update: "Daily scan email",
+  eligibility_upgrade_prompt: "Upgrade prompt email",
+  deadline_reminder: "Deadline reminder email",
+  deadline_daily_update: "Deadline scan email",
+};
+
+const LONDON_DATE = new Intl.DateTimeFormat("en-GB", {
+  dateStyle: "medium",
+  timeStyle: "short",
+  timeZone: "Europe/London",
+});
+
+function formatDateTime(value?: string | null): string {
+  if (!value) return "Not recorded";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not recorded";
+  return LONDON_DATE.format(date);
+}
+
+function formatRelative(value?: string | null): string {
+  if (!value) return "Never";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Never";
+  const minutes = Math.round((Date.now() - date.getTime()) / 60000);
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+function isSince(value: string | null | undefined, since: Date): boolean {
+  if (!value) return false;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) && time >= since.getTime();
+}
+
+function intervalToMs(value?: string | null): number {
+  const match = String(value ?? "24h").match(/^(\d+)\s*(h|hour|hours|m|min|minutes?)$/i);
+  if (!match) return 24 * 60 * 60 * 1000;
+  const amount = Number(match[1]);
+  const unit = match[2].toLowerCase();
+  if (unit.startsWith("m")) return amount * 60 * 1000;
+  return amount * 60 * 60 * 1000;
+}
+
+function isSourceDue(source: GrantSourceRow, now = Date.now()): boolean {
+  if (!source.enabled) return false;
+  if (!source.last_crawled_at) return true;
+  const last = new Date(source.last_crawled_at).getTime();
+  if (!Number.isFinite(last)) return true;
+  return last + intervalToMs(source.crawl_frequency) <= now;
+}
+
+function countNotifications(
+  rows: NotificationLogRow[],
+  options: { since?: Date; type?: string; channel?: string; status?: string }
+): number {
+  return rows.filter((row) => {
+    if (options.since && !isSince(row.createdAt, options.since)) return false;
+    if (options.type && row.type !== options.type) return false;
+    if (options.channel && row.channel !== options.channel) return false;
+    if (options.status && row.status !== options.status) return false;
+    return true;
+  }).length;
+}
+
+function distinctSentUsers(rows: NotificationLogRow[], since: Date): Set<string> {
+  return new Set(
+    rows
+      .filter((row) => row.status === "sent" && isSince(row.createdAt, since))
+      .map((row) => row.userId)
+      .filter((id): id is string => Boolean(id))
+  );
+}
+
+function distinctOrgCount(userIds: Set<string>, memberships: OrganisationMemberRow[]): number {
+  const orgIds = new Set<string>();
+  for (const member of memberships) {
+    const userId = member.userId ?? member.user_id;
+    const orgId = member.organisationId ?? member.organisation_id;
+    if (userId && orgId && userIds.has(userId)) {
+      orgIds.add(orgId);
+    }
+  }
+  return orgIds.size;
+}
+
+function getStatusCount(rows: NotificationLogRow[], type: string, status: string, since: Date): number {
+  return rows.filter((row) => row.type === type && row.status === status && isSince(row.createdAt, since)).length;
+}
 
 export default async function AdminPage() {
   const user = await getCurrentUser();
@@ -43,6 +202,148 @@ export default async function AdminPage() {
       </div>
     );
   }
+
+  const supabase = getSupabaseAdmin();
+  const now = new Date();
+  const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const last7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const next7d = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+  const [
+    grantsLast24hResult,
+    grantsLast7dResult,
+    latestGrantsResult,
+    notificationResult,
+    assessmentLast24hResult,
+    assessmentLast7dResult,
+    upcomingDeadlineResult,
+    grantSourcesResult,
+    discoveryPendingResult,
+    discoveryFailedResult,
+    linksPendingResult,
+    linksFoundResult,
+    linksManualReviewResult,
+    linksFailedResult,
+  ] = await Promise.all([
+    supabase.from("Grant").select("id", { count: "exact", head: true }).gte("createdAt", last24h.toISOString()),
+    supabase.from("Grant").select("id", { count: "exact", head: true }).gte("createdAt", last7d.toISOString()),
+    supabase
+      .from("Grant")
+      .select("id, name, funder, source, deadline, createdAt")
+      .order("createdAt", { ascending: false })
+      .limit(5),
+    supabase
+      .from("NotificationLog")
+      .select("userId, channel, type, status, error, createdAt")
+      .in("type", [...OPS_NOTIFICATION_TYPES])
+      .gte("createdAt", last7d.toISOString())
+      .order("createdAt", { ascending: false })
+      .limit(10000),
+    supabase
+      .from("EligibilityAssessment")
+      .select("id", { count: "exact", head: true })
+      .gte("updated_at", last24h.toISOString()),
+    supabase
+      .from("EligibilityAssessment")
+      .select("id", { count: "exact", head: true })
+      .gte("updated_at", last7d.toISOString()),
+    supabase
+      .from("Grant")
+      .select("id, name, funder, source, deadline, createdAt", { count: "exact" })
+      .gte("deadline", now.toISOString())
+      .lte("deadline", next7d.toISOString())
+      .order("deadline", { ascending: true })
+      .limit(5),
+    supabase
+      .from("grant_sources")
+      .select("source_name, type, adapter, enabled, crawl_frequency, last_crawled_at")
+      .order("last_crawled_at", { ascending: false, nullsFirst: false })
+      .limit(500),
+    supabase.from("grant_discovery_queue").select("id", { count: "exact", head: true }).eq("status", "pending"),
+    supabase.from("grant_discovery_queue").select("id", { count: "exact", head: true }).eq("status", "failed"),
+    supabase.from("grant_links").select("id", { count: "exact", head: true }).eq("status", "pending"),
+    supabase.from("grant_links").select("id", { count: "exact", head: true }).eq("status", "found"),
+    supabase.from("grant_links").select("id", { count: "exact", head: true }).eq("status", "manual_review_needed"),
+    supabase.from("grant_links").select("id", { count: "exact", head: true }).eq("status", "failed"),
+  ]);
+
+  const notificationRows = (notificationResult.data ?? []) as NotificationLogRow[];
+  const sentUsersLast24h = distinctSentUsers(notificationRows, last24h);
+  const sentUsersLast7d = distinctSentUsers(notificationRows, last7d);
+  const notificationUserIds = Array.from(new Set(notificationRows.map((row) => row.userId).filter(Boolean))) as string[];
+
+  let memberships: OrganisationMemberRow[] = [];
+  if (notificationUserIds.length > 0) {
+    const membershipResult = await supabase
+      .from("OrganisationMember")
+      .select("userId, organisationId")
+      .in("userId", notificationUserIds);
+    memberships = (membershipResult.data ?? []) as OrganisationMemberRow[];
+    if (memberships.length === 0) {
+      const fallback = await supabase
+        .from("OrganisationMember")
+        .select("user_id, organisation_id")
+        .in("user_id", notificationUserIds);
+      memberships = (fallback.data ?? []) as OrganisationMemberRow[];
+    }
+  }
+
+  const latestGrants = (latestGrantsResult.data ?? []) as GrantRow[];
+  const upcomingDeadlines = (upcomingDeadlineResult.data ?? []) as GrantRow[];
+  const grantSources = (grantSourcesResult.data ?? []) as GrantSourceRow[];
+  const dueSources = grantSources.filter((source) => isSourceDue(source)).length;
+  const enabledSources = grantSources.filter((source) => source.enabled).length;
+  const latestSourceCrawl = grantSources
+    .map((source) => source.last_crawled_at)
+    .filter((value): value is string => Boolean(value))
+    .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ?? null;
+  const discoveryQueue: QueueStatus = {
+    pending: discoveryPendingResult.count ?? 0,
+    failed: discoveryFailedResult.count ?? 0,
+  };
+  const linkScout: QueueStatus = {
+    pending: linksPendingResult.count ?? 0,
+    found: linksFoundResult.count ?? 0,
+    manualReview: linksManualReviewResult.count ?? 0,
+    failed: linksFailedResult.count ?? 0,
+  };
+
+  const notificationErrors = notificationRows
+    .filter((row) => row.status === "failed" || row.status === "skipped")
+    .slice(0, 5);
+  const totalSentLast24h = countNotifications(notificationRows, { since: last24h, status: "sent" });
+  const totalFailedLast24h = countNotifications(notificationRows, { since: last24h, status: "failed" });
+  const totalSkippedLast24h = countNotifications(notificationRows, { since: last24h, status: "skipped" });
+  const highMatchWhatsAppLast24h = countNotifications(notificationRows, {
+    since: last24h,
+    type: "grant_match_high",
+    channel: "whatsapp",
+    status: "sent",
+  });
+  const deadlineEmailsLast24h =
+    countNotifications(notificationRows, { since: last24h, type: "deadline_reminder", channel: "email", status: "sent" }) +
+    countNotifications(notificationRows, {
+      since: last24h,
+      type: "deadline_daily_update",
+      channel: "email",
+      status: "sent",
+    });
+  const eligibilityEmailsLast24h =
+    countNotifications(notificationRows, { since: last24h, type: "grant_scan_digest", channel: "email", status: "sent" }) +
+    countNotifications(notificationRows, {
+      since: last24h,
+      type: "daily_grant_update",
+      channel: "email",
+      status: "sent",
+    });
+  const upgradePromptsLast24h = countNotifications(notificationRows, {
+    since: last24h,
+    type: "eligibility_upgrade_prompt",
+    channel: "email",
+    status: "sent",
+  });
+  const organisationCountLast24h = distinctOrgCount(sentUsersLast24h, memberships);
+  const organisationCountLast7d = distinctOrgCount(sentUsersLast7d, memberships);
 
   return (
     <div className="min-h-screen bg-background">
@@ -76,6 +377,252 @@ export default async function AdminPage() {
             You are logged in as the admin account. Import, compose, and verify grant records here.
           </p>
         </div>
+        <section className="space-y-4">
+          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+            <div>
+              <h2 className="text-xl font-semibold">Operations pulse</h2>
+              <p className="text-sm text-muted-foreground">
+                Last 24 hours and last 7 days across grants, scoring, notifications, deadlines, and crawlers.
+              </p>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Refreshed {formatDateTime(now.toISOString())}
+            </p>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                  <Database className="h-4 w-4 text-blue-600" />
+                  Grants added
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold">{grantsLast24hResult.count ?? 0}</div>
+                <p className="mt-1 text-sm text-muted-foreground">{grantsLast7dResult.count ?? 0} in the last 7 days</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                  <Users className="h-4 w-4 text-blue-600" />
+                  Accounts notified
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold">{sentUsersLast24h.size}</div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {organisationCountLast24h} orgs today - {sentUsersLast7d.size} users / {organisationCountLast7d} orgs in 7 days
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                  <Bell className="h-4 w-4 text-blue-600" />
+                  Notifications sent
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold">{totalSentLast24h}</div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {totalFailedLast24h} failed - {totalSkippedLast24h} skipped in the last 24h
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                  <SearchCheck className="h-4 w-4 text-blue-600" />
+                  Scores refreshed
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold">{assessmentLast24hResult.count ?? 0}</div>
+                <p className="mt-1 text-sm text-muted-foreground">{assessmentLast7dResult.count ?? 0} score rows updated in 7 days</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-3">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Mail className="h-4 w-4 text-blue-600" />
+                  Morning notification trace
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-md border bg-muted/30 p-3">
+                    <div className="text-xs text-muted-foreground">Eligibility emails</div>
+                    <div className="text-2xl font-semibold">{eligibilityEmailsLast24h}</div>
+                  </div>
+                  <div className="rounded-md border bg-muted/30 p-3">
+                    <div className="text-xs text-muted-foreground">Upgrade prompts</div>
+                    <div className="text-2xl font-semibold">{upgradePromptsLast24h}</div>
+                  </div>
+                  <div className="rounded-md border bg-muted/30 p-3">
+                    <div className="text-xs text-muted-foreground">Deadline emails</div>
+                    <div className="text-2xl font-semibold">{deadlineEmailsLast24h}</div>
+                  </div>
+                  <div className="rounded-md border bg-muted/30 p-3">
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <MessageCircle className="h-3.5 w-3.5" />
+                      WhatsApp alerts
+                    </div>
+                    <div className="text-2xl font-semibold">{highMatchWhatsAppLast24h}</div>
+                  </div>
+                </div>
+                {notificationErrors.length > 0 ? (
+                  <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900">
+                    <div className="mb-2 flex items-center gap-2 font-medium">
+                      <AlertTriangle className="h-4 w-4" />
+                      Recent skipped or failed sends
+                    </div>
+                    <ul className="space-y-1">
+                      {notificationErrors.map((row, index) => (
+                        <li key={`${row.type}-${row.channel}-${row.createdAt}-${index}`} className="text-xs">
+                          {row.type ?? "notification"} / {row.channel ?? "unknown"}: {row.error ?? row.status ?? "unknown"}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No failed or skipped notification rows in the latest log sample.</p>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <CalendarClock className="h-4 w-4 text-blue-600" />
+                  Deadlines
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                <div>
+                  <div className="text-3xl font-bold">{upcomingDeadlineResult.count ?? 0}</div>
+                  <p className="text-muted-foreground">grant deadlines in the next 7 days</p>
+                </div>
+                <div className="space-y-2">
+                  {upcomingDeadlines.length > 0 ? (
+                    upcomingDeadlines.map((grant) => (
+                      <div key={grant.id} className="rounded-md border p-3">
+                        <div className="font-medium">{grant.name ?? "Untitled grant"}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {grant.funder ?? "Unknown funder"} - due {formatDateTime(grant.deadline)}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-muted-foreground">No grant deadlines are recorded for the next 7 days.</p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <SearchCheck className="h-4 w-4 text-blue-600" />
+                  Crawler health
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-md border bg-muted/30 p-3">
+                    <div className="text-xs text-muted-foreground">Enabled sources</div>
+                    <div className="text-2xl font-semibold">{enabledSources}</div>
+                  </div>
+                  <div className="rounded-md border bg-muted/30 p-3">
+                    <div className="text-xs text-muted-foreground">Due sources</div>
+                    <div className="text-2xl font-semibold">{dueSources}</div>
+                  </div>
+                  <div className="rounded-md border bg-muted/30 p-3">
+                    <div className="text-xs text-muted-foreground">Discovery pending</div>
+                    <div className="text-2xl font-semibold">{discoveryQueue.pending}</div>
+                  </div>
+                  <div className="rounded-md border bg-muted/30 p-3">
+                    <div className="text-xs text-muted-foreground">Scout review</div>
+                    <div className="text-2xl font-semibold">{linkScout.manualReview ?? 0}</div>
+                  </div>
+                </div>
+                <p className="text-muted-foreground">
+                  Latest source crawl: {latestSourceCrawl ? `${formatRelative(latestSourceCrawl)} (${formatDateTime(latestSourceCrawl)})` : "never"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Discovery failed: {discoveryQueue.failed}. Link scout found: {linkScout.found ?? 0}, pending: {linkScout.pending}, failed: {linkScout.failed}.
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Notification breakdown</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[760px] text-left text-sm">
+                  <thead className="border-b text-xs uppercase tracking-wide text-muted-foreground">
+                    <tr>
+                      <th className="py-2 pr-4 font-medium">Signal</th>
+                      <th className="py-2 pr-4 font-medium">24h sent</th>
+                      <th className="py-2 pr-4 font-medium">7d sent</th>
+                      <th className="py-2 pr-4 font-medium">Email 24h</th>
+                      <th className="py-2 pr-4 font-medium">WhatsApp 24h</th>
+                      <th className="py-2 pr-4 font-medium">Failed 24h</th>
+                      <th className="py-2 pr-4 font-medium">Skipped 24h</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {OPS_NOTIFICATION_TYPES.map((type) => (
+                      <tr key={type} className="border-b last:border-0">
+                        <td className="py-3 pr-4 font-medium">{NOTIFICATION_LABELS[type]}</td>
+                        <td className="py-3 pr-4">{getStatusCount(notificationRows, type, "sent", last24h)}</td>
+                        <td className="py-3 pr-4">{getStatusCount(notificationRows, type, "sent", last7d)}</td>
+                        <td className="py-3 pr-4">
+                          {countNotifications(notificationRows, { since: last24h, type, channel: "email", status: "sent" })}
+                        </td>
+                        <td className="py-3 pr-4">
+                          {countNotifications(notificationRows, { since: last24h, type, channel: "whatsapp", status: "sent" })}
+                        </td>
+                        <td className="py-3 pr-4">{getStatusCount(notificationRows, type, "failed", last24h)}</td>
+                        <td className="py-3 pr-4">{getStatusCount(notificationRows, type, "skipped", last24h)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Latest grants added</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                {latestGrants.length > 0 ? (
+                  latestGrants.map((grant) => (
+                    <div key={grant.id} className="rounded-md border p-3 text-sm">
+                      <div className="line-clamp-2 font-medium">{grant.name ?? "Untitled grant"}</div>
+                      <div className="mt-1 text-xs text-muted-foreground">{grant.funder ?? "Unknown funder"}</div>
+                      <div className="mt-2 text-xs text-muted-foreground">
+                        {grant.source ?? "database"} - {formatRelative(grant.createdAt)}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-muted-foreground">No grants found in the database.</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </section>
         <GrantComposer />
         <GrantImportUploader />
         <ScoutModeSettings />
