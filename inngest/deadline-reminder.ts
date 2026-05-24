@@ -1,6 +1,6 @@
 import { inngest } from "./client";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { notifyOrgMembers } from "@/lib/notify";
+import { notifyOrgMembers, orgHasNotificationSince } from "@/lib/notify";
 import { createStartApplicationToken } from "@/lib/start-application-token";
 import { isNineAmLocal } from "@/lib/timezone";
 import { isGrantLinkUsable } from "@/lib/grant-freshness";
@@ -26,6 +26,7 @@ export async function runDeadlineReminderJob(): Promise<{
   orgsAt9amLocal: number;
   grantsByDay: Record<number, number>;
   sent: number;
+  dailyUpdates: number;
 }> {
     const supabase = getSupabaseAdmin();
     const now = new Date();
@@ -37,12 +38,14 @@ export async function runDeadlineReminderJob(): Promise<{
       orgsAt9amLocal: number;
       grantsByDay: Record<number, number>;
       sent: number;
+      dailyUpdates: number;
     } = {
       profilesWithScore50: 0,
       orgsWithProfile: 0,
       orgsAt9amLocal: 0,
       grantsByDay: { 7: 0, 3: 0, 1: 0, 0: 0 },
       sent: 0,
+      dailyUpdates: 0,
     };
 
     const { data: profiles = [] } = await supabase
@@ -83,6 +86,16 @@ export async function runDeadlineReminderJob(): Promise<{
       return { ...diagnostics };
     }
 
+    const recentWindow = new Date(now);
+    recentWindow.setHours(recentWindow.getHours() - 20);
+    const orgsWithRecentDeadlineReminder = new Set<string>();
+    for (const org of orgsToNotify as { id: string }[]) {
+      if (await orgHasNotificationSince(org.id, ["deadline_reminder"], recentWindow)) {
+        orgsWithRecentDeadlineReminder.add(org.id);
+      }
+    }
+    const orgsSentReminder = new Set<string>();
+
     for (const days of reminderDays) {
       const targetDate = new Date(now);
       targetDate.setDate(targetDate.getDate() + days);
@@ -110,6 +123,7 @@ export async function runDeadlineReminderJob(): Promise<{
       for (const grant of currentGrants) {
         for (const org of orgs) {
           if (!org.profiles[0]) continue;
+          if (orgsWithRecentDeadlineReminder.has(org.id)) continue;
 
           const { data: alreadyApplied } = await supabase
             .from("Application")
@@ -162,12 +176,28 @@ export async function runDeadlineReminderJob(): Promise<{
               deadline: grant.deadline ? new Date(grant.deadline).toLocaleDateString("en-GB") : undefined,
               startApplicationToken,
             }, { sendEmail: true, sendWhatsApp: false });
+            orgsSentReminder.add(org.id);
             sent++;
           } catch (err) {
             console.error(`[deadline-reminder] Error:`, err);
           }
         }
       }
+    }
+
+    for (const org of orgsToNotify as { id: string }[]) {
+      if (orgsSentReminder.has(org.id) || orgsWithRecentDeadlineReminder.has(org.id)) continue;
+      const alreadyUpdated = await orgHasNotificationSince(
+        org.id,
+        ["deadline_daily_update", "deadline_reminder"],
+        recentWindow
+      );
+      if (alreadyUpdated) continue;
+      await notifyOrgMembers(org.id, "deadline_daily_update", {}, {
+        sendEmail: true,
+        sendWhatsApp: false,
+      });
+      diagnostics.dailyUpdates++;
     }
 
     diagnostics.sent = sent;

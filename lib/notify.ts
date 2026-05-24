@@ -19,6 +19,9 @@ export type NotificationType =
   | "application_login_required"
   | "application_needs_info"
   | "deadline_reminder"
+  | "daily_grant_update"
+  | "deadline_daily_update"
+  | "eligibility_upgrade_prompt"
   | "welcome"
   | "grant_match"
   | "grant_match_high"
@@ -66,6 +69,12 @@ export interface NotificationPayload {
   outcomeGrantNames?: string[];
   /** Labels for details required before the application can continue. */
   needsInputLabels?: string[];
+  /** Count of grants considered by a daily scan/update. */
+  checkedGrantsCount?: number;
+  /** Count of opportunities included in a daily scan/update. */
+  matchedGrantsCount?: number;
+  /** Count of deadline reminders included in a daily deadline update. */
+  deadlineReminderCount?: number;
 }
 
 export interface NotifyOptions {
@@ -76,6 +85,8 @@ export interface NotifyOptions {
 }
 
 const PLAN_GATED_NOTIFICATION_TYPES = new Set<NotificationType>([
+  "daily_grant_update",
+  "deadline_daily_update",
   "deadline_reminder",
   "grant_match",
   "grant_match_high",
@@ -290,16 +301,10 @@ function toNotifyUser(raw: Record<string, unknown> | null | undefined): NotifyUs
   };
 }
 
-/**
- * Notify all members of an organisation (excluding viewers).
- */
-export async function notifyOrgMembers(
-  organisationId: string,
-  type: NotificationType,
-  payload: NotificationPayload,
-  options?: NotifyOptions
-): Promise<void> {
-  const supabase = getSupabaseAdmin();
+async function getNotifyUsersForOrg(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  organisationId: string
+): Promise<NotifyUser[]> {
   const userColumns = "id, email, phoneNumber, whatsappOptIn";
   let { data: members = [] } = await supabase
     .from("OrganisationMember")
@@ -324,10 +329,43 @@ export async function notifyOrgMembers(
     members = altSnake.data ?? [];
   }
 
-  const list = Array.isArray(members) ? members : [];
-  const withUser = list
+  return (Array.isArray(members) ? members : [])
     .map((m: Record<string, unknown>) => toNotifyUser((m.User ?? m.user) as Record<string, unknown> | null))
     .filter((u): u is NotifyUser => u != null);
+}
+
+export async function orgHasNotificationSince(
+  organisationId: string,
+  types: NotificationType[],
+  since: Date
+): Promise<boolean> {
+  const supabase = getSupabaseAdmin();
+  const users = await getNotifyUsersForOrg(supabase, organisationId);
+  if (users.length === 0) return false;
+
+  const { data } = await supabase
+    .from("NotificationLog")
+    .select("id")
+    .in("userId", users.map((u) => u.id))
+    .in("type", types)
+    .in("status", ["sent", "skipped"])
+    .gte("createdAt", since.toISOString())
+    .limit(1);
+
+  return (data?.length ?? 0) > 0;
+}
+
+/**
+ * Notify all members of an organisation (excluding viewers).
+ */
+export async function notifyOrgMembers(
+  organisationId: string,
+  type: NotificationType,
+  payload: NotificationPayload,
+  options?: NotifyOptions
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const withUser = await getNotifyUsersForOrg(supabase, organisationId);
 
   if (notificationRequiresPaidPlan(type)) {
     if (!(await organisationAllowsCapability(organisationId, "proactive_notifications"))) {

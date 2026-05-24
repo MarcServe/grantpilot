@@ -1,7 +1,7 @@
 import { inngest } from "./client";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getEligibilityDecision } from "@/lib/claude";
-import { notifyOrgMembers } from "@/lib/notify";
+import { notifyOrgMembers, orgHasNotificationSince } from "@/lib/notify";
 import { grantMatchesFunderLocations, inferFunderLocationsFromProfile } from "@/lib/constants";
 import { createStartApplicationToken } from "@/lib/start-application-token";
 import { checkRequirementsAgainstDocuments } from "@/lib/grant-requirements";
@@ -15,7 +15,7 @@ import { isGrantLinkUsable } from "@/lib/grant-freshness";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { isOpenAIChecked } from "@/lib/grant-source-policy";
 import { getSuppressedGrantIds } from "@/lib/grant-user-state";
-import { checkUsageLimit, recordUsage } from "@/lib/plan-check";
+import { checkUsageLimit, organisationAllowsCapability, recordUsage } from "@/lib/plan-check";
 import {
   applyOutcomeScoreAdjustment,
   buildFundingOutcomeSignals,
@@ -38,6 +38,12 @@ const DIGEST_SCORE_THRESHOLD = 85;
 const MIN_NOTIFICATION_SCORE_FLOOR = 75;
 const NOTIFY_COOLDOWN_HOURS = 20;
 const CACHE_DAYS = 1;
+
+function recentNotificationWindow(): Date {
+  const since = new Date();
+  since.setHours(since.getHours() - NOTIFY_COOLDOWN_HOURS);
+  return since;
+}
 
 function scoreToDecision(score: number): "likely_eligible" | "review" | "unlikely" {
   if (score >= 70) return "likely_eligible";
@@ -101,6 +107,24 @@ type CachedEligibilityRow = {
   scoring_source: string | null;
 };
 
+async function countStrongEligibleAssessments(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  orgId: string,
+  profileId: string,
+  minScore: number
+): Promise<number> {
+  const { count } = await supabase
+    .from("EligibilityAssessment")
+    .select("grant_id", { count: "exact", head: true })
+    .eq("organisation_id", orgId)
+    .eq("profile_id", profileId)
+    .eq("decision", "likely_eligible")
+    .eq("scoring_source", "openai")
+    .gte("score", minScore);
+
+  return count ?? 0;
+}
+
 export async function runEligibilityRefreshJob(options?: {
   orgIdsFilter?: Set<string>;
   bypassCache?: boolean;
@@ -115,6 +139,8 @@ export async function runEligibilityRefreshJob(options?: {
   layer2Ranked: number;
   layer3Scored: number;
   cacheHits: number;
+  dailyUpdates: number;
+  upgradePrompts: number;
 }> {
     const orgIdsFilter = options?.orgIdsFilter;
     const bypassCache = options?.bypassCache === true;
@@ -131,6 +157,8 @@ export async function runEligibilityRefreshJob(options?: {
       layer2Ranked: 0,
       layer3Scored: 0,
       cacheHits: 0,
+      dailyUpdates: 0,
+      upgradePrompts: 0,
     };
     if (allGrants.length === 0) {
       console.info("[eligibility-refresh] No grants in DB", diagnostics);
@@ -489,7 +517,30 @@ export async function runEligibilityRefreshJob(options?: {
         // ── Notification ──
         console.info(`[eligibility-refresh]   Digest candidates: ${digestGrants.length} grants, completion=${completionScore}%, threshold=${minCompletionForNotifications}%, email=${sendNotifyEmail}, whatsapp=${sendWhatsApp}`);
 
-        if (digestGrants.length > 0 && completionScore >= minCompletionForNotifications) {
+        const canReceiveProactiveNotifications = await organisationAllowsCapability(orgId, "proactive_notifications");
+        const recentWindow = recentNotificationWindow();
+        const strongEligibleCount = Math.max(
+          digestGrants.length,
+          await countStrongEligibleAssessments(supabase, orgId, profileId, minScore)
+        );
+
+        if (!canReceiveProactiveNotifications && strongEligibleCount > 0 && sendNotifyEmail) {
+          const alreadyPrompted = await orgHasNotificationSince(
+            orgId,
+            ["eligibility_upgrade_prompt"],
+            recentWindow
+          );
+          if (!alreadyPrompted) {
+            await notifyOrgMembers(orgId, "eligibility_upgrade_prompt", {
+              profileName,
+              matchedGrantsCount: strongEligibleCount,
+            }, {
+              sendEmail: true,
+              sendWhatsApp: false,
+            });
+            diagnostics.upgradePrompts++;
+          }
+        } else if (digestGrants.length > 0 && completionScore >= minCompletionForNotifications) {
           console.info(`[eligibility-refresh]   SENDING digest notification for ${digestGrants.length} grants to org ${orgId}`);
           await notifyOrgMembers(orgId, "grant_scan_digest", {
             grants: digestGrants,
@@ -517,6 +568,23 @@ export async function runEligibilityRefreshJob(options?: {
           notifiedCount += digestGrants.length;
         } else if (digestGrants.length > 0 && completionScore < minCompletionForNotifications) {
           console.info(`[eligibility-refresh] Skipping digest: completion ${completionScore}% < ${minCompletionForNotifications}%`);
+        } else if (completionScore >= minCompletionForNotifications && sendNotifyEmail) {
+          const alreadyUpdated = await orgHasNotificationSince(
+            orgId,
+            ["daily_grant_update", "grant_scan_digest", "grant_match_high", "eligibility_upgrade_prompt"],
+            recentWindow
+          );
+          if (!alreadyUpdated) {
+            await notifyOrgMembers(orgId, "daily_grant_update", {
+              profileName,
+              checkedGrantsCount: locationFiltered.length,
+              matchedGrantsCount: 0,
+            }, {
+              sendEmail: true,
+              sendWhatsApp: false,
+            });
+            diagnostics.dailyUpdates++;
+          }
         }
       } catch (err) {
         console.error(`[eligibility-refresh] org ${orgId} profile ${profileId}:`, err);

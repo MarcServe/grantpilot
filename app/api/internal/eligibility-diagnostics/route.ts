@@ -79,7 +79,14 @@ export async function GET(req: Request): Promise<NextResponse> {
         .from("NotificationLog")
         .select("channel, type, status, error")
         .in("userId", userIds)
-        .in("type", ["grant_scan_digest", "grant_match_high"])
+        .in("type", [
+          "grant_scan_digest",
+          "grant_match_high",
+          "daily_grant_update",
+          "eligibility_upgrade_prompt",
+          "deadline_reminder",
+          "deadline_daily_update",
+        ])
         .gte("createdAt", since.toISOString())
         .order("createdAt", { ascending: false })
         .limit(200);

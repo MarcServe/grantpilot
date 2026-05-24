@@ -159,6 +159,53 @@ export function buildEmailHtml(
       };
     }
 
+    case "daily_grant_update": {
+      const profileName = payload.profileName ?? "your business";
+      const checked = payload.checkedGrantsCount ?? 0;
+      return {
+        subject: "Today's GrantsCopilot scan is complete",
+        html: baseLayout(
+          "Today's grant scan is complete",
+          `<p>GrantsCopilot checked fresh opportunities for <strong>${escapeHtml(profileName)}</strong>.</p>
+          <p>No new high-confidence eligible grants were ready to notify you about this morning.</p>
+          <p>We&apos;ll keep scanning daily and send WhatsApp only when there is a strong opportunity alert.</p>
+          ${checked > 0 ? `<p style="color:#64748b;font-size:13px">Checked ${checked} available grants.</p>` : ""}`,
+          `${appUrl}/grants/eligible`,
+          "View My Matches"
+        ),
+      };
+    }
+
+    case "deadline_daily_update":
+      return {
+        subject: "Today's grant deadline check is complete",
+        html: baseLayout(
+          "No urgent grant deadlines today",
+          "<p>GrantsCopilot checked your eligible and saved opportunities for upcoming deadline reminders.</p><p>There are no deadline reminders due this morning. We'll email you when an eligible grant is 7, 3, or 1 day from closing, or due today.</p>",
+          `${appUrl}/grants/eligible`,
+          "View My Matches"
+        ),
+      };
+
+    case "eligibility_upgrade_prompt": {
+      const count = Math.max(0, Math.round(Number(payload.matchedGrantsCount ?? 0)));
+      const noun = count === 1 ? "grant" : "grants";
+      return {
+        subject:
+          count > 0
+            ? `${count} eligible ${noun} waiting in GrantsCopilot`
+            : "Eligible grants are waiting in GrantsCopilot",
+        html: baseLayout(
+          count > 0 ? `${count} eligible ${noun} waiting` : "Eligible grants are waiting",
+          `<p>GrantsCopilot found <strong>${count || "new"}</strong> strong-fit grant ${count === 1 ? "opportunity" : "opportunities"} for your business.</p>
+          <p>Choose a plan to unlock daily opportunity alerts, full eligibility reasoning, and automatic application preparation.</p>
+          <p>You can still browse your account, but auto-prep and proactive notifications require an active plan.</p>`,
+          `${appUrl}/billing`,
+          "Choose a plan"
+        ),
+      };
+    }
+
     case "grant_match":
       return {
         subject: "New grant matches found",
@@ -349,6 +396,18 @@ export function buildWhatsAppMessage(
     case "deadline_reminder": {
       const viewUrl = payload.grantId ? `${appUrl}/grants/${payload.grantId}` : appUrl + "/grants";
       return `Reminder: The deadline for ${grant} is ${payload.deadline ?? "approaching soon"}. Review the fit and prepare your documents before applying.\n\nView grant: ${viewUrl}`;
+    }
+
+    case "daily_grant_update":
+      return `Today's GrantsCopilot scan is complete. No new high-confidence eligible grants were ready to notify you about this morning.\n\nView matches: ${appUrl}/grants/eligible`;
+
+    case "deadline_daily_update":
+      return `Today's deadline check is complete. There are no urgent eligible grant deadline reminders due this morning.\n\nView matches: ${appUrl}/grants/eligible`;
+
+    case "eligibility_upgrade_prompt": {
+      const count = Math.max(0, Math.round(Number(payload.matchedGrantsCount ?? 0)));
+      const noun = count === 1 ? "grant" : "grants";
+      return `GrantsCopilot found ${count || "new"} eligible ${noun} waiting for your business. Choose a plan to unlock automatic application preparation and daily opportunity alerts.\n\n${appUrl}/billing`;
     }
 
     case "grant_match_high": {
