@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { isLikelyProgrammeInfoUrl } from "@/lib/grant-url-validation";
 
 const MAX_GRANTS_PER_RUN = 50;
+const MAX_CANDIDATE_GRANTS = 500;
 const RECENT_FOUND_DAYS = 14;
 
 /**
@@ -19,7 +20,10 @@ export const grantFormUrlScout = inngest.createFunction(
 
     const { data: grantsData, error: grantsError } = await supabase
       .from("Grant")
-      .select("id, name, funder, amount, deadline, applicationUrl");
+      .select("id, name, funder, amount, deadline, applicationUrl, createdAt")
+      .not("applicationUrl", "is", null)
+      .order("createdAt", { ascending: false, nullsFirst: false })
+      .limit(MAX_CANDIDATE_GRANTS);
 
     if (grantsError) {
       console.error("[grant-form-url-scout] Grant fetch error:", grantsError);
@@ -40,18 +44,45 @@ export const grantFormUrlScout = inngest.createFunction(
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - RECENT_FOUND_DAYS);
 
-    const { data: recentFound = [] } = await supabase
+    const { data: activeRows = [], error: activeError } = await supabase
+      .from("grant_links")
+      .select("grant_id")
+      .in("grant_id", grantIds)
+      .in("status", ["pending", "running"]);
+
+    if (activeError) {
+      console.error("[grant-form-url-scout] Active scout query error:", activeError);
+      return { enqueued: 0, totalProgrammeStyle: grants.length, error: activeError.message };
+    }
+
+    const { data: recentFound = [], error: recentFoundError } = await supabase
       .from("grant_links")
       .select("grant_id")
       .in("grant_id", grantIds)
       .eq("status", "found")
       .gte("discovered_at", cutoff.toISOString());
 
-    const recentlyFoundIds = new Set((recentFound as { grant_id: string }[]).map((r) => r.grant_id));
-    const toEnqueue = grants.filter((g: { id: string }) => !recentlyFoundIds.has(g.id)).slice(0, MAX_GRANTS_PER_RUN);
+    if (recentFoundError) {
+      console.error("[grant-form-url-scout] Recent scout query error:", recentFoundError);
+      return { enqueued: 0, totalProgrammeStyle: grants.length, error: recentFoundError.message };
+    }
 
-    let enqueued = 0;
-    for (const g of toEnqueue) {
+    const activeIds = new Set((activeRows as { grant_id: string }[]).map((r) => r.grant_id));
+    const recentlyFoundIds = new Set((recentFound as { grant_id: string }[]).map((r) => r.grant_id));
+    const toEnqueue = grants
+      .filter((g: { id: string }) => !activeIds.has(g.id) && !recentlyFoundIds.has(g.id))
+      .slice(0, MAX_GRANTS_PER_RUN);
+
+    if (toEnqueue.length === 0) {
+      return {
+        enqueued: 0,
+        totalProgrammeStyle: grants.length,
+        skippedActive: activeIds.size,
+        skippedRecent: recentlyFoundIds.size,
+      };
+    }
+
+    const rows = toEnqueue.map((g) => {
       const grant = g as {
         id: string;
         name: string;
@@ -60,30 +91,39 @@ export const grantFormUrlScout = inngest.createFunction(
         deadline?: string;
         applicationUrl: string;
       };
-      const { error: upsertError } = await supabase.from("grant_links").upsert(
-        {
-          grant_id: grant.id,
-          homepage_url: grant.applicationUrl.trim(),
-          grant_name: grant.name ?? null,
-          funder: grant.funder ?? null,
-          amount: grant.amount != null ? String(grant.amount) : null,
-          deadline: grant.deadline ?? null,
-          status: "pending",
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "grant_id", ignoreDuplicates: false }
-      );
+      return {
+        grant_id: grant.id,
+        homepage_url: grant.applicationUrl.trim(),
+        grant_name: grant.name ?? null,
+        funder: grant.funder ?? null,
+        amount: grant.amount != null ? String(grant.amount) : null,
+        deadline: grant.deadline ?? null,
+        status: "pending",
+        updated_at: new Date().toISOString(),
+      };
+    });
 
-      if (upsertError) {
-        // If row exists with status running/pending, conflict may prevent update; skip
-        if (upsertError.code !== "23505") {
-          console.warn("[grant-form-url-scout] upsert error for grant", grant.id, upsertError);
-        }
-        continue;
-      }
-      enqueued += 1;
+    const { error: upsertError } = await supabase.from("grant_links").upsert(rows, {
+      onConflict: "grant_id",
+      ignoreDuplicates: false,
+    });
+
+    if (upsertError) {
+      console.warn("[grant-form-url-scout] bulk upsert error:", upsertError);
+      return {
+        enqueued: 0,
+        totalProgrammeStyle: grants.length,
+        skippedActive: activeIds.size,
+        skippedRecent: recentlyFoundIds.size,
+        error: upsertError.message,
+      };
     }
 
-    return { enqueued, totalProgrammeStyle: grants.length, skippedRecent: recentlyFoundIds.size };
+    return {
+      enqueued: rows.length,
+      totalProgrammeStyle: grants.length,
+      skippedActive: activeIds.size,
+      skippedRecent: recentlyFoundIds.size,
+    };
   }
 );
