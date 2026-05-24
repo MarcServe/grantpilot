@@ -85,8 +85,6 @@ export interface NotifyOptions {
 }
 
 const PLAN_GATED_NOTIFICATION_TYPES = new Set<NotificationType>([
-  "daily_grant_update",
-  "deadline_daily_update",
   "deadline_reminder",
   "grant_match",
   "grant_match_high",

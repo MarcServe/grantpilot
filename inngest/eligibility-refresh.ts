@@ -205,6 +205,61 @@ export async function runEligibilityRefreshJob(options?: {
         const profileName = (profile as { businessName?: string }).businessName ?? profileId;
         console.info(`[eligibility-refresh] Processing org=${orgId} profile=${profileId} "${profileName}" completion=${completionScore}% reason=${options?.refreshReason ?? "scheduled"} bypassCache=${bypassCache}`);
 
+        const { data: prefs } = await supabase
+          .from("EligibilityNotificationPreference")
+          .select("min_score, max_score, eligible_threshold, notify_email, notify_in_app, notify_whatsapp")
+          .eq("organisation_id", orgId)
+          .maybeSingle();
+        const minScore = notificationMinScore((prefs as { min_score?: number } | null)?.min_score);
+        const maxScore = (prefs as { max_score?: number } | null)?.max_score ?? 100;
+        const eligibleThreshold = notificationMinScore((prefs as { eligible_threshold?: number } | null)?.eligible_threshold);
+        const sendWhatsApp = (prefs as { notify_whatsapp?: boolean } | null)?.notify_whatsapp ?? true;
+        const sendNotifyEmail = (prefs as { notify_email?: boolean } | null)?.notify_email !== false;
+        const canReceiveProactiveNotifications = await organisationAllowsCapability(orgId, "proactive_notifications");
+        const recentWindow = recentNotificationWindow();
+
+        const sendEligibilityStatusEmail = async (checkedGrantsCount: number, digestCandidateCount = 0) => {
+          if (!sendNotifyEmail) return;
+          const strongEligibleCount = Math.max(
+            digestCandidateCount,
+            await countStrongEligibleAssessments(supabase, orgId, profileId, minScore)
+          );
+
+          if (!canReceiveProactiveNotifications && strongEligibleCount > 0) {
+            const alreadyPrompted = await orgHasNotificationSince(
+              orgId,
+              ["eligibility_upgrade_prompt"],
+              recentWindow
+            );
+            if (alreadyPrompted) return;
+            await notifyOrgMembers(orgId, "eligibility_upgrade_prompt", {
+              profileName,
+              matchedGrantsCount: strongEligibleCount,
+            }, {
+              sendEmail: true,
+              sendWhatsApp: false,
+            });
+            diagnostics.upgradePrompts++;
+            return;
+          }
+
+          const alreadyUpdated = await orgHasNotificationSince(
+            orgId,
+            ["daily_grant_update", "grant_scan_digest", "grant_match_high", "eligibility_upgrade_prompt"],
+            recentWindow
+          );
+          if (alreadyUpdated) return;
+          await notifyOrgMembers(orgId, "daily_grant_update", {
+            profileName,
+            checkedGrantsCount,
+            matchedGrantsCount: strongEligibleCount,
+          }, {
+            sendEmail: true,
+            sendWhatsApp: false,
+          });
+          diagnostics.dailyUpdates++;
+        };
+
         const appliedGrantIds = await getAppliedGrantIds(supabase, orgId, profileId);
         const suppressedGrantIds = await getSuppressedGrantIds(supabase, orgId, profileId);
         const actionableGrants = grantsList.filter(
@@ -226,6 +281,7 @@ export async function runEligibilityRefreshJob(options?: {
 
         if (locationFiltered.length === 0) {
           console.info(`[eligibility-refresh]   Skipping: no grants match user funderLocations`);
+          await sendEligibilityStatusEmail(0);
           continue;
         }
 
@@ -261,6 +317,7 @@ export async function runEligibilityRefreshJob(options?: {
 
         if (heuristicResults.length === 0) {
           console.info(`[eligibility-refresh]   No grants passed heuristic filter`);
+          await sendEligibilityStatusEmail(locationFiltered.length);
           continue;
         }
 
@@ -306,17 +363,6 @@ export async function runEligibilityRefreshJob(options?: {
         const layer3Ids = layer2Candidates.slice(0, LAYER3_TOP_N);
         const scoredByOpenAIIds = new Set<string>();
         console.info(`[eligibility-refresh]   LAYER 3 (OpenAI): scoring ${layer3Ids.length} grants`);
-
-        const { data: prefs } = await supabase
-          .from("EligibilityNotificationPreference")
-          .select("min_score, max_score, eligible_threshold, notify_email, notify_in_app, notify_whatsapp")
-          .eq("organisation_id", orgId)
-          .maybeSingle();
-        const minScore = notificationMinScore((prefs as { min_score?: number } | null)?.min_score);
-        const maxScore = (prefs as { max_score?: number } | null)?.max_score ?? 100;
-        const eligibleThreshold = notificationMinScore((prefs as { eligible_threshold?: number } | null)?.eligible_threshold);
-        const sendWhatsApp = (prefs as { notify_whatsapp?: boolean } | null)?.notify_whatsapp ?? true;
-        const sendNotifyEmail = (prefs as { notify_email?: boolean } | null)?.notify_email !== false;
 
         const cooldown = new Date();
         cooldown.setHours(cooldown.getHours() - NOTIFY_COOLDOWN_HOURS);
@@ -517,8 +563,6 @@ export async function runEligibilityRefreshJob(options?: {
         // ── Notification ──
         console.info(`[eligibility-refresh]   Digest candidates: ${digestGrants.length} grants, completion=${completionScore}%, threshold=${minCompletionForNotifications}%, email=${sendNotifyEmail}, whatsapp=${sendWhatsApp}`);
 
-        const canReceiveProactiveNotifications = await organisationAllowsCapability(orgId, "proactive_notifications");
-        const recentWindow = recentNotificationWindow();
         const strongEligibleCount = Math.max(
           digestGrants.length,
           await countStrongEligibleAssessments(supabase, orgId, profileId, minScore)
@@ -568,23 +612,11 @@ export async function runEligibilityRefreshJob(options?: {
           notifiedCount += digestGrants.length;
         } else if (digestGrants.length > 0 && completionScore < minCompletionForNotifications) {
           console.info(`[eligibility-refresh] Skipping digest: completion ${completionScore}% < ${minCompletionForNotifications}%`);
+          await sendEligibilityStatusEmail(locationFiltered.length, strongEligibleCount);
         } else if (completionScore >= minCompletionForNotifications && sendNotifyEmail) {
-          const alreadyUpdated = await orgHasNotificationSince(
-            orgId,
-            ["daily_grant_update", "grant_scan_digest", "grant_match_high", "eligibility_upgrade_prompt"],
-            recentWindow
-          );
-          if (!alreadyUpdated) {
-            await notifyOrgMembers(orgId, "daily_grant_update", {
-              profileName,
-              checkedGrantsCount: locationFiltered.length,
-              matchedGrantsCount: 0,
-            }, {
-              sendEmail: true,
-              sendWhatsApp: false,
-            });
-            diagnostics.dailyUpdates++;
-          }
+          await sendEligibilityStatusEmail(locationFiltered.length, strongEligibleCount);
+        } else if (sendNotifyEmail) {
+          await sendEligibilityStatusEmail(locationFiltered.length, strongEligibleCount);
         }
       } catch (err) {
         console.error(`[eligibility-refresh] org ${orgId} profile ${profileId}:`, err);

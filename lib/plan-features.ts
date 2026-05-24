@@ -58,7 +58,14 @@ export const PLAN_CAPABILITY_MESSAGES: Record<PlanCapability, string> = {
 };
 
 export function resolvePlanKey(plan: unknown): PlanKey {
-  if (typeof plan === "string" && plan in PLAN_LIMITS) return plan as PlanKey;
+  if (typeof plan === "string") {
+    const normalized = plan.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+    if (normalized in PLAN_LIMITS) return normalized as PlanKey;
+    if (normalized === "FREE" || normalized === "STARTER" || normalized === "TRIAL") return "FREE_TRIAL";
+    if (normalized.includes("BUSINESS")) return "BUSINESS";
+    if (normalized.includes("GROWTH")) return "GROWTH";
+    if (normalized.includes("PRO")) return "PRO";
+  }
   return "FREE_TRIAL";
 }
 
