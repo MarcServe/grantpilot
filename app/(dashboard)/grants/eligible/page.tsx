@@ -15,10 +15,37 @@ import type { EligibilityResult } from "@/lib/claude";
 
 const MATCH_PAGE_SIZE_OPTIONS = [20, 30, 50] as const;
 const DEFAULT_MATCH_PAGE_SIZE = 30;
-const MATCH_FETCH_OVERAGE = 3;
+const MAX_MATCH_ASSESSMENTS = 5000;
+const GRANT_QUERY_BATCH_SIZE = 200;
 
 type ScoreTier = "suggested" | "within_reach" | "other";
 type MatchSearchParams = Promise<{ page?: string; pageSize?: string; tier?: string }>;
+type AssessmentRow = {
+  grant_id: string;
+  score: number;
+  decision: string | null;
+  summary: string | null;
+  missing_criteria: string[] | null;
+  improvement_plan: { gaps?: string[]; actions?: string[] } | null;
+  updated_at: string;
+  profile_id?: string | null;
+  scoring_source?: string | null;
+};
+type GrantRow = {
+  id: string;
+  name: string;
+  funder: string;
+  deadline: string | null;
+  funderLocations?: string[];
+  url_status?: string | null;
+  createdAt?: string | null;
+  eligibility?: string | null;
+  description?: string | null;
+  objectives?: string | null;
+  applicantTypes?: string[];
+  sectors?: string[];
+  regions?: string[];
+};
 
 function profileForEligibilityGuards(profile: Record<string, unknown>) {
   return {
@@ -45,6 +72,17 @@ function normalizePageSize(raw: string | undefined): number {
 function normalizeTier(raw: string | undefined): ScoreTier | null {
   if (raw === "suggested" || raw === "within_reach" || raw === "other") return raw;
   return null;
+}
+
+function tierForScore(score: number): ScoreTier {
+  if (score >= 80) return "suggested";
+  if (score >= 50) return "within_reach";
+  return "other";
+}
+
+function matchesTier(grant: EligibleGrant, tier: ScoreTier | null): boolean {
+  if (!tier) return true;
+  return tierForScore(grant.score) === tier;
 }
 
 function buildMatchesHref(page: number, pageSize: number, tier: ScoreTier | null): string {
@@ -128,7 +166,6 @@ async function EligibleGrantsPageContent({
   const page = normalizePage(params.page);
   const pageSize = normalizePageSize(params.pageSize);
   const activeTier = normalizeTier(params.tier);
-  const offset = (page - 1) * pageSize;
   const { org, orgId } = await getActiveOrg();
   const supabase = getSupabaseAdmin();
 
@@ -164,49 +201,33 @@ async function EligibleGrantsPageContent({
     );
   }
 
-  // First try: filter by both org and profile. The tier filter is applied
-  // server-side so "Suggested" fetches the suggested set, not just the
-  // suggested grants that happened to be loaded on the current page.
-  let assessmentsQuery = supabase
+  // Build counts and pages from the same final match set that users see.
+  // Raw assessment counts can include expired, applied, wrong-region, or
+  // post-guard downgraded grants, which made "16 suggested" render fewer rows.
+  const assessmentsResult = await supabase
     .from("EligibilityAssessment")
-    .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, updated_at, scoring_source", { count: "exact" })
+    .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, updated_at, profile_id, scoring_source", { count: "exact" })
     .eq("organisation_id", orgId)
     .eq("profile_id", profileId)
-    .order("score", { ascending: false });
-  if (activeTier === "suggested") {
-    assessmentsQuery = assessmentsQuery.gte("score", 80);
-  } else if (activeTier === "within_reach") {
-    assessmentsQuery = assessmentsQuery.gte("score", 50).lt("score", 80);
-  } else if (activeTier === "other") {
-    assessmentsQuery = assessmentsQuery.lt("score", 50);
-  }
-
-  const assessmentsResult = await assessmentsQuery.range(offset, offset + pageSize * MATCH_FETCH_OVERAGE - 1);
-  let assessmentsData = assessmentsResult.data;
+    .order("score", { ascending: false })
+    .range(0, MAX_MATCH_ASSESSMENTS - 1);
+  let assessmentsData = assessmentsResult.data as AssessmentRow[] | null;
   const assessmentsError = assessmentsResult.error;
-  let assessmentTotalCount = assessmentsResult.count ?? 0;
+  let rawAssessmentCount = assessmentsResult.count ?? assessmentsData?.length ?? 0;
 
   // Fallback: if nothing found with profileId, try org-only query
   // (handles mismatch between profile ID in auth vs eligibility pipeline)
   if ((!assessmentsData || assessmentsData.length === 0) && !assessmentsError) {
-    let fallbackQuery = supabase
+    const fallback = await supabase
       .from("EligibilityAssessment")
       .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, updated_at, profile_id, scoring_source", { count: "exact" })
       .eq("organisation_id", orgId)
-      .order("score", { ascending: false });
-    if (activeTier === "suggested") {
-      fallbackQuery = fallbackQuery.gte("score", 80);
-    } else if (activeTier === "within_reach") {
-      fallbackQuery = fallbackQuery.gte("score", 50).lt("score", 80);
-    } else if (activeTier === "other") {
-      fallbackQuery = fallbackQuery.lt("score", 50);
-    }
-
-    const fallback = await fallbackQuery.range(offset, offset + pageSize * MATCH_FETCH_OVERAGE - 1);
+      .order("score", { ascending: false })
+      .range(0, MAX_MATCH_ASSESSMENTS - 1);
     if (fallback.data && fallback.data.length > 0) {
       console.warn(`[eligible-page] profileId mismatch: page uses "${profileId}" but DB has "${(fallback.data[0] as { profile_id: string }).profile_id}" — using org-only fallback (${fallback.data.length} rows)`);
-      assessmentsData = fallback.data;
-      assessmentTotalCount = fallback.count ?? fallback.data.length;
+      assessmentsData = fallback.data as AssessmentRow[];
+      rawAssessmentCount = fallback.count ?? fallback.data.length;
     }
   }
 
@@ -214,53 +235,10 @@ async function EligibleGrantsPageContent({
     console.error("[eligible-page] assessments query error:", assessmentsError);
   }
 
-  const assessments = (assessmentsData ?? []) as {
-    grant_id: string;
-    score: number;
-    decision: string | null;
-    summary: string | null;
-    missing_criteria: string[] | null;
-    improvement_plan: { gaps?: string[]; actions?: string[] } | null;
-    updated_at: string;
-    scoring_source?: string | null;
-  }[];
-  const [
-    suggestedCountResult,
-    withinReachCountResult,
-    otherCountResult,
-    latestScoreResult,
-  ] = await Promise.all([
-    supabase
-      .from("EligibilityAssessment")
-      .select("id", { count: "exact", head: true })
-      .eq("organisation_id", orgId)
-      .eq("profile_id", profileId)
-      .gte("score", 80),
-    supabase
-      .from("EligibilityAssessment")
-      .select("id", { count: "exact", head: true })
-      .eq("organisation_id", orgId)
-      .eq("profile_id", profileId)
-      .gte("score", 50)
-      .lt("score", 80),
-    supabase
-      .from("EligibilityAssessment")
-      .select("id", { count: "exact", head: true })
-      .eq("organisation_id", orgId)
-      .eq("profile_id", profileId)
-      .lt("score", 50),
-    supabase
-      .from("EligibilityAssessment")
-      .select("updated_at")
-      .eq("organisation_id", orgId)
-      .eq("profile_id", profileId)
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-  ]);
+  const assessments = assessmentsData ?? [];
 
   const grantIds = assessments.map((a) => a.grant_id);
-  let grantsMap = new Map<string, { id: string; name: string; funder: string; deadline: string | null; funderLocations?: string[]; createdAt?: string | null; eligibility?: string | null; description?: string | null; objectives?: string | null; applicantTypes?: string[]; sectors?: string[]; regions?: string[] }>();
+  let grantsMap = new Map<string, GrantRow>();
   const { data: outcomeRows } = await supabase
     .from("ApplicationOutcome")
     .select("outcome, awardedAmount, funderFeedback, learningNotes, Grant(name, funder)")
@@ -273,10 +251,9 @@ async function EligibleGrantsPageContent({
   if (grantIds.length > 0) {
     const appliedGrantIds = await getAppliedGrantIds(supabase, orgId, profileId);
     // Batch .in() queries to avoid URL length limits (Supabase/PostgREST caps ~8KB)
-    const BATCH_SIZE = 200;
-    const allGrantsData: { id: string; name: string; funder: string; deadline: string | null; funderLocations?: string[]; url_status?: string; createdAt?: string | null; eligibility?: string | null; description?: string | null; objectives?: string | null; applicantTypes?: string[]; sectors?: string[]; regions?: string[] }[] = [];
-    for (let i = 0; i < grantIds.length; i += BATCH_SIZE) {
-      const batch = grantIds.slice(i, i + BATCH_SIZE);
+    const allGrantsData: GrantRow[] = [];
+    for (let i = 0; i < grantIds.length; i += GRANT_QUERY_BATCH_SIZE) {
+      const batch = grantIds.slice(i, i + GRANT_QUERY_BATCH_SIZE);
       const { data: batchData, error: grantErr } = await supabase
         .from("Grant")
         .select("id, name, funder, deadline, funderLocations, url_status, createdAt, eligibility, description, objectives, applicantTypes, sectors, regions")
@@ -284,7 +261,7 @@ async function EligibleGrantsPageContent({
       if (grantErr) {
         console.error("[eligible-page] grants query error:", grantErr);
       }
-      if (batchData) allGrantsData.push(...(batchData as typeof allGrantsData));
+      if (batchData) allGrantsData.push(...(batchData as GrantRow[]));
     }
 
     const validGrants = allGrantsData.filter((grant) =>
@@ -349,17 +326,26 @@ async function EligibleGrantsPageContent({
 
   }
 
-  const displayGrants = allGrants.slice(0, pageSize);
-  const suggestedCount = suggestedCountResult.count ?? 0;
-  const withinReachCount = withinReachCountResult.count ?? 0;
-  const otherCount = otherCountResult.count ?? 0;
-  const allScoredCount = suggestedCount + withinReachCount + otherCount;
-  const totalInCurrentView = assessmentTotalCount || allGrants.length;
+  allGrants.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    const bTime = b.addedAt ? new Date(b.addedAt).getTime() : 0;
+    const aTime = a.addedAt ? new Date(a.addedAt).getTime() : 0;
+    return bTime - aTime;
+  });
+
+  const suggestedCount = allGrants.filter((grant) => tierForScore(grant.score) === "suggested").length;
+  const withinReachCount = allGrants.filter((grant) => tierForScore(grant.score) === "within_reach").length;
+  const otherCount = allGrants.filter((grant) => tierForScore(grant.score) === "other").length;
+  const allScoredCount = allGrants.length;
+  const tierGrants = allGrants.filter((grant) => matchesTier(grant, activeTier));
+  const totalInCurrentView = tierGrants.length;
   const totalPages = Math.max(1, Math.ceil(totalInCurrentView / pageSize));
   const safePage = Math.min(page, totalPages);
+  const displayOffset = (safePage - 1) * pageSize;
+  const displayGrants = tierGrants.slice(displayOffset, displayOffset + pageSize);
   const timezone = resolveTimeZone((org as { preferredTimezone?: string | null }).preferredTimezone);
   const lastScoredAt = latestIsoDate([
-    (latestScoreResult.data as { updated_at?: string } | null)?.updated_at ?? null,
+    ...assessments.map((assessment) => assessment.updated_at),
   ]);
   const lastScoredLabel = formatLastScoredAt(lastScoredAt, timezone);
 
@@ -377,8 +363,13 @@ async function EligibleGrantsPageContent({
         <h1 className="text-2xl font-bold">My Matches</h1>
         <p className="mt-1 text-muted-foreground">
           Grants scored against your profile, ranked by eligibility.
-          {allScoredCount > 0 && (
-            <> {allScoredCount} grants scored{lastScoredLabel && <> · Latest score updated {lastScoredLabel}</>}.</>
+          {rawAssessmentCount > 0 && (
+            <>
+              {" "}
+              {rawAssessmentCount} grants scored
+              {allScoredCount !== rawAssessmentCount && <> · {allScoredCount} current matches</>}
+              {lastScoredLabel && <> · Latest score updated {lastScoredLabel}</>}.
+            </>
           )}
         </p>
         {allScoredCount > 0 && (
@@ -418,7 +409,7 @@ async function EligibleGrantsPageContent({
         </Card>
       )}
 
-      {allScoredCount === 0 ? (
+      {rawAssessmentCount === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
             <Building2 className="h-10 w-10 text-muted-foreground" />
@@ -435,6 +426,19 @@ async function EligibleGrantsPageContent({
                 <Button size="sm">Browse All Grants</Button>
               </Link>
             </div>
+          </CardContent>
+        </Card>
+      ) : allScoredCount === 0 ? (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+            <Building2 className="h-10 w-10 text-muted-foreground" />
+            <h2 className="mt-4 text-lg font-semibold">No current matches available</h2>
+            <p className="mt-1 max-w-md text-sm text-muted-foreground">
+              Grants were scored, but the current results are expired, already applied, outside your funder region, or otherwise unavailable.
+            </p>
+            <Link href="/grants" className="mt-4">
+              <Button size="sm">Browse All Grants</Button>
+            </Link>
           </CardContent>
         </Card>
       ) : (
