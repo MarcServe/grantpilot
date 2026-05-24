@@ -17,7 +17,8 @@ const MATCH_PAGE_SIZE_OPTIONS = [20, 30, 50] as const;
 const DEFAULT_MATCH_PAGE_SIZE = 30;
 const MATCH_FETCH_OVERAGE = 3;
 
-type MatchSearchParams = Promise<{ page?: string; pageSize?: string }>;
+type ScoreTier = "suggested" | "within_reach" | "other";
+type MatchSearchParams = Promise<{ page?: string; pageSize?: string; tier?: string }>;
 
 function profileForEligibilityGuards(profile: Record<string, unknown>) {
   return {
@@ -41,8 +42,14 @@ function normalizePageSize(raw: string | undefined): number {
   return (MATCH_PAGE_SIZE_OPTIONS as readonly number[]).includes(parsed) ? parsed : DEFAULT_MATCH_PAGE_SIZE;
 }
 
-function buildMatchesHref(page: number, pageSize: number): string {
+function normalizeTier(raw: string | undefined): ScoreTier | null {
+  if (raw === "suggested" || raw === "within_reach" || raw === "other") return raw;
+  return null;
+}
+
+function buildMatchesHref(page: number, pageSize: number, tier: ScoreTier | null): string {
   const params = new URLSearchParams();
+  if (tier) params.set("tier", tier);
   if (page > 1) params.set("page", String(page));
   if (pageSize !== DEFAULT_MATCH_PAGE_SIZE) params.set("pageSize", String(pageSize));
   const query = params.toString();
@@ -120,6 +127,7 @@ async function EligibleGrantsPageContent({
   const params = await searchParams;
   const page = normalizePage(params.page);
   const pageSize = normalizePageSize(params.pageSize);
+  const activeTier = normalizeTier(params.tier);
   const offset = (page - 1) * pageSize;
   const { org, orgId } = await getActiveOrg();
   const supabase = getSupabaseAdmin();
@@ -156,14 +164,24 @@ async function EligibleGrantsPageContent({
     );
   }
 
-  // First try: filter by both org and profile
-  const assessmentsResult = await supabase
+  // First try: filter by both org and profile. The tier filter is applied
+  // server-side so "Suggested" fetches the suggested set, not just the
+  // suggested grants that happened to be loaded on the current page.
+  let assessmentsQuery = supabase
     .from("EligibilityAssessment")
     .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, updated_at, scoring_source", { count: "exact" })
     .eq("organisation_id", orgId)
     .eq("profile_id", profileId)
-    .order("score", { ascending: false })
-    .range(offset, offset + pageSize * MATCH_FETCH_OVERAGE - 1);
+    .order("score", { ascending: false });
+  if (activeTier === "suggested") {
+    assessmentsQuery = assessmentsQuery.gte("score", 80);
+  } else if (activeTier === "within_reach") {
+    assessmentsQuery = assessmentsQuery.gte("score", 50).lt("score", 80);
+  } else if (activeTier === "other") {
+    assessmentsQuery = assessmentsQuery.lt("score", 50);
+  }
+
+  const assessmentsResult = await assessmentsQuery.range(offset, offset + pageSize * MATCH_FETCH_OVERAGE - 1);
   let assessmentsData = assessmentsResult.data;
   const assessmentsError = assessmentsResult.error;
   let assessmentTotalCount = assessmentsResult.count ?? 0;
@@ -171,12 +189,20 @@ async function EligibleGrantsPageContent({
   // Fallback: if nothing found with profileId, try org-only query
   // (handles mismatch between profile ID in auth vs eligibility pipeline)
   if ((!assessmentsData || assessmentsData.length === 0) && !assessmentsError) {
-    const fallback = await supabase
+    let fallbackQuery = supabase
       .from("EligibilityAssessment")
       .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, updated_at, profile_id, scoring_source", { count: "exact" })
       .eq("organisation_id", orgId)
-      .order("score", { ascending: false })
-      .range(offset, offset + pageSize * MATCH_FETCH_OVERAGE - 1);
+      .order("score", { ascending: false });
+    if (activeTier === "suggested") {
+      fallbackQuery = fallbackQuery.gte("score", 80);
+    } else if (activeTier === "within_reach") {
+      fallbackQuery = fallbackQuery.gte("score", 50).lt("score", 80);
+    } else if (activeTier === "other") {
+      fallbackQuery = fallbackQuery.lt("score", 50);
+    }
+
+    const fallback = await fallbackQuery.range(offset, offset + pageSize * MATCH_FETCH_OVERAGE - 1);
     if (fallback.data && fallback.data.length > 0) {
       console.warn(`[eligible-page] profileId mismatch: page uses "${profileId}" but DB has "${(fallback.data[0] as { profile_id: string }).profile_id}" — using org-only fallback (${fallback.data.length} rows)`);
       assessmentsData = fallback.data;
@@ -281,9 +307,6 @@ async function EligibleGrantsPageContent({
   }
 
   const allGrants: EligibleGrant[] = [];
-  const suggestedCount = suggestedCountResult.count ?? 0;
-  const withinReachCount = withinReachCountResult.count ?? 0;
-  const otherCount = otherCountResult.count ?? 0;
 
   for (const a of assessments) {
     const grant = grantsMap.get(a.grant_id);
@@ -327,8 +350,12 @@ async function EligibleGrantsPageContent({
   }
 
   const displayGrants = allGrants.slice(0, pageSize);
-  const totalScored = assessmentTotalCount || allGrants.length;
-  const totalPages = Math.max(1, Math.ceil(totalScored / pageSize));
+  const suggestedCount = suggestedCountResult.count ?? 0;
+  const withinReachCount = withinReachCountResult.count ?? 0;
+  const otherCount = otherCountResult.count ?? 0;
+  const allScoredCount = suggestedCount + withinReachCount + otherCount;
+  const totalInCurrentView = assessmentTotalCount || allGrants.length;
+  const totalPages = Math.max(1, Math.ceil(totalInCurrentView / pageSize));
   const safePage = Math.min(page, totalPages);
   const timezone = resolveTimeZone((org as { preferredTimezone?: string | null }).preferredTimezone);
   const lastScoredAt = latestIsoDate([
@@ -350,11 +377,11 @@ async function EligibleGrantsPageContent({
         <h1 className="text-2xl font-bold">My Matches</h1>
         <p className="mt-1 text-muted-foreground">
           Grants scored against your profile, ranked by eligibility.
-          {totalScored > 0 && (
-            <> {totalScored} grants scored{lastScoredLabel && <> · Latest score updated {lastScoredLabel}</>}.</>
+          {allScoredCount > 0 && (
+            <> {allScoredCount} grants scored{lastScoredLabel && <> · Latest score updated {lastScoredLabel}</>}.</>
           )}
         </p>
-        {totalScored > 0 && (
+        {allScoredCount > 0 && (
           <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
             {totalPages > 1 && <span>Page {safePage} of {totalPages}</span>}
             <span className="hidden text-muted-foreground sm:inline">·</span>
@@ -363,7 +390,7 @@ async function EligibleGrantsPageContent({
               {(MATCH_PAGE_SIZE_OPTIONS as readonly number[]).map((size) => (
                 <Link
                   key={size}
-                  href={buildMatchesHref(1, size)}
+                  href={buildMatchesHref(1, size, activeTier)}
                   className={size === pageSize ? "font-semibold text-primary" : "hover:text-foreground"}
                 >
                   {size}
@@ -391,7 +418,7 @@ async function EligibleGrantsPageContent({
         </Card>
       )}
 
-      {totalScored === 0 ? (
+      {allScoredCount === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
             <Building2 className="h-10 w-10 text-muted-foreground" />
@@ -414,12 +441,19 @@ async function EligibleGrantsPageContent({
         <EligibleGrantsList
           grants={displayGrants}
           counts={{ suggested: suggestedCount, withinReach: withinReachCount, other: otherCount }}
+          activeTier={activeTier}
+          links={{
+            all: buildMatchesHref(1, pageSize, null),
+            suggested: buildMatchesHref(1, pageSize, "suggested"),
+            withinReach: buildMatchesHref(1, pageSize, "within_reach"),
+            other: buildMatchesHref(1, pageSize, "other"),
+          }}
         />
       )}
       {totalPages > 1 && (
         <div className="mt-6 flex items-center justify-center gap-3">
           <Link
-            href={buildMatchesHref(Math.max(1, safePage - 1), pageSize)}
+            href={buildMatchesHref(Math.max(1, safePage - 1), pageSize, activeTier)}
             aria-disabled={safePage <= 1}
             className={`rounded-md border px-3 py-1.5 text-sm transition-colors ${
               safePage <= 1 ? "pointer-events-none opacity-40" : "hover:bg-muted"
@@ -429,7 +463,7 @@ async function EligibleGrantsPageContent({
           </Link>
           <span className="text-sm text-muted-foreground">{safePage} / {totalPages}</span>
           <Link
-            href={buildMatchesHref(Math.min(totalPages, safePage + 1), pageSize)}
+            href={buildMatchesHref(Math.min(totalPages, safePage + 1), pageSize, activeTier)}
             aria-disabled={safePage >= totalPages}
             className={`rounded-md border px-3 py-1.5 text-sm transition-colors ${
               safePage >= totalPages ? "pointer-events-none opacity-40" : "hover:bg-muted"

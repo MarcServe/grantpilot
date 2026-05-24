@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -15,39 +16,32 @@ function tierFor(score: number): ScoreTier {
   return "other";
 }
 
-const PAGE_SIZE = 25;
-
 interface Props {
   grants: EligibleGrant[];
   counts: { suggested: number; withinReach: number; other: number };
+  activeTier: ScoreTier | null;
+  links: {
+    all: string;
+    suggested: string;
+    withinReach: string;
+    other: string;
+  };
 }
 
-export function EligibleGrantsList({ grants, counts }: Props) {
-  const [activeTier, setActiveTier] = useState<ScoreTier | null>(null);
+export function EligibleGrantsList({ grants, counts, activeTier, links }: Props) {
   const [query, setQuery] = useState("");
-  const [page, setPage] = useState(1);
-
-  const selectTier = (tier: ScoreTier) => {
-    setActiveTier((prev) => (prev === tier ? null : tier));
-    setPage(1);
-  };
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();
     return grants.filter((g) => {
-      if (activeTier && tierFor(g.score) !== activeTier) return false;
       if (q && !g.grantName.toLowerCase().includes(q) && !g.funder.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [grants, activeTier, query]);
+  }, [grants, query]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const currentPage = Math.min(page, totalPages);
-  const pageGrants = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
-
-  const suggested = pageGrants.filter((g) => g.score >= 80);
-  const withinReach = pageGrants.filter((g) => g.score >= 50 && g.score < 80);
-  const other = pageGrants.filter((g) => g.score < 50);
+  const suggested = filtered.filter((g) => tierFor(g.score) === "suggested");
+  const withinReach = filtered.filter((g) => tierFor(g.score) === "within_reach");
+  const other = filtered.filter((g) => tierFor(g.score) === "other");
 
   const isFiltered = activeTier !== null || query.trim() !== "";
 
@@ -61,7 +55,7 @@ export function EligibleGrantsList({ grants, counts }: Props) {
           variant="default"
           selected={activeTier === "suggested"}
           dimmed={activeTier !== null && activeTier !== "suggested"}
-          onClick={() => selectTier("suggested")}
+          href={activeTier === "suggested" ? links.all : links.suggested}
         />
         <FilterBadge
           label={`${counts.withinReach} within reach`}
@@ -69,7 +63,7 @@ export function EligibleGrantsList({ grants, counts }: Props) {
           variant="secondary"
           selected={activeTier === "within_reach"}
           dimmed={activeTier !== null && activeTier !== "within_reach"}
-          onClick={() => selectTier("within_reach")}
+          href={activeTier === "within_reach" ? links.all : links.withinReach}
         />
         <FilterBadge
           label={`${counts.other} other`}
@@ -77,21 +71,21 @@ export function EligibleGrantsList({ grants, counts }: Props) {
           variant="outline"
           selected={activeTier === "other"}
           dimmed={activeTier !== null && activeTier !== "other"}
-          onClick={() => selectTier("other")}
+          href={activeTier === "other" ? links.all : links.other}
         />
 
         <div className="relative ml-auto w-full sm:w-60">
           <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={query}
-            onChange={(e) => { setQuery(e.target.value); setPage(1); }}
+            onChange={(e) => setQuery(e.target.value)}
             placeholder="Search grants or funders…"
             className="h-8 pl-8 text-sm"
           />
           {query && (
             <button
               type="button"
-              onClick={() => { setQuery(""); setPage(1); }}
+              onClick={() => setQuery("")}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
             >
               <X className="h-3.5 w-3.5" />
@@ -100,13 +94,13 @@ export function EligibleGrantsList({ grants, counts }: Props) {
         </div>
 
         {isFiltered && (
-          <button
-            type="button"
-            onClick={() => { setActiveTier(null); setQuery(""); setPage(1); }}
+          <Link
+            href={links.all}
+            onClick={() => setQuery("")}
             className="text-xs text-muted-foreground underline hover:text-foreground"
           >
             Clear filters
-          </button>
+          </Link>
         )}
       </div>
 
@@ -130,10 +124,10 @@ export function EligibleGrantsList({ grants, counts }: Props) {
             </p>
             <button
               type="button"
-              onClick={() => { setActiveTier(null); setQuery(""); setPage(1); }}
+              onClick={() => setQuery("")}
               className="mt-2 text-sm font-medium text-primary underline"
             >
-              Show all grants
+              Clear search
             </button>
           </CardContent>
         </Card>
@@ -145,7 +139,7 @@ export function EligibleGrantsList({ grants, counts }: Props) {
               subtitle="High eligibility — strong fit for your business."
               icon={<Sparkles className="h-4 w-4 text-primary" />}
               grants={suggested}
-              totalInTier={activeTier === "suggested" ? filtered.length : counts.suggested}
+              totalInTier={counts.suggested}
             />
           )}
           {withinReach.length > 0 && (
@@ -154,7 +148,7 @@ export function EligibleGrantsList({ grants, counts }: Props) {
               subtitle="Partial fit — see what you can improve."
               icon={<Target className="h-4 w-4 text-amber-600" />}
               grants={withinReach}
-              totalInTier={activeTier === "within_reach" ? filtered.length : counts.withinReach}
+              totalInTier={counts.withinReach}
             />
           )}
           {other.length > 0 && (
@@ -163,31 +157,9 @@ export function EligibleGrantsList({ grants, counts }: Props) {
               subtitle="Lower fit — may still be worth reviewing."
               icon={null}
               grants={other}
-              totalInTier={activeTier === "other" ? filtered.length : counts.other}
+              totalInTier={counts.other}
               muted
             />
-          )}
-
-          {totalPages > 1 && (
-            <div className="flex items-center justify-center gap-3 pt-2">
-              <button
-                disabled={currentPage <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                className="rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Previous
-              </button>
-              <span className="text-sm tabular-nums text-muted-foreground">
-                {currentPage} / {totalPages}
-              </span>
-              <button
-                disabled={currentPage >= totalPages}
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                className="rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Next
-              </button>
-            </div>
           )}
         </div>
       )}
@@ -203,19 +175,19 @@ function FilterBadge({
   variant,
   selected,
   dimmed,
-  onClick,
+  href,
 }: {
   label: string;
   icon: React.ReactNode;
   variant: "default" | "secondary" | "outline";
   selected: boolean;
   dimmed: boolean;
-  onClick: () => void;
+  href: string;
 }) {
   const badgeVariant = dimmed ? "outline" : variant;
 
   return (
-    <button type="button" onClick={onClick} className="focus-visible:outline-none">
+    <Link href={href} className="focus-visible:outline-none">
       <Badge
         variant={badgeVariant}
         className={`cursor-pointer gap-1 transition-all hover:opacity-80 ${
@@ -225,7 +197,7 @@ function FilterBadge({
         {icon}
         {label}
       </Badge>
-    </button>
+    </Link>
   );
 }
 
