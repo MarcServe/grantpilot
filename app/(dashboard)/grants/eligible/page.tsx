@@ -9,10 +9,15 @@ import type { EligibleGrant } from "@/components/grants/eligible-grant-card";
 import { EligibleGrantsList } from "@/components/grants/eligible-grants-list";
 import { isGrantLinkUsable } from "@/lib/grant-freshness";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
-import { isOpenAIChecked } from "@/lib/grant-source-policy";
 import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
 import { applyOutcomeScoreAdjustment, deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
 import type { EligibilityResult } from "@/lib/claude";
+
+const MATCH_PAGE_SIZE_OPTIONS = [20, 30, 50] as const;
+const DEFAULT_MATCH_PAGE_SIZE = 30;
+const MATCH_FETCH_OVERAGE = 3;
+
+type MatchSearchParams = Promise<{ page?: string; pageSize?: string }>;
 
 function profileForEligibilityGuards(profile: Record<string, unknown>) {
   return {
@@ -24,6 +29,24 @@ function profileForEligibilityGuards(profile: Record<string, unknown>) {
     annualRevenue: profile.annualRevenue != null ? Number(profile.annualRevenue) : (profile.annual_revenue != null ? Number(profile.annual_revenue) : null),
     yearEstablished: profile.yearEstablished != null ? Number(profile.yearEstablished) : (profile.year_established != null ? Number(profile.year_established) : null),
   };
+}
+
+function normalizePage(raw: string | undefined): number {
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 1;
+}
+
+function normalizePageSize(raw: string | undefined): number {
+  const parsed = Number(raw);
+  return (MATCH_PAGE_SIZE_OPTIONS as readonly number[]).includes(parsed) ? parsed : DEFAULT_MATCH_PAGE_SIZE;
+}
+
+function buildMatchesHref(page: number, pageSize: number): string {
+  const params = new URLSearchParams();
+  if (page > 1) params.set("page", String(page));
+  if (pageSize !== DEFAULT_MATCH_PAGE_SIZE) params.set("pageSize", String(pageSize));
+  const query = params.toString();
+  return query ? `/grants/eligible?${query}` : "/grants/eligible";
 }
 
 function latestIsoDate(values: (string | null | undefined)[]): string | null {
@@ -81,7 +104,23 @@ function formatLastScoredAt(value: string | null, timeZone: string): string | nu
   }).format(date);
 }
 
-export default async function EligibleGrantsPage() {
+export default async function EligibleGrantsPage({
+  searchParams,
+}: {
+  searchParams: MatchSearchParams;
+}) {
+  return <EligibleGrantsPageContent searchParams={searchParams} />;
+}
+
+async function EligibleGrantsPageContent({
+  searchParams,
+}: {
+  searchParams: MatchSearchParams;
+}) {
+  const params = await searchParams;
+  const page = normalizePage(params.page);
+  const pageSize = normalizePageSize(params.pageSize);
+  const offset = (page - 1) * pageSize;
   const { org, orgId } = await getActiveOrg();
   const supabase = getSupabaseAdmin();
 
@@ -120,24 +159,28 @@ export default async function EligibleGrantsPage() {
   // First try: filter by both org and profile
   const assessmentsResult = await supabase
     .from("EligibilityAssessment")
-    .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, updated_at, scoring_source")
+    .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, updated_at, scoring_source", { count: "exact" })
     .eq("organisation_id", orgId)
     .eq("profile_id", profileId)
-    .order("score", { ascending: false });
+    .order("score", { ascending: false })
+    .range(offset, offset + pageSize * MATCH_FETCH_OVERAGE - 1);
   let assessmentsData = assessmentsResult.data;
   const assessmentsError = assessmentsResult.error;
+  let assessmentTotalCount = assessmentsResult.count ?? 0;
 
   // Fallback: if nothing found with profileId, try org-only query
   // (handles mismatch between profile ID in auth vs eligibility pipeline)
   if ((!assessmentsData || assessmentsData.length === 0) && !assessmentsError) {
     const fallback = await supabase
       .from("EligibilityAssessment")
-      .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, updated_at, profile_id, scoring_source")
+      .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, updated_at, profile_id, scoring_source", { count: "exact" })
       .eq("organisation_id", orgId)
-      .order("score", { ascending: false });
+      .order("score", { ascending: false })
+      .range(offset, offset + pageSize * MATCH_FETCH_OVERAGE - 1);
     if (fallback.data && fallback.data.length > 0) {
       console.warn(`[eligible-page] profileId mismatch: page uses "${profileId}" but DB has "${(fallback.data[0] as { profile_id: string }).profile_id}" — using org-only fallback (${fallback.data.length} rows)`);
       assessmentsData = fallback.data;
+      assessmentTotalCount = fallback.count ?? fallback.data.length;
     }
   }
 
@@ -155,6 +198,40 @@ export default async function EligibleGrantsPage() {
     updated_at: string;
     scoring_source?: string | null;
   }[];
+  const [
+    suggestedCountResult,
+    withinReachCountResult,
+    otherCountResult,
+    latestScoreResult,
+  ] = await Promise.all([
+    supabase
+      .from("EligibilityAssessment")
+      .select("id", { count: "exact", head: true })
+      .eq("organisation_id", orgId)
+      .eq("profile_id", profileId)
+      .gte("score", 80),
+    supabase
+      .from("EligibilityAssessment")
+      .select("id", { count: "exact", head: true })
+      .eq("organisation_id", orgId)
+      .eq("profile_id", profileId)
+      .gte("score", 50)
+      .lt("score", 80),
+    supabase
+      .from("EligibilityAssessment")
+      .select("id", { count: "exact", head: true })
+      .eq("organisation_id", orgId)
+      .eq("profile_id", profileId)
+      .lt("score", 50),
+    supabase
+      .from("EligibilityAssessment")
+      .select("updated_at")
+      .eq("organisation_id", orgId)
+      .eq("profile_id", profileId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
 
   const grantIds = assessments.map((a) => a.grant_id);
   let grantsMap = new Map<string, { id: string; name: string; funder: string; deadline: string | null; funderLocations?: string[]; createdAt?: string | null; eligibility?: string | null; description?: string | null; objectives?: string | null; applicantTypes?: string[]; sectors?: string[]; regions?: string[] }>();
@@ -204,9 +281,9 @@ export default async function EligibleGrantsPage() {
   }
 
   const allGrants: EligibleGrant[] = [];
-  let suggestedCount = 0;
-  let withinReachCount = 0;
-  let otherCount = 0;
+  const suggestedCount = suggestedCountResult.count ?? 0;
+  const withinReachCount = withinReachCountResult.count ?? 0;
+  const otherCount = otherCountResult.count ?? 0;
 
   for (const a of assessments) {
     const grant = grantsMap.get(a.grant_id);
@@ -247,14 +324,16 @@ export default async function EligibleGrantsPage() {
       scoringSource,
     });
 
-    if (isOpenAIChecked(scoringSource) && score >= 80) suggestedCount++;
-    else if (score >= 50) withinReachCount++;
-    else otherCount++;
   }
 
-  const totalScored = allGrants.length;
+  const displayGrants = allGrants.slice(0, pageSize);
+  const totalScored = assessmentTotalCount || allGrants.length;
+  const totalPages = Math.max(1, Math.ceil(totalScored / pageSize));
+  const safePage = Math.min(page, totalPages);
   const timezone = resolveTimeZone((org as { preferredTimezone?: string | null }).preferredTimezone);
-  const lastScoredAt = latestIsoDate(assessments.map((assessment) => assessment.updated_at));
+  const lastScoredAt = latestIsoDate([
+    (latestScoreResult.data as { updated_at?: string } | null)?.updated_at ?? null,
+  ]);
   const lastScoredLabel = formatLastScoredAt(lastScoredAt, timezone);
 
   return (
@@ -275,6 +354,24 @@ export default async function EligibleGrantsPage() {
             <> {totalScored} grants scored{lastScoredLabel && <> · Latest score updated {lastScoredLabel}</>}.</>
           )}
         </p>
+        {totalScored > 0 && (
+          <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+            {totalPages > 1 && <span>Page {safePage} of {totalPages}</span>}
+            <span className="hidden text-muted-foreground sm:inline">·</span>
+            <span className="flex items-center gap-2">
+              <span>Per page</span>
+              {(MATCH_PAGE_SIZE_OPTIONS as readonly number[]).map((size) => (
+                <Link
+                  key={size}
+                  href={buildMatchesHref(1, size)}
+                  className={size === pageSize ? "font-semibold text-primary" : "hover:text-foreground"}
+                >
+                  {size}
+                </Link>
+              ))}
+            </span>
+          </div>
+        )}
       </div>
 
       {completionScore < 50 && (
@@ -315,9 +412,32 @@ export default async function EligibleGrantsPage() {
         </Card>
       ) : (
         <EligibleGrantsList
-          grants={allGrants}
+          grants={displayGrants}
           counts={{ suggested: suggestedCount, withinReach: withinReachCount, other: otherCount }}
         />
+      )}
+      {totalPages > 1 && (
+        <div className="mt-6 flex items-center justify-center gap-3">
+          <Link
+            href={buildMatchesHref(Math.max(1, safePage - 1), pageSize)}
+            aria-disabled={safePage <= 1}
+            className={`rounded-md border px-3 py-1.5 text-sm transition-colors ${
+              safePage <= 1 ? "pointer-events-none opacity-40" : "hover:bg-muted"
+            }`}
+          >
+            Previous
+          </Link>
+          <span className="text-sm text-muted-foreground">{safePage} / {totalPages}</span>
+          <Link
+            href={buildMatchesHref(Math.min(totalPages, safePage + 1), pageSize)}
+            aria-disabled={safePage >= totalPages}
+            className={`rounded-md border px-3 py-1.5 text-sm transition-colors ${
+              safePage >= totalPages ? "pointer-events-none opacity-40" : "hover:bg-muted"
+            }`}
+          >
+            Next
+          </Link>
+        </div>
       )}
     </div>
   );

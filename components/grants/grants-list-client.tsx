@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useMemo, useCallback } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { GrantCard } from "./grant-card";
 import { toast } from "sonner";
 import { grantMatchesFunderLocations } from "@/lib/constants";
 
-const PAGE_SIZE_OPTIONS = [15, 30, 50, 100, 200, 500, 1000] as const;
+const PAGE_SIZE_OPTIONS = [20, 30, 50] as const;
 const DEFAULT_PAGE_SIZE = 30;
 
 const SORT_OPTIONS = [
@@ -60,6 +61,18 @@ interface GrantsListClientProps {
   profileComplete: boolean;
   cachedScores?: Record<string, CachedScore>;
   savedGrantIds?: string[];
+  funderOptions?: string[];
+  serverPagination?: {
+    page: number;
+    pageSize: number;
+    totalItems: number;
+    totalPages: number;
+    sortMode: (typeof SORT_OPTIONS)[number]["value"];
+    regionFilter: string;
+    funderFilter: string;
+    hideExpired: boolean;
+    hideBroken: boolean;
+  };
 }
 
 function matchesFunderLocations(
@@ -100,17 +113,34 @@ export function GrantsListClient({
   profileComplete,
   cachedScores = {},
   savedGrantIds = [],
+  funderOptions,
+  serverPagination,
 }: GrantsListClientProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const isServerPaged = Boolean(serverPagination);
   const [savedSet, setSavedSet] = useState<Set<string>>(() => new Set(savedGrantIds));
-  const [sortMode, setSortMode] = useState<(typeof SORT_OPTIONS)[number]["value"]>("newest");
-  const [funderFilter, setFunderFilter] = useState<string>("");
+  const [sortMode, setSortMode] = useState<(typeof SORT_OPTIONS)[number]["value"]>(serverPagination?.sortMode ?? "newest");
+  const [funderFilter, setFunderFilter] = useState<string>(serverPagination?.funderFilter ?? "");
   const [regionFilter, setRegionFilter] = useState<string>(() =>
-    hasProfile && userFunderLocations.length > 0 ? "recommended" : ""
+    serverPagination?.regionFilter ?? (hasProfile && userFunderLocations.length > 0 ? "recommended" : "")
   );
-  const [hideExpired, setHideExpired] = useState(true);
-  const [hideBroken, setHideBroken] = useState(false);
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [hideExpired, setHideExpired] = useState(serverPagination?.hideExpired ?? true);
+  const [hideBroken, setHideBroken] = useState(serverPagination?.hideBroken ?? false);
+  const [pageSize, setPageSize] = useState(serverPagination?.pageSize ?? DEFAULT_PAGE_SIZE);
+  const [currentPage, setCurrentPage] = useState(serverPagination?.page ?? 1);
+
+  const updateServerParams = useCallback((updates: Record<string, string | number | boolean | null>) => {
+    if (!serverPagination) return;
+    const params = new URLSearchParams(searchParams.toString());
+    for (const [key, value] of Object.entries(updates)) {
+      if (value === null || value === "" || value === false) params.delete(key);
+      else params.set(key, String(value));
+    }
+    if (!("page" in updates)) params.set("page", "1");
+    router.push(`${pathname}?${params.toString()}`);
+  }, [pathname, router, searchParams, serverPagination]);
 
   const toggleSaved = useCallback(async (grantId: string, currentlySaved: boolean) => {
     if (currentlySaved) {
@@ -140,14 +170,18 @@ export function GrantsListClient({
     }
   }, []);
 
-  const funders = useMemo(
-    () => Array.from(new Set(grants.map((g) => g.funder).filter(Boolean))).sort(),
-    [grants]
-  );
+  const funders = useMemo(() => {
+    const source = funderOptions?.length ? funderOptions : grants.map((g) => g.funder);
+    return Array.from(new Set(source.filter(Boolean))).sort();
+  }, [funderOptions, grants]);
 
   const filteredGrants = useMemo(() => {
     const now = new Date();
     let result = grants;
+
+    if (isServerPaged) {
+      return result;
+    }
 
     if (hideExpired) {
       result = result.filter((g) => {
@@ -193,27 +227,40 @@ export function GrantsListClient({
     });
 
     return result;
-  }, [grants, regionFilter, funderFilter, cachedScores, userFunderLocations, hideExpired, hideBroken, savedSet, sortMode]);
+  }, [grants, regionFilter, funderFilter, cachedScores, userFunderLocations, hideExpired, hideBroken, savedSet, sortMode, isServerPaged]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredGrants.length / pageSize));
-  const safePage = Math.min(currentPage, totalPages);
-  const displayGrants = filteredGrants.slice(
-    (safePage - 1) * pageSize,
-    safePage * pageSize
-  );
+  const totalPages = serverPagination?.totalPages ?? Math.max(1, Math.ceil(filteredGrants.length / pageSize));
+  const safePage = serverPagination?.page ?? Math.min(currentPage, totalPages);
+  const visibleCount = serverPagination?.totalItems ?? filteredGrants.length;
+  const displayGrants = isServerPaged
+    ? filteredGrants
+    : filteredGrants.slice(
+        (safePage - 1) * pageSize,
+        safePage * pageSize
+      );
+
+  const goToPage = (page: number) => {
+    if (isServerPaged) updateServerParams({ page });
+    else setCurrentPage(page);
+  };
 
   return (
     <div className="min-w-0">
       <div className="mb-6 flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center">
         <p className="text-sm text-muted-foreground">
-          {filteredGrants.length} grant{filteredGrants.length !== 1 ? "s" : ""}
+          {visibleCount} grant{visibleCount !== 1 ? "s" : ""}
           {totalPages > 1 && ` \u00b7 Page ${safePage} of ${totalPages}`}
         </p>
         <select
           id="grants-sort"
           name="sortMode"
           value={sortMode}
-          onChange={(e) => { setSortMode(e.target.value as typeof sortMode); setCurrentPage(1); }}
+          onChange={(e) => {
+            const value = e.target.value as typeof sortMode;
+            setSortMode(value);
+            setCurrentPage(1);
+            if (isServerPaged) updateServerParams({ sort: value, page: 1 });
+          }}
           className="min-w-0 rounded-md border border-input bg-background px-3 py-1.5 text-sm"
           aria-label="Sort grants"
         >
@@ -225,7 +272,11 @@ export function GrantsListClient({
           id="grants-region-filter"
           name="regionFilter"
           value={regionFilter}
-          onChange={(e) => { setRegionFilter(e.target.value); setCurrentPage(1); }}
+          onChange={(e) => {
+            setRegionFilter(e.target.value);
+            setCurrentPage(1);
+            if (isServerPaged) updateServerParams({ region: e.target.value, page: 1 });
+          }}
           className="min-w-0 rounded-md border border-input bg-background px-3 py-1.5 text-sm"
           aria-label="Filter by region"
         >
@@ -238,7 +289,11 @@ export function GrantsListClient({
             id="grants-funder-filter"
             name="funderFilter"
             value={funderFilter}
-            onChange={(e) => { setFunderFilter(e.target.value); setCurrentPage(1); }}
+            onChange={(e) => {
+              setFunderFilter(e.target.value);
+              setCurrentPage(1);
+              if (isServerPaged) updateServerParams({ funder: e.target.value, page: 1 });
+            }}
             className="min-w-0 rounded-md border border-input bg-background px-3 py-1.5 text-sm"
             aria-label="Filter by funder"
           >
@@ -254,7 +309,12 @@ export function GrantsListClient({
           id="grants-page-size"
           name="pageSize"
           value={pageSize}
-          onChange={(e) => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
+          onChange={(e) => {
+            const value = Number(e.target.value);
+            setPageSize(value);
+            setCurrentPage(1);
+            if (isServerPaged) updateServerParams({ pageSize: value, page: 1 });
+          }}
           className="min-w-0 rounded-md border border-input bg-background px-3 py-1.5 text-sm"
           aria-label="Grants per page"
         >
@@ -268,7 +328,11 @@ export function GrantsListClient({
             name="hideExpired"
             type="checkbox"
             checked={hideExpired}
-            onChange={(e) => { setHideExpired(e.target.checked); setCurrentPage(1); }}
+            onChange={(e) => {
+              setHideExpired(e.target.checked);
+              setCurrentPage(1);
+              if (isServerPaged) updateServerParams({ hideExpired: e.target.checked ? "1" : "0", page: 1 });
+            }}
             className="rounded border-input"
           />
           Hide expired
@@ -279,7 +343,11 @@ export function GrantsListClient({
             name="hideBroken"
             type="checkbox"
             checked={hideBroken}
-            onChange={(e) => { setHideBroken(e.target.checked); setCurrentPage(1); }}
+            onChange={(e) => {
+              setHideBroken(e.target.checked);
+              setCurrentPage(1);
+              if (isServerPaged) updateServerParams({ hideBroken: e.target.checked ? "1" : null, page: 1 });
+            }}
             className="rounded border-input"
           />
           Hide broken links
@@ -329,7 +397,7 @@ export function GrantsListClient({
             variant="outline"
             size="sm"
             disabled={safePage <= 1}
-            onClick={() => setCurrentPage(1)}
+            onClick={() => goToPage(1)}
           >
             First
           </Button>
@@ -337,7 +405,7 @@ export function GrantsListClient({
             variant="outline"
             size="sm"
             disabled={safePage <= 1}
-            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+            onClick={() => goToPage(Math.max(1, safePage - 1))}
           >
             Previous
           </Button>
@@ -353,7 +421,7 @@ export function GrantsListClient({
                 variant={p === safePage ? "default" : "outline"}
                 size="sm"
                 className="min-w-[2.25rem]"
-                onClick={() => setCurrentPage(p as number)}
+                onClick={() => goToPage(p as number)}
               >
                 {p}
               </Button>
@@ -364,7 +432,7 @@ export function GrantsListClient({
             variant="outline"
             size="sm"
             disabled={safePage >= totalPages}
-            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+            onClick={() => goToPage(Math.min(totalPages, safePage + 1))}
           >
             Next
           </Button>
@@ -372,7 +440,7 @@ export function GrantsListClient({
             variant="outline"
             size="sm"
             disabled={safePage >= totalPages}
-            onClick={() => setCurrentPage(totalPages)}
+            onClick={() => goToPage(totalPages)}
           >
             Last
           </Button>
