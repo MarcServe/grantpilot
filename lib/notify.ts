@@ -346,7 +346,7 @@ export async function orgHasNotificationSince(
     .select("id")
     .in("userId", users.map((u) => u.id))
     .in("type", types)
-    .in("status", ["sent", "skipped"])
+    .eq("status", "sent")
     .gte("createdAt", since.toISOString())
     .limit(1);
 
