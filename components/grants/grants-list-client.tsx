@@ -45,6 +45,7 @@ interface GrantData {
   createdAt?: string | null;
   urlStatus?: string | null;
   urlCheckedAt?: string | null;
+  verificationWarning?: string | null;
   source?: string | null;
 }
 
@@ -397,6 +398,7 @@ export function GrantsListClient({
               onToggleSave={profileComplete ? () => toggleSaved(grant.id, isSaved) : undefined}
               urlStatus={grant.urlStatus}
               urlCheckedAt={grant.urlCheckedAt}
+              verificationWarning={grant.verificationWarning}
               source={grant.source}
               scoringSource={cached?.scoringSource}
             />

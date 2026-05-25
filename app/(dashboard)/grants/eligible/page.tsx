@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft, ArrowRight, Building2 } from "lucide-react";
 import type { EligibleGrant } from "@/components/grants/eligible-grant-card";
 import { EligibleGrantsList } from "@/components/grants/eligible-grants-list";
-import { isGrantLinkUsable } from "@/lib/grant-freshness";
+import { getGrantVerificationWarning, isGrantLinkUsable } from "@/lib/grant-freshness";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
 import { applyOutcomeScoreAdjustment, deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
@@ -343,6 +343,7 @@ async function EligibleGrantsPageContent({
       missingCriteria: guarded.missing ?? a.missing_criteria,
       improvementPlan: guarded.improvementPlan ?? a.improvement_plan,
       outcomeWarnings: guarded.outcomeWarnings ?? [],
+      verificationWarning: getGrantVerificationWarning(grant)?.message ?? null,
       scoringSource,
       userState: grantUserStateMap.get(a.grant_id) ?? null,
     });

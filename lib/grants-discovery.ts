@@ -119,7 +119,7 @@ export async function runDiscoveryAndUpsert(profile: DiscoveryProfile): Promise<
 
   for (const g of byKey.values()) {
     try {
-      const health = await checkUrlHealth(g.applicationUrl);
+      const health = await checkUrlHealth(g.applicationUrl, g);
       if (health.status === "dead") {
         console.warn(`[grants-discovery] REJECTED (dead URL): ${g.name} — ${g.applicationUrl} (${health.reason})`);
         rejected++;

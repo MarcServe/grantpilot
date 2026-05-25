@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Calendar, Building2, MapPin, ArrowRight, Users, Bookmark } from "lucide-react";
+import { Calendar, Building2, MapPin, ArrowRight, Users, Bookmark, AlertTriangle } from "lucide-react";
 import { UrlStatusBadge } from "./url-status-badge";
 import { grantFinderLabel } from "@/lib/grant-source-policy";
 
@@ -28,6 +28,7 @@ interface GrantCardProps {
   onToggleSave?: () => void;
   urlStatus?: string | null;
   urlCheckedAt?: string | null;
+  verificationWarning?: string | null;
   source?: string | null;
   scoringSource?: string | null;
 }
@@ -67,6 +68,7 @@ export function GrantCard({
   onToggleSave,
   urlStatus,
   urlCheckedAt,
+  verificationWarning,
   source,
   scoringSource,
 }: GrantCardProps) {
@@ -169,6 +171,13 @@ export function GrantCard({
 
         {matchReason && (
           <p className="text-sm text-muted-foreground">{matchReason}</p>
+        )}
+
+        {verificationWarning && (
+          <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>{verificationWarning}</span>
+          </div>
         )}
 
         <div className="flex flex-wrap gap-1">

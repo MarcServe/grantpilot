@@ -29,7 +29,11 @@ import { markGrantUserState } from "@/lib/grant-user-state";
 import { GrantStateActions } from "@/components/grants/grant-state-actions";
 import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
 import { applyOutcomeScoreAdjustment, deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
-import { getGrantFreshnessStatus, type GrantFreshnessStatus } from "@/lib/grant-freshness";
+import {
+  getGrantFreshnessStatus,
+  getGrantVerificationWarning,
+  type GrantFreshnessStatus,
+} from "@/lib/grant-freshness";
 
 function profileForEligibilityGuards(profile: Record<string, unknown>) {
   return {
@@ -106,6 +110,7 @@ export default async function GrantDetailPage({
 
   const { org, orgId } = await getActiveOrg();
   const freshness = getGrantFreshnessStatus(grant);
+  const verificationWarning = getGrantVerificationWarning(grant);
   const profile = org.profiles?.[0];
   const grantAutoImproveEnabled = planAllowsForOrg(
     org as { plan?: string; createdAt?: string | Date | null },
@@ -305,6 +310,20 @@ export default async function GrantDetailPage({
           </div>
         );
       })()}
+
+      {freshness.usable && verificationWarning && (
+        <div className="mb-6 flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/40">
+          <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-500" />
+          <div>
+            <p className="font-medium text-amber-800 dark:text-amber-200">
+              {verificationWarning.title}
+            </p>
+            <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">
+              {verificationWarning.message}
+            </p>
+          </div>
+        </div>
+      )}
 
       {missingDocLabels.length > 0 && (
         <div className="mb-6 flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/40">

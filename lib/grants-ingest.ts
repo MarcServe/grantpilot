@@ -169,7 +169,7 @@ export async function upsertGrant(input: GrantInput): Promise<{ id: string; crea
     if (existing) {
       await supabase.from("Grant").update(data).eq("id", existing.id);
       if (input.applicationUrl) {
-        checkUrlHealth(input.applicationUrl)
+        checkUrlHealth(input.applicationUrl, input)
           .then(async (result) => {
             await getSupabaseAdmin()
               .from("Grant")
@@ -197,7 +197,7 @@ export async function upsertGrant(input: GrantInput): Promise<{ id: string; crea
   generateAndStoreGrantEmbedding(grant.id).catch(() => {});
 
   if (input.applicationUrl) {
-    checkUrlHealth(input.applicationUrl)
+    checkUrlHealth(input.applicationUrl, input)
       .then(async (result) => {
         await getSupabaseAdmin()
           .from("Grant")

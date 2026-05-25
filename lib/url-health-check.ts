@@ -9,6 +9,7 @@
  */
 
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { getGrantFreshnessStatus } from "@/lib/grant-freshness";
 
 export type UrlStatus = "live" | "dead" | "expired" | "unknown";
 
@@ -16,6 +17,15 @@ export interface HealthCheckResult {
   status: UrlStatus;
   httpStatus: number;
   reason: string;
+}
+
+export interface HealthCheckContext {
+  name?: string | null;
+  funder?: string | null;
+  deadline?: string | Date | null;
+  eligibility?: string | null;
+  description?: string | null;
+  objectives?: string | null;
 }
 
 const TIMEOUT_MS = 10_000;
@@ -46,10 +56,65 @@ const EXPIRED_PATTERNS = [
   /we\s*are\s*no\s*longer\s*accepting/i,
 ];
 
+function normalisePageText(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function relevantWindowsForGrant(bodyText: string, context?: HealthCheckContext): string[] {
+  const name = context?.name?.trim().toLowerCase();
+  if (!name || name.length < 4) return [];
+
+  const lower = bodyText.toLowerCase();
+  const windows: string[] = [];
+  let cursor = 0;
+  while (windows.length < 3) {
+    const index = lower.indexOf(name, cursor);
+    if (index < 0) break;
+    const start = Math.max(0, index - 800);
+    const end = Math.min(bodyText.length, index + Math.max(2500, name.length + 1800));
+    windows.push(bodyText.slice(start, end));
+    cursor = index + name.length;
+  }
+  return windows;
+}
+
+function detectContextualExpiry(bodyText: string, context?: HealthCheckContext): string | null {
+  const storedFreshness = getGrantFreshnessStatus({
+    deadline: context?.deadline,
+    name: context?.name,
+    eligibility: context?.eligibility,
+    description: context?.description,
+    objectives: context?.objectives,
+  });
+  if (!storedFreshness.usable) {
+    return storedFreshness.message ?? "Stored grant text indicates the programme is closed";
+  }
+
+  for (const window of relevantWindowsForGrant(bodyText, context)) {
+    const freshness = getGrantFreshnessStatus({
+      deadline: context?.deadline,
+      name: context?.name,
+      eligibility: window,
+      description: context?.description,
+      objectives: context?.objectives,
+    });
+    if (!freshness.usable) {
+      return freshness.message ?? "Grant-specific page section indicates the programme is closed";
+    }
+  }
+
+  return null;
+}
+
 /**
  * Quick HTTP check — no browser, no AI. Catches obvious dead links.
  */
-export async function checkUrlHealth(url: string): Promise<HealthCheckResult> {
+export async function checkUrlHealth(url: string, context?: HealthCheckContext): Promise<HealthCheckResult> {
   if (!url?.trim()) {
     return { status: "dead", httpStatus: 0, reason: "Empty URL" };
   }
@@ -102,18 +167,20 @@ export async function checkUrlHealth(url: string): Promise<HealthCheckResult> {
       clearTimeout(getTimeout);
 
       const html = await getRes.text();
-      const bodyText = html
-        .replace(/<script[\s\S]*?<\/script>/gi, "")
-        .replace(/<style[\s\S]*?<\/style>/gi, "")
-        .replace(/<[^>]+>/g, " ")
-        .replace(/\s+/g, " ")
-        .slice(0, 5000);
+      const fullBodyText = normalisePageText(html).slice(0, 80_000);
+      const bodyText = fullBodyText.slice(0, 8000);
 
       if (DEAD_PAGE_PATTERNS.some((p) => p.test(bodyText))) {
         return { status: "dead", httpStatus: getRes.status, reason: "Soft 404 detected in page content" };
       }
 
-      if (EXPIRED_PATTERNS.some((p) => p.test(bodyText))) {
+      const contextualExpiry = detectContextualExpiry(fullBodyText, context);
+      if (contextualExpiry) {
+        return { status: "expired", httpStatus: getRes.status, reason: contextualExpiry };
+      }
+
+      const hasGrantContext = Boolean(context?.name?.trim());
+      if (!hasGrantContext && EXPIRED_PATTERNS.some((p) => p.test(bodyText))) {
         return { status: "expired", httpStatus: getRes.status, reason: "Programme appears closed/expired" };
       }
 
@@ -142,7 +209,7 @@ export async function checkAndUpdateGrantUrl(grantId: string): Promise<HealthChe
   const supabase = getSupabaseAdmin();
   const { data: grant } = await supabase
     .from("Grant")
-    .select("applicationUrl")
+    .select("applicationUrl, name, funder, deadline, eligibility, description, objectives")
     .eq("id", grantId)
     .maybeSingle();
 
@@ -150,7 +217,7 @@ export async function checkAndUpdateGrantUrl(grantId: string): Promise<HealthChe
     return { status: "dead", httpStatus: 0, reason: "No URL" };
   }
 
-  const result = await checkUrlHealth(grant.applicationUrl);
+  const result = await checkUrlHealth(grant.applicationUrl, grant);
 
   await supabase
     .from("Grant")
@@ -181,16 +248,30 @@ export async function sweepGrantUrls(maxAge: number = 7, batchSize: number = 50)
 
   const { data: grants } = await supabase
     .from("Grant")
-    .select("id, applicationUrl, name, funder")
-    .or(`url_checked_at.is.null,url_checked_at.lt.${cutoff.toISOString()}`)
+    .select("id, applicationUrl, name, funder, deadline, eligibility, description, objectives, url_status")
+    .or(`url_checked_at.is.null,url_checked_at.lt.${cutoff.toISOString()},url_status.eq.unknown`)
     .limit(batchSize);
 
   const stats = { checked: 0, live: 0, dead: 0, expired: 0, recovered: 0 };
   if (!grants?.length) return stats;
 
-  for (const g of grants as { id: string; applicationUrl: string; name: string; funder: string }[]) {
+  for (const g of grants as (HealthCheckContext & { id: string; applicationUrl: string; url_status?: UrlStatus | null })[]) {
     if (!g.applicationUrl) continue;
-    const result = await checkUrlHealth(g.applicationUrl);
+    const storedFreshness = getGrantFreshnessStatus(g);
+    if (!storedFreshness.usable && storedFreshness.reason !== "url_dead") {
+      await supabase
+        .from("Grant")
+        .update({
+          url_status: "expired",
+          url_checked_at: new Date().toISOString(),
+        })
+        .eq("id", g.id);
+      stats.checked++;
+      stats.expired++;
+      continue;
+    }
+
+    const result = await checkUrlHealth(g.applicationUrl, g);
 
     if (result.status === "dead" || result.status === "expired") {
       const recovery = await attemptUrlRecovery(g.applicationUrl, g.name ?? "", g.funder ?? "");

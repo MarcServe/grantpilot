@@ -3,7 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg } from "@/lib/auth";
 import { GrantsListClient } from "@/components/grants/grants-list-client";
 import { computeUrgency } from "@/lib/urgency";
-import { isGrantLinkUsable } from "@/lib/grant-freshness";
+import { getGrantVerificationWarning, isGrantLinkUsable } from "@/lib/grant-freshness";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { grantMatchesFunderLocations, inferFunderLocationsFromProfile } from "@/lib/constants";
 import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
@@ -348,6 +348,7 @@ export default async function GrantsPage({
             createdAt,
             urlStatus: raw.url_status ?? null,
             urlCheckedAt: raw.url_checked_at ?? null,
+            verificationWarning: getGrantVerificationWarning(g)?.message ?? null,
           };
         })}
         userFunderLocations={userFunderLocations}

@@ -103,7 +103,7 @@ async function generateDraft(input: { rawText?: string; sourceUrl?: string; note
 }
 
 async function publishDraft(draft: z.infer<typeof draftSchema>) {
-  const health = await checkUrlHealth(draft.applicationUrl);
+  const health = await checkUrlHealth(draft.applicationUrl, draft);
   if (health.status === "dead" || health.status === "expired") {
     throw new Error(`URL verification failed: ${health.reason}`);
   }

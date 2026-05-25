@@ -19,6 +19,7 @@ export interface EligibleGrant {
   missingCriteria: string[] | null;
   improvementPlan: { gaps?: string[]; actions?: string[] } | null;
   outcomeWarnings?: string[];
+  verificationWarning?: string | null;
   scoringSource?: string | null;
   userState?: GrantUserState | null;
 }
@@ -131,6 +132,13 @@ export function EligibleGrantCard({ grant }: { grant: EligibleGrant }) {
         <div className="flex items-start gap-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>To improve: {uniqueActions.join("; ")}</span>
+        </div>
+      )}
+
+      {grant.verificationWarning && (
+        <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>{grant.verificationWarning}</span>
         </div>
       )}
 

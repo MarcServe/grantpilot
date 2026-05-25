@@ -1,10 +1,20 @@
-export type GrantFreshnessReason = "url_dead" | "url_expired" | "deadline_passed" | "programme_window_passed";
+export type GrantFreshnessReason =
+  | "url_dead"
+  | "url_expired"
+  | "deadline_passed"
+  | "programme_window_passed"
+  | "explicitly_closed";
 
 export interface GrantFreshnessStatus {
   usable: boolean;
   reason: GrantFreshnessReason | null;
   message: string | null;
   staleDate: Date | null;
+}
+
+export interface GrantVerificationWarning {
+  title: string;
+  message: string;
 }
 
 interface GrantFreshnessInput {
@@ -50,6 +60,10 @@ interface TextDate {
   index: number;
 }
 
+function normaliseMonthToken(value: string): string {
+  return value.toLowerCase().replace(/\.$/, "");
+}
+
 function startOfDay(value: Date): Date {
   const d = new Date(value);
   d.setHours(0, 0, 0, 0);
@@ -79,20 +93,29 @@ function parseTextDates(text: string): TextDate[] {
     dates.push({ date, label, index });
   };
 
-  const dayMonthYear = /\b(\d{1,2})(?:st|nd|rd|th)?\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(20\d{2})\b/gi;
+  const dayMonthYear = /\b(\d{1,2})(?:st|nd|rd|th)?\s+(jan(?:uary)?\.?|feb(?:ruary)?\.?|mar(?:ch)?\.?|apr(?:il)?\.?|may|jun(?:e)?\.?|jul(?:y)?\.?|aug(?:ust)?\.?|sep(?:t|tember)?\.?|oct(?:ober)?\.?|nov(?:ember)?\.?|dec(?:ember)?\.?)\s+(20\d{2})\b/gi;
   for (const match of text.matchAll(dayMonthYear)) {
     const day = Number(match[1]);
-    const month = MONTH_INDEX[match[2].toLowerCase()];
+    const month = MONTH_INDEX[normaliseMonthToken(match[2])];
     const year = Number(match[3]);
     if (month == null || day < 1 || day > 31) continue;
     add(new Date(year, month, day), match[0], match.index ?? 0);
   }
 
-  const monthYear = /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(20\d{2})\b/gi;
+  const monthDayYear = /\b(jan(?:uary)?\.?|feb(?:ruary)?\.?|mar(?:ch)?\.?|apr(?:il)?\.?|may|jun(?:e)?\.?|jul(?:y)?\.?|aug(?:ust)?\.?|sep(?:t|tember)?\.?|oct(?:ober)?\.?|nov(?:ember)?\.?|dec(?:ember)?\.?)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,)?\s+(20\d{2})\b/gi;
+  for (const match of text.matchAll(monthDayYear)) {
+    const month = MONTH_INDEX[normaliseMonthToken(match[1])];
+    const day = Number(match[2]);
+    const year = Number(match[3]);
+    if (month == null || day < 1 || day > 31) continue;
+    add(new Date(year, month, day), match[0], match.index ?? 0);
+  }
+
+  const monthYear = /\b(jan(?:uary)?\.?|feb(?:ruary)?\.?|mar(?:ch)?\.?|apr(?:il)?\.?|may|jun(?:e)?\.?|jul(?:y)?\.?|aug(?:ust)?\.?|sep(?:t|tember)?\.?|oct(?:ober)?\.?|nov(?:ember)?\.?|dec(?:ember)?\.?)\s+(20\d{2})\b/gi;
   for (const match of text.matchAll(monthYear)) {
     const before = text.slice(Math.max(0, (match.index ?? 0) - 6), match.index ?? 0);
     if (/\d{1,2}(?:st|nd|rd|th)?\s*$/i.test(before)) continue;
-    const month = MONTH_INDEX[match[1].toLowerCase()];
+    const month = MONTH_INDEX[normaliseMonthToken(match[1])];
     const year = Number(match[2]);
     if (month == null) continue;
     add(monthEnd(year, month), match[0], match.index ?? 0);
@@ -123,12 +146,58 @@ function sentenceWindowAround(text: string, index: number): string {
   return text.slice(Math.max(0, start + 1), end).trim();
 }
 
-function findProgrammeWindowPassed(grant: GrantFreshnessInput, now = new Date()): GrantFreshnessStatus | null {
-  const text = [grant.name, grant.eligibility, grant.description, grant.objectives]
+function grantText(grant: GrantFreshnessInput): string {
+  return [grant.name, grant.eligibility, grant.description, grant.objectives]
     .filter(Boolean)
     .join(" ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function findNearbyPastDate(text: string, index: number, now: Date): TextDate | null {
+  const today = startOfDay(now);
+  const dates = parseTextDates(text);
+  const nearby = dates
+    .filter((candidate) => Math.abs(candidate.index - index) <= 180)
+    .filter((candidate) => startOfDay(candidate.date) < today)
+    .sort((a, b) => Math.abs(a.index - index) - Math.abs(b.index - index));
+  return nearby[0] ?? null;
+}
+
+function findExplicitClosureSignal(grant: GrantFreshnessInput, now = new Date()): GrantFreshnessStatus | null {
+  const text = grantText(grant);
+  if (!text) return null;
+
+  const closurePatterns = [
+    /\bapplications?\s+(?:are|is|have|has|were|was)\s+(?:now\s+)?(?:been\s+)?(?:closed|ended|finished)\b/i,
+    /\bapplications?\s+(?:closed|ended)\s+(?:on|in|from|after)\b/i,
+    /\bsubmissions?\s+(?:are|have|were)\s+(?:now\s+)?(?:been\s+)?(?:closed|ended)\b/i,
+    /\b(?:deadline|closing date|submission deadline|application deadline)\s+(?:has\s+)?(?:passed|expired)\b/i,
+    /\bno\s+longer\s+(?:accepting|open|available)\b/i,
+    /\bwe\s+are\s+no\s+longer\s+accepting\b/i,
+    /\b(?:programme|program|scheme|grant|fund|competition)\s+(?:is\s+)?currently\s+paused\b/i,
+    /\bcurrently\s+paused\b/i,
+  ];
+
+  for (const pattern of closurePatterns) {
+    const match = pattern.exec(text);
+    if (!match) continue;
+    const nearbyDate = findNearbyPastDate(text, match.index, now);
+    return {
+      usable: false,
+      reason: "explicitly_closed",
+      message: nearbyDate
+        ? `This opportunity appears closed. The grant text says applications closed around ${nearbyDate.label}.`
+        : "This opportunity appears closed or paused according to the grant text.",
+      staleDate: nearbyDate ? startOfDay(nearbyDate.date) : null,
+    };
+  }
+
+  return null;
+}
+
+function findProgrammeWindowPassed(grant: GrantFreshnessInput, now = new Date()): GrantFreshnessStatus | null {
+  const text = grantText(grant);
   if (!text) return null;
 
   const lower = text.toLowerCase();
@@ -142,7 +211,7 @@ function findProgrammeWindowPassed(grant: GrantFreshnessInput, now = new Date())
       || /\b(start|commence|begin)\b.{0,25}\b(by|in|on|from)\b/.test(sentence);
     const endWindow = /\b(end|finish|complete|completion|deliver|close)\b.{0,40}\b(by|in|on|before|no later than)\b/.test(sentence)
       || /\b(by|before|no later than)\b.{0,40}\b(end|finish|complete|completion)\b/.test(sentence);
-    const applicationDeadline = /\b(deadline|closing date|applications? close|apply by|submission deadline|submit by|closes)\b/.test(sentence);
+    const applicationDeadline = /\b(deadline|closing date|applications? close|applications? closed|apply by|submission deadline|submit by|closes)\b/.test(sentence);
 
     if (!mentionsProgramme && !applicationDeadline) continue;
 
@@ -215,6 +284,9 @@ export function getGrantFreshnessStatus(grant: GrantFreshnessInput, now = new Da
     };
   }
 
+  const explicitClosure = findExplicitClosureSignal(grant, now);
+  if (explicitClosure) return explicitClosure;
+
   const textWindow = findProgrammeWindowPassed(grant, now);
   if (textWindow) return textWindow;
 
@@ -228,4 +300,17 @@ export function getGrantFreshnessStatus(grant: GrantFreshnessInput, now = new Da
 
 export function isGrantLinkUsable(grant: GrantFreshnessInput): boolean {
   return getGrantFreshnessStatus(grant).usable;
+}
+
+export function getGrantVerificationWarning(grant: GrantFreshnessInput, now = new Date()): GrantVerificationWarning | null {
+  const status = grant.url_status ?? grant.urlStatus ?? "unknown";
+  if (status !== "unknown") return null;
+
+  const parsedDeadline = parseDateValue(grant.deadline);
+  if (parsedDeadline && startOfDay(parsedDeadline) >= startOfDay(now)) return null;
+
+  return {
+    title: "Application link not verified",
+    message: "Confirm the funder page and deadline before applying. This warning does not change the eligibility score.",
+  };
 }
