@@ -105,6 +105,7 @@ type CachedEligibilityRow = {
   decision: string | null;
   summary: string | null;
   notified_at: string | null;
+  updated_at?: string | null;
   missing_criteria: string[] | null;
   improvement_plan: DigestGrantItem["improvementPlan"] | null;
   scoring_source: string | null;
@@ -456,6 +457,64 @@ export async function runEligibilityRefreshJob(options?: {
           .limit(8);
         const fundingOutcomeSignals = buildFundingOutcomeSignals(outcomeRows ?? []);
         const outcomeAdvisory = deriveOutcomeLearningAdvisory(outcomeRows ?? []);
+        const grantsByIdForDigest = new Map(locationFiltered.map((grant) => [grant.id, grant]));
+
+        const buildDigestItem = (assessment: CachedEligibilityRow): DigestGrantItem | null => {
+          const score = Number(assessment.score ?? 0);
+          if (!Number.isFinite(score)) return null;
+          const grant = grantsByIdForDigest.get(assessment.grant_id);
+          if (!grant) return null;
+
+          const startApplicationToken = createStartApplicationToken({
+            grantId: grant.id,
+            profileId: profileId,
+            organisationId: orgId,
+          });
+          const rawRequired = (grant as { required_attachments?: unknown }).required_attachments;
+          const required = (Array.isArray(rawRequired) ? rawRequired : []) as RequiredAttachment[];
+          const { missing } = checkRequirementsAgainstDocuments(required, profileDocuments);
+
+          return {
+            grantId: grant.id,
+            grantName: grant.name,
+            score,
+            summary:
+              assessment.summary ??
+              "Full company-DNA assessment found a strong match between your profile and this grant.",
+            startApplicationToken,
+            missingDocuments: missing.length > 0 ? missing.map((r) => r.label) : undefined,
+            improvementPlan: assessment.improvement_plan ?? undefined,
+            missingCriteria: assessment.missing_criteria ?? undefined,
+          };
+        };
+
+        const buildCurrentStrongDigest = async (limit = 5): Promise<DigestGrantItem[]> => {
+          const { data: currentRows, error: currentErr } = await supabase
+            .from("EligibilityAssessment")
+            .select("grant_id, updated_at, score, decision, summary, notified_at, missing_criteria, improvement_plan, scoring_source")
+            .eq("organisation_id", orgId)
+            .eq("profile_id", profileId)
+            .eq("decision", "likely_eligible")
+            .eq("scoring_source", "openai")
+            .gte("score", minScore)
+            .lte("score", maxScore)
+            .order("updated_at", { ascending: false })
+            .limit(30);
+
+          if (currentErr) {
+            console.error("[eligibility-refresh] current strong digest query", currentErr);
+            return [];
+          }
+
+          return ((currentRows ?? []) as CachedEligibilityRow[])
+            .map(buildDigestItem)
+            .filter((item): item is DigestGrantItem => item != null)
+            .sort((a, b) => {
+              if (b.score !== a.score) return b.score - a.score;
+              return grantCreatedTime(grantsByIdForDigest.get(b.grantId)) - grantCreatedTime(grantsByIdForDigest.get(a.grantId));
+            })
+            .slice(0, limit);
+        };
 
         for (const cached of (cachedRows ?? []) as CachedEligibilityRow[]) {
           const score = Number(cached.score ?? 0);
@@ -469,30 +528,8 @@ export async function runEligibilityRefreshJob(options?: {
             continue;
           }
 
-          const grant = locationFiltered.find((g) => g.id === cached.grant_id);
-          if (!grant) continue;
-
-          const startApplicationToken = createStartApplicationToken({
-            grantId: grant.id,
-            profileId: profileId,
-            organisationId: orgId,
-          });
-          const rawRequired = (grant as { required_attachments?: unknown }).required_attachments;
-          const required = (Array.isArray(rawRequired) ? rawRequired : []) as RequiredAttachment[];
-          const { missing } = checkRequirementsAgainstDocuments(required, profileDocuments);
-
-          digestGrants.push({
-            grantId: grant.id,
-            grantName: grant.name,
-            score,
-            summary:
-              cached.summary ??
-              "Full company-DNA assessment found a strong match between your profile and this grant.",
-            startApplicationToken,
-            missingDocuments: missing.length > 0 ? missing.map((r) => r.label) : undefined,
-            improvementPlan: cached.improvement_plan ?? undefined,
-            missingCriteria: cached.missing_criteria ?? undefined,
-          });
+          const digestItem = buildDigestItem(cached);
+          if (digestItem) digestGrants.push(digestItem);
         }
 
         for (const grantId of layer3Ids) {
@@ -575,26 +612,19 @@ export async function runEligibilityRefreshJob(options?: {
               const notifiedAt = (existing as { notified_at: string | null } | null)?.notified_at;
               const includeInDigest = isOutsideNotificationCooldown(notifiedAt, cooldown);
               if (includeInDigest) {
-                const startApplicationToken = createStartApplicationToken({
-                  grantId: grant.id,
-                  profileId: profileId,
-                  organisationId: orgId,
-                });
-                const rawRequired = (grant as { required_attachments?: unknown }).required_attachments;
-                const required = (Array.isArray(rawRequired) ? rawRequired : []) as RequiredAttachment[];
-                const { missing } = checkRequirementsAgainstDocuments(required, profileDocuments);
-                digestGrants.push({
-                  grantId: grant.id,
-                  grantName: grant.name,
+                const digestItem = buildDigestItem({
+                  grant_id: grant.id,
                   score,
                   summary:
                     summary ??
                     "Full company-DNA assessment found a strong match between your profile and this grant.",
-                  startApplicationToken,
-                  missingDocuments: missing.length > 0 ? missing.map((r) => r.label) : undefined,
-                  improvementPlan: adjustedResult.improvementPlan ?? undefined,
-                  missingCriteria: adjustedResult.missing ?? undefined,
+                  decision: adjustedResult.decision,
+                  notified_at: notifiedAt ?? null,
+                  missing_criteria: adjustedResult.missing ?? [],
+                  improvement_plan: adjustedResult.improvementPlan ?? null,
+                  scoring_source: "openai",
                 });
+                if (digestItem) digestGrants.push(digestItem);
               }
             }
           } catch (err) {
@@ -684,7 +714,37 @@ export async function runEligibilityRefreshJob(options?: {
           console.info(`[eligibility-refresh] Skipping digest: completion ${completionScore}% < ${minCompletionForNotifications}%`);
           await sendEligibilityStatusEmail(locationFiltered.length, strongEligibleCount);
         } else if (completionScore >= minCompletionForNotifications && sendNotifyEmail) {
-          await sendEligibilityStatusEmail(locationFiltered.length, strongEligibleCount);
+          const alreadyUpdated = await orgHasNotificationSince(
+            orgId,
+            ["daily_grant_update", "grant_scan_digest", "grant_match_high", "eligibility_upgrade_prompt"],
+            recentWindow
+          );
+          const currentStrongDigest = alreadyUpdated ? [] : await buildCurrentStrongDigest();
+          if (currentStrongDigest.length > 0) {
+            console.info(
+              `[eligibility-refresh]   SENDING current-match digest for ${currentStrongDigest.length} grants to org ${orgId}`
+            );
+            await notifyOrgMembers(orgId, "grant_scan_digest", {
+              grants: currentStrongDigest,
+              profileName,
+            }, {
+              sendEmail: true,
+              sendWhatsApp: false,
+            });
+            diagnostics.dailyUpdates++;
+            notifiedCount += currentStrongDigest.length;
+            const notifiedAt = new Date().toISOString();
+            for (const item of currentStrongDigest) {
+              await supabase
+                .from("EligibilityAssessment")
+                .update({ notified_at: notifiedAt })
+                .eq("organisation_id", orgId)
+                .eq("profile_id", profileId)
+                .eq("grant_id", item.grantId);
+            }
+          } else {
+            await sendEligibilityStatusEmail(locationFiltered.length, strongEligibleCount);
+          }
         } else if (sendNotifyEmail) {
           await sendEligibilityStatusEmail(locationFiltered.length, strongEligibleCount);
         }

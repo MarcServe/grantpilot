@@ -45,6 +45,11 @@ type NotificationLogRow = {
   createdAt: string | null;
 };
 
+type UserRow = {
+  id: string;
+  email: string | null;
+};
+
 type GrantRow = {
   id: string;
   name: string | null;
@@ -301,12 +306,20 @@ export default async function AdminPage() {
   const notificationUserIds = Array.from(new Set(notificationRows.map((row) => row.userId).filter(Boolean))) as string[];
 
   let memberships: OrganisationMemberRow[] = [];
+  let notificationUsers: UserRow[] = [];
   if (notificationUserIds.length > 0) {
-    const membershipResult = await supabase
-      .from("OrganisationMember")
-      .select("userId, organisationId")
-      .in("userId", notificationUserIds);
+    const [membershipResult, userResult] = await Promise.all([
+      supabase
+        .from("OrganisationMember")
+        .select("userId, organisationId")
+        .in("userId", notificationUserIds),
+      supabase
+        .from("User")
+        .select("id, email")
+        .in("id", notificationUserIds),
+    ]);
     memberships = (membershipResult.data ?? []) as OrganisationMemberRow[];
+    notificationUsers = (userResult.data ?? []) as UserRow[];
     if (memberships.length === 0) {
       const fallback = await supabase
         .from("OrganisationMember")
@@ -347,6 +360,8 @@ export default async function AdminPage() {
   const notificationErrors = notificationRows
     .filter((row) => row.status === "failed" || row.status === "skipped")
     .slice(0, 5);
+  const notificationUserEmailById = new Map(notificationUsers.map((row) => [row.id, row.email ?? row.id]));
+  const recentNotificationDeliveries = notificationRows.slice(0, 12);
   const totalSentLast24h = countNotifications(notificationRows, { since: last24h, status: "sent" });
   const totalFailedLast24h = countNotifications(notificationRows, { since: last24h, status: "failed" });
   const totalSkippedLast24h = countNotifications(notificationRows, { since: last24h, status: "skipped" });
@@ -711,6 +726,58 @@ export default async function AdminPage() {
                         <td className="py-3 pr-4">{getStatusCount(notificationRows, type, "skipped", last24h)}</td>
                       </tr>
                     ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Recent notification deliveries</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="max-h-[28rem] overflow-auto">
+                <table className="w-full min-w-[760px] text-left text-sm">
+                  <thead className="border-b text-xs uppercase tracking-wide text-muted-foreground">
+                    <tr>
+                      <th className="py-2 pr-4 font-medium">Time</th>
+                      <th className="py-2 pr-4 font-medium">Recipient</th>
+                      <th className="py-2 pr-4 font-medium">Signal</th>
+                      <th className="py-2 pr-4 font-medium">Channel</th>
+                      <th className="py-2 pr-4 font-medium">Status</th>
+                      <th className="py-2 pr-4 font-medium">Error</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentNotificationDeliveries.length > 0 ? (
+                      recentNotificationDeliveries.map((row, index) => {
+                        const typeLabel =
+                          row.type && row.type in NOTIFICATION_LABELS
+                            ? NOTIFICATION_LABELS[row.type as OpsNotificationType]
+                            : row.type ?? "Notification";
+                        return (
+                          <tr key={`${row.userId}-${row.type}-${row.channel}-${row.createdAt}-${index}`} className="border-b last:border-0">
+                            <td className="py-3 pr-4 text-xs text-muted-foreground">{formatDateTime(row.createdAt)}</td>
+                            <td className="py-3 pr-4">{row.userId ? notificationUserEmailById.get(row.userId) ?? row.userId : "Unknown"}</td>
+                            <td className="py-3 pr-4">{typeLabel}</td>
+                            <td className="py-3 pr-4">{row.channel ?? "unknown"}</td>
+                            <td className="py-3 pr-4">
+                              <span className={row.status === "failed" ? "font-medium text-red-600" : row.status === "skipped" ? "font-medium text-amber-700" : "text-emerald-700"}>
+                                {row.status ?? "unknown"}
+                              </span>
+                            </td>
+                            <td className="py-3 pr-4 text-xs text-muted-foreground">{row.error ?? "-"}</td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan={6} className="py-4 text-sm text-muted-foreground">
+                          No notification delivery rows found in the last 7 days.
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>

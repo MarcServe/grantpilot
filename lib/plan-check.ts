@@ -92,13 +92,16 @@ export async function checkUsageLimit(
   const supabase = getSupabaseAdmin();
   const { data: org } = await supabase
     .from("Organisation")
-    .select("plan, createdAt")
+    .select("plan, createdAt, stripeId")
     .eq("id", organisationId)
     .single();
   if (!org) return { allowed: false, remaining: 0 };
 
   const orgAccess = org as OrganisationPlanRow;
-  const plan = resolvePlanKey(orgAccess.plan);
+  let plan = resolvePlanKey(orgAccess.plan);
+  if (plan === "FREE_TRIAL") {
+    plan = (await syncActiveStripePlan(organisationId, orgAccess)) ?? plan;
+  }
   if (plan === "FREE_TRIAL" && !isFreeTrialActive(orgAccess)) {
     return { allowed: false, remaining: 0 };
   }

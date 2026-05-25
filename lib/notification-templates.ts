@@ -269,11 +269,11 @@ export function buildEmailHtml(
       const missingReminder = hasAnyMissing
         ? `<p style="margin-top:16px;padding:12px;background:#fef3c7;border-radius:8px;color:#92400e">Some grants may require documents you haven&apos;t uploaded yet. Add them in <a href="${appUrl}/profile" style="color:#1B3A6B;font-weight:600">Profile → Documents</a> before you apply.</p>`
         : "";
-      const body = `<p>New grant opportunities for <strong>${escapeHtml(profileName)}</strong> — review the fit, prepare your documents, and apply on the official funder site.</p>${table}${missingReminder}<p style="margin-top:16px">You can also browse all your matches from the app.</p>`;
+      const body = `<p>Today&apos;s grant opportunities for <strong>${escapeHtml(profileName)}</strong> — review the fit, prepare your documents, and apply on the official funder site.</p>${table}${missingReminder}<p style="margin-top:16px">You can also browse all your matches from the app.</p>`;
       return {
-        subject: `[Grants-Copilot] New grant opportunities for ${profileName}`,
+        subject: `[Grants-Copilot] Today's grant opportunities for ${profileName}`,
         html: baseLayout(
-          `New grant opportunities for ${escapeHtml(profileName)}`,
+          `Today's grant opportunities for ${escapeHtml(profileName)}`,
           body,
           `${appUrl}/grants/eligible`,
           "View all matches"
@@ -424,7 +424,7 @@ export function buildWhatsAppMessage(
     case "grant_scan_digest": {
       const profileName = payload.profileName ?? "Your business";
       const grants = payload.grants ?? [];
-      let msg = `New grant opportunities for ${profileName}\n\n`;
+      let msg = `Today's grant opportunities for ${profileName}\n\n`;
       let anyMissing = false;
       for (const g of grants as DigestGrantItem[]) {
         const viewUrl = `${appUrl}/grants/${g.grantId}`;
