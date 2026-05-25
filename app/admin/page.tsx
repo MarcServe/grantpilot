@@ -22,6 +22,7 @@ import { GrantImportUploader } from "@/components/admin/grant-import-uploader";
 import { TestNotificationButton } from "@/components/admin/test-notification-button";
 import { ScoutModeSettings } from "@/components/admin/scout-mode-settings";
 import { GrantComposer } from "@/components/admin/grant-composer";
+import { GrantSourceManager } from "@/components/admin/grant-source-manager";
 
 export const dynamic = "force-dynamic";
 
@@ -809,6 +810,7 @@ export default async function AdminPage() {
             </CardContent>
           </Card>
         </section>
+        <GrantSourceManager />
         <GrantComposer />
         <GrantImportUploader />
         <ScoutModeSettings />
