@@ -516,6 +516,33 @@ export async function runEligibilityRefreshJob(options?: {
             .slice(0, limit);
         };
 
+        const buildCurrentWithinReachDigest = async (limit = 4): Promise<DigestGrantItem[]> => {
+          const { data: currentRows, error: currentErr } = await supabase
+            .from("EligibilityAssessment")
+            .select("grant_id, updated_at, score, decision, summary, notified_at, missing_criteria, improvement_plan, scoring_source")
+            .eq("organisation_id", orgId)
+            .eq("profile_id", profileId)
+            .eq("scoring_source", "openai")
+            .gte("score", 50)
+            .lt("score", 80)
+            .order("updated_at", { ascending: false })
+            .limit(40);
+
+          if (currentErr) {
+            console.error("[eligibility-refresh] current within-reach digest query", currentErr);
+            return [];
+          }
+
+          return ((currentRows ?? []) as CachedEligibilityRow[])
+            .map(buildDigestItem)
+            .filter((item): item is DigestGrantItem => item != null)
+            .sort((a, b) => {
+              if (b.score !== a.score) return b.score - a.score;
+              return grantCreatedTime(grantsByIdForDigest.get(b.grantId)) - grantCreatedTime(grantsByIdForDigest.get(a.grantId));
+            })
+            .slice(0, limit);
+        };
+
         for (const cached of (cachedRows ?? []) as CachedEligibilityRow[]) {
           const score = Number(cached.score ?? 0);
           if (
@@ -686,8 +713,10 @@ export async function runEligibilityRefreshJob(options?: {
           }
         } else if (digestGrants.length > 0 && completionScore >= minCompletionForNotifications) {
           console.info(`[eligibility-refresh]   SENDING digest notification for ${digestGrants.length} grants to org ${orgId}`);
+          const withinReachGrants = await buildCurrentWithinReachDigest();
           await notifyOrgMembers(orgId, "grant_scan_digest", {
             grants: digestGrants,
+            withinReachGrants,
             profileName,
           }, {
             sendEmail: sendNotifyEmail,
@@ -720,12 +749,14 @@ export async function runEligibilityRefreshJob(options?: {
             recentWindow
           );
           const currentStrongDigest = alreadyUpdated ? [] : await buildCurrentStrongDigest();
-          if (currentStrongDigest.length > 0) {
+          const currentWithinReachDigest = alreadyUpdated ? [] : await buildCurrentWithinReachDigest();
+          if (currentStrongDigest.length > 0 || currentWithinReachDigest.length > 0) {
             console.info(
-              `[eligibility-refresh]   SENDING current-match digest for ${currentStrongDigest.length} grants to org ${orgId}`
+              `[eligibility-refresh]   SENDING current-match digest for ${currentStrongDigest.length} strong and ${currentWithinReachDigest.length} within-reach grants to org ${orgId}`
             );
             await notifyOrgMembers(orgId, "grant_scan_digest", {
               grants: currentStrongDigest,
+              withinReachGrants: currentWithinReachDigest,
               profileName,
             }, {
               sendEmail: true,

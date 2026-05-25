@@ -59,6 +59,8 @@ export interface NotificationPayload {
   startApplicationToken?: string;
   /** For grant_scan_digest: list of grants with View + Start application links */
   grants?: DigestGrantItem[];
+  /** For grant_scan_digest: partial-fit grants worth reviewing, shown separately from strong matches. */
+  withinReachGrants?: DigestGrantItem[];
   /** Business/profile name for digest subject and body */
   profileName?: string;
   /** Subscription plan name for billing notifications */

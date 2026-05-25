@@ -54,6 +54,8 @@ interface CachedScore {
   scoringSource?: string;
 }
 
+type GrantUserState = "saved" | "viewed" | "deferred" | "applied" | "dismissed";
+
 interface GrantsListClientProps {
   grants: GrantData[];
   userFunderLocations: string[];
@@ -61,6 +63,7 @@ interface GrantsListClientProps {
   profileComplete: boolean;
   cachedScores?: Record<string, CachedScore>;
   savedGrantIds?: string[];
+  grantUserStates?: Record<string, GrantUserState>;
   funderOptions?: string[];
   serverPagination?: {
     page: number;
@@ -113,6 +116,7 @@ export function GrantsListClient({
   profileComplete,
   cachedScores = {},
   savedGrantIds = [],
+  grantUserStates = {},
   funderOptions,
   serverPagination,
 }: GrantsListClientProps) {
@@ -121,6 +125,7 @@ export function GrantsListClient({
   const searchParams = useSearchParams();
   const isServerPaged = Boolean(serverPagination);
   const [savedSet, setSavedSet] = useState<Set<string>>(() => new Set(savedGrantIds));
+  const [stateMap, setStateMap] = useState<Record<string, GrantUserState>>(() => ({ ...grantUserStates }));
   const [sortMode, setSortMode] = useState<(typeof SORT_OPTIONS)[number]["value"]>(serverPagination?.sortMode ?? "newest");
   const [funderFilter, setFunderFilter] = useState<string>(serverPagination?.funderFilter ?? "");
   const [regionFilter, setRegionFilter] = useState<string>(() =>
@@ -154,6 +159,11 @@ export function GrantsListClient({
         next.delete(grantId);
         return next;
       });
+      setStateMap((prev) => {
+        const next = { ...prev };
+        delete next[grantId];
+        return next;
+      });
       toast.success("Removed from saved grants");
     } else {
       const res = await fetch("/api/grants/saved", {
@@ -166,6 +176,7 @@ export function GrantsListClient({
         return;
       }
       setSavedSet((prev) => new Set(prev).add(grantId));
+      setStateMap((prev) => ({ ...prev, [grantId]: "saved" }));
       toast.success("Saved to my list");
     }
   }, []);
@@ -364,6 +375,7 @@ export function GrantsListClient({
         {displayGrants.map((grant) => {
           const cached = cachedScores[grant.id];
           const isSaved = savedSet.has(grant.id);
+          const userState = stateMap[grant.id] ?? null;
           return (
             <GrantCard
               key={grant.id}
@@ -381,6 +393,7 @@ export function GrantsListClient({
               urgencyLabel={grant.urgencyLabel}
               addedAt={grant.createdAt ?? undefined}
               isSaved={isSaved}
+              userState={userState}
               onToggleSave={profileComplete ? () => toggleSaved(grant.id, isSaved) : undefined}
               urlStatus={grant.urlStatus}
               urlCheckedAt={grant.urlCheckedAt}

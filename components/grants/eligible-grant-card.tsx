@@ -5,6 +5,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, AlertTriangle, FileText } from "lucide-react";
 
+type GrantUserState = "saved" | "viewed" | "deferred" | "applied" | "dismissed";
+
 export interface EligibleGrant {
   grantId: string;
   grantName: string;
@@ -18,6 +20,7 @@ export interface EligibleGrant {
   improvementPlan: { gaps?: string[]; actions?: string[] } | null;
   outcomeWarnings?: string[];
   scoringSource?: string | null;
+  userState?: GrantUserState | null;
 }
 
 const ONE_WEEK_MS = 7 * 86_400_000;
@@ -53,10 +56,19 @@ function formatAddedAt(value?: string | null): string | null {
   });
 }
 
+function stateLabel(status?: GrantUserState | null): string | null {
+  if (status === "saved") return "Saved";
+  if (status === "deferred") return "Deferred";
+  if (status === "applied") return "In Applications";
+  if (status === "dismissed") return "Dismissed";
+  return null;
+}
+
 export function EligibleGrantCard({ grant }: { grant: EligibleGrant }) {
   const detailHref = `/grants/${grant.grantId}?from=matches`;
   const deadlineStr = formatDeadline(grant.deadline);
   const addedAt = formatAddedAt(grant.addedAt);
+  const state = stateLabel(grant.userState);
   const isDeadlineSoon =
     grant.deadline && new Date(grant.deadline).getTime() - pageLoadedAt < ONE_WEEK_MS;
 
@@ -102,6 +114,12 @@ export function EligibleGrantCard({ grant }: { grant: EligibleGrant }) {
       {grant.scoringSource === "heuristic" && (
         <Badge variant="outline" className="w-fit border-amber-200 bg-amber-50 text-amber-700">
           Needs full company-DNA AI review
+        </Badge>
+      )}
+
+      {state && (
+        <Badge variant="outline" className="w-fit border-blue-200 bg-blue-50 text-blue-700">
+          {state}
         </Badge>
       )}
 

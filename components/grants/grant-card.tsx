@@ -24,6 +24,7 @@ interface GrantCardProps {
   /** When the grant was added to the database (ISO string). */
   addedAt?: string | null;
   isSaved?: boolean;
+  userState?: GrantUserState | null;
   onToggleSave?: () => void;
   urlStatus?: string | null;
   urlCheckedAt?: string | null;
@@ -31,11 +32,21 @@ interface GrantCardProps {
   scoringSource?: string | null;
 }
 
+type GrantUserState = "saved" | "viewed" | "deferred" | "applied" | "dismissed";
+
 const URGENCY_CLASS: Record<string, string> = {
   HIGH: "border-red-500/50 bg-red-50 text-red-800 dark:bg-red-950/30",
   MEDIUM: "border-amber-500/50 bg-amber-50 text-amber-800 dark:bg-amber-950/30",
   LOW: "border-muted text-muted-foreground",
 };
+
+function stateLabel(status?: GrantUserState | null, isSaved?: boolean): string | null {
+  if (status === "saved" || (!status && isSaved)) return "Saved";
+  if (status === "deferred") return "Deferred";
+  if (status === "applied") return "In Applications";
+  if (status === "dismissed") return "Dismissed";
+  return null;
+}
 
 export function GrantCard({
   id,
@@ -52,6 +63,7 @@ export function GrantCard({
   urgencyLabel,
   addedAt,
   isSaved,
+  userState,
   onToggleSave,
   urlStatus,
   urlCheckedAt,
@@ -60,6 +72,7 @@ export function GrantCard({
 }: GrantCardProps) {
   const scoreLabel = scoringSource === "heuristic" ? "Prelim" : "Match";
   const sourceLabel = grantFinderLabel(source);
+  const state = stateLabel(userState, isSaved);
   return (
     <Card className="min-w-0 transition-shadow hover:shadow-md">
       <CardHeader className="pb-3">
@@ -116,9 +129,9 @@ export function GrantCard({
           )}
           </div>
         </div>
-        {isSaved && (
+        {state && (
           <Badge variant="secondary" className="mt-2 w-fit text-xs">
-            Saved
+            {state}
           </Badge>
         )}
         <div className="mt-2 flex flex-wrap gap-1.5">

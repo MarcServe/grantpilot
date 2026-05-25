@@ -16,6 +16,11 @@ const GRANT_FETCH_OVERAGE = 3;
 
 type GrantsSearchParams = Promise<Record<string, string | string[] | undefined>>;
 type GrantSortMode = "newest" | "recommended" | "deadline";
+type GrantUserState = "saved" | "viewed" | "deferred" | "applied" | "dismissed";
+type SavedGrantStateRow = {
+  grant_id: string;
+  status: GrantUserState | null;
+};
 type GrantListRow = {
   id: string;
   name: string;
@@ -108,14 +113,21 @@ export default async function GrantsPage({
     region?: string | null;
   } | undefined);
   const appliedGrantIds = profile ? await getAppliedGrantIds(supabase, orgId, profile.id) : new Set<string>();
-  let savedGrantIds: string[] = [];
+  const savedGrantIds: string[] = [];
+  const grantUserStates: Record<string, GrantUserState> = {};
   if (profileComplete && profile) {
     const { data: savedData } = await supabase
       .from("SavedGrant")
-      .select("grant_id")
+      .select("grant_id, status")
       .eq("organisation_id", orgId)
       .eq("profile_id", profile.id);
-    savedGrantIds = (savedData ?? []).map((r: { grant_id: string }) => r.grant_id);
+    const savedRows = (savedData ?? []) as SavedGrantStateRow[];
+    for (const row of savedRows) {
+      if (!row.grant_id) continue;
+      const status = row.status ?? "saved";
+      grantUserStates[row.grant_id] = status;
+      if (status === "saved") savedGrantIds.push(row.grant_id);
+    }
   }
 
   const [
@@ -343,6 +355,7 @@ export default async function GrantsPage({
         profileComplete={profileComplete}
         cachedScores={cachedScores}
         savedGrantIds={savedGrantIds}
+        grantUserStates={grantUserStates}
         funderOptions={funderOptions}
         serverPagination={{
           page,

@@ -20,6 +20,7 @@ const GRANT_QUERY_BATCH_SIZE = 200;
 
 type ScoreTier = "suggested" | "within_reach" | "other";
 type MatchSearchParams = Promise<{ page?: string; pageSize?: string; tier?: string }>;
+type GrantUserState = "saved" | "viewed" | "deferred" | "applied" | "dismissed";
 type AssessmentRow = {
   grant_id: string;
   score: number;
@@ -30,6 +31,10 @@ type AssessmentRow = {
   updated_at: string;
   profile_id?: string | null;
   scoring_source?: string | null;
+};
+type SavedGrantStateRow = {
+  grant_id: string;
+  status: GrantUserState | null;
 };
 type GrantRow = {
   id: string;
@@ -239,6 +244,7 @@ async function EligibleGrantsPageContent({
 
   const grantIds = assessments.map((a) => a.grant_id);
   let grantsMap = new Map<string, GrantRow>();
+  let grantUserStateMap = new Map<string, GrantUserState>();
   const { data: outcomeRows } = await supabase
     .from("ApplicationOutcome")
     .select("outcome, awardedAmount, funderFeedback, learningNotes, Grant(name, funder)")
@@ -250,6 +256,22 @@ async function EligibleGrantsPageContent({
 
   if (grantIds.length > 0) {
     const appliedGrantIds = await getAppliedGrantIds(supabase, orgId, profileId);
+    const { data: savedStateRows } = await supabase
+      .from("SavedGrant")
+      .select("grant_id, status")
+      .eq("organisation_id", orgId)
+      .eq("profile_id", profileId)
+      .in("grant_id", grantIds);
+    grantUserStateMap = new Map(
+      ((savedStateRows ?? []) as SavedGrantStateRow[])
+        .filter((row) => row.grant_id)
+        .map((row) => [row.grant_id, (row.status ?? "saved") as GrantUserState])
+    );
+    const hiddenStateGrantIds = new Set(
+      ((savedStateRows ?? []) as SavedGrantStateRow[])
+        .filter((row) => row.status === "deferred" || row.status === "applied" || row.status === "dismissed")
+        .map((row) => row.grant_id)
+    );
     // Batch .in() queries to avoid URL length limits (Supabase/PostgREST caps ~8KB)
     const allGrantsData: GrantRow[] = [];
     for (let i = 0; i < grantIds.length; i += GRANT_QUERY_BATCH_SIZE) {
@@ -265,7 +287,7 @@ async function EligibleGrantsPageContent({
     }
 
     const validGrants = allGrantsData.filter((grant) =>
-      isGrantLinkUsable(grant) && !appliedGrantIds.has(grant.id)
+      isGrantLinkUsable(grant) && !appliedGrantIds.has(grant.id) && !hiddenStateGrantIds.has(grant.id)
     );
 
     const userFunderLocations = inferFunderLocationsFromProfile(profile as {
@@ -278,7 +300,7 @@ async function EligibleGrantsPageContent({
       grantMatchesFunderLocations(g.funderLocations, userFunderLocations)
     );
 
-    console.info(`[eligible-page] org=${orgId} profile=${profileId}: ${assessments.length} assessments, ${allGrantsData.length} grants fetched, ${appliedGrantIds.size} already applied, ${validGrants.length} fresh/unapplied, ${locationFiltered.length} pass location filter`);
+    console.info(`[eligible-page] org=${orgId} profile=${profileId}: ${assessments.length} assessments, ${allGrantsData.length} grants fetched, ${appliedGrantIds.size} already applied, ${hiddenStateGrantIds.size} deferred/applied/dismissed, ${validGrants.length} fresh/unapplied, ${locationFiltered.length} pass location filter`);
 
     grantsMap = new Map(locationFiltered.map((g) => [g.id, g]));
   }
@@ -322,6 +344,7 @@ async function EligibleGrantsPageContent({
       improvementPlan: guarded.improvementPlan ?? a.improvement_plan,
       outcomeWarnings: guarded.outcomeWarnings ?? [],
       scoringSource,
+      userState: grantUserStateMap.get(a.grant_id) ?? null,
     });
 
   }

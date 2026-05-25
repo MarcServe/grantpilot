@@ -240,8 +240,9 @@ export function buildEmailHtml(
     case "grant_scan_digest": {
       const profileName = payload.profileName ?? "Your business";
       const grants = payload.grants ?? [];
-      const rows = grants
-        .map((g: DigestGrantItem) => {
+      const withinReachGrants = payload.withinReachGrants ?? [];
+      const renderRows = (items: DigestGrantItem[]) =>
+        items.map((g: DigestGrantItem) => {
           const viewUrl = `${appUrl}/grants/${g.grantId}`;
           const summaryText = g.summary ? ` — ${g.summary.slice(0, 120)}${g.summary.length > 120 ? "…" : ""}` : "";
           const missingNote =
@@ -249,7 +250,7 @@ export function buildEmailHtml(
               ? `<br><span style="color:#b45309;font-size:13px">May require: ${escapeHtml((g.missingDocuments ?? []).join(", "))}. <a href="${appUrl}/profile" style="color:#1B3A6B">Add in Profile → Documents</a></span>`
               : "";
           const hasWorkNeeded =
-            g.score < 70 &&
+            g.score < 80 &&
             ((g.improvementPlan?.actions?.length ?? 0) > 0 ||
               (g.improvementPlan?.gaps?.length ?? 0) > 0 ||
               (g.missingCriteria?.length ?? 0) > 0);
@@ -264,12 +265,19 @@ export function buildEmailHtml(
           return `<tr><td style="padding:12px 0;border-bottom:1px solid #e2e8f0"><strong>${escapeHtml(g.grantName)}</strong> (${g.score}% match)${escapeHtml(summaryText)}<br><a href="${viewUrl}" style="color:#1B3A6B">View grant and prepare</a>${missingNote}${workNeededNote}</td></tr>`;
         })
         .join("");
-      const table = rows ? `<table style="width:100%;border-collapse:collapse">${rows}</table>` : "";
-      const hasAnyMissing = grants.some((g: DigestGrantItem) => ((g.missingDocuments?.length) ?? 0) > 0);
+      const strongRows = renderRows(grants);
+      const withinReachRows = renderRows(withinReachGrants);
+      const strongSection = strongRows
+        ? `<h2 style="font-size:16px;color:#1a1a1a;margin:20px 0 4px">Strong matches</h2><table style="width:100%;border-collapse:collapse">${strongRows}</table>`
+        : "";
+      const withinReachSection = withinReachRows
+        ? `<h2 style="font-size:16px;color:#1a1a1a;margin:20px 0 4px">Within reach</h2><p style="margin:0 0 8px;color:#64748b;font-size:13px">These may be worth reviewing, but check the listed gaps before applying.</p><table style="width:100%;border-collapse:collapse">${withinReachRows}</table>`
+        : "";
+      const hasAnyMissing = [...grants, ...withinReachGrants].some((g: DigestGrantItem) => ((g.missingDocuments?.length) ?? 0) > 0);
       const missingReminder = hasAnyMissing
         ? `<p style="margin-top:16px;padding:12px;background:#fef3c7;border-radius:8px;color:#92400e">Some grants may require documents you haven&apos;t uploaded yet. Add them in <a href="${appUrl}/profile" style="color:#1B3A6B;font-weight:600">Profile → Documents</a> before you apply.</p>`
         : "";
-      const body = `<p>Today&apos;s grant opportunities for <strong>${escapeHtml(profileName)}</strong> — review the fit, prepare your documents, and apply on the official funder site.</p>${table}${missingReminder}<p style="margin-top:16px">You can also browse all your matches from the app.</p>`;
+      const body = `<p>Today&apos;s grant opportunities for <strong>${escapeHtml(profileName)}</strong> — review the fit, prepare your documents, and apply on the official funder site.</p>${strongSection}${withinReachSection}${missingReminder}<p style="margin-top:16px">You can also browse all your matches from the app.</p>`;
       return {
         subject: `[Grants-Copilot] Today's grant opportunities for ${profileName}`,
         html: baseLayout(
@@ -424,8 +432,10 @@ export function buildWhatsAppMessage(
     case "grant_scan_digest": {
       const profileName = payload.profileName ?? "Your business";
       const grants = payload.grants ?? [];
+      const withinReachGrants = payload.withinReachGrants ?? [];
       let msg = `Today's grant opportunities for ${profileName}\n\n`;
       let anyMissing = false;
+      if (grants.length > 0) msg += "Strong matches:\n";
       for (const g of grants as DigestGrantItem[]) {
         const viewUrl = `${appUrl}/grants/${g.grantId}`;
         msg += `• ${g.grantName} (${g.score}% match)\n  View: ${viewUrl}\n`;
@@ -433,6 +443,14 @@ export function buildWhatsAppMessage(
         const workParts = [...(g.improvementPlan?.actions ?? []), ...(g.missingCriteria ?? [])].slice(0, 2);
         if (g.score < 70 && workParts.length > 0)
           msg += `  Work needed: ${workParts.join("; ")}\n`;
+      }
+      if (withinReachGrants.length > 0) msg += `${grants.length > 0 ? "\n" : ""}Within reach:\n`;
+      for (const g of withinReachGrants as DigestGrantItem[]) {
+        const viewUrl = `${appUrl}/grants/${g.grantId}`;
+        msg += `• ${g.grantName} (${g.score}% match)\n  View: ${viewUrl}\n`;
+        if ((g.missingDocuments?.length ?? 0) > 0) anyMissing = true;
+        const workParts = [...(g.improvementPlan?.actions ?? []), ...(g.missingCriteria ?? [])].slice(0, 2);
+        if (workParts.length > 0) msg += `  Check: ${workParts.join("; ")}\n`;
       }
       msg += `\nView all: ${appUrl}/grants`;
       if (anyMissing) msg += `\n\nSome grants may require documents you haven't uploaded. Add them in Profile → Documents: ${appUrl}/profile`;
