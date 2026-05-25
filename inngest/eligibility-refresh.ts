@@ -731,6 +731,18 @@ export async function runEligibilityRefreshJob(options?: {
               sendEmail: true,
               sendWhatsApp: false,
             });
+            const topWhatsAppMatch = currentStrongDigest.find((item) => item.score >= eligibleThreshold);
+            if (topWhatsAppMatch && sendWhatsApp) {
+              await notifyOrgMembers(orgId, "grant_match_high", {
+                grantId: topWhatsAppMatch.grantId,
+                grantName: topWhatsAppMatch.grantName,
+                score: topWhatsAppMatch.score,
+                startApplicationToken: topWhatsAppMatch.startApplicationToken,
+              }, {
+                sendEmail: false,
+                sendWhatsApp: true,
+              });
+            }
             diagnostics.dailyUpdates++;
             notifiedCount += currentStrongDigest.length;
             const notifiedAt = new Date().toISOString();
