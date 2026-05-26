@@ -11,6 +11,7 @@ import {
   Bell,
   CalendarClock,
   Database,
+  EyeOff,
   Mail,
   MessageCircle,
   SearchCheck,
@@ -59,6 +60,57 @@ type GrantRow = {
   source: string | null;
   deadline: string | null;
   createdAt: string | null;
+  url_status?: string | null;
+};
+
+type SavedGrantSuppressionStatus = "saved" | "viewed" | "deferred" | "applied" | "dismissed";
+
+type SavedGrantSuppressionRow = {
+  organisation_id: string | null;
+  profile_id: string | null;
+  grant_id: string | null;
+  status: SavedGrantSuppressionStatus | null;
+  suppress_notifications: boolean | null;
+  viewed_at: string | null;
+  deferred_at: string | null;
+  applied_at: string | null;
+  dismissed_at: string | null;
+  notes: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+type ProfileSummaryRow = {
+  id: string;
+  businessName?: string | null;
+  business_name?: string | null;
+};
+
+type OrganisationSummaryRow = {
+  id: string;
+  name: string | null;
+};
+
+type AssessmentSummaryRow = {
+  grant_id: string | null;
+  profile_id: string | null;
+  score: number | null;
+  decision: string | null;
+  summary: string | null;
+  updated_at: string | null;
+};
+
+type SuppressedGrantDetail = {
+  row: SavedGrantSuppressionRow;
+  grantId: string | null;
+  grantName: string;
+  funder: string;
+  profileName: string;
+  organisationName: string;
+  reason: string;
+  changedAt: string | null;
+  grant?: GrantRow;
+  assessment?: AssessmentSummaryRow;
 };
 
 type OrganisationMemberRow = {
@@ -219,6 +271,41 @@ function distinctOrgCount(userIds: Set<string>, memberships: OrganisationMemberR
   return orgIds.size;
 }
 
+function uniqueStrings(values: Array<string | null | undefined>): string[] {
+  return Array.from(new Set(values.filter((value): value is string => Boolean(value))));
+}
+
+function profileDisplayName(profile?: ProfileSummaryRow): string {
+  return profile?.businessName ?? profile?.business_name ?? "Unknown profile";
+}
+
+function suppressionChangedAt(row: SavedGrantSuppressionRow): string | null {
+  if (row.status === "dismissed") return row.dismissed_at ?? row.updated_at ?? row.created_at;
+  if (row.status === "applied") return row.applied_at ?? row.updated_at ?? row.created_at;
+  if (row.status === "deferred") return row.deferred_at ?? row.updated_at ?? row.created_at;
+  if (row.status === "viewed") return row.viewed_at ?? row.updated_at ?? row.created_at;
+  return row.updated_at ?? row.created_at;
+}
+
+function suppressionReason(row: SavedGrantSuppressionRow): string {
+  switch (row.status) {
+    case "viewed":
+      return "Viewed in detail, so repeated eligibility alerts are suppressed.";
+    case "deferred":
+      return "Deferred for later by the user.";
+    case "applied":
+      return "Added to applications or marked as applied.";
+    case "dismissed":
+      return "Dismissed by the user.";
+    case "saved":
+      return row.suppress_notifications
+        ? "Saved row has suppression enabled; review this because saved-only grants should normally keep reminders available."
+        : "Saved for later; not normally suppressed.";
+    default:
+      return row.suppress_notifications ? "Notifications suppressed for this profile/grant." : "Not suppressed.";
+  }
+}
+
 function getStatusCount(rows: NotificationLogRow[], type: string, status: string, since: Date): number {
   return rows.filter((row) => row.type === type && row.status === status && isSince(row.createdAt, since)).length;
 }
@@ -276,6 +363,7 @@ export default async function AdminPage() {
     linksManualReviewResult,
     linksFailedResult,
     cronRunsResult,
+    suppressedGrantsResult,
     eligibilityWhatsAppTraces,
   ] = await Promise.all([
     supabase.from("Grant").select("id", { count: "exact", head: true }).gte("createdAt", last24h.toISOString()),
@@ -324,6 +412,14 @@ export default async function AdminPage() {
       .gte("started_at", last7d.toISOString())
       .order("started_at", { ascending: false })
       .limit(200),
+    supabase
+      .from("SavedGrant")
+      .select(
+        "organisation_id, profile_id, grant_id, status, suppress_notifications, viewed_at, deferred_at, applied_at, dismissed_at, notes, created_at, updated_at"
+      )
+      .eq("suppress_notifications", true)
+      .order("updated_at", { ascending: false })
+      .limit(75),
     getAdminEligibilityWhatsAppTraces({ days: 7, limit: 8 }),
   ]);
 
@@ -359,9 +455,102 @@ export default async function AdminPage() {
   const latestGrants = (latestGrantsResult.data ?? []) as GrantRow[];
   const upcomingDeadlines = (upcomingDeadlineResult.data ?? []) as GrantRow[];
   const grantSources = (grantSourcesResult.data ?? []) as GrantSourceRow[];
+  const suppressedGrantRows = (suppressedGrantsResult.data ?? []) as SavedGrantSuppressionRow[];
+  if (suppressedGrantsResult.error) {
+    console.warn("[admin] SavedGrant suppression query failed:", suppressedGrantsResult.error.message);
+  }
   if (cronRunsResult.error) {
     console.warn("[admin] CronRunLog query failed:", cronRunsResult.error.message);
   }
+
+  let suppressedGrantDetails: SuppressedGrantDetail[] = [];
+  if (suppressedGrantRows.length > 0) {
+    const suppressedGrantIds = uniqueStrings(suppressedGrantRows.map((row) => row.grant_id));
+    const suppressedProfileIds = uniqueStrings(suppressedGrantRows.map((row) => row.profile_id));
+    const suppressedOrganisationIds = uniqueStrings(suppressedGrantRows.map((row) => row.organisation_id));
+
+    const [suppressedGrantDetailResult, suppressedProfileResult, suppressedOrganisationResult, suppressedAssessmentResult] =
+      await Promise.all([
+        suppressedGrantIds.length > 0
+          ? supabase
+              .from("Grant")
+              .select("id, name, funder, source, deadline, createdAt, url_status")
+              .in("id", suppressedGrantIds)
+          : Promise.resolve({ data: [], error: null }),
+        suppressedProfileIds.length > 0
+          ? supabase
+              .from("BusinessProfile")
+              .select("id, businessName, business_name")
+              .in("id", suppressedProfileIds)
+          : Promise.resolve({ data: [], error: null }),
+        suppressedOrganisationIds.length > 0
+          ? supabase
+              .from("Organisation")
+              .select("id, name")
+              .in("id", suppressedOrganisationIds)
+          : Promise.resolve({ data: [], error: null }),
+        suppressedGrantIds.length > 0 && suppressedProfileIds.length > 0
+          ? supabase
+              .from("EligibilityAssessment")
+              .select("grant_id, profile_id, score, decision, summary, updated_at")
+              .in("grant_id", suppressedGrantIds)
+              .in("profile_id", suppressedProfileIds)
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+
+    if (suppressedGrantDetailResult.error) {
+      console.warn("[admin] Suppressed grant detail query failed:", suppressedGrantDetailResult.error.message);
+    }
+    if (suppressedProfileResult.error) {
+      console.warn("[admin] Suppressed profile query failed:", suppressedProfileResult.error.message);
+    }
+    if (suppressedOrganisationResult.error) {
+      console.warn("[admin] Suppressed organisation query failed:", suppressedOrganisationResult.error.message);
+    }
+    if (suppressedAssessmentResult.error) {
+      console.warn("[admin] Suppressed assessment query failed:", suppressedAssessmentResult.error.message);
+    }
+
+    const grantsById = new Map(
+      ((suppressedGrantDetailResult.data ?? []) as GrantRow[]).map((grant) => [grant.id, grant])
+    );
+    const profilesById = new Map(
+      ((suppressedProfileResult.data ?? []) as ProfileSummaryRow[]).map((profile) => [profile.id, profile])
+    );
+    const organisationsById = new Map(
+      ((suppressedOrganisationResult.data ?? []) as OrganisationSummaryRow[]).map((organisation) => [
+        organisation.id,
+        organisation,
+      ])
+    );
+    const assessmentsByKey = new Map(
+      ((suppressedAssessmentResult.data ?? []) as AssessmentSummaryRow[])
+        .filter((assessment) => assessment.profile_id && assessment.grant_id)
+        .map((assessment) => [`${assessment.profile_id}:${assessment.grant_id}`, assessment])
+    );
+
+    suppressedGrantDetails = suppressedGrantRows.map((row) => {
+      const grant = row.grant_id ? grantsById.get(row.grant_id) : undefined;
+      const profile = row.profile_id ? profilesById.get(row.profile_id) : undefined;
+      const organisation = row.organisation_id ? organisationsById.get(row.organisation_id) : undefined;
+      const assessment =
+        row.profile_id && row.grant_id ? assessmentsByKey.get(`${row.profile_id}:${row.grant_id}`) : undefined;
+
+      return {
+        row,
+        grantId: row.grant_id,
+        grantName: grant?.name ?? row.grant_id ?? "Unknown grant",
+        funder: grant?.funder ?? "Unknown funder",
+        profileName: profileDisplayName(profile),
+        organisationName: organisation?.name ?? row.organisation_id ?? "Unknown organisation",
+        reason: suppressionReason(row),
+        changedAt: suppressionChangedAt(row),
+        grant,
+        assessment,
+      };
+    });
+  }
+
   const cronRuns = (cronRunsResult.data ?? []) as CronRunLogRow[];
   const latestCronRun = cronRuns[0] ?? null;
   const failedCronRunsLast24h = cronRuns.filter((row) => row.status === "failed" && isSince(row.started_at, last24h));
@@ -897,6 +1086,96 @@ export default async function AdminPage() {
                       <tr>
                         <td colSpan={6} className="py-4 text-sm text-muted-foreground">
                           No notification delivery rows found in the last 7 days.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <EyeOff className="h-4 w-4 text-blue-600" />
+                Suppressed grants
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Grants listed here are removed from repeated eligibility and deadline notifications for that profile.
+                Saved-only grants normally stay active; viewed, deferred, applied, and dismissed states suppress reminders.
+              </p>
+              <div className="mt-4 max-h-[30rem] overflow-auto">
+                <table className="w-full min-w-[1120px] text-left text-sm">
+                  <thead className="border-b text-xs uppercase tracking-wide text-muted-foreground">
+                    <tr>
+                      <th className="py-2 pr-4 font-medium">Updated</th>
+                      <th className="py-2 pr-4 font-medium">Organisation / profile</th>
+                      <th className="py-2 pr-4 font-medium">Grant</th>
+                      <th className="py-2 pr-4 font-medium">Reason</th>
+                      <th className="py-2 pr-4 font-medium">Last score</th>
+                      <th className="py-2 pr-4 font-medium">Deadline</th>
+                      <th className="py-2 pr-4 font-medium">Notes</th>
+                      <th className="py-2 pr-4 font-medium">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {suppressedGrantDetails.length > 0 ? (
+                      suppressedGrantDetails.map((detail, index) => (
+                        <tr key={`${detail.row.organisation_id}-${detail.row.profile_id}-${detail.row.grant_id}-${index}`} className="border-b last:border-0">
+                          <td className="py-3 pr-4 text-xs text-muted-foreground">{formatDateTime(detail.changedAt)}</td>
+                          <td className="py-3 pr-4">
+                            <div className="font-medium">{detail.organisationName}</div>
+                            <div className="text-xs text-muted-foreground">{detail.profileName}</div>
+                          </td>
+                          <td className="py-3 pr-4">
+                            <div className="line-clamp-2 font-medium">{detail.grantName}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {detail.funder}
+                              {detail.grant?.url_status ? ` · link ${detail.grant.url_status}` : ""}
+                            </div>
+                          </td>
+                          <td className="py-3 pr-4">
+                            <span className="inline-flex rounded-full border bg-muted/40 px-2 py-0.5 text-xs font-medium">
+                              {detail.row.status ?? "unknown"}
+                            </span>
+                            <div className="mt-1 max-w-[280px] text-xs text-muted-foreground">{detail.reason}</div>
+                          </td>
+                          <td className="py-3 pr-4">
+                            {detail.assessment?.score != null ? (
+                              <>
+                                <div className="font-medium">{detail.assessment.score}%</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {detail.assessment.decision ?? "decision unknown"} · {formatRelative(detail.assessment.updated_at)}
+                                </div>
+                              </>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">No score row</span>
+                            )}
+                          </td>
+                          <td className="py-3 pr-4 text-xs text-muted-foreground">{formatDateTime(detail.grant?.deadline)}</td>
+                          <td className="py-3 pr-4">
+                            <div className="max-w-[260px] text-xs text-muted-foreground">
+                              {detail.row.notes ? detail.row.notes : "-"}
+                            </div>
+                          </td>
+                          <td className="py-3 pr-4">
+                            {detail.grantId ? (
+                              <Link href={`/grants/${detail.grantId}`} className="text-sm font-medium text-blue-700 underline">
+                                View grant
+                              </Link>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">Missing grant id</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={8} className="py-4 text-sm text-muted-foreground">
+                          No suppressed grant rows found.
                         </td>
                       </tr>
                     )}
