@@ -18,10 +18,10 @@ import { runWithCronLog } from "@/lib/cron-run-log";
 import { getSuppressedGrantIds } from "@/lib/grant-user-state";
 import { checkUsageLimit, organisationAllowsCapability, recordUsage } from "@/lib/plan-check";
 import {
-  applyOutcomeScoreAdjustment,
   buildFundingOutcomeSignals,
   deriveOutcomeLearningAdvisory,
 } from "@/lib/outcome-learning";
+import { finalEligibilityScore, finaliseEligibilityAssessment } from "@/lib/eligibility-final-score";
 
 /**
  * 3-Layer Eligibility Pipeline
@@ -167,24 +167,6 @@ async function fetchCurrentGrants(
   return rows.filter(isGrantLinkUsable);
 }
 
-async function countStrongEligibleAssessments(
-  supabase: ReturnType<typeof getSupabaseAdmin>,
-  orgId: string,
-  profileId: string,
-  minScore: number
-): Promise<number> {
-  const { count } = await supabase
-    .from("EligibilityAssessment")
-    .select("grant_id", { count: "exact", head: true })
-    .eq("organisation_id", orgId)
-    .eq("profile_id", profileId)
-    .eq("decision", "likely_eligible")
-    .eq("scoring_source", "openai")
-    .gte("score", minScore);
-
-  return count ?? 0;
-}
-
 export async function runEligibilityRefreshJob(options?: {
   orgIdsFilter?: Set<string>;
   bypassCache?: boolean;
@@ -278,10 +260,7 @@ export async function runEligibilityRefreshJob(options?: {
 
         const sendEligibilityStatusEmail = async (checkedGrantsCount: number, digestCandidateCount = 0) => {
           if (!sendNotifyEmail) return;
-          const strongEligibleCount = Math.max(
-            digestCandidateCount,
-            await countStrongEligibleAssessments(supabase, orgId, profileId, minScore)
-          );
+          const strongEligibleCount = Math.max(0, Math.round(digestCandidateCount));
 
           if (!canReceiveProactiveNotifications && strongEligibleCount > 0) {
             const alreadyPrompted = await orgHasNotificationSince(
@@ -459,11 +438,21 @@ export async function runEligibilityRefreshJob(options?: {
         const outcomeAdvisory = deriveOutcomeLearningAdvisory(outcomeRows ?? []);
         const grantsByIdForDigest = new Map(locationFiltered.map((grant) => [grant.id, grant]));
 
-        const buildDigestItem = (assessment: CachedEligibilityRow): DigestGrantItem | null => {
-          const score = Number(assessment.score ?? 0);
-          if (!Number.isFinite(score)) return null;
+        const buildDigestItem = (
+          assessment: CachedEligibilityRow,
+          range?: { minScore?: number; maxScore?: number }
+        ): DigestGrantItem | null => {
           const grant = grantsByIdForDigest.get(assessment.grant_id);
           if (!grant) return null;
+          const finalResult = finaliseEligibilityAssessment(
+            profile as Record<string, unknown>,
+            grant,
+            assessment,
+            outcomeAdvisory
+          );
+          const score = finalEligibilityScore(finalResult);
+          if (range?.minScore != null && score < range.minScore) return null;
+          if (range?.maxScore != null && score > range.maxScore) return null;
 
           const startApplicationToken = createStartApplicationToken({
             grantId: grant.id,
@@ -479,12 +468,14 @@ export async function runEligibilityRefreshJob(options?: {
             grantName: grant.name,
             score,
             summary:
+              finalResult.summary ??
+              finalResult.reason ??
               assessment.summary ??
               "Full company-DNA assessment found a strong match between your profile and this grant.",
             startApplicationToken,
             missingDocuments: missing.length > 0 ? missing.map((r) => r.label) : undefined,
-            improvementPlan: assessment.improvement_plan ?? undefined,
-            missingCriteria: assessment.missing_criteria ?? undefined,
+            improvementPlan: finalResult.improvementPlan ?? assessment.improvement_plan ?? undefined,
+            missingCriteria: finalResult.missing ?? assessment.missing_criteria ?? undefined,
           };
         };
 
@@ -507,7 +498,7 @@ export async function runEligibilityRefreshJob(options?: {
           }
 
           return ((currentRows ?? []) as CachedEligibilityRow[])
-            .map(buildDigestItem)
+            .map((row) => buildDigestItem(row, { minScore, maxScore }))
             .filter((item): item is DigestGrantItem => item != null)
             .sort((a, b) => {
               if (b.score !== a.score) return b.score - a.score;
@@ -524,7 +515,7 @@ export async function runEligibilityRefreshJob(options?: {
             .eq("profile_id", profileId)
             .eq("scoring_source", "openai")
             .gte("score", 50)
-            .lt("score", 80)
+            .lte("score", maxScore)
             .order("updated_at", { ascending: false })
             .limit(40);
 
@@ -534,13 +525,18 @@ export async function runEligibilityRefreshJob(options?: {
           }
 
           return ((currentRows ?? []) as CachedEligibilityRow[])
-            .map(buildDigestItem)
+            .map((row) => buildDigestItem(row, { minScore: 50, maxScore: 79 }))
             .filter((item): item is DigestGrantItem => item != null)
             .sort((a, b) => {
               if (b.score !== a.score) return b.score - a.score;
               return grantCreatedTime(grantsByIdForDigest.get(b.grantId)) - grantCreatedTime(grantsByIdForDigest.get(a.grantId));
             })
             .slice(0, limit);
+        };
+        let currentStrongDigestCache: DigestGrantItem[] | null = null;
+        const getCurrentStrongDigest = async () => {
+          if (!currentStrongDigestCache) currentStrongDigestCache = await buildCurrentStrongDigest();
+          return currentStrongDigestCache;
         };
 
         for (const cached of (cachedRows ?? []) as CachedEligibilityRow[]) {
@@ -555,7 +551,7 @@ export async function runEligibilityRefreshJob(options?: {
             continue;
           }
 
-          const digestItem = buildDigestItem(cached);
+          const digestItem = buildDigestItem(cached, { minScore, maxScore });
           if (digestItem) digestGrants.push(digestItem);
         }
 
@@ -590,10 +586,15 @@ export async function runEligibilityRefreshJob(options?: {
                 regions: grant.regions ?? [],
               }
             );
-            const adjustedResult = applyOutcomeScoreAdjustment(result, outcomeAdvisory);
+            const adjustedResult = finaliseEligibilityAssessment(
+              profile as Record<string, unknown>,
+              grant,
+              result,
+              outcomeAdvisory
+            );
             diagnostics.layer3Scored++;
 
-            const score = adjustedResult.score ?? adjustedResult.confidence;
+            const score = finalEligibilityScore(adjustedResult);
             const summary = adjustedResult.summary ?? adjustedResult.reason ?? undefined;
 
             const { error: upsertErr } = await supabase.from("EligibilityAssessment").upsert(
@@ -639,18 +640,21 @@ export async function runEligibilityRefreshJob(options?: {
               const notifiedAt = (existing as { notified_at: string | null } | null)?.notified_at;
               const includeInDigest = isOutsideNotificationCooldown(notifiedAt, cooldown);
               if (includeInDigest) {
-                const digestItem = buildDigestItem({
-                  grant_id: grant.id,
-                  score,
-                  summary:
-                    summary ??
-                    "Full company-DNA assessment found a strong match between your profile and this grant.",
-                  decision: adjustedResult.decision,
-                  notified_at: notifiedAt ?? null,
-                  missing_criteria: adjustedResult.missing ?? [],
-                  improvement_plan: adjustedResult.improvementPlan ?? null,
-                  scoring_source: "openai",
-                });
+                const digestItem = buildDigestItem(
+                  {
+                    grant_id: grant.id,
+                    score,
+                    summary:
+                      summary ??
+                      "Full company-DNA assessment found a strong match between your profile and this grant.",
+                    decision: adjustedResult.decision,
+                    notified_at: notifiedAt ?? null,
+                    missing_criteria: adjustedResult.missing ?? [],
+                    improvement_plan: adjustedResult.improvementPlan ?? null,
+                    scoring_source: "openai",
+                  },
+                  { minScore, maxScore }
+                );
                 if (digestItem) digestGrants.push(digestItem);
               }
             }
@@ -690,10 +694,8 @@ export async function runEligibilityRefreshJob(options?: {
         // ── Notification ──
         console.info(`[eligibility-refresh]   Digest candidates: ${digestGrants.length} grants, completion=${completionScore}%, threshold=${minCompletionForNotifications}%, email=${sendNotifyEmail}, whatsapp=${sendWhatsApp}`);
 
-        const strongEligibleCount = Math.max(
-          digestGrants.length,
-          await countStrongEligibleAssessments(supabase, orgId, profileId, minScore)
-        );
+        const strongEligibleCount =
+          digestGrants.length > 0 ? digestGrants.length : (await getCurrentStrongDigest()).length;
 
         if (!canReceiveProactiveNotifications && strongEligibleCount > 0 && sendNotifyEmail) {
           const alreadyPrompted = await orgHasNotificationSince(
@@ -748,7 +750,7 @@ export async function runEligibilityRefreshJob(options?: {
             ["daily_grant_update", "grant_scan_digest", "grant_match_high", "eligibility_upgrade_prompt"],
             recentWindow
           );
-          const currentStrongDigest = alreadyUpdated ? [] : await buildCurrentStrongDigest();
+          const currentStrongDigest = alreadyUpdated ? [] : await getCurrentStrongDigest();
           const currentWithinReachDigest = alreadyUpdated ? [] : await buildCurrentWithinReachDigest();
           if (currentStrongDigest.length > 0 || currentWithinReachDigest.length > 0) {
             console.info(

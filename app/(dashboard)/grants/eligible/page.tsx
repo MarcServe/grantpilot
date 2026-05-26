@@ -9,9 +9,12 @@ import type { EligibleGrant } from "@/components/grants/eligible-grant-card";
 import { EligibleGrantsList } from "@/components/grants/eligible-grants-list";
 import { getGrantVerificationWarning, isGrantLinkUsable } from "@/lib/grant-freshness";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
-import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
-import { applyOutcomeScoreAdjustment, deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
-import type { EligibilityResult } from "@/lib/claude";
+import { deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
+import {
+  finalEligibilityScore,
+  finaliseEligibilityAssessment,
+  resolveScoringSource,
+} from "@/lib/eligibility-final-score";
 
 const MATCH_PAGE_SIZE_OPTIONS = [20, 30, 50] as const;
 const DEFAULT_MATCH_PAGE_SIZE = 30;
@@ -51,18 +54,6 @@ type GrantRow = {
   sectors?: string[];
   regions?: string[];
 };
-
-function profileForEligibilityGuards(profile: Record<string, unknown>) {
-  return {
-    location: String(profile.location ?? ""),
-    sector: String(profile.sector ?? ""),
-    fundingPurposes: Array.isArray(profile.fundingPurposes) ? profile.fundingPurposes as string[] : (Array.isArray(profile.funding_purposes) ? profile.funding_purposes as string[] : []),
-    businessType: String(profile.businessType ?? profile.business_type ?? "") || null,
-    employeeCount: profile.employeeCount != null ? Number(profile.employeeCount) : (profile.employee_count != null ? Number(profile.employee_count) : null),
-    annualRevenue: profile.annualRevenue != null ? Number(profile.annualRevenue) : (profile.annual_revenue != null ? Number(profile.annual_revenue) : null),
-    yearEstablished: profile.yearEstablished != null ? Number(profile.yearEstablished) : (profile.year_established != null ? Number(profile.year_established) : null),
-  };
-}
 
 function normalizePage(raw: string | undefined): number {
   const parsed = Number(raw);
@@ -311,26 +302,9 @@ async function EligibleGrantsPageContent({
     const grant = grantsMap.get(a.grant_id);
     if (!grant) continue;
 
-    const scoringSource = a.scoring_source ?? (a.summary?.startsWith("Preliminary fit") ? "heuristic" : "openai");
-    const baseScore = scoringSource === "heuristic" ? Math.min(a.score, 69) : a.score;
-    const guarded = applyOutcomeScoreAdjustment(applyEligibilityScoreGuards(
-      profileForEligibilityGuards(profile as Record<string, unknown>),
-      grant,
-      {
-        decision: a.decision === "likely_eligible" || a.decision === "review" || a.decision === "unlikely" ? a.decision : "review",
-        reason: a.summary ?? "",
-        confidence: baseScore,
-        score: baseScore,
-        summary: a.summary ?? undefined,
-        reasons: [],
-        improvementPlan: a.improvement_plan as EligibilityResult["improvementPlan"],
-        met: [],
-        missing: a.missing_criteria ?? [],
-        winProbability: baseScore,
-        evidenceStrength: baseScore >= 80 ? "strong" : baseScore >= 55 ? "medium" : "weak",
-      }
-    ), outcomeAdvisory);
-    const score = guarded.score ?? guarded.confidence;
+    const scoringSource = resolveScoringSource(a);
+    const guarded = finaliseEligibilityAssessment(profile as Record<string, unknown>, grant, a, outcomeAdvisory);
+    const score = finalEligibilityScore(guarded);
     allGrants.push({
       grantId: a.grant_id,
       grantName: grant.name,

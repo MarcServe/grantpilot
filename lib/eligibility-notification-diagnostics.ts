@@ -5,6 +5,9 @@ import { grantMatchesFunderLocations, inferFunderLocationsFromProfile } from "@/
 import { isGrantLinkUsable } from "@/lib/grant-freshness";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { getSuppressedGrantIds } from "@/lib/grant-user-state";
+import { deriveOutcomeLearningAdvisory, type OutcomeLearningAdvisory } from "@/lib/outcome-learning";
+import { finalEligibilityScore, finaliseEligibilityAssessment } from "@/lib/eligibility-final-score";
+import type { EligibilityResult } from "@/lib/claude";
 
 const DEFAULT_MIN_SCORE = 85;
 const DEFAULT_MAX_SCORE = 100;
@@ -71,8 +74,13 @@ type NotificationLogTraceRow = {
 type EligibilityRow = {
   grant_id: string;
   score: number | null;
+  decision: string | null;
+  summary: string | null;
   notified_at: string | null;
   updated_at: string | null;
+  missing_criteria?: string[] | null;
+  improvement_plan?: EligibilityResult["improvementPlan"] | null;
+  scoring_source?: string | null;
 };
 
 type CronRunTraceRow = {
@@ -87,10 +95,14 @@ type CronRunTraceRow = {
 
 type GrantTraceRow = {
   id: string;
+  name?: string | null;
   deadline?: string | null;
   eligibility?: string | null;
   description?: string | null;
   objectives?: string | null;
+  applicantTypes?: string[];
+  sectors?: string[];
+  regions?: string[];
   funderLocations?: string[] | null;
   url_status?: string | null;
   createdAt?: string | null;
@@ -98,6 +110,7 @@ type GrantTraceRow = {
 
 type ActionableGrantTrace = {
   ids: Set<string>;
+  grantsById: Map<string, GrantTraceRow>;
   totalFetched: number;
   usableCurrent: number;
   locationMatched: number;
@@ -282,7 +295,7 @@ async function getCurrentActionableGrantTrace(
   for (let offset = 0; offset < MAX_GRANTS_FOR_TRACE; offset += GRANT_FETCH_BATCH_SIZE) {
     const { data, error } = await supabase
       .from("Grant")
-      .select("id, deadline, eligibility, description, objectives, funderLocations, url_status, createdAt")
+      .select("id, name, deadline, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, url_status, createdAt")
       .order("createdAt", { ascending: false })
       .range(offset, offset + GRANT_FETCH_BATCH_SIZE - 1);
 
@@ -319,12 +332,28 @@ async function getCurrentActionableGrantTrace(
 
   return {
     ids: new Set(locationMatched.map((grant) => grant.id)),
+    grantsById: new Map(locationMatched.map((grant) => [grant.id, grant])),
     totalFetched: rows.length,
     usableCurrent: usable.length,
     locationMatched: locationMatched.length,
     applied: appliedGrantIds.size,
     suppressed: suppressedGrantIds.size,
   };
+}
+
+async function getOutcomeAdvisory(
+  supabase: SupabaseAdmin,
+  orgId: string,
+  profileId: string
+): Promise<OutcomeLearningAdvisory> {
+  const { data } = await supabase
+    .from("ApplicationOutcome")
+    .select("outcome, awardedAmount, funderFeedback, learningNotes, Grant(name, funder)")
+    .eq("organisationId", orgId)
+    .eq("profileId", profileId)
+    .order("reportedAt", { ascending: false })
+    .limit(8);
+  return deriveOutcomeLearningAdvisory(data ?? []);
 }
 
 async function getPreferences(supabase: SupabaseAdmin, orgId: string): Promise<PreferenceRow | null> {
@@ -381,44 +410,54 @@ async function getAssessmentCounts(
   orgId: string,
   profileId: string,
   thresholds: { minScore: number; maxScore: number; eligibleThreshold: number },
-  actionableGrantIds?: Set<string>
+  profile: ProfileRow,
+  outcomeAdvisory: OutcomeLearningAdvisory,
+  actionables?: ActionableGrantTrace
 ) {
-  const { data: highRows = [] } = await supabase
+  const { data: matchRows = [] } = await supabase
     .from("EligibilityAssessment")
-    .select("grant_id, score, notified_at, updated_at")
+    .select("grant_id, score, decision, summary, notified_at, updated_at, missing_criteria, improvement_plan, scoring_source")
+    .eq("organisation_id", orgId)
+    .eq("profile_id", profileId)
+    .eq("decision", "likely_eligible")
+    .eq("scoring_source", "openai")
+    .gte("score", 50)
+    .lte("score", thresholds.maxScore)
+    .order("updated_at", { ascending: false })
+    .limit(5000);
+
+  const { data: storedHighRows = [] } = await supabase
+    .from("EligibilityAssessment")
+    .select("grant_id")
     .eq("organisation_id", orgId)
     .eq("profile_id", profileId)
     .eq("decision", "likely_eligible")
     .eq("scoring_source", "openai")
     .gte("score", thresholds.eligibleThreshold)
     .lte("score", thresholds.maxScore)
-    .order("updated_at", { ascending: false })
     .limit(5000);
 
-  const { data: withinReachRows = [] } = await supabase
-    .from("EligibilityAssessment")
-    .select("grant_id, score, notified_at, updated_at")
-    .eq("organisation_id", orgId)
-    .eq("profile_id", profileId)
-    .eq("scoring_source", "openai")
-    .gte("score", 50)
-    .lt("score", thresholds.eligibleThreshold)
-    .order("updated_at", { ascending: false })
-    .limit(5000);
+  const rows = (matchRows ?? []) as EligibilityRow[];
+  const currentRows = actionables ? rows.filter((row) => actionables.ids.has(row.grant_id)) : rows;
+  const finalRows = currentRows
+    .map((row) => {
+      const grant = actionables?.grantsById.get(row.grant_id);
+      if (!grant) return null;
+      const finalResult = finaliseEligibilityAssessment(profile as Record<string, unknown>, grant, row, outcomeAdvisory);
+      return {
+        row,
+        score: finalEligibilityScore(finalResult),
+      };
+    })
+    .filter((item): item is { row: EligibilityRow; score: number } => item != null);
+  const high = finalRows.filter((item) => item.score >= thresholds.eligibleThreshold && item.score <= thresholds.maxScore);
+  const withinReach = finalRows.filter((item) => item.score >= 50 && item.score < thresholds.eligibleThreshold);
 
-  const high = (highRows ?? []) as EligibilityRow[];
-  const withinReach = (withinReachRows ?? []) as EligibilityRow[];
-  const actionableHigh = actionableGrantIds
-    ? high.filter((row) => actionableGrantIds.has(row.grant_id))
-    : high;
-  const actionableWithinReach = actionableGrantIds
-    ? withinReach.filter((row) => actionableGrantIds.has(row.grant_id))
-    : withinReach;
   return {
-    highMatchCandidates: actionableHigh.length,
-    highMatchUnnotified: actionableHigh.filter((row) => isOutsideCooldown(row.notified_at)).length,
-    storedHighMatchCandidates: high.length,
-    withinReachCandidates: actionableWithinReach.length,
+    highMatchCandidates: high.length,
+    highMatchUnnotified: high.filter((item) => isOutsideCooldown(item.row.notified_at)).length,
+    storedHighMatchCandidates: (storedHighRows ?? []).length,
+    withinReachCandidates: withinReach.length,
   };
 }
 
@@ -538,9 +577,22 @@ export async function getEligibilityWhatsAppTraceForOrg(
   const eligibleThreshold = Math.max(Number(prefs?.eligible_threshold ?? DEFAULT_ELIGIBLE_THRESHOLD), 75);
   const notifyEmail = prefs?.notify_email !== false;
   const notifyWhatsApp = prefs?.notify_whatsapp ?? true;
-  const grantTrace = profile ? await getCurrentActionableGrantTrace(supabase, orgId, profile) : null;
+  const [grantTrace, outcomeAdvisory]: [ActionableGrantTrace | null, OutcomeLearningAdvisory] = profile
+    ? await Promise.all([
+        getCurrentActionableGrantTrace(supabase, orgId, profile),
+        getOutcomeAdvisory(supabase, orgId, profile.id),
+      ])
+    : [null, deriveOutcomeLearningAdvisory([])];
   const counts = profile
-    ? await getAssessmentCounts(supabase, orgId, profile.id, { minScore, maxScore, eligibleThreshold }, grantTrace?.ids)
+    ? await getAssessmentCounts(
+        supabase,
+        orgId,
+        profile.id,
+        { minScore, maxScore, eligibleThreshold },
+        profile,
+        outcomeAdvisory,
+        grantTrace ?? undefined
+      )
     : { highMatchCandidates: 0, highMatchUnnotified: 0, storedHighMatchCandidates: 0, withinReachCandidates: 0 };
   const logs = await getNotificationLogs(supabase, users.map((user) => user.id), since);
   const latestRunSince = latestRun?.started_at ? new Date(latestRun.started_at) : null;
