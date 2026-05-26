@@ -39,6 +39,15 @@ const OPS_NOTIFICATION_TYPES = [
 const ADMIN_BATCH_SIZE = 20;
 const ADMIN_NOTIFICATION_SAMPLE_SIZE = 200;
 
+type AdminSearchParams = Promise<Record<string, string | string[] | undefined>>;
+
+type AdminPageKey =
+  | "latestGrantsPage"
+  | "deadlinesPage"
+  | "cronRunsPage"
+  | "suppressedPage"
+  | "deliveriesPage";
+
 type OpsNotificationType = (typeof OPS_NOTIFICATION_TYPES)[number];
 
 type NotificationLogRow = {
@@ -312,7 +321,87 @@ function getStatusCount(rows: NotificationLogRow[], type: string, status: string
   return rows.filter((row) => row.type === type && row.status === status && isSince(row.createdAt, since)).length;
 }
 
-export default async function AdminPage() {
+function firstParam(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function normalizePage(value: string | string[] | undefined): number {
+  const parsed = Number(firstParam(value));
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 1;
+}
+
+function pageRange(page: number): { from: number; to: number } {
+  const from = (page - 1) * ADMIN_BATCH_SIZE;
+  return { from, to: from + ADMIN_BATCH_SIZE - 1 };
+}
+
+function buildAdminHref(
+  params: Record<string, string | string[] | undefined>,
+  key: AdminPageKey,
+  page: number
+): string {
+  const search = new URLSearchParams();
+  for (const [paramKey, rawValue] of Object.entries(params)) {
+    if (paramKey === key) continue;
+    const value = firstParam(rawValue);
+    if (value) search.set(paramKey, value);
+  }
+  if (page > 1) search.set(key, String(page));
+  const query = search.toString();
+  return query ? `/admin?${query}` : "/admin";
+}
+
+function PaginationControls({
+  params,
+  pageKey,
+  page,
+  totalCount,
+  label,
+}: {
+  params: Record<string, string | string[] | undefined>;
+  pageKey: AdminPageKey;
+  page: number;
+  totalCount: number;
+  label: string;
+}) {
+  const totalPages = Math.max(1, Math.ceil(totalCount / ADMIN_BATCH_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const from = totalCount === 0 ? 0 : (safePage - 1) * ADMIN_BATCH_SIZE + 1;
+  const to = Math.min(safePage * ADMIN_BATCH_SIZE, totalCount);
+
+  return (
+    <div className="flex flex-col gap-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+      <span>
+        {totalCount > 0
+          ? `${label}: ${from}-${to} of ${totalCount}`
+          : `${label}: 0 records`}
+      </span>
+      <div className="flex items-center gap-2">
+        <Button asChild variant="outline" size="sm" aria-disabled={safePage <= 1}>
+          <Link
+            href={buildAdminHref(params, pageKey, Math.max(1, safePage - 1))}
+            className={safePage <= 1 ? "pointer-events-none opacity-50" : undefined}
+          >
+            Previous
+          </Link>
+        </Button>
+        <span>
+          Page {safePage} / {totalPages}
+        </span>
+        <Button asChild variant="outline" size="sm" aria-disabled={safePage >= totalPages}>
+          <Link
+            href={buildAdminHref(params, pageKey, Math.min(totalPages, safePage + 1))}
+            className={safePage >= totalPages ? "pointer-events-none opacity-50" : undefined}
+          >
+            Next
+          </Link>
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+export default async function AdminPage({ searchParams }: { searchParams?: AdminSearchParams }) {
   const user = await getCurrentUser();
   if (!user) {
     redirect("/sign-in?redirect=/admin");
@@ -344,6 +433,17 @@ export default async function AdminPage() {
   }
 
   const supabase = getSupabaseAdmin();
+  const params = (await searchParams) ?? {};
+  const latestGrantsPage = normalizePage(params.latestGrantsPage);
+  const deadlinesPage = normalizePage(params.deadlinesPage);
+  const cronRunsPage = normalizePage(params.cronRunsPage);
+  const suppressedPage = normalizePage(params.suppressedPage);
+  const deliveriesPage = normalizePage(params.deliveriesPage);
+  const latestGrantsRange = pageRange(latestGrantsPage);
+  const deadlinesRange = pageRange(deadlinesPage);
+  const cronRunsRange = pageRange(cronRunsPage);
+  const suppressedRange = pageRange(suppressedPage);
+  const deliveriesRange = pageRange(deliveriesPage);
   const now = new Date();
   const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const last7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -354,6 +454,7 @@ export default async function AdminPage() {
     grantsLast7dResult,
     latestGrantsResult,
     notificationResult,
+    notificationDeliveryResult,
     assessmentLast24hResult,
     assessmentLast7dResult,
     upcomingDeadlineResult,
@@ -364,6 +465,10 @@ export default async function AdminPage() {
     linksFoundResult,
     linksManualReviewResult,
     linksFailedResult,
+    latestCronRunResult,
+    failedCronRunsLast24hResult,
+    failedCronRunsLast7dResult,
+    recentFailedCronRunsResult,
     cronRunsResult,
     suppressedGrantsResult,
     eligibilityWhatsAppTraces,
@@ -372,9 +477,9 @@ export default async function AdminPage() {
     supabase.from("Grant").select("id", { count: "exact", head: true }).gte("createdAt", last7d.toISOString()),
     supabase
       .from("Grant")
-      .select("id, name, funder, source, deadline, createdAt")
+      .select("id, name, funder, source, deadline, createdAt", { count: "exact" })
       .order("createdAt", { ascending: false })
-      .limit(ADMIN_BATCH_SIZE),
+      .range(latestGrantsRange.from, latestGrantsRange.to),
     supabase
       .from("NotificationLog")
       .select("userId, channel, type, status, error, createdAt")
@@ -382,6 +487,13 @@ export default async function AdminPage() {
       .gte("createdAt", last7d.toISOString())
       .order("createdAt", { ascending: false })
       .limit(ADMIN_NOTIFICATION_SAMPLE_SIZE),
+    supabase
+      .from("NotificationLog")
+      .select("userId, channel, type, status, error, createdAt", { count: "exact" })
+      .in("type", [...OPS_NOTIFICATION_TYPES])
+      .gte("createdAt", last7d.toISOString())
+      .order("createdAt", { ascending: false })
+      .range(deliveriesRange.from, deliveriesRange.to),
     supabase
       .from("EligibilityAssessment")
       .select("id", { count: "exact", head: true })
@@ -396,7 +508,7 @@ export default async function AdminPage() {
       .gte("deadline", now.toISOString())
       .lte("deadline", next7d.toISOString())
       .order("deadline", { ascending: true })
-      .limit(ADMIN_BATCH_SIZE),
+      .range(deadlinesRange.from, deadlinesRange.to),
     supabase
       .from("grant_sources")
       .select("source_name, type, adapter, enabled, crawl_frequency, last_crawled_at")
@@ -411,24 +523,50 @@ export default async function AdminPage() {
     supabase
       .from("CronRunLog")
       .select("job_name, route, trigger, status, error, started_at, finished_at, duration_ms")
+      .order("started_at", { ascending: false })
+      .limit(1),
+    supabase
+      .from("CronRunLog")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "failed")
+      .gte("started_at", last24h.toISOString()),
+    supabase
+      .from("CronRunLog")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "failed")
+      .gte("started_at", last7d.toISOString()),
+    supabase
+      .from("CronRunLog")
+      .select("job_name, route, trigger, status, error, started_at, finished_at, duration_ms")
+      .eq("status", "failed")
       .gte("started_at", last7d.toISOString())
       .order("started_at", { ascending: false })
-      .limit(ADMIN_BATCH_SIZE),
+      .limit(6),
+    supabase
+      .from("CronRunLog")
+      .select("job_name, route, trigger, status, error, started_at, finished_at, duration_ms", { count: "exact" })
+      .gte("started_at", last7d.toISOString())
+      .order("started_at", { ascending: false })
+      .range(cronRunsRange.from, cronRunsRange.to),
     supabase
       .from("SavedGrant")
       .select(
-        "organisation_id, profile_id, grant_id, status, suppress_notifications, viewed_at, deferred_at, applied_at, dismissed_at, notes, created_at, updated_at"
+        "organisation_id, profile_id, grant_id, status, suppress_notifications, viewed_at, deferred_at, applied_at, dismissed_at, notes, created_at, updated_at",
+        { count: "exact" }
       )
       .eq("suppress_notifications", true)
       .order("updated_at", { ascending: false })
-      .limit(ADMIN_BATCH_SIZE),
+      .range(suppressedRange.from, suppressedRange.to),
     getAdminEligibilityWhatsAppTraces({ days: 7, limit: 8 }),
   ]);
 
   const notificationRows = (notificationResult.data ?? []) as NotificationLogRow[];
+  const notificationDeliveryRows = (notificationDeliveryResult.data ?? []) as NotificationLogRow[];
   const sentUsersLast24h = distinctSentUsers(notificationRows, last24h);
   const sentUsersLast7d = distinctSentUsers(notificationRows, last7d);
-  const notificationUserIds = Array.from(new Set(notificationRows.map((row) => row.userId).filter(Boolean))) as string[];
+  const notificationUserIds = Array.from(
+    new Set([...notificationRows, ...notificationDeliveryRows].map((row) => row.userId).filter(Boolean))
+  ) as string[];
 
   let memberships: OrganisationMemberRow[] = [];
   let notificationUsers: UserRow[] = [];
@@ -554,10 +692,10 @@ export default async function AdminPage() {
   }
 
   const cronRuns = (cronRunsResult.data ?? []) as CronRunLogRow[];
-  const latestCronRun = cronRuns[0] ?? null;
-  const failedCronRunsLast24h = cronRuns.filter((row) => row.status === "failed" && isSince(row.started_at, last24h));
-  const failedCronRunsLast7d = cronRuns.filter((row) => row.status === "failed" && isSince(row.started_at, last7d));
-  const recentFailedCronRuns = failedCronRunsLast7d.slice(0, 6);
+  const latestCronRun = ((latestCronRunResult.data ?? []) as CronRunLogRow[])[0] ?? null;
+  const failedCronRunsLast24hCount = failedCronRunsLast24hResult.count ?? 0;
+  const failedCronRunsLast7dCount = failedCronRunsLast7dResult.count ?? 0;
+  const recentFailedCronRuns = (recentFailedCronRunsResult.data ?? []) as CronRunLogRow[];
   const dueSources = grantSources.filter((source) => isSourceDue(source)).length;
   const enabledSources = grantSources.filter((source) => source.enabled).length;
   const latestSourceCrawl = grantSources
@@ -579,7 +717,7 @@ export default async function AdminPage() {
     .filter((row) => row.status === "failed" || row.status === "skipped")
     .slice(0, 5);
   const notificationUserEmailById = new Map(notificationUsers.map((row) => [row.id, row.email ?? row.id]));
-  const recentNotificationDeliveries = notificationRows.slice(0, 12);
+  const recentNotificationDeliveries = notificationDeliveryRows;
   const totalSentLast24h = countNotifications(notificationRows, { since: last24h, status: "sent" });
   const totalFailedLast24h = countNotifications(notificationRows, { since: last24h, status: "failed" });
   const totalSkippedLast24h = countNotifications(notificationRows, { since: last24h, status: "skipped" });
@@ -712,17 +850,17 @@ export default async function AdminPage() {
                 <p className="mt-1 text-sm text-muted-foreground">{assessmentLast7dResult.count ?? 0} score rows updated in 7 days</p>
               </CardContent>
             </Card>
-            <Card className={failedCronRunsLast24h.length > 0 ? "border-red-200 bg-red-50/60" : ""}>
+            <Card className={failedCronRunsLast24hCount > 0 ? "border-red-200 bg-red-50/60" : ""}>
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                  <ServerCrash className={`h-4 w-4 ${failedCronRunsLast24h.length > 0 ? "text-red-600" : "text-blue-600"}`} />
+                  <ServerCrash className={`h-4 w-4 ${failedCronRunsLast24hCount > 0 ? "text-red-600" : "text-blue-600"}`} />
                   Cron failures
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold">{failedCronRunsLast24h.length}</div>
+                <div className="text-3xl font-bold">{failedCronRunsLast24hCount}</div>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {failedCronRunsLast7d.length} in 7 days
+                  {failedCronRunsLast7dCount} in 7 days
                   {latestCronRun?.started_at && <> · latest {formatRelative(latestCronRun.started_at)}</>}
                 </p>
               </CardContent>
@@ -886,6 +1024,13 @@ export default async function AdminPage() {
                   <div className="text-3xl font-bold">{upcomingDeadlineResult.count ?? 0}</div>
                   <p className="text-muted-foreground">grant deadlines in the next 7 days</p>
                 </div>
+                <PaginationControls
+                  params={params}
+                  pageKey="deadlinesPage"
+                  page={deadlinesPage}
+                  totalCount={upcomingDeadlineResult.count ?? upcomingDeadlines.length}
+                  label="Deadlines"
+                />
                 <div className="space-y-2">
                   {upcomingDeadlines.length > 0 ? (
                     upcomingDeadlines.map((grant) => (
@@ -941,7 +1086,7 @@ export default async function AdminPage() {
             <Card className="min-w-0 overflow-hidden">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
-                  <ServerCrash className={`h-4 w-4 ${failedCronRunsLast24h.length > 0 ? "text-red-600" : "text-blue-600"}`} />
+                  <ServerCrash className={`h-4 w-4 ${failedCronRunsLast24hCount > 0 ? "text-red-600" : "text-blue-600"}`} />
                   Cron runs
                 </CardTitle>
               </CardHeader>
@@ -949,11 +1094,11 @@ export default async function AdminPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="rounded-md border bg-muted/30 p-3">
                     <div className="text-xs text-muted-foreground">Failed 24h</div>
-                    <div className="text-2xl font-semibold">{failedCronRunsLast24h.length}</div>
+                    <div className="text-2xl font-semibold">{failedCronRunsLast24hCount}</div>
                   </div>
                   <div className="rounded-md border bg-muted/30 p-3">
                     <div className="text-xs text-muted-foreground">Failed 7d</div>
-                    <div className="text-2xl font-semibold">{failedCronRunsLast7d.length}</div>
+                    <div className="text-2xl font-semibold">{failedCronRunsLast7dCount}</div>
                   </div>
                 </div>
                 {latestCronRun ? (
@@ -965,6 +1110,13 @@ export default async function AdminPage() {
                     Cron run logging starts after this deployment and the database migration is applied.
                   </p>
                 )}
+                <PaginationControls
+                  params={params}
+                  pageKey="cronRunsPage"
+                  page={cronRunsPage}
+                  totalCount={cronRunsResult.count ?? cronRuns.length}
+                  label="Cron runs"
+                />
                 {recentFailedCronRuns.length > 0 ? (
                   <div className="rounded-md border border-red-200 bg-red-50 p-3 text-red-900">
                     <div className="mb-2 flex items-center gap-2 font-medium">
@@ -1050,6 +1202,15 @@ export default async function AdminPage() {
               <CardTitle className="text-base">Recent notification deliveries</CardTitle>
             </CardHeader>
             <CardContent>
+              <div className="mb-3">
+                <PaginationControls
+                  params={params}
+                  pageKey="deliveriesPage"
+                  page={deliveriesPage}
+                  totalCount={notificationDeliveryResult.count ?? recentNotificationDeliveries.length}
+                  label="Deliveries"
+                />
+              </div>
               <div className="max-h-[28rem] overflow-auto">
                 <table className="w-full min-w-[760px] text-left text-sm">
                   <thead className="border-b text-xs uppercase tracking-wide text-muted-foreground">
@@ -1109,6 +1270,15 @@ export default async function AdminPage() {
                 Grants listed here are removed from repeated eligibility and deadline notifications for that profile.
                 Saved-only grants normally stay active; viewed, deferred, applied, and dismissed states suppress reminders.
               </p>
+              <div className="mt-4">
+                <PaginationControls
+                  params={params}
+                  pageKey="suppressedPage"
+                  page={suppressedPage}
+                  totalCount={suppressedGrantsResult.count ?? suppressedGrantDetails.length}
+                  label="Suppressed grants"
+                />
+              </div>
               <div className="mt-4 max-h-[30rem] overflow-auto">
                 <table className="w-full min-w-[1120px] text-left text-sm">
                   <thead className="border-b text-xs uppercase tracking-wide text-muted-foreground">
@@ -1191,10 +1361,19 @@ export default async function AdminPage() {
             <CardHeader>
               <CardTitle className="text-base">Latest grants added</CardTitle>
               <p className="text-sm text-muted-foreground">
-                Showing the 20 newest records. Scroll inside this panel to review the current batch.
+                Newest database records in 20-row batches.
               </p>
             </CardHeader>
             <CardContent>
+              <div className="mb-3">
+                <PaginationControls
+                  params={params}
+                  pageKey="latestGrantsPage"
+                  page={latestGrantsPage}
+                  totalCount={latestGrantsResult.count ?? latestGrants.length}
+                  label="Latest grants"
+                />
+              </div>
               <div className="max-h-[28rem] overflow-y-auto pr-2">
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
                   {latestGrants.length > 0 ? (
