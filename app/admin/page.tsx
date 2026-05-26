@@ -118,6 +118,7 @@ const WHATSAPP_REASON_LABELS: Record<EligibilityWhatsAppReason, string> = {
   no_85_plus_candidates: "No 85%+ candidates",
   already_notified: "Already notified",
   whatsapp_failed: "WhatsApp failed",
+  missed_latest_run: "Missed latest run",
   ready_to_send_next_run: "Ready next run",
 };
 
@@ -616,7 +617,7 @@ export default async function AdminPage() {
                         </div>
                         <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
                           <div className="rounded border bg-muted/30 p-2">
-                            <div className="text-muted-foreground">85%+ eligible</div>
+                            <div className="text-muted-foreground">Current 85%+</div>
                             <div className="text-lg font-semibold">{trace.highMatchCandidates}</div>
                           </div>
                           <div className="rounded border bg-muted/30 p-2">
@@ -628,8 +629,8 @@ export default async function AdminPage() {
                             <div className="text-lg font-semibold">{trace.withinReachCandidates}</div>
                           </div>
                           <div className="rounded border bg-muted/30 p-2">
-                            <div className="text-muted-foreground">WA sent 7d</div>
-                            <div className="text-lg font-semibold">{trace.recentWhatsApp.sent}</div>
+                            <div className="text-muted-foreground">WA latest run</div>
+                            <div className="text-lg font-semibold">{trace.latestRunWhatsApp.sent}</div>
                           </div>
                         </div>
                         <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
@@ -650,15 +651,27 @@ export default async function AdminPage() {
                           <div>
                             Twilio template: {trace.twilioGrantTemplateConfigured ? "configured" : "missing"}
                           </div>
+                          <div>
+                            Stored 85%+ rows: {trace.storedHighMatchCandidates}; WA sent 7d: {trace.recentWhatsApp.sent}
+                          </div>
+                          {trace.grantScope && (
+                            <div>
+                              Current grants: {trace.grantScope.locationMatched} location matched / {trace.grantScope.usableCurrent} usable
+                            </div>
+                          )}
                         </div>
                         {trace.blockers.length > 0 && (
                           <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
-                            {trace.blockers[0]}
+                            <ul className="space-y-1">
+                              {trace.blockers.slice(0, 2).map((blocker) => (
+                                <li key={blocker}>{blocker}</li>
+                              ))}
+                            </ul>
                           </div>
                         )}
-                        {trace.recentWhatsApp.latestError && (
+                        {(trace.latestRunWhatsApp.latestError ?? trace.recentWhatsApp.latestError) && (
                           <div className="mt-2 break-words rounded border border-red-200 bg-red-50 p-2 text-xs text-red-900">
-                            {trace.recentWhatsApp.latestError}
+                            {trace.latestRunWhatsApp.latestError ?? trace.recentWhatsApp.latestError}
                           </div>
                         )}
                       </div>

@@ -1,11 +1,17 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getEligibilityNotifyMinCompletion } from "@/lib/eligibility-notify-config";
 import { planAllowsForOrg, resolvePlanKey } from "@/lib/plan-features";
+import { grantMatchesFunderLocations, inferFunderLocationsFromProfile } from "@/lib/constants";
+import { isGrantLinkUsable } from "@/lib/grant-freshness";
+import { getAppliedGrantIds } from "@/lib/applied-grants";
+import { getSuppressedGrantIds } from "@/lib/grant-user-state";
 
 const DEFAULT_MIN_SCORE = 85;
 const DEFAULT_MAX_SCORE = 100;
 const DEFAULT_ELIGIBLE_THRESHOLD = 85;
 const WHATSAPP_COOLDOWN_HOURS = 20;
+const GRANT_FETCH_BATCH_SIZE = 1000;
+const MAX_GRANTS_FOR_TRACE = 10000;
 const ELIGIBILITY_NOTIFICATION_TYPES = [
   "grant_scan_digest",
   "grant_match_high",
@@ -30,6 +36,11 @@ type ProfileRow = {
   business_name?: string | null;
   completionScore?: number | null;
   completion_score?: number | null;
+  funderLocations?: string[] | null;
+  funder_locations?: string[] | null;
+  location?: string | null;
+  country?: string | null;
+  region?: string | null;
 };
 
 type PreferenceRow = {
@@ -54,6 +65,7 @@ type NotificationLogTraceRow = {
   status: string | null;
   error: string | null;
   createdAt: string | null;
+  metadata?: unknown;
 };
 
 type EligibilityRow = {
@@ -73,6 +85,26 @@ type CronRunTraceRow = {
   error: string | null;
 };
 
+type GrantTraceRow = {
+  id: string;
+  deadline?: string | null;
+  eligibility?: string | null;
+  description?: string | null;
+  objectives?: string | null;
+  funderLocations?: string[] | null;
+  url_status?: string | null;
+  createdAt?: string | null;
+};
+
+type ActionableGrantTrace = {
+  ids: Set<string>;
+  totalFetched: number;
+  usableCurrent: number;
+  locationMatched: number;
+  applied: number;
+  suppressed: number;
+};
+
 export type EligibilityWhatsAppReason =
   | "whatsapp_sent"
   | "no_profile"
@@ -86,6 +118,7 @@ export type EligibilityWhatsAppReason =
   | "no_85_plus_candidates"
   | "already_notified"
   | "whatsapp_failed"
+  | "missed_latest_run"
   | "ready_to_send_next_run";
 
 export type EligibilityWhatsAppTrace = {
@@ -121,7 +154,23 @@ export type EligibilityWhatsAppTrace = {
   } | null;
   highMatchCandidates: number;
   highMatchUnnotified: number;
+  storedHighMatchCandidates: number;
   withinReachCandidates: number;
+  grantScope: {
+    fetched: number;
+    usableCurrent: number;
+    locationMatched: number;
+    applied: number;
+    suppressed: number;
+  } | null;
+  latestRunWhatsApp: {
+    sent: number;
+    failed: number;
+    skipped: number;
+    latestStatus: string | null;
+    latestError: string | null;
+    latestAt: string | null;
+  };
   recentWhatsApp: {
     sent: number;
     failed: number;
@@ -151,7 +200,9 @@ function businessName(profile: ProfileRow | null): string {
 }
 
 function notificationCounts(rows: NotificationLogTraceRow[], channel: string, types: string[]) {
-  const scoped = rows.filter((row) => row.channel === channel && row.type && types.includes(row.type));
+  const scoped = rows.filter(
+    (row) => row.channel === channel && row.type && types.includes(row.type) && !isAdminTestLog(row)
+  );
   const latest = scoped[0] ?? null;
   return {
     sent: scoped.filter((row) => row.status === "sent").length,
@@ -161,6 +212,12 @@ function notificationCounts(rows: NotificationLogTraceRow[], channel: string, ty
     latestError: latest?.error ?? null,
     latestAt: latest?.createdAt ?? null,
   };
+}
+
+function isAdminTestLog(row: NotificationLogTraceRow): boolean {
+  const metadata = row.metadata;
+  if (!metadata || typeof metadata !== "object") return false;
+  return (metadata as { source?: unknown }).source === "admin_test";
 }
 
 function isOutsideCooldown(value: string | null): boolean {
@@ -197,7 +254,7 @@ async function getOrganisation(supabase: SupabaseAdmin, orgId: string): Promise<
 async function getLatestProfile(supabase: SupabaseAdmin, orgId: string): Promise<ProfileRow | null> {
   let { data: rows = [] } = await supabase
     .from("BusinessProfile")
-    .select("id, businessName, completionScore")
+    .select("*")
     .eq("organisationId", orgId)
     .order("updatedAt", { ascending: false })
     .limit(1);
@@ -205,7 +262,7 @@ async function getLatestProfile(supabase: SupabaseAdmin, orgId: string): Promise
   if (!rows || rows.length === 0) {
     const fallback = await supabase
       .from("BusinessProfile")
-      .select("id, businessName, completionScore")
+      .select("*")
       .eq("organisation_id", orgId)
       .order("updatedAt", { ascending: false })
       .limit(1);
@@ -213,6 +270,61 @@ async function getLatestProfile(supabase: SupabaseAdmin, orgId: string): Promise
   }
 
   return ((rows ?? []) as ProfileRow[])[0] ?? null;
+}
+
+async function getCurrentActionableGrantTrace(
+  supabase: SupabaseAdmin,
+  orgId: string,
+  profile: ProfileRow
+): Promise<ActionableGrantTrace> {
+  const rows: GrantTraceRow[] = [];
+
+  for (let offset = 0; offset < MAX_GRANTS_FOR_TRACE; offset += GRANT_FETCH_BATCH_SIZE) {
+    const { data, error } = await supabase
+      .from("Grant")
+      .select("id, deadline, eligibility, description, objectives, funderLocations, url_status, createdAt")
+      .order("createdAt", { ascending: false })
+      .range(offset, offset + GRANT_FETCH_BATCH_SIZE - 1);
+
+    if (error) {
+      console.warn("[eligibility-diagnostics] grant trace lookup failed", error.message);
+      break;
+    }
+
+    const batch = (data ?? []) as GrantTraceRow[];
+    rows.push(...batch);
+    if (batch.length < GRANT_FETCH_BATCH_SIZE) break;
+  }
+
+  const usable = rows.filter(isGrantLinkUsable);
+  const [appliedGrantIds, suppressedGrantIds] = await Promise.all([
+    getAppliedGrantIds(supabase, orgId, profile.id),
+    getSuppressedGrantIds(supabase, orgId, profile.id),
+  ]);
+  const actionable = usable.filter((grant) => !appliedGrantIds.has(grant.id) && !suppressedGrantIds.has(grant.id));
+  const profileFunderLocations = Array.isArray(profile.funderLocations)
+    ? profile.funderLocations
+    : Array.isArray(profile.funder_locations)
+      ? profile.funder_locations
+      : null;
+  const userFunderLocations = inferFunderLocationsFromProfile({
+    funderLocations: profileFunderLocations,
+    location: profile.location ?? null,
+    country: profile.country ?? null,
+    region: profile.region ?? null,
+  });
+  const locationMatched = actionable.filter((grant) =>
+    grantMatchesFunderLocations(grant.funderLocations ?? [], userFunderLocations)
+  );
+
+  return {
+    ids: new Set(locationMatched.map((grant) => grant.id)),
+    totalFetched: rows.length,
+    usableCurrent: usable.length,
+    locationMatched: locationMatched.length,
+    applied: appliedGrantIds.size,
+    suppressed: suppressedGrantIds.size,
+  };
 }
 
 async function getPreferences(supabase: SupabaseAdmin, orgId: string): Promise<PreferenceRow | null> {
@@ -268,7 +380,8 @@ async function getAssessmentCounts(
   supabase: SupabaseAdmin,
   orgId: string,
   profileId: string,
-  thresholds: { minScore: number; maxScore: number; eligibleThreshold: number }
+  thresholds: { minScore: number; maxScore: number; eligibleThreshold: number },
+  actionableGrantIds?: Set<string>
 ) {
   const { data: highRows = [] } = await supabase
     .from("EligibilityAssessment")
@@ -280,22 +393,32 @@ async function getAssessmentCounts(
     .gte("score", thresholds.eligibleThreshold)
     .lte("score", thresholds.maxScore)
     .order("updated_at", { ascending: false })
-    .limit(100);
+    .limit(5000);
 
-  const { count: withinReachCount } = await supabase
+  const { data: withinReachRows = [] } = await supabase
     .from("EligibilityAssessment")
-    .select("grant_id", { count: "exact", head: true })
+    .select("grant_id, score, notified_at, updated_at")
     .eq("organisation_id", orgId)
     .eq("profile_id", profileId)
     .eq("scoring_source", "openai")
     .gte("score", 50)
-    .lt("score", thresholds.eligibleThreshold);
+    .lt("score", thresholds.eligibleThreshold)
+    .order("updated_at", { ascending: false })
+    .limit(5000);
 
   const high = (highRows ?? []) as EligibilityRow[];
+  const withinReach = (withinReachRows ?? []) as EligibilityRow[];
+  const actionableHigh = actionableGrantIds
+    ? high.filter((row) => actionableGrantIds.has(row.grant_id))
+    : high;
+  const actionableWithinReach = actionableGrantIds
+    ? withinReach.filter((row) => actionableGrantIds.has(row.grant_id))
+    : withinReach;
   return {
-    highMatchCandidates: high.length,
-    highMatchUnnotified: high.filter((row) => isOutsideCooldown(row.notified_at)).length,
-    withinReachCandidates: withinReachCount ?? 0,
+    highMatchCandidates: actionableHigh.length,
+    highMatchUnnotified: actionableHigh.filter((row) => isOutsideCooldown(row.notified_at)).length,
+    storedHighMatchCandidates: high.length,
+    withinReachCandidates: actionableWithinReach.length,
   };
 }
 
@@ -307,7 +430,7 @@ async function getNotificationLogs(
   if (userIds.length === 0) return [];
   const { data = [] } = await supabase
     .from("NotificationLog")
-    .select("channel, type, status, error, createdAt")
+    .select("channel, type, status, error, createdAt, metadata")
     .in("userId", userIds)
     .in("type", [
       ...ELIGIBILITY_NOTIFICATION_TYPES,
@@ -331,6 +454,8 @@ function decideFinalReason(params: {
   twilioGrantTemplateConfigured: boolean;
   highMatchCandidates: number;
   highMatchUnnotified: number;
+  latestEligibilityRunStartedAt: string | null;
+  latestRunWhatsApp: EligibilityWhatsAppTrace["latestRunWhatsApp"];
   recentWhatsApp: EligibilityWhatsAppTrace["recentWhatsApp"];
 }): EligibilityWhatsAppReason {
   if (!params.profile) return "no_profile";
@@ -343,8 +468,9 @@ function decideFinalReason(params: {
   if (!params.twilioGrantTemplateConfigured) return "template_missing";
   if (params.highMatchCandidates === 0) return "no_85_plus_candidates";
   if (params.highMatchUnnotified === 0) return "already_notified";
-  if (params.recentWhatsApp.failed > 0) return "whatsapp_failed";
-  if (params.recentWhatsApp.sent > 0) return "whatsapp_sent";
+  if (params.latestRunWhatsApp.failed > 0) return "whatsapp_failed";
+  if (params.latestRunWhatsApp.sent > 0) return "whatsapp_sent";
+  if (params.latestEligibilityRunStartedAt) return "missed_latest_run";
   return "ready_to_send_next_run";
 }
 
@@ -362,9 +488,25 @@ function buildBlockers(trace: Omit<EligibilityWhatsAppTrace, "blockers" | "final
   if (reason === "no_phone") blockers.push("No non-viewer organisation member has a phone number.");
   if (reason === "not_opted_in") blockers.push("No non-viewer organisation member with a phone number has opted into WhatsApp.");
   if (reason === "template_missing") blockers.push("TWILIO_WHATSAPP_GRANT_MATCH_CONTENT_SID is not configured.");
-  if (reason === "no_85_plus_candidates") blockers.push("No OpenAI-scored likely eligible grants at or above the WhatsApp threshold.");
+  if (reason === "no_85_plus_candidates") {
+    const stored = trace.storedHighMatchCandidates;
+    const scoped = trace.grantScope;
+    blockers.push(
+      stored > 0
+        ? `There are ${stored} stored 85%+ score rows, but none are current/actionable after expiry, location, applied, and suppressed-grant filters.`
+        : "No current OpenAI-scored likely eligible grants at or above the WhatsApp threshold."
+    );
+    if (scoped) {
+      blockers.push(
+        `Current grant scope: ${scoped.locationMatched} location-matched, ${scoped.usableCurrent} usable, ${scoped.applied} applied, ${scoped.suppressed} suppressed.`
+      );
+    }
+  }
   if (reason === "already_notified") blockers.push("85%+ matches exist, but they are still inside the notification cooldown or were already notified.");
-  if (reason === "whatsapp_failed") blockers.push(trace.recentWhatsApp.latestError ?? "Recent WhatsApp high-match send failed.");
+  if (reason === "whatsapp_failed") blockers.push(trace.latestRunWhatsApp.latestError ?? "WhatsApp high-match send failed during the latest eligibility run.");
+  if (reason === "missed_latest_run") {
+    blockers.push("85%+ unnotified actionable matches exist, but no WhatsApp send/skip/fail log was written after the latest eligibility run.");
+  }
   if (reason === "ready_to_send_next_run") blockers.push("85%+ unnotified matches exist and WhatsApp appears configured; the next run should send.");
   return blockers;
 }
@@ -396,11 +538,21 @@ export async function getEligibilityWhatsAppTraceForOrg(
   const eligibleThreshold = Math.max(Number(prefs?.eligible_threshold ?? DEFAULT_ELIGIBLE_THRESHOLD), 75);
   const notifyEmail = prefs?.notify_email !== false;
   const notifyWhatsApp = prefs?.notify_whatsapp ?? true;
+  const grantTrace = profile ? await getCurrentActionableGrantTrace(supabase, orgId, profile) : null;
   const counts = profile
-    ? await getAssessmentCounts(supabase, orgId, profile.id, { minScore, maxScore, eligibleThreshold })
-    : { highMatchCandidates: 0, highMatchUnnotified: 0, withinReachCandidates: 0 };
+    ? await getAssessmentCounts(supabase, orgId, profile.id, { minScore, maxScore, eligibleThreshold }, grantTrace?.ids)
+    : { highMatchCandidates: 0, highMatchUnnotified: 0, storedHighMatchCandidates: 0, withinReachCandidates: 0 };
   const logs = await getNotificationLogs(supabase, users.map((user) => user.id), since);
+  const latestRunSince = latestRun?.started_at ? new Date(latestRun.started_at) : null;
+  const logsSinceLatestRun = latestRunSince && Number.isFinite(latestRunSince.getTime())
+    ? logs.filter((row) => {
+        if (!row.createdAt) return false;
+        const created = new Date(row.createdAt).getTime();
+        return Number.isFinite(created) && created >= latestRunSince.getTime();
+      })
+    : [];
   const recentWhatsApp = notificationCounts(logs, "whatsapp", ["grant_match_high"]);
+  const latestRunWhatsApp = notificationCounts(logsSinceLatestRun, "whatsapp", ["grant_match_high"]);
   const emailCounts = notificationCounts(logs, "email", [
     "grant_scan_digest",
     "daily_grant_update",
@@ -452,6 +604,16 @@ export async function getEligibilityWhatsAppTraceForOrg(
         }
       : null,
     ...counts,
+    grantScope: grantTrace
+      ? {
+          fetched: grantTrace.totalFetched,
+          usableCurrent: grantTrace.usableCurrent,
+          locationMatched: grantTrace.locationMatched,
+          applied: grantTrace.applied,
+          suppressed: grantTrace.suppressed,
+        }
+      : null,
+    latestRunWhatsApp,
     recentWhatsApp,
     recentEligibilityEmail,
   };
@@ -467,6 +629,8 @@ export async function getEligibilityWhatsAppTraceForOrg(
     twilioGrantTemplateConfigured,
     highMatchCandidates: counts.highMatchCandidates,
     highMatchUnnotified: counts.highMatchUnnotified,
+    latestEligibilityRunStartedAt: latestRun?.started_at ?? null,
+    latestRunWhatsApp,
     recentWhatsApp,
   });
 

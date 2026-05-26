@@ -44,11 +44,19 @@ export async function POST() {
   const grantName = (firstGrant as { name?: string } | null)?.name ?? "Test grant (Grants-Copilot)";
 
   try {
+    const testStartedAt = new Date().toISOString();
     await notifyUser(notifyUserPayload, "grant_match_high", {
       grantName,
       grantId: grantId ?? undefined,
       score: 85,
     });
+
+    await supabase
+      .from("NotificationLog")
+      .update({ metadata: { source: "admin_test" } })
+      .eq("userId", id)
+      .eq("type", "grant_match_high")
+      .gte("createdAt", testStartedAt);
 
     const { data: logs } = await supabase
       .from("NotificationLog")
