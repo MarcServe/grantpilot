@@ -23,6 +23,7 @@ import { TestNotificationButton } from "@/components/admin/test-notification-but
 import { ScoutModeSettings } from "@/components/admin/scout-mode-settings";
 import { GrantComposer } from "@/components/admin/grant-composer";
 import { GrantSourceManager } from "@/components/admin/grant-source-manager";
+import { getAdminEligibilityWhatsAppTraces, type EligibilityWhatsAppReason } from "@/lib/eligibility-notification-diagnostics";
 
 export const dynamic = "force-dynamic";
 
@@ -103,6 +104,28 @@ const NOTIFICATION_LABELS: Record<OpsNotificationType, string> = {
   deadline_reminder: "Deadline reminder email",
   deadline_daily_update: "Deadline scan email",
 };
+
+const WHATSAPP_REASON_LABELS: Record<EligibilityWhatsAppReason, string> = {
+  whatsapp_sent: "WhatsApp sent",
+  no_profile: "No profile",
+  profile_completion_below_threshold: "Profile below threshold",
+  plan_blocked: "Plan blocked",
+  email_disabled: "Email disabled",
+  whatsapp_disabled: "WhatsApp disabled",
+  no_phone: "No phone",
+  not_opted_in: "Not opted in",
+  template_missing: "Template missing",
+  no_85_plus_candidates: "No 85%+ candidates",
+  already_notified: "Already notified",
+  whatsapp_failed: "WhatsApp failed",
+  ready_to_send_next_run: "Ready next run",
+};
+
+function whatsappReasonClass(reason: EligibilityWhatsAppReason): string {
+  if (reason === "whatsapp_sent" || reason === "ready_to_send_next_run") return "text-emerald-700";
+  if (reason === "no_85_plus_candidates" || reason === "already_notified") return "text-amber-700";
+  return "text-red-700";
+}
 
 const LONDON_DATE = new Intl.DateTimeFormat("en-GB", {
   dateStyle: "medium",
@@ -252,6 +275,7 @@ export default async function AdminPage() {
     linksManualReviewResult,
     linksFailedResult,
     cronRunsResult,
+    eligibilityWhatsAppTraces,
   ] = await Promise.all([
     supabase.from("Grant").select("id", { count: "exact", head: true }).gte("createdAt", last24h.toISOString()),
     supabase.from("Grant").select("id", { count: "exact", head: true }).gte("createdAt", last7d.toISOString()),
@@ -299,6 +323,7 @@ export default async function AdminPage() {
       .gte("started_at", last7d.toISOString())
       .order("started_at", { ascending: false })
       .limit(200),
+    getAdminEligibilityWhatsAppTraces({ days: 7, limit: 8 }),
   ]);
 
   const notificationRows = (notificationResult.data ?? []) as NotificationLogRow[];
@@ -559,6 +584,89 @@ export default async function AdminPage() {
                 ) : (
                   <p className="text-sm text-muted-foreground">No failed or skipped notification rows in the latest log sample.</p>
                 )}
+              </CardContent>
+            </Card>
+
+            <Card className="min-w-0 overflow-hidden xl:col-span-2 2xl:col-span-2">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <MessageCircle className="h-4 w-4 text-blue-600" />
+                  Why no WhatsApp?
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="max-h-[28rem] space-y-3 overflow-y-auto pr-2 text-sm">
+                <p className="text-sm text-muted-foreground">
+                  WhatsApp remains 85%+ only. This trace separates no high-match candidates from preference,
+                  plan, phone, template, cooldown, or send failures.
+                </p>
+                <div className="space-y-3">
+                  {eligibilityWhatsAppTraces.length > 0 ? (
+                    eligibilityWhatsAppTraces.map((trace) => (
+                      <div key={trace.orgId} className="rounded-md border p-3">
+                        <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-start">
+                          <div className="min-w-0">
+                            <div className="truncate font-medium">{trace.profile?.businessName ?? trace.orgName}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {trace.orgName} · {trace.plan} · profile {trace.profile?.completionScore ?? 0}%
+                            </div>
+                          </div>
+                          <span className={`shrink-0 text-xs font-medium ${whatsappReasonClass(trace.finalReason)}`}>
+                            {WHATSAPP_REASON_LABELS[trace.finalReason]}
+                          </span>
+                        </div>
+                        <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                          <div className="rounded border bg-muted/30 p-2">
+                            <div className="text-muted-foreground">85%+ eligible</div>
+                            <div className="text-lg font-semibold">{trace.highMatchCandidates}</div>
+                          </div>
+                          <div className="rounded border bg-muted/30 p-2">
+                            <div className="text-muted-foreground">Unnotified</div>
+                            <div className="text-lg font-semibold">{trace.highMatchUnnotified}</div>
+                          </div>
+                          <div className="rounded border bg-muted/30 p-2">
+                            <div className="text-muted-foreground">Within reach</div>
+                            <div className="text-lg font-semibold">{trace.withinReachCandidates}</div>
+                          </div>
+                          <div className="rounded border bg-muted/30 p-2">
+                            <div className="text-muted-foreground">WA sent 7d</div>
+                            <div className="text-lg font-semibold">{trace.recentWhatsApp.sent}</div>
+                          </div>
+                        </div>
+                        <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+                          <div>
+                            Latest eligibility run:{" "}
+                            {trace.latestEligibilityRun?.startedAt
+                              ? `${formatRelative(trace.latestEligibilityRun.startedAt)} · ${trace.latestEligibilityRun.status}`
+                              : "Not recorded"}
+                          </div>
+                          <div>
+                            Email/WA prefs: {trace.preferences.notifyEmail ? "email on" : "email off"} /{" "}
+                            {trace.preferences.notifyWhatsApp ? "WhatsApp on" : "WhatsApp off"}
+                          </div>
+                          <div>
+                            Members: {trace.users.length}; phone+opt-in:{" "}
+                            {trace.users.filter((u) => u.hasPhone && u.whatsappOptIn).length}
+                          </div>
+                          <div>
+                            Twilio template: {trace.twilioGrantTemplateConfigured ? "configured" : "missing"}
+                          </div>
+                        </div>
+                        {trace.blockers.length > 0 && (
+                          <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                            {trace.blockers[0]}
+                          </div>
+                        )}
+                        {trace.recentWhatsApp.latestError && (
+                          <div className="mt-2 break-words rounded border border-red-200 bg-red-50 p-2 text-xs text-red-900">
+                            {trace.recentWhatsApp.latestError}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-muted-foreground">No organisations found for WhatsApp diagnostics.</p>
+                  )}
+                </div>
               </CardContent>
             </Card>
 
