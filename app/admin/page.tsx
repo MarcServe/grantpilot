@@ -372,7 +372,7 @@ export default async function AdminPage() {
       .from("Grant")
       .select("id, name, funder, source, deadline, createdAt")
       .order("createdAt", { ascending: false })
-      .limit(5),
+      .limit(30),
     supabase
       .from("NotificationLog")
       .select("userId, channel, type, status, error, createdAt")
@@ -1188,9 +1188,12 @@ export default async function AdminPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Latest grants added</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Showing the 30 newest records. Scroll inside this panel to review the full recent list.
+              </p>
             </CardHeader>
             <CardContent>
-              <div className="max-h-[24rem] overflow-y-auto pr-2">
+              <div className="max-h-[28rem] overflow-y-auto pr-2">
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
                   {latestGrants.length > 0 ? (
                     latestGrants.map((grant) => (
