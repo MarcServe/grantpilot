@@ -36,6 +36,8 @@ const OPS_NOTIFICATION_TYPES = [
   "deadline_reminder",
   "deadline_daily_update",
 ] as const;
+const ADMIN_BATCH_SIZE = 20;
+const ADMIN_NOTIFICATION_SAMPLE_SIZE = 200;
 
 type OpsNotificationType = (typeof OPS_NOTIFICATION_TYPES)[number];
 
@@ -372,14 +374,14 @@ export default async function AdminPage() {
       .from("Grant")
       .select("id, name, funder, source, deadline, createdAt")
       .order("createdAt", { ascending: false })
-      .limit(30),
+      .limit(ADMIN_BATCH_SIZE),
     supabase
       .from("NotificationLog")
       .select("userId, channel, type, status, error, createdAt")
       .in("type", [...OPS_NOTIFICATION_TYPES])
       .gte("createdAt", last7d.toISOString())
       .order("createdAt", { ascending: false })
-      .limit(10000),
+      .limit(ADMIN_NOTIFICATION_SAMPLE_SIZE),
     supabase
       .from("EligibilityAssessment")
       .select("id", { count: "exact", head: true })
@@ -394,7 +396,7 @@ export default async function AdminPage() {
       .gte("deadline", now.toISOString())
       .lte("deadline", next7d.toISOString())
       .order("deadline", { ascending: true })
-      .limit(5),
+      .limit(ADMIN_BATCH_SIZE),
     supabase
       .from("grant_sources")
       .select("source_name, type, adapter, enabled, crawl_frequency, last_crawled_at")
@@ -411,7 +413,7 @@ export default async function AdminPage() {
       .select("job_name, route, trigger, status, error, started_at, finished_at, duration_ms")
       .gte("started_at", last7d.toISOString())
       .order("started_at", { ascending: false })
-      .limit(200),
+      .limit(ADMIN_BATCH_SIZE),
     supabase
       .from("SavedGrant")
       .select(
@@ -419,7 +421,7 @@ export default async function AdminPage() {
       )
       .eq("suppress_notifications", true)
       .order("updated_at", { ascending: false })
-      .limit(75),
+      .limit(ADMIN_BATCH_SIZE),
     getAdminEligibilityWhatsAppTraces({ days: 7, limit: 8 }),
   ]);
 
@@ -845,7 +847,7 @@ export default async function AdminPage() {
                           </div>
                           {trace.grantScope && (
                             <div>
-                              Current grants: {trace.grantScope.locationMatched} location matched / {trace.grantScope.usableCurrent} usable
+                              Latest grant sample: {trace.grantScope.locationMatched} location matched / {trace.grantScope.usableCurrent} usable
                             </div>
                           )}
                         </div>
@@ -1189,7 +1191,7 @@ export default async function AdminPage() {
             <CardHeader>
               <CardTitle className="text-base">Latest grants added</CardTitle>
               <p className="text-sm text-muted-foreground">
-                Showing the 30 newest records. Scroll inside this panel to review the full recent list.
+                Showing the 20 newest records. Scroll inside this panel to review the current batch.
               </p>
             </CardHeader>
             <CardContent>

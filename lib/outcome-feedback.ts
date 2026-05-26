@@ -99,7 +99,7 @@ async function fetchSubmittedApplicationsForOrg(orgId: string): Promise<Record<s
     .eq("organisationId", orgId)
     .in("status", [...OUTCOME_FEEDBACK_APPLICATION_STATUSES])
     .order("updatedAt", { ascending: false })
-    .limit(100);
+    .limit(20);
 
   if (!primary.error && primary.data?.length) {
     return primary.data as Record<string, unknown>[];
@@ -111,7 +111,7 @@ async function fetchSubmittedApplicationsForOrg(orgId: string): Promise<Record<s
     .eq("organisation_id", orgId)
     .in("status", [...OUTCOME_FEEDBACK_APPLICATION_STATUSES])
     .order("updated_at", { ascending: false })
-    .limit(100);
+    .limit(20);
 
   if (!alt.error && alt.data?.length) {
     return alt.data as Record<string, unknown>[];
@@ -171,7 +171,7 @@ export async function fetchRecordedOutcomeInsights(orgId: string): Promise<Recor
     .select("applicationId, grantId, outcome, funderFeedback, responseText, learningNotes, reportedAt, updatedAt, Grant(name, funder)")
     .eq("organisationId", orgId)
     .order("updatedAt", { ascending: false })
-    .limit(25);
+    .limit(20);
 
   return (data ?? []).map((row) => {
     const item = row as Record<string, unknown>;

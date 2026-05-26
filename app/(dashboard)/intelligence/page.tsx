@@ -56,7 +56,9 @@ export default async function IntelligencePage() {
     supabase
       .from("ApplicationOutcome")
       .select("outcome, awardedAmount")
-      .eq("organisationId", orgId),
+      .eq("organisationId", orgId)
+      .order("updatedAt", { ascending: false })
+      .limit(20),
   ]);
   const outcomeRows = (outcomes ?? []) as { outcome?: string; awardedAmount?: number | null }[];
   const awardedCount = outcomeRows.filter((row) => row.outcome === "awarded").length;

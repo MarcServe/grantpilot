@@ -32,6 +32,8 @@ type GrantSource = {
   updated_at: string | null;
 };
 
+const SOURCE_PAGE_SIZE = 20;
+
 const sourceTypeOptions: { value: SourceType; label: string; help: string }[] = [
   { value: "rss", label: "RSS feed", help: "Structured feed parsed directly into grant candidates." },
   { value: "government_portal", label: "Grant page / portal", help: "Website page crawled with AI extraction." },
@@ -57,6 +59,8 @@ function sourceTypeLabel(type?: string | null): string {
 
 export function GrantSourceManager() {
   const [sources, setSources] = useState<GrantSource[]>([]);
+  const [page, setPage] = useState(1);
+  const [totalSources, setTotalSources] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
@@ -66,15 +70,17 @@ export function GrantSourceManager() {
   const [type, setType] = useState<SourceType>("rss");
   const [crawlFrequency, setCrawlFrequency] = useState<CrawlFrequency>("24h");
 
-  const loadSources = useCallback(async () => {
+  const loadSources = useCallback(async (nextPage = 1) => {
     setLoading(true);
     try {
-      const res = await fetch("/api/admin/grant-sources");
+      const res = await fetch(`/api/admin/grant-sources?page=${nextPage}`);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error((data as { error?: string }).error ?? "Failed to load grant sources");
       }
       setSources(((data as { sources?: GrantSource[] }).sources ?? []) as GrantSource[]);
+      setPage(Number((data as { page?: number }).page ?? nextPage));
+      setTotalSources(Number((data as { total?: number }).total ?? 0));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to load grant sources");
     } finally {
@@ -111,7 +117,7 @@ export function GrantSourceManager() {
       toast.success((data as { message?: string }).message ?? "Grant source saved");
       setSourceName("");
       setEndpoint("");
-      await loadSources();
+      await loadSources(1);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not save source");
     } finally {
@@ -136,7 +142,7 @@ export function GrantSourceManager() {
           ? "Source marked due for the next crawler run"
           : (data as { message?: string }).message ?? "Source updated"
       );
-      await loadSources();
+      await loadSources(page);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not update source");
     } finally {
@@ -145,6 +151,7 @@ export function GrantSourceManager() {
   }
 
   const selectedType = sourceTypeOptions.find((option) => option.value === type);
+  const totalPages = Math.max(1, Math.ceil(totalSources / SOURCE_PAGE_SIZE));
 
   return (
     <Card>
@@ -245,13 +252,36 @@ export function GrantSourceManager() {
             <div>
               <p className="font-medium">Source registry</p>
               <p className="text-xs text-muted-foreground">
-                {enabledCount} enabled - {sources.length} shown
+                {enabledCount} enabled in this batch - {sources.length} shown of {totalSources}
               </p>
             </div>
-            <Button type="button" variant="outline" size="sm" onClick={() => void loadSources()} disabled={loading}>
-              {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCcw className="mr-2 h-4 w-4" />}
-              Refresh
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => void loadSources(page)} disabled={loading}>
+                {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCcw className="mr-2 h-4 w-4" />}
+                Refresh
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void loadSources(Math.max(1, page - 1))}
+                disabled={loading || page <= 1}
+              >
+                Previous
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                {page} / {totalPages}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void loadSources(Math.min(totalPages, page + 1))}
+                disabled={loading || page >= totalPages}
+              >
+                Next
+              </Button>
+            </div>
           </div>
           <div className="max-h-[28rem] overflow-auto">
             <table className="w-full min-w-[900px] text-left text-sm">

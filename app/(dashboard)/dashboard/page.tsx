@@ -31,8 +31,8 @@ import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
 import { applyOutcomeScoreAdjustment, deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
 import type { EligibilityResult } from "@/lib/claude";
 
-const DASHBOARD_MATCH_PREVIEW_LIMIT = 120;
-const GRANT_QUERY_BATCH_SIZE = 200;
+const DASHBOARD_MATCH_PREVIEW_LIMIT = 60;
+const GRANT_QUERY_BATCH_SIZE = 20;
 
 type SupabaseAdmin = ReturnType<typeof getSupabaseAdmin>;
 type DashboardMatchGrant = { grantId: string; grantName: string; score: number; summary?: string; addedAt?: string | null };
@@ -266,7 +266,12 @@ export default async function DashboardPage() {
       .select("id", { count: "exact", head: true })
       .eq("organisation_id", orgId),
     fetchApplicationsNeedingOutcome(orgId),
-    supabase.from("ApplicationOutcome").select("applicationId, outcome").eq("organisationId", orgId),
+    supabase
+      .from("ApplicationOutcome")
+      .select("applicationId, outcome")
+      .eq("organisationId", orgId)
+      .order("updatedAt", { ascending: false })
+      .limit(20),
   ]);
   const recentApplications = recentApplicationsResult.data ?? [];
   const totalApplications = totalApplicationsResult.count ?? 0;

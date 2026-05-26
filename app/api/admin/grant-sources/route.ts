@@ -7,6 +7,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 
 const sourceTypes = ["rss", "government_portal", "foundation", "newsletter"] as const;
 const crawlFrequencies = ["6h", "24h", "72h", "168h"] as const;
+const SOURCE_PAGE_SIZE = 20;
 
 const sourceSchema = z.object({
   sourceName: z.string().trim().min(2).max(120),
@@ -55,22 +56,35 @@ async function requireAdmin() {
   return { user };
 }
 
-export async function GET() {
+function normalizePage(value: string | null): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 1;
+}
+
+export async function GET(request: Request) {
   const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
 
+  const page = normalizePage(new URL(request.url).searchParams.get("page"));
+  const from = (page - 1) * SOURCE_PAGE_SIZE;
+  const to = from + SOURCE_PAGE_SIZE - 1;
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
+  const { data, error, count } = await supabase
     .from("grant_sources")
-    .select("id, source_name, country, type, endpoint, crawl_frequency, enabled, last_crawled_at, adapter, updated_at")
+    .select("id, source_name, country, type, endpoint, crawl_frequency, enabled, last_crawled_at, adapter, updated_at", { count: "exact" })
     .order("updated_at", { ascending: false })
-    .limit(200);
+    .range(from, to);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ sources: data ?? [] });
+  return NextResponse.json({
+    sources: data ?? [],
+    page,
+    pageSize: SOURCE_PAGE_SIZE,
+    total: count ?? 0,
+  });
 }
 
 export async function POST(request: Request) {

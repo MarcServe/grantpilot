@@ -240,9 +240,16 @@ export default async function GrantDetailPage({
       const { data: docRows } = await supabase
         .from("Document")
         .select("name, type, category")
-        .eq("profileId", profileId);
+        .eq("profileId", profileId)
+        .order("createdAt", { ascending: false })
+        .limit(20);
       const docRowsAlt = !docRows?.length
-        ? await supabase.from("Document").select("name, type, category").eq("profile_id", profileId)
+        ? await supabase
+            .from("Document")
+            .select("name, type, category")
+            .eq("profile_id", profileId)
+            .order("created_at", { ascending: false })
+            .limit(20)
         : { data: docRows };
       const documents = (docRowsAlt.data ?? []).map((d: { name: string; type?: string; category?: string }) => ({
         name: d.name,

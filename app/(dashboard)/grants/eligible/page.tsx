@@ -17,9 +17,9 @@ import {
 } from "@/lib/eligibility-final-score";
 
 const MATCH_PAGE_SIZE_OPTIONS = [20, 30, 50] as const;
-const DEFAULT_MATCH_PAGE_SIZE = 30;
+const DEFAULT_MATCH_PAGE_SIZE = 20;
 const MAX_MATCH_ASSESSMENTS = 5000;
-const GRANT_QUERY_BATCH_SIZE = 200;
+const GRANT_QUERY_BATCH_SIZE = 20;
 
 type ScoreTier = "suggested" | "within_reach" | "other";
 type MatchSearchParams = Promise<{ page?: string; pageSize?: string; tier?: string }>;

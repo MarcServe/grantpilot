@@ -121,13 +121,13 @@ export default async function FounderPackPage({
       .select("id, status, profileId, grantId, Grant(id, name, funder)")
       .eq("organisationId", orgId)
       .order("updatedAt", { ascending: false })
-      .limit(100),
+      .limit(20),
     supabase
       .from("EligibilityAssessment")
       .select("grant_id, profile_id, score, decision, summary, Grant(id, name, funder, createdAt, deadline, url_status, eligibility, description, objectives)")
       .eq("organisation_id", orgId)
       .order("score", { ascending: false })
-      .limit(500),
+      .limit(20),
   ]);
 
   let applicationRows: ApplicationOption[] = mapApplicationRows((applicationsData ?? []) as Record<string, unknown>[]);
@@ -137,7 +137,7 @@ export default async function FounderPackPage({
       .select("id, status, profile_id, grant_id, Grant(id, name, funder)")
       .eq("organisation_id", orgId)
       .order("updated_at", { ascending: false })
-      .limit(100);
+      .limit(20);
     if (!alt.error && alt.data?.length) {
       applicationRows = mapApplicationRows(
         (alt.data as Record<string, unknown>[]).map((r) => ({

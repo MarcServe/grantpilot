@@ -13,8 +13,9 @@ const DEFAULT_MIN_SCORE = 85;
 const DEFAULT_MAX_SCORE = 100;
 const DEFAULT_ELIGIBLE_THRESHOLD = 85;
 const WHATSAPP_COOLDOWN_HOURS = 20;
-const GRANT_FETCH_BATCH_SIZE = 1000;
-const MAX_GRANTS_FOR_TRACE = 10000;
+const TRACE_BATCH_SIZE = 20;
+const MAX_GRANTS_FOR_TRACE = 200;
+const MAX_ASSESSMENTS_FOR_TRACE = 200;
 const ELIGIBILITY_NOTIFICATION_TYPES = [
   "grant_scan_digest",
   "grant_match_high",
@@ -292,12 +293,12 @@ async function getCurrentActionableGrantTrace(
 ): Promise<ActionableGrantTrace> {
   const rows: GrantTraceRow[] = [];
 
-  for (let offset = 0; offset < MAX_GRANTS_FOR_TRACE; offset += GRANT_FETCH_BATCH_SIZE) {
+  for (let offset = 0; offset < MAX_GRANTS_FOR_TRACE; offset += TRACE_BATCH_SIZE) {
     const { data, error } = await supabase
       .from("Grant")
       .select("id, name, deadline, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, url_status, createdAt")
       .order("createdAt", { ascending: false })
-      .range(offset, offset + GRANT_FETCH_BATCH_SIZE - 1);
+      .range(offset, offset + TRACE_BATCH_SIZE - 1);
 
     if (error) {
       console.warn("[eligibility-diagnostics] grant trace lookup failed", error.message);
@@ -306,7 +307,7 @@ async function getCurrentActionableGrantTrace(
 
     const batch = (data ?? []) as GrantTraceRow[];
     rows.push(...batch);
-    if (batch.length < GRANT_FETCH_BATCH_SIZE) break;
+    if (batch.length < TRACE_BATCH_SIZE) break;
   }
 
   const usable = rows.filter(isGrantLinkUsable);
@@ -414,31 +415,41 @@ async function getAssessmentCounts(
   outcomeAdvisory: OutcomeLearningAdvisory,
   actionables?: ActionableGrantTrace
 ) {
-  const { data: matchRows = [] } = await supabase
-    .from("EligibilityAssessment")
-    .select("grant_id, score, decision, summary, notified_at, updated_at, missing_criteria, improvement_plan, scoring_source")
-    .eq("organisation_id", orgId)
-    .eq("profile_id", profileId)
-    .eq("decision", "likely_eligible")
-    .eq("scoring_source", "openai")
-    .gte("score", 50)
-    .lte("score", thresholds.maxScore)
-    .order("updated_at", { ascending: false })
-    .limit(5000);
+  const matchRows: EligibilityRow[] = [];
+  for (let offset = 0; offset < MAX_ASSESSMENTS_FOR_TRACE; offset += TRACE_BATCH_SIZE) {
+    const { data = [], error } = await supabase
+      .from("EligibilityAssessment")
+      .select("grant_id, score, decision, summary, notified_at, updated_at, missing_criteria, improvement_plan, scoring_source")
+      .eq("organisation_id", orgId)
+      .eq("profile_id", profileId)
+      .eq("decision", "likely_eligible")
+      .eq("scoring_source", "openai")
+      .gte("score", 50)
+      .lte("score", thresholds.maxScore)
+      .order("updated_at", { ascending: false })
+      .range(offset, offset + TRACE_BATCH_SIZE - 1);
 
-  const { data: storedHighRows = [] } = await supabase
+    if (error) {
+      console.warn("[eligibility-diagnostics] assessment trace lookup failed", error.message);
+      break;
+    }
+
+    const batch = (data ?? []) as EligibilityRow[];
+    matchRows.push(...batch);
+    if (batch.length < TRACE_BATCH_SIZE) break;
+  }
+
+  const { count: storedHighMatchCandidates = 0 } = await supabase
     .from("EligibilityAssessment")
-    .select("grant_id")
+    .select("grant_id", { count: "exact", head: true })
     .eq("organisation_id", orgId)
     .eq("profile_id", profileId)
     .eq("decision", "likely_eligible")
     .eq("scoring_source", "openai")
     .gte("score", thresholds.eligibleThreshold)
-    .lte("score", thresholds.maxScore)
-    .limit(5000);
+    .lte("score", thresholds.maxScore);
 
-  const rows = (matchRows ?? []) as EligibilityRow[];
-  const currentRows = actionables ? rows.filter((row) => actionables.ids.has(row.grant_id)) : rows;
+  const currentRows = actionables ? matchRows.filter((row) => actionables.ids.has(row.grant_id)) : matchRows;
   const finalRows = currentRows
     .map((row) => {
       const grant = actionables?.grantsById.get(row.grant_id);
@@ -456,7 +467,7 @@ async function getAssessmentCounts(
   return {
     highMatchCandidates: high.length,
     highMatchUnnotified: high.filter((item) => isOutsideCooldown(item.row.notified_at)).length,
-    storedHighMatchCandidates: (storedHighRows ?? []).length,
+    storedHighMatchCandidates: storedHighMatchCandidates ?? 0,
     withinReachCandidates: withinReach.length,
   };
 }
@@ -537,7 +548,7 @@ function buildBlockers(trace: Omit<EligibilityWhatsAppTrace, "blockers" | "final
     );
     if (scoped) {
       blockers.push(
-        `Current grant scope: ${scoped.locationMatched} location-matched, ${scoped.usableCurrent} usable, ${scoped.applied} applied, ${scoped.suppressed} suppressed.`
+        `Latest grant sample: ${scoped.locationMatched} location-matched, ${scoped.usableCurrent} usable, ${scoped.applied} applied, ${scoped.suppressed} suppressed.`
       );
     }
   }

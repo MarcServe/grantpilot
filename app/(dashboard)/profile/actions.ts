@@ -24,6 +24,8 @@ import { PLAN_LIMITS } from "@/lib/plans";
 import { getOrganisationPlanKey, organisationAllowsCapability } from "@/lib/plan-check";
 import { syncEligibilityWhatsAppPreference } from "@/lib/eligibility-preferences";
 
+const PROFILE_DOCUMENT_BATCH_SIZE = 20;
+
 async function getOrgId(): Promise<string> {
   const { orgId } = await getActiveOrg();
   return orgId;
@@ -103,6 +105,18 @@ function optionalNumber(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+async function loadProfileDocuments(profileId: string) {
+  const supabase = getSupabaseAdmin();
+  const { data } = await supabase
+    .from("Document")
+    .select("id, name, url, type, size, category, createdAt")
+    .eq("profileId", profileId)
+    .order("createdAt", { ascending: false })
+    .limit(PROFILE_DOCUMENT_BATCH_SIZE);
+
+  return data ?? [];
+}
+
 async function getOrCreateProfile(organisationId: string) {
   if (!organisationId?.trim()) {
     throw new Error("Organisation ID is required to load or create profile.");
@@ -116,19 +130,14 @@ async function getOrCreateProfile(organisationId: string) {
 
   const { data: existing } = await supabase
     .from("BusinessProfile")
-    .select("*, Document(*)")
+    .select("*")
     .eq("organisationId", organisationId)
     .order("createdAt", { ascending: true })
     .limit(1)
     .maybeSingle();
 
   if (existing) {
-    const rawDocs =
-      (existing as Record<string, unknown>).Document ??
-      (existing as Record<string, unknown>).document ??
-      (existing as Record<string, unknown>).documents ??
-      [];
-    const documents = Array.isArray(rawDocs) ? rawDocs : [];
+    const documents = await loadProfileDocuments(existing.id);
     return {
       ...existing,
       documents,
@@ -160,22 +169,16 @@ async function getOrCreateProfile(organisationId: string) {
       fundingDetails: null,
       funderLocations: [],
     })
-    .select("*, Document(*)")
+    .select("*")
     .single();
 
   if (error || !created) {
     throw new Error(error?.message ?? "Failed to create profile");
   }
 
-  const rawDocs =
-    (created as Record<string, unknown>).Document ??
-    (created as Record<string, unknown>).document ??
-    (created as Record<string, unknown>).documents ??
-    [];
-  const documents = Array.isArray(rawDocs) ? rawDocs : [];
   return {
     ...created,
-    documents,
+    documents: [],
   };
 }
 

@@ -11,8 +11,8 @@ import { applyOutcomeScoreAdjustment, deriveOutcomeLearningAdvisory } from "@/li
 import type { EligibilityResult } from "@/lib/claude";
 
 const GRANT_PAGE_SIZE_OPTIONS = [20, 30, 50] as const;
-const DEFAULT_GRANT_PAGE_SIZE = 30;
-const GRANT_FETCH_OVERAGE = 3;
+const DEFAULT_GRANT_PAGE_SIZE = 20;
+const GRANT_FETCH_OVERAGE = 2;
 
 type GrantsSearchParams = Promise<Record<string, string | string[] | undefined>>;
 type GrantSortMode = "newest" | "recommended" | "deadline";

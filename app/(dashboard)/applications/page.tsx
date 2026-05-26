@@ -10,7 +10,7 @@ import { applicationNeedsOutcomeReminder } from "@/lib/outcome-feedback";
 const IN_PROGRESS_STATUSES = ["FILLING", "REVIEW_REQUIRED"] as const;
 const SUBMITTED_STATUSES = ["SUBMITTED", "APPROVED"] as const;
 const APPLICATION_PAGE_SIZE_OPTIONS = [20, 30, 50] as const;
-const DEFAULT_APPLICATION_PAGE_SIZE = 30;
+const DEFAULT_APPLICATION_PAGE_SIZE = 20;
 
 function normalizeStatusFilter(raw: string | undefined): "in_progress" | "submitted" | null {
   if (!raw) return null;
@@ -104,7 +104,7 @@ export default async function ApplicationsPage({
 
   const outcomeByApp = new Map<string, string>();
   if (submittedIds.length > 0) {
-    const chunkSize = 80;
+    const chunkSize = 20;
     for (let i = 0; i < submittedIds.length; i += chunkSize) {
       const chunk = submittedIds.slice(i, i + chunkSize);
       const { data: oc } = await supabase
