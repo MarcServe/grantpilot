@@ -40,6 +40,16 @@ function normaliseEndpoint(value: string): string {
   return url.toString();
 }
 
+function endpointLookupVariants(endpoint: string): string[] {
+  const variants = new Set<string>([endpoint]);
+  const withoutTrailingSlash = endpoint.replace(/\/+$/, "");
+  variants.add(withoutTrailingSlash);
+  if (withoutTrailingSlash && !/[?#]/.test(withoutTrailingSlash)) {
+    variants.add(`${withoutTrailingSlash}/`);
+  }
+  return Array.from(variants).filter(Boolean);
+}
+
 function sourceIdForEndpoint(endpoint: string): string {
   const hash = createHash("sha256").update(endpoint).digest("hex").slice(0, 20);
   return `manual-${hash}`;
@@ -114,10 +124,11 @@ export async function POST(request: Request) {
   }
 
   const supabase = getSupabaseAdmin();
+  const endpointVariants = endpointLookupVariants(endpoint);
   const existingResult = await supabase
     .from("grant_sources")
     .select("id")
-    .eq("endpoint", endpoint)
+    .in("endpoint", endpointVariants)
     .limit(1);
 
   if (existingResult.error) {
