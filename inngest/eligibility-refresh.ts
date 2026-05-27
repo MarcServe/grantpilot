@@ -303,7 +303,7 @@ export async function runEligibilityRefreshJob(options?: {
           (g) => !appliedGrantIds.has(g.id) && !suppressedGrantIds.has(g.id)
         );
         console.info(
-          `[eligibility-refresh]   Excluding ${appliedGrantIds.size} grants with existing applications and ${suppressedGrantIds.size} viewed/deferred/applied/dismissed grants`
+          `[eligibility-refresh]   Excluding ${appliedGrantIds.size} grants with existing applications and ${suppressedGrantIds.size} deferred/applied/dismissed grants`
         );
 
         // ── Funder location pre-filter (existing) ──

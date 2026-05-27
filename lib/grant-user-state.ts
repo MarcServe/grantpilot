@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type GrantUserState = "saved" | "viewed" | "deferred" | "applied" | "dismissed";
 
-const SUPPRESSING_STATES = new Set<GrantUserState>(["viewed", "deferred", "applied", "dismissed"]);
+const SUPPRESSING_STATES = new Set<GrantUserState>(["deferred", "applied", "dismissed"]);
 const PRIORITY: Record<GrantUserState, number> = {
   saved: 1,
   viewed: 2,
@@ -31,7 +31,7 @@ export async function getSuppressedGrantIds(
     console.warn("[grant-user-state] suppression lookup failed", error.message);
     return new Set();
   }
-  const includeViewed = options?.includeViewed !== false;
+  const includeViewed = options?.includeViewed === true;
   return new Set(
     (data ?? [])
       .filter((row: { status?: GrantUserState | null }) => includeViewed || row.status !== "viewed")

@@ -422,7 +422,6 @@ async function getAssessmentCounts(
       .select("grant_id, score, decision, summary, notified_at, updated_at, missing_criteria, improvement_plan, scoring_source")
       .eq("organisation_id", orgId)
       .eq("profile_id", profileId)
-      .eq("decision", "likely_eligible")
       .eq("scoring_source", "openai")
       .gte("score", 50)
       .lte("score", thresholds.maxScore)
@@ -543,7 +542,7 @@ function buildBlockers(trace: Omit<EligibilityWhatsAppTrace, "blockers" | "final
     const scoped = trace.grantScope;
     blockers.push(
       stored > 0
-        ? `There are ${stored} stored 85%+ score rows, but none are current/actionable after expiry, location, applied, and suppressed-grant filters.`
+        ? `There are ${stored} stored 85%+ score rows, but none are current/actionable after expiry, location, applied, deferred, and dismissed filters.`
         : "No current OpenAI-scored likely eligible grants at or above the WhatsApp threshold."
     );
     if (scoped) {

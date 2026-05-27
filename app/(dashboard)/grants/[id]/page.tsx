@@ -517,7 +517,7 @@ export default async function GrantDetailPage({
               <p className="mb-2 text-sm font-medium">After reviewing this grant</p>
               <GrantStateActions grantId={grant.id} />
               <p className="mt-2 text-xs text-muted-foreground">
-                Deferred and applied grants are removed from repeated eligibility reminders. Viewing a grant will not stop deadline reminders.
+                Deferred and applied grants are removed from repeated eligibility reminders. Viewing a grant keeps it active in matches and reminders.
               </p>
             </div>
           )}
