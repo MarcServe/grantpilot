@@ -14,10 +14,11 @@ const outputPath = path.join(outputDir, "narration.mp3");
 const text = [
   "Meet GrantsCopilot.",
   "Find it, fill it, fund it, on autopilot.",
-  "Every day, GrantsCopilot searches fresh funding sources, checks each grant against your Business DNA, and shows exactly what you qualify for.",
-  "Build your profile once, add documents and team details, then prepare funder-ready answers, pitch decks, checklists, and reminders from one workspace.",
-  "Daily email digests keep every opportunity visible, while WhatsApp alerts highlight only the strongest matches.",
-  "GrantsCopilot helps founders move from grant search to application-ready faster.",
+  "The dashboard shows fresh grants, suggested matches, deadlines, prep runs, and notification health at a glance.",
+  "Opportunities are scored against your Business DNA, while Data Vault keeps profile details, team data, and documents ready for reuse.",
+  "Choose a grant, then generate eligibility summaries, checklists, answers, pitch decks, and supporting documents from one workspace.",
+  "Daily emails keep opportunities visible, WhatsApp highlights only the strongest matches, and admin diagnostics show what happened.",
+  "GrantsCopilot helps founders move from search to application-ready faster.",
 ].join(" ");
 
 const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {

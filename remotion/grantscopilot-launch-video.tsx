@@ -215,6 +215,163 @@ const FeaturePill = ({ label, delay }: { label: string; delay: number }) => {
   );
 };
 
+const MiniStat = ({ label, value, sub, delay }: { label: string; value: string; sub: string; delay: number }) => {
+  const frame = useCurrentFrame();
+  const progress = interpolate(frame, [delay, delay + 16], [0, 1], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: ease,
+  });
+  return (
+    <div
+      style={{
+        borderRadius: 18,
+        background: colors.white,
+        border: `1px solid ${colors.line}`,
+        padding: "22px 24px",
+        boxShadow: "0 16px 40px rgba(7,29,58,0.08)",
+        opacity: progress,
+        transform: `translateY(${interpolate(progress, [0, 1], [20, 0])}px)`,
+      }}
+    >
+      <div style={{ fontSize: 18, color: colors.muted, fontWeight: 800 }}>{label}</div>
+      <div style={{ marginTop: 10, fontSize: 38, color: colors.ink, fontWeight: 950 }}>{value}</div>
+      <div style={{ marginTop: 5, fontSize: 16, color: colors.muted, fontWeight: 650 }}>{sub}</div>
+    </div>
+  );
+};
+
+const DashboardScene = ({ start, duration }: { start: number; duration: number }) => {
+  const p = useSceneProgress(start, duration);
+  const frame = useCurrentFrame();
+  const cursor = interpolate(frame, [start + 70, start + 140], [470, 1460], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: ease,
+  });
+  return (
+    <AbsoluteFill style={{ opacity: p }}>
+      <Background />
+      <div style={{ position: "absolute", left: 120, top: 70 }}>
+        <LogoLockup compact />
+      </div>
+      <div
+        style={{
+          position: "absolute",
+          left: 130,
+          right: 130,
+          top: 175,
+          height: 780,
+          borderRadius: 34,
+          background: colors.white,
+          border: `1px solid ${colors.line}`,
+          overflow: "hidden",
+          boxShadow: "0 36px 100px rgba(7,29,58,0.14)",
+          transform: `scale(${interpolate(p, [0, 1], [0.97, 1])})`,
+        }}
+      >
+        <div style={{ position: "absolute", inset: 0, display: "grid", gridTemplateColumns: "250px 1fr" }}>
+          <aside style={{ position: "relative", background: colors.navy, padding: 26, color: colors.white }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <Img src={staticFile("logogc.png")} style={{ width: 64, height: 64, objectFit: "contain" }} />
+              <div>
+                <div style={{ fontSize: 22, fontWeight: 950, lineHeight: 1 }}>
+                  Grants<span style={{ color: "#6ea4ff" }}>Copilot</span>
+                </div>
+                <div style={{ marginTop: 5, fontSize: 11, color: colors.green, fontWeight: 850 }}>Apply on autopilot.</div>
+              </div>
+            </div>
+            <div style={{ marginTop: 44, display: "grid", gap: 13 }}>
+              {["Dashboard", "Opportunities", "Applications", "Data Vault", "Intelligence", "Billing"].map((item, index) => (
+                <div
+                  key={item}
+                  style={{
+                    borderRadius: 14,
+                    padding: "15px 16px",
+                    background: index === 1 ? colors.blue : "rgba(255,255,255,0.08)",
+                    fontSize: 18,
+                    fontWeight: 850,
+                  }}
+                >
+                  {item}
+                </div>
+              ))}
+            </div>
+            <div style={{ position: "absolute", left: 26, right: 26, bottom: 26, borderRadius: 18, border: "1px solid rgba(255,255,255,0.18)", padding: 18 }}>
+              <div style={{ fontSize: 16, color: "rgba(255,255,255,0.72)", fontWeight: 700 }}>Profile strength</div>
+              <div style={{ marginTop: 6, fontSize: 34, fontWeight: 950 }}>100%</div>
+              <div style={{ marginTop: 12, height: 8, borderRadius: 999, background: colors.green }} />
+            </div>
+          </aside>
+          <main style={{ background: "#f2f7ff", padding: "36px 42px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div>
+                <div style={{ color: "#62718c", fontSize: 16, fontWeight: 850, letterSpacing: 3 }}>AUTONOMOUS FUNDING INFRASTRUCTURE</div>
+                <div style={{ marginTop: 12, fontSize: 36, fontWeight: 950, color: colors.ink }}>Funding dashboard</div>
+                <div style={{ marginTop: 7, fontSize: 20, color: colors.muted }}>Fresh grants, eligibility scoring, documents, and reminders in one workspace.</div>
+              </div>
+              <Badge tone="green">Business plan active</Badge>
+            </div>
+            <div style={{ marginTop: 28, display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 18 }}>
+              <MiniStat label="Current matches" value="699" sub="619 actionable" delay={start + 12} />
+              <MiniStat label="Suggested" value="16" sub="85%+ scored" delay={start + 18} />
+              <MiniStat label="Deadlines" value="78" sub="next 7 days" delay={start + 24} />
+              <MiniStat label="Prep runs" value="4" sub="this month" delay={start + 30} />
+            </div>
+            <div style={{ marginTop: 24, display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 22 }}>
+              <section style={{ borderRadius: 22, background: colors.white, border: `1px solid ${colors.line}`, padding: 24 }}>
+                <div style={{ fontSize: 25, fontWeight: 950, color: colors.ink }}>My Matches</div>
+                <div style={{ marginTop: 6, fontSize: 17, color: colors.muted }}>Ranked by fit against your Business DNA.</div>
+                {[
+                  ["Tech for Good Programme", "Nesta", "85% match"],
+                  ["Help to Grow: Digital", "UK Government", "85% match"],
+                  ["AI Innovation Fund", "Innovate UK", "80% match"],
+                ].map(([title, funder, score], index) => (
+                  <div key={title} style={{ marginTop: 16, borderRadius: 16, border: `1px solid ${colors.line}`, padding: 18, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <div style={{ fontSize: 20, color: colors.ink, fontWeight: 900 }}>{title}</div>
+                      <div style={{ marginTop: 5, fontSize: 16, color: colors.muted }}>{funder} · Added today</div>
+                    </div>
+                    <div style={{ borderRadius: 999, background: index < 2 ? colors.blue : "#2f5f9b", color: colors.white, padding: "9px 14px", fontSize: 16, fontWeight: 900 }}>
+                      {score}
+                    </div>
+                  </div>
+                ))}
+              </section>
+              <section style={{ display: "grid", gap: 18 }}>
+                <div style={{ borderRadius: 22, background: colors.white, border: `1px solid ${colors.line}`, padding: 24 }}>
+                  <div style={{ fontSize: 23, fontWeight: 950, color: colors.ink }}>Data Vault</div>
+                  <p style={{ margin: "10px 0 0", fontSize: 17, lineHeight: 1.35, color: colors.muted }}>
+                    Reuse company documents, team details, evidence, and website intelligence.
+                  </p>
+                </div>
+                <div style={{ borderRadius: 22, background: colors.white, border: `1px solid ${colors.line}`, padding: 24 }}>
+                  <div style={{ fontSize: 23, fontWeight: 950, color: colors.ink }}>Admin trace</div>
+                  <p style={{ margin: "10px 0 0", fontSize: 17, lineHeight: 1.35, color: colors.muted }}>
+                    See grants added, users notified, skipped sends, and crawler health.
+                  </p>
+                </div>
+              </section>
+            </div>
+            <div
+              style={{
+                position: "absolute",
+                left: cursor,
+                top: 676,
+                width: 28,
+                height: 28,
+                borderRadius: 999,
+                background: colors.blue,
+                boxShadow: "0 0 0 10px rgba(47,107,237,0.14)",
+              }}
+            />
+          </main>
+        </div>
+      </div>
+    </AbsoluteFill>
+  );
+};
+
 const PhonePanel = () => {
   const frame = useCurrentFrame();
   const y = interpolate(Math.sin(frame / 18), [-1, 1], [-8, 8]);
@@ -487,7 +644,7 @@ export const GrantsCopilotLaunchVideo = () => {
       <Audio
         src={staticFile("voiceover/grantscopilot-launch/narration.mp3")}
         volume={(frame) =>
-          interpolate(frame, [0, 18, s(39), s(40)], [0, 1, 1, 0], {
+          interpolate(frame, [0, 18, s(45), s(46)], [0, 1, 1, 0], {
             extrapolateLeft: "clamp",
             extrapolateRight: "clamp",
           })
@@ -496,20 +653,23 @@ export const GrantsCopilotLaunchVideo = () => {
       <Scene start={0} duration={s(6)}>
         <HeroScene start={0} duration={s(6)} />
       </Scene>
-      <Scene start={s(5)} duration={s(7)}>
+      <Scene start={s(5)} duration={s(8)}>
+        <DashboardScene start={0} duration={s(8)} />
+      </Scene>
+      <Scene start={s(12)} duration={s(7)}>
         <DiscoverScene start={0} duration={s(7)} />
       </Scene>
-      <Scene start={s(11)} duration={s(7)}>
+      <Scene start={s(18)} duration={s(7)}>
         <DnaScene start={0} duration={s(7)} />
       </Scene>
-      <Scene start={s(17)} duration={s(7)}>
+      <Scene start={s(24)} duration={s(7)}>
         <PrepScene start={0} duration={s(7)} />
       </Scene>
-      <Scene start={s(23)} duration={s(7)}>
+      <Scene start={s(30)} duration={s(7)}>
         <NotificationScene start={0} duration={s(7)} />
       </Scene>
-      <Scene start={s(29)} duration={s(11)}>
-        <FinalScene start={0} duration={s(11)} />
+      <Scene start={s(37)} duration={s(9)}>
+        <FinalScene start={0} duration={s(9)} />
       </Scene>
     </AbsoluteFill>
   );
