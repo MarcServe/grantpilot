@@ -64,6 +64,7 @@ function NavLinks({
   compact?: boolean;
 }) {
   const pathname = usePathname();
+  const currentPathname = pathname ?? "";
   const router = useRouter();
   const groups = [primaryNavItems, secondaryNavItems];
 
@@ -79,7 +80,7 @@ function NavLinks({
           <div className="space-y-1.5">
             {items.map((item) => {
               const Icon = item.icon;
-              const active = isActive(pathname, item.href);
+              const active = isActive(currentPathname, item.href);
               return (
                 <Link
                   key={`${item.href}-${item.label}`}

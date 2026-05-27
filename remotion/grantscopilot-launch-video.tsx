@@ -1,5 +1,6 @@
 import {
   AbsoluteFill,
+  Audio,
   Easing,
   Img,
   OffthreadVideo,
@@ -483,23 +484,32 @@ export const GrantsCopilotLaunchVideo = () => {
   const s = (seconds: number) => seconds * fps;
   return (
     <AbsoluteFill style={{ fontFamily: "Inter, Arial, sans-serif", background: colors.warm }}>
+      <Audio
+        src={staticFile("voiceover/grantscopilot-launch/narration.mp3")}
+        volume={(frame) =>
+          interpolate(frame, [0, 18, s(39), s(40)], [0, 1, 1, 0], {
+            extrapolateLeft: "clamp",
+            extrapolateRight: "clamp",
+          })
+        }
+      />
       <Scene start={0} duration={s(6)}>
         <HeroScene start={0} duration={s(6)} />
       </Scene>
       <Scene start={s(5)} duration={s(7)}>
-        <DiscoverScene start={s(5)} duration={s(7)} />
+        <DiscoverScene start={0} duration={s(7)} />
       </Scene>
       <Scene start={s(11)} duration={s(7)}>
-        <DnaScene start={s(11)} duration={s(7)} />
+        <DnaScene start={0} duration={s(7)} />
       </Scene>
       <Scene start={s(17)} duration={s(7)}>
-        <PrepScene start={s(17)} duration={s(7)} />
+        <PrepScene start={0} duration={s(7)} />
       </Scene>
       <Scene start={s(23)} duration={s(7)}>
-        <NotificationScene start={s(23)} duration={s(7)} />
+        <NotificationScene start={0} duration={s(7)} />
       </Scene>
-      <Scene start={s(29)} duration={s(6)}>
-        <FinalScene start={s(29)} duration={s(6)} />
+      <Scene start={s(29)} duration={s(11)}>
+        <FinalScene start={0} duration={s(11)} />
       </Scene>
     </AbsoluteFill>
   );

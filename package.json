@@ -9,7 +9,8 @@
     "lint": "eslint",
     "video:studio": "remotion studio",
     "video:render": "remotion render GrantsCopilotLaunch out/grantscopilot-launch.mp4 --concurrency=1",
-    "video:poster": "remotion still GrantsCopilotPoster out/grantscopilot-poster.png"
+    "video:poster": "remotion still GrantsCopilotPoster out/grantscopilot-poster.png",
+    "video:voiceover": "node scripts/generate-grantscopilot-voiceover.mjs"
   },
   "dependencies": {
     "@google/genai": "^1.43.0",

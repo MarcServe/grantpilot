@@ -123,6 +123,7 @@ export function GrantsListClient({
 }: GrantsListClientProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const currentPathname = pathname ?? "/grants";
   const searchParams = useSearchParams();
   const isServerPaged = Boolean(serverPagination);
   const [savedSet, setSavedSet] = useState<Set<string>>(() => new Set(savedGrantIds));
@@ -139,14 +140,14 @@ export function GrantsListClient({
 
   const updateServerParams = useCallback((updates: Record<string, string | number | boolean | null>) => {
     if (!serverPagination) return;
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
     for (const [key, value] of Object.entries(updates)) {
       if (value === null || value === "" || value === false) params.delete(key);
       else params.set(key, String(value));
     }
     if (!("page" in updates)) params.set("page", "1");
-    router.push(`${pathname}?${params.toString()}`);
-  }, [pathname, router, searchParams, serverPagination]);
+    router.push(`${currentPathname}?${params.toString()}`);
+  }, [currentPathname, router, searchParams, serverPagination]);
 
   const toggleSaved = useCallback(async (grantId: string, currentlySaved: boolean) => {
     if (currentlySaved) {

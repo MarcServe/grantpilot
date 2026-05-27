@@ -8,7 +8,7 @@ export const RemotionRoot = () => {
       <Composition
         id="GrantsCopilotLaunch"
         component={GrantsCopilotLaunchVideo}
-        durationInFrames={35 * VIDEO_FPS}
+        durationInFrames={40 * VIDEO_FPS}
         fps={VIDEO_FPS}
         width={VIDEO_WIDTH}
         height={VIDEO_HEIGHT}

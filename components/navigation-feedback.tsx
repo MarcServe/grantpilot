@@ -21,12 +21,13 @@ function shouldHandleAnchor(anchor: HTMLAnchorElement): boolean {
 export function NavigationFeedback() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const currentPathname = pathname ?? "";
   const [pending, setPending] = useState(false);
   const [pendingTarget, setPendingTarget] = useState<string | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const settleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const search = searchParams.toString();
-  const currentRoute = `${pathname}${search ? `?${search}` : ""}`;
+  const search = searchParams?.toString() ?? "";
+  const currentRoute = `${currentPathname}${search ? `?${search}` : ""}`;
 
   useEffect(() => {
     function startPending(targetRoute: string | null) {
