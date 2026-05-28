@@ -140,6 +140,22 @@ type GrantSourceRow = {
   last_crawled_at: string | null;
 };
 
+type GrantSourceImportRunRow = {
+  run_source: string | null;
+  created_by: string | null;
+  requested_count: number | null;
+  added_count: number | null;
+  skipped_duplicate_count: number | null;
+  rejected_count: number | null;
+  manual_review_count: number | null;
+  created_at: string | null;
+};
+
+type GrantSourceAttributionRow = {
+  source: string | null;
+  createdAt: string | null;
+};
+
 type QueueStatus = {
   pending: number;
   crawled?: number;
@@ -214,6 +230,18 @@ function formatRelative(value?: string | null): string {
   const hours = Math.round(minutes / 60);
   if (hours < 48) return `${hours}h ago`;
   return `${Math.round(hours / 24)}d ago`;
+}
+
+function grantSourceLabel(source?: string | null): string {
+  const value = source?.trim().toLowerCase();
+  if (!value || value === "default") return "Database links / RSS";
+  if (value === "openai") return "OpenAI search";
+  if (value === "perplexity") return "Perplexity search";
+  if (value === "claude") return "Claude search";
+  if (value === "gemini") return "Gemini search";
+  if (value === "admin") return "Admin import";
+  if (value === "grants-gov") return "Grants.gov";
+  return source ?? "Unknown";
 }
 
 function formatDurationMs(value?: number | null): string {
@@ -461,6 +489,8 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
     assessmentLast7dResult,
     upcomingDeadlineResult,
     grantSourcesResult,
+    sourceImportRunsResult,
+    grantSourceAttributionResult,
     discoveryPendingResult,
     discoveryFailedResult,
     linksPendingResult,
@@ -516,6 +546,16 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
       .select("source_name, type, adapter, enabled, crawl_frequency, last_crawled_at")
       .order("last_crawled_at", { ascending: false, nullsFirst: false })
       .limit(500),
+    supabase
+      .from("grant_source_import_runs")
+      .select("run_source, created_by, requested_count, added_count, skipped_duplicate_count, rejected_count, manual_review_count, created_at")
+      .order("created_at", { ascending: false })
+      .limit(6),
+    supabase
+      .from("Grant")
+      .select("source, createdAt")
+      .gte("createdAt", last7d.toISOString())
+      .limit(2000),
     supabase.from("grant_discovery_queue").select("id", { count: "exact", head: true }).eq("status", "pending"),
     supabase.from("grant_discovery_queue").select("id", { count: "exact", head: true }).eq("status", "failed"),
     supabase.from("grant_links").select("id", { count: "exact", head: true }).eq("status", "pending"),
@@ -597,7 +637,15 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
   const latestGrants = (latestGrantsResult.data ?? []) as GrantRow[];
   const upcomingDeadlines = (upcomingDeadlineResult.data ?? []) as GrantRow[];
   const grantSources = (grantSourcesResult.data ?? []) as GrantSourceRow[];
+  const sourceImportRuns = (sourceImportRunsResult.data ?? []) as GrantSourceImportRunRow[];
+  const grantSourceAttributionRows = (grantSourceAttributionResult.data ?? []) as GrantSourceAttributionRow[];
   const suppressedGrantRows = (suppressedGrantsResult.data ?? []) as SavedGrantSuppressionRow[];
+  if (sourceImportRunsResult.error) {
+    console.warn("[admin] Grant source import run query failed:", sourceImportRunsResult.error.message);
+  }
+  if (grantSourceAttributionResult.error) {
+    console.warn("[admin] Grant source attribution query failed:", grantSourceAttributionResult.error.message);
+  }
   if (suppressedGrantsResult.error) {
     console.warn("[admin] SavedGrant suppression query failed:", suppressedGrantsResult.error.message);
   }
@@ -704,6 +752,13 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
     .map((source) => source.last_crawled_at)
     .filter((value): value is string => Boolean(value))
     .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ?? null;
+  const sourceAttributionCounts = Array.from(
+    grantSourceAttributionRows.reduce((counts, row) => {
+      const key = grantSourceLabel(row.source);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+      return counts;
+    }, new Map<string, number>())
+  ).sort((a, b) => b[1] - a[1]);
   const discoveryQueue: QueueStatus = {
     pending: discoveryPendingResult.count ?? 0,
     failed: discoveryFailedResult.count ?? 0,
@@ -1088,6 +1143,91 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
             <Card className="min-w-0 overflow-hidden">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
+                  <Database className="h-4 w-4 text-blue-600" />
+                  Source enrichment
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="max-h-[28rem] space-y-3 overflow-y-auto pr-2 text-sm">
+                <p className="text-sm text-muted-foreground">
+                  Automated source imports show added feeds, skipped duplicates, rejected rows, and manual-review rows.
+                </p>
+                {sourceImportRuns.length > 0 ? (
+                  <div className="space-y-2">
+                    {sourceImportRuns.map((run, index) => (
+                      <div key={`source-import-${run.created_at}-${index}`} className="rounded-md border p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0 truncate font-medium">
+                            {run.run_source ?? "automation"}
+                            {run.created_by ? ` · ${run.created_by}` : ""}
+                          </div>
+                          <div className="shrink-0 text-xs text-muted-foreground">{formatRelative(run.created_at)}</div>
+                        </div>
+                        <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                          <div className="rounded border bg-muted/30 p-2">
+                            <div className="text-muted-foreground">Requested</div>
+                            <div className="text-lg font-semibold">{run.requested_count ?? 0}</div>
+                          </div>
+                          <div className="rounded border bg-muted/30 p-2">
+                            <div className="text-muted-foreground">Added</div>
+                            <div className="text-lg font-semibold text-emerald-700">{run.added_count ?? 0}</div>
+                          </div>
+                          <div className="rounded border bg-muted/30 p-2">
+                            <div className="text-muted-foreground">Duplicates</div>
+                            <div className="text-lg font-semibold">{run.skipped_duplicate_count ?? 0}</div>
+                          </div>
+                          <div className="rounded border bg-muted/30 p-2">
+                            <div className="text-muted-foreground">Review/reject</div>
+                            <div className="text-lg font-semibold text-amber-700">
+                              {(run.manual_review_count ?? 0) + (run.rejected_count ?? 0)}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="mt-2 text-xs text-muted-foreground">{formatDateTime(run.created_at)}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground">
+                    No automated grant source import runs recorded yet.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="min-w-0 overflow-hidden">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <SearchCheck className="h-4 w-4 text-blue-600" />
+                  Grant source attribution
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="max-h-[28rem] space-y-3 overflow-y-auto pr-2 text-sm">
+                <p className="text-sm text-muted-foreground">
+                  New grants added in the last 7 days, grouped by the discovery/import route stored on the grant record.
+                </p>
+                {sourceAttributionCounts.length > 0 ? (
+                  <div className="space-y-2">
+                    {sourceAttributionCounts.map(([source, count]) => (
+                      <div key={source} className="flex items-center justify-between gap-3 rounded-md border bg-muted/30 p-3">
+                        <div className="min-w-0">
+                          <div className="font-medium">{source}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {source.includes("search") ? "AI discovery" : "Registry, feed, API, or admin import"}
+                          </div>
+                        </div>
+                        <div className="text-2xl font-semibold">{count}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground">No grant source attribution rows in the last 7 days.</p>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="min-w-0 overflow-hidden">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
                   <ServerCrash className={`h-4 w-4 ${failedCronRunsLast24hCount > 0 ? "text-red-600" : "text-blue-600"}`} />
                   Cron runs
                 </CardTitle>
@@ -1384,7 +1524,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                         <div className="line-clamp-2 font-medium">{grant.name ?? "Untitled grant"}</div>
                         <div className="mt-1 text-xs text-muted-foreground">{grant.funder ?? "Unknown funder"}</div>
                         <div className="mt-2 text-xs text-muted-foreground">
-                          {grant.source ?? "database"} - {formatRelative(grant.createdAt)}
+                          {grantSourceLabel(grant.source)} - {formatRelative(grant.createdAt)}
                         </div>
                       </div>
                     ))
@@ -1409,6 +1549,12 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
             <p className="text-sm text-muted-foreground">
               You can also import via API: <code className="rounded bg-muted px-1 py-0.5">POST /api/admin/grants/import</code> with header{" "}
               <code className="rounded bg-muted px-1 py-0.5">x-grants-import-secret</code> and a JSON array of grants.
+            </p>
+            <p className="mt-3 text-sm text-muted-foreground">
+              Automated source enrichment can add RSS feeds or grant-source pages via{" "}
+              <code className="rounded bg-muted px-1 py-0.5">POST /api/internal/grant-sources/import</code> with header{" "}
+              <code className="rounded bg-muted px-1 py-0.5">x-internal-secret</code> and{" "}
+              <code className="rounded bg-muted px-1 py-0.5">{`{ "sources": [...] }`}</code>. Duplicate endpoints are skipped.
             </p>
           </CardContent>
         </Card>

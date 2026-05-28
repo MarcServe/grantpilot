@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { isAdmin } from "@/lib/admin-auth";
 import { getCurrentUser } from "@/lib/auth";
+import { grantSourceEndpointKey, normaliseGrantSourceEndpoint } from "@/lib/grant-source-endpoint";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 const sourceTypes = ["rss", "government_portal", "foundation", "newsletter"] as const;
@@ -29,29 +30,8 @@ function defaultAdapter(type: (typeof sourceTypes)[number]): "rss" | "crawl" {
   return type === "rss" ? "rss" : "crawl";
 }
 
-function normaliseEndpoint(value: string): string {
-  const trimmed = value.trim();
-  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
-  const url = new URL(withProtocol);
-  if (!["http:", "https:"].includes(url.protocol)) {
-    throw new Error("Only HTTP and HTTPS source URLs are supported.");
-  }
-  url.hash = "";
-  return url.toString();
-}
-
-function endpointLookupVariants(endpoint: string): string[] {
-  const variants = new Set<string>([endpoint]);
-  const withoutTrailingSlash = endpoint.replace(/\/+$/, "");
-  variants.add(withoutTrailingSlash);
-  if (withoutTrailingSlash && !/[?#]/.test(withoutTrailingSlash)) {
-    variants.add(`${withoutTrailingSlash}/`);
-  }
-  return Array.from(variants).filter(Boolean);
-}
-
 function sourceIdForEndpoint(endpoint: string): string {
-  const hash = createHash("sha256").update(endpoint).digest("hex").slice(0, 20);
+  const hash = createHash("sha256").update(grantSourceEndpointKey(endpoint)).digest("hex").slice(0, 20);
   return `manual-${hash}`;
 }
 
@@ -115,7 +95,7 @@ export async function POST(request: Request) {
 
   let endpoint: string;
   try {
-    endpoint = normaliseEndpoint(parsed.endpoint);
+    endpoint = normaliseGrantSourceEndpoint(parsed.endpoint);
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Invalid URL" },
@@ -124,19 +104,19 @@ export async function POST(request: Request) {
   }
 
   const supabase = getSupabaseAdmin();
-  const endpointVariants = endpointLookupVariants(endpoint);
   const existingResult = await supabase
     .from("grant_sources")
-    .select("id")
-    .in("endpoint", endpointVariants)
-    .limit(1);
+    .select("id, endpoint");
 
   if (existingResult.error) {
     return NextResponse.json({ error: existingResult.error.message }, { status: 500 });
   }
 
+  const endpointKey = grantSourceEndpointKey(endpoint);
+  const existingId = (existingResult.data ?? []).find((row) =>
+    typeof row.endpoint === "string" && grantSourceEndpointKey(row.endpoint) === endpointKey
+  )?.id as string | undefined;
   const now = new Date().toISOString();
-  const existingId = existingResult.data?.[0]?.id as string | undefined;
   const id = existingId ?? sourceIdForEndpoint(endpoint);
   const payload = {
     id,
