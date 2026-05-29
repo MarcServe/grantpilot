@@ -8,6 +8,7 @@ import { getSuppressedGrantIds } from "@/lib/grant-user-state";
 import { deriveOutcomeLearningAdvisory, type OutcomeLearningAdvisory } from "@/lib/outcome-learning";
 import { finalEligibilityScore, finaliseEligibilityAssessment } from "@/lib/eligibility-final-score";
 import type { EligibilityResult } from "@/lib/claude";
+import { getMatchHealthReport, type MatchHealthReport } from "@/lib/match-health";
 
 const DEFAULT_MIN_SCORE = 85;
 const DEFAULT_MAX_SCORE = 100;
@@ -21,6 +22,7 @@ const ELIGIBILITY_NOTIFICATION_TYPES = [
   "grant_match_high",
   "daily_grant_update",
   "eligibility_upgrade_prompt",
+  "business_dna_match_health",
 ] as const;
 
 type SupabaseAdmin = ReturnType<typeof getSupabaseAdmin>;
@@ -36,6 +38,7 @@ type OrganisationRow = {
 
 type ProfileRow = {
   id: string;
+  [key: string]: unknown;
   businessName?: string | null;
   business_name?: string | null;
   completionScore?: number | null;
@@ -199,6 +202,7 @@ export type EligibilityWhatsAppTrace = {
     skipped: number;
     latestAt: string | null;
   };
+  matchHealth: MatchHealthReport | null;
   finalReason: EligibilityWhatsAppReason;
   blockers: string[];
 };
@@ -587,12 +591,13 @@ export async function getEligibilityWhatsAppTraceForOrg(
   const eligibleThreshold = Math.max(Number(prefs?.eligible_threshold ?? DEFAULT_ELIGIBLE_THRESHOLD), 75);
   const notifyEmail = prefs?.notify_email !== false;
   const notifyWhatsApp = prefs?.notify_whatsapp ?? true;
-  const [grantTrace, outcomeAdvisory]: [ActionableGrantTrace | null, OutcomeLearningAdvisory] = profile
+  const [grantTrace, outcomeAdvisory, matchHealth]: [ActionableGrantTrace | null, OutcomeLearningAdvisory, MatchHealthReport | null] = profile
     ? await Promise.all([
         getCurrentActionableGrantTrace(supabase, orgId, profile),
         getOutcomeAdvisory(supabase, orgId, profile.id),
+        getMatchHealthReport({ supabase, orgId, profile }),
       ])
-    : [null, deriveOutcomeLearningAdvisory([])];
+    : [null, deriveOutcomeLearningAdvisory([]), null];
   const counts = profile
     ? await getAssessmentCounts(
         supabase,
@@ -678,6 +683,7 @@ export async function getEligibilityWhatsAppTraceForOrg(
     latestRunWhatsApp,
     recentWhatsApp,
     recentEligibilityEmail,
+    matchHealth,
   };
 
   const finalReason = decideFinalReason({

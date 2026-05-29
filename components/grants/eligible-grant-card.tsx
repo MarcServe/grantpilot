@@ -28,7 +28,7 @@ const ONE_WEEK_MS = 7 * 86_400_000;
 const pageLoadedAt = Date.now();
 
 function scoreBadgeVariant(score: number): "default" | "secondary" | "outline" {
-  if (score >= 80) return "default";
+  if (score >= 85) return "default";
   if (score >= 50) return "secondary";
   return "outline";
 }

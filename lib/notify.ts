@@ -22,6 +22,7 @@ export type NotificationType =
   | "daily_grant_update"
   | "deadline_daily_update"
   | "eligibility_upgrade_prompt"
+  | "business_dna_match_health"
   | "welcome"
   | "grant_match"
   | "grant_match_high"
@@ -77,6 +78,14 @@ export interface NotificationPayload {
   matchedGrantsCount?: number;
   /** Count of deadline reminders included in a daily deadline update. */
   deadlineReminderCount?: number;
+  /** Count of within-reach grants used by Business DNA match-health prompts. */
+  withinReachCount?: number;
+  /** Days since the last current/actionable 85%+ match. */
+  daysWithoutHighMatch?: number;
+  /** Top match-health blockers shown to the user. */
+  matchHealthBlockers?: string[];
+  /** Suggested safe profile improvements shown to the user. */
+  matchHealthActions?: string[];
 }
 
 export interface NotifyOptions {
@@ -91,6 +100,7 @@ const PLAN_GATED_NOTIFICATION_TYPES = new Set<NotificationType>([
   "grant_match",
   "grant_match_high",
   "grant_scan_digest",
+  "business_dna_match_health",
   "outcome_feedback_reminder",
 ]);
 

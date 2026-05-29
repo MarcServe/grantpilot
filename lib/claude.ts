@@ -195,6 +195,18 @@ export interface ProfileImprovementSuggestions {
   fundingDetails?: string;
 }
 
+export interface BusinessDnaCoverageSuggestions {
+  missionStatement?: string;
+  description?: string;
+  fundingDetails?: string;
+  innovationCapabilities?: string;
+  socialImpact?: string;
+  teamExpertise?: string;
+  fundingPurposes?: string[];
+  rationale?: string[];
+  safeguards?: string[];
+}
+
 /**
  * Suggests rewritten profile sections to improve eligibility for a specific grant.
  * Uses improvementPlan and missing criteria from eligibility result.
@@ -228,6 +240,69 @@ Omit a key if no change suggested. Keep each value concise and human; do not exc
       ...(parsed.missionStatement && { missionStatement: parsed.missionStatement }),
       ...(parsed.description && { description: parsed.description }),
       ...(parsed.fundingDetails && { fundingDetails: parsed.fundingDetails }),
+    };
+  } catch {
+    return {};
+  }
+}
+
+export async function suggestBusinessDnaCoverageImprovements(
+  profile: Record<string, unknown>,
+  matchHealth: {
+    currentHighMatches: number;
+    currentWithinReach: number;
+    daysSinceHighMatch: number | null;
+    topBlockers: Array<{ label: string; detail: string; count: number }>;
+    profileGaps: string[];
+    recommendedActions: string[];
+  }
+): Promise<BusinessDnaCoverageSuggestions> {
+  const text = await completeJson(
+    `You are improving a GrantsCopilot Business DNA profile so future grant eligibility scoring can recognise the business more accurately.
+
+Rules:
+- Use ONLY facts already present in the profile, team data, document summaries, website intelligence, and blocker list below.
+- Do NOT invent revenue, employee count, customers, awards, certifications, traction, partnerships, grant wins, dates, team size, or legal status.
+- If a missing fact is important, put it in safeguards/rationale, not in rewritten profile text.
+- Broaden positioning only when the profile already supports it.
+- Keep language grant-ready, factual, and concise.
+
+Current profile JSON:
+${JSON.stringify(profile, null, 2).slice(0, 9000)}
+
+Match health:
+${JSON.stringify(matchHealth, null, 2)}
+
+Return ONLY valid JSON with this shape. Omit fields where no safe improvement is possible:
+{
+  "missionStatement": "optional improved mission",
+  "description": "optional improved description",
+  "fundingDetails": "optional improved funding use summary",
+  "innovationCapabilities": "optional improved innovation/R&D capability",
+  "socialImpact": "optional improved social impact",
+  "teamExpertise": "optional improved team expertise",
+  "fundingPurposes": ["optional", "existing-fact-supported", "purposes"],
+  "rationale": ["why these safe edits may improve matching"],
+  "safeguards": ["facts the user should add manually instead of AI inventing them"]
+}`,
+    2200
+  );
+
+  try {
+    const parsed = JSON.parse(cleanJsonResponse(text)) as BusinessDnaCoverageSuggestions;
+    const fundingPurposes = Array.isArray(parsed.fundingPurposes)
+      ? uniqueStrings(parsed.fundingPurposes.map((value) => String(value).trim())).slice(0, 12)
+      : undefined;
+    return {
+      ...(parsed.missionStatement && { missionStatement: String(parsed.missionStatement).trim() }),
+      ...(parsed.description && { description: String(parsed.description).trim() }),
+      ...(parsed.fundingDetails && { fundingDetails: String(parsed.fundingDetails).trim() }),
+      ...(parsed.innovationCapabilities && { innovationCapabilities: String(parsed.innovationCapabilities).trim() }),
+      ...(parsed.socialImpact && { socialImpact: String(parsed.socialImpact).trim() }),
+      ...(parsed.teamExpertise && { teamExpertise: String(parsed.teamExpertise).trim() }),
+      ...(fundingPurposes && fundingPurposes.length > 0 && { fundingPurposes }),
+      ...(Array.isArray(parsed.rationale) && { rationale: parsed.rationale.map(String).filter(Boolean).slice(0, 6) }),
+      ...(Array.isArray(parsed.safeguards) && { safeguards: parsed.safeguards.map(String).filter(Boolean).slice(0, 6) }),
     };
   } catch {
     return {};

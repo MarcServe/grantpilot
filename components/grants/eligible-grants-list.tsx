@@ -11,7 +11,7 @@ import { EligibleGrantCard, type EligibleGrant } from "./eligible-grant-card";
 type ScoreTier = "suggested" | "within_reach" | "other";
 
 function tierFor(score: number): ScoreTier {
-  if (score >= 80) return "suggested";
+  if (score >= 85) return "suggested";
   if (score >= 50) return "within_reach";
   return "other";
 }
@@ -108,8 +108,8 @@ export function EligibleGrantsList({ grants, counts, activeTier, links }: Props)
       {isFiltered && (
         <p className="text-sm text-muted-foreground">
           {filtered.length} of {grants.length} grants
-          {activeTier === "suggested" && " — score 80%+"}
-          {activeTier === "within_reach" && " — score 50–79%"}
+          {activeTier === "suggested" && " — score 85%+"}
+          {activeTier === "within_reach" && " — score 50–84%"}
           {activeTier === "other" && " — score below 50%"}
         </p>
       )}

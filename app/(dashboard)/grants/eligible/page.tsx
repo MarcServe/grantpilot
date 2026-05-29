@@ -7,9 +7,11 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft, ArrowRight, Building2 } from "lucide-react";
 import type { EligibleGrant } from "@/components/grants/eligible-grant-card";
 import { EligibleGrantsList } from "@/components/grants/eligible-grants-list";
+import { BusinessDnaMatchHealth } from "@/components/profile/business-dna-match-health";
 import { getGrantVerificationWarning, isGrantLinkUsable } from "@/lib/grant-freshness";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
+import { getMatchHealthReport } from "@/lib/match-health";
 import {
   finalEligibilityScore,
   finaliseEligibilityAssessment,
@@ -71,7 +73,7 @@ function normalizeTier(raw: string | undefined): ScoreTier | null {
 }
 
 function tierForScore(score: number): ScoreTier {
-  if (score >= 80) return "suggested";
+  if (score >= 85) return "suggested";
   if (score >= 50) return "within_reach";
   return "other";
 }
@@ -346,6 +348,11 @@ async function EligibleGrantsPageContent({
     ...assessments.map((assessment) => assessment.updated_at),
   ]);
   const lastScoredLabel = formatLastScoredAt(lastScoredAt, timezone);
+  const matchHealth = await getMatchHealthReport({
+    supabase,
+    orgId,
+    profile: profile as Record<string, unknown> & { id: string },
+  });
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-6 sm:p-6">
@@ -406,6 +413,8 @@ async function EligibleGrantsPageContent({
           </CardContent>
         </Card>
       )}
+
+      <BusinessDnaMatchHealth report={matchHealth} profile={profile as Record<string, unknown>} />
 
       {rawAssessmentCount === 0 ? (
         <Card>

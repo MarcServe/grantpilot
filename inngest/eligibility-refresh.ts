@@ -22,6 +22,7 @@ import {
   deriveOutcomeLearningAdvisory,
 } from "@/lib/outcome-learning";
 import { finalEligibilityScore, finaliseEligibilityAssessment } from "@/lib/eligibility-final-score";
+import { getMatchHealthReport } from "@/lib/match-health";
 
 /**
  * 3-Layer Eligibility Pipeline
@@ -282,7 +283,7 @@ export async function runEligibilityRefreshJob(options?: {
 
           const alreadyUpdated = await orgHasNotificationSince(
             orgId,
-            ["daily_grant_update", "grant_scan_digest", "grant_match_high", "eligibility_upgrade_prompt"],
+            ["daily_grant_update", "grant_scan_digest", "grant_match_high", "eligibility_upgrade_prompt", "business_dna_match_health"],
             recentWindow
           );
           if (alreadyUpdated) return;
@@ -295,6 +296,41 @@ export async function runEligibilityRefreshJob(options?: {
             sendWhatsApp: false,
           });
           diagnostics.dailyUpdates++;
+        };
+
+        const sendMatchHealthPrompt = async () => {
+          if (!sendNotifyEmail) return false;
+          if (!canReceiveProactiveNotifications) return false;
+          if (completionScore < minCompletionForNotifications) return false;
+          const promptCooldown = new Date();
+          promptCooldown.setDate(promptCooldown.getDate() - 3);
+          const alreadyPrompted = await orgHasNotificationSince(
+            orgId,
+            ["business_dna_match_health"],
+            promptCooldown
+          );
+          if (alreadyPrompted) return false;
+
+          const report = await getMatchHealthReport({
+            supabase,
+            orgId,
+            profile: profile as Record<string, unknown> & { id: string },
+          });
+          if (!report.shouldPrompt) return false;
+
+          await notifyOrgMembers(orgId, "business_dna_match_health", {
+            profileName,
+            withinReachCount: report.currentWithinReach,
+            matchedGrantsCount: report.currentWithinReach,
+            daysWithoutHighMatch: report.daysSinceHighMatch ?? 3,
+            matchHealthBlockers: report.topBlockers.map((blocker) => blocker.label).slice(0, 5),
+            matchHealthActions: report.recommendedActions.slice(0, 5),
+          }, {
+            sendEmail: true,
+            sendWhatsApp: false,
+          });
+          diagnostics.dailyUpdates++;
+          return true;
         };
 
         const appliedGrantIds = await getAppliedGrantIds(supabase, orgId, profileId);
@@ -318,7 +354,7 @@ export async function runEligibilityRefreshJob(options?: {
 
         if (locationFiltered.length === 0) {
           console.info(`[eligibility-refresh]   Skipping: no grants match user funderLocations`);
-          await sendEligibilityStatusEmail(0);
+          if (!(await sendMatchHealthPrompt())) await sendEligibilityStatusEmail(0);
           continue;
         }
 
@@ -354,7 +390,7 @@ export async function runEligibilityRefreshJob(options?: {
 
         if (heuristicResults.length === 0) {
           console.info(`[eligibility-refresh]   No grants passed heuristic filter`);
-          await sendEligibilityStatusEmail(locationFiltered.length);
+          if (!(await sendMatchHealthPrompt())) await sendEligibilityStatusEmail(locationFiltered.length);
           continue;
         }
 
@@ -747,7 +783,7 @@ export async function runEligibilityRefreshJob(options?: {
         } else if (completionScore >= minCompletionForNotifications && sendNotifyEmail) {
           const alreadyUpdated = await orgHasNotificationSince(
             orgId,
-            ["daily_grant_update", "grant_scan_digest", "grant_match_high", "eligibility_upgrade_prompt"],
+            ["daily_grant_update", "grant_scan_digest", "grant_match_high", "eligibility_upgrade_prompt", "business_dna_match_health"],
             recentWindow
           );
           const currentStrongDigest = alreadyUpdated ? [] : await getCurrentStrongDigest();
@@ -788,10 +824,10 @@ export async function runEligibilityRefreshJob(options?: {
                 .eq("grant_id", item.grantId);
             }
           } else {
-            await sendEligibilityStatusEmail(locationFiltered.length, strongEligibleCount);
+            if (!(await sendMatchHealthPrompt())) await sendEligibilityStatusEmail(locationFiltered.length, strongEligibleCount);
           }
         } else if (sendNotifyEmail) {
-          await sendEligibilityStatusEmail(locationFiltered.length, strongEligibleCount);
+          if (!(await sendMatchHealthPrompt())) await sendEligibilityStatusEmail(locationFiltered.length, strongEligibleCount);
         }
       } catch (err) {
         console.error(`[eligibility-refresh] org ${orgId} profile ${profileId}:`, err);

@@ -211,6 +211,33 @@ export function buildEmailHtml(
       };
     }
 
+    case "business_dna_match_health": {
+      const profileName = payload.profileName ?? "your business";
+      const withinReach = Math.max(0, Math.round(Number(payload.withinReachCount ?? payload.matchedGrantsCount ?? 0)));
+      const days = Math.max(3, Math.round(Number(payload.daysWithoutHighMatch ?? 3)));
+      const blockers = (payload.matchHealthBlockers ?? []).filter(Boolean).slice(0, 5);
+      const actions = (payload.matchHealthActions ?? []).filter(Boolean).slice(0, 5);
+      const blockersHtml = blockers.length
+        ? `<p><strong>What is holding matches back:</strong></p><ul style="padding-left:20px">${blockers.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
+        : "";
+      const actionsHtml = actions.length
+        ? `<p><strong>What to improve:</strong></p><ul style="padding-left:20px">${actions.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
+        : "";
+      return {
+        subject: "Improve your Business DNA to unlock stronger grant matches",
+        html: baseLayout(
+          "No new high-confidence matches yet",
+          `<p>GrantsCopilot has not found a new 85%+ actionable match for <strong>${escapeHtml(profileName)}</strong> in about ${days} days.</p>
+          <p>We did find <strong>${withinReach}</strong> within-reach ${withinReach === 1 ? "grant" : "grants"}, but your Business DNA may need stronger evidence or broader factual positioning before we can recommend them with high confidence.</p>
+          ${blockersHtml}
+          ${actionsHtml}
+          <p>Open My Matches and use <strong>Improve Business DNA</strong> to review AI-suggested edits before applying them.</p>`,
+          `${appUrl}/grants/eligible`,
+          "Review Business DNA"
+        ),
+      };
+    }
+
     case "grant_match":
       return {
         subject: "New grant matches found",
@@ -421,6 +448,12 @@ export function buildWhatsAppMessage(
       const count = Math.max(0, Math.round(Number(payload.matchedGrantsCount ?? 0)));
       const noun = count === 1 ? "grant" : "grants";
       return `GrantsCopilot found ${count || "new"} eligible ${noun} waiting for your business. Choose a plan to unlock automatic application preparation and daily opportunity alerts.\n\n${appUrl}/billing`;
+    }
+
+    case "business_dna_match_health": {
+      const profileName = payload.profileName ?? "your business";
+      const withinReach = Math.max(0, Math.round(Number(payload.withinReachCount ?? payload.matchedGrantsCount ?? 0)));
+      return `No new 85%+ match for ${profileName} yet. GrantsCopilot found ${withinReach} within-reach grants, but your Business DNA may need stronger evidence or broader factual positioning.\n\nReview: ${appUrl}/grants/eligible`;
     }
 
     case "grant_match_high": {

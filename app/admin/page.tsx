@@ -33,6 +33,7 @@ const OPS_NOTIFICATION_TYPES = [
   "grant_match_high",
   "daily_grant_update",
   "eligibility_upgrade_prompt",
+  "business_dna_match_health",
   "deadline_reminder",
   "deadline_daily_update",
 ] as const;
@@ -180,6 +181,7 @@ const NOTIFICATION_LABELS: Record<OpsNotificationType, string> = {
   grant_match_high: "WhatsApp high-match alert",
   daily_grant_update: "Daily scan email",
   eligibility_upgrade_prompt: "Upgrade prompt email",
+  business_dna_match_health: "Business DNA prompt",
   deadline_reminder: "Deadline reminder email",
   deadline_daily_update: "Deadline scan email",
 };
@@ -806,6 +808,12 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
     channel: "email",
     status: "sent",
   });
+  const matchHealthPromptsLast24h = countNotifications(notificationRows, {
+    since: last24h,
+    type: "business_dna_match_health",
+    channel: "email",
+    status: "sent",
+  });
   const organisationCountLast24h = distinctOrgCount(sentUsersLast24h, memberships);
   const organisationCountLast7d = distinctOrgCount(sentUsersLast7d, memberships);
 
@@ -933,7 +941,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                 </CardTitle>
               </CardHeader>
               <CardContent className="max-h-[28rem] space-y-3 overflow-y-auto pr-2 text-sm">
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                   <div className="rounded-md border bg-muted/30 p-3">
                     <div className="text-xs text-muted-foreground">Eligibility emails</div>
                     <div className="text-2xl font-semibold">{eligibilityEmailsLast24h}</div>
@@ -945,6 +953,10 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                   <div className="rounded-md border bg-muted/30 p-3">
                     <div className="text-xs text-muted-foreground">Deadline emails</div>
                     <div className="text-2xl font-semibold">{deadlineEmailsLast24h}</div>
+                  </div>
+                  <div className="rounded-md border bg-muted/30 p-3">
+                    <div className="text-xs text-muted-foreground">Business DNA prompts</div>
+                    <div className="text-2xl font-semibold">{matchHealthPromptsLast24h}</div>
                   </div>
                   <div className="rounded-md border bg-muted/30 p-3">
                     <div className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -1053,6 +1065,37 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                                 <li key={blocker}>{blocker}</li>
                               ))}
                             </ul>
+                          </div>
+                        )}
+                        {trace.matchHealth && (
+                          <div className="mt-2 rounded-md border bg-muted/20 p-2 text-xs">
+                            <div className="flex flex-col justify-between gap-1 sm:flex-row sm:items-center">
+                              <span className="font-medium text-foreground">Match health</span>
+                              <span
+                                className={
+                                  trace.matchHealth.shouldPrompt
+                                    ? "font-medium text-amber-700"
+                                    : "text-muted-foreground"
+                                }
+                              >
+                                {trace.matchHealth.shouldPrompt ? "Business DNA prompt due" : trace.matchHealth.status.replaceAll("_", " ")}
+                              </span>
+                            </div>
+                            <div className="mt-2 grid grid-cols-2 gap-2 text-muted-foreground sm:grid-cols-4">
+                              <span>{trace.matchHealth.currentHighMatches} current 85%+</span>
+                              <span>{trace.matchHealth.currentWithinReach} within reach</span>
+                              <span>{trace.matchHealth.suppressedOrApplied} suppressed/applied</span>
+                              <span>{trace.matchHealth.profileGaps.length} profile gaps</span>
+                            </div>
+                            {trace.matchHealth.topBlockers.length > 0 && (
+                              <ul className="mt-2 list-disc space-y-1 pl-4 text-muted-foreground">
+                                {trace.matchHealth.topBlockers.slice(0, 3).map((blocker) => (
+                                  <li key={blocker.reason}>
+                                    {blocker.label} ({blocker.count})
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
                           </div>
                         )}
                         {(trace.latestRunWhatsApp.latestError ?? trace.recentWhatsApp.latestError) && (

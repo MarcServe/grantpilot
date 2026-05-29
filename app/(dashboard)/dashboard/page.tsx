@@ -23,12 +23,14 @@ import {
 import { ApplicationCardWithDelete } from "@/components/dashboard/application-card-with-delete";
 import { DashboardNotificationChannels } from "@/components/dashboard/notification-channels-card";
 import { OutcomeFeedbackBanner } from "@/components/dashboard/outcome-feedback-banner";
+import { BusinessDnaMatchHealth } from "@/components/profile/business-dna-match-health";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { fetchApplicationsNeedingOutcome, applicationNeedsOutcomeReminder } from "@/lib/outcome-feedback";
 import { isOpenAIChecked } from "@/lib/grant-source-policy";
 import { getSuppressedGrantIds } from "@/lib/grant-user-state";
 import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
 import { applyOutcomeScoreAdjustment, deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
+import { getMatchHealthReport } from "@/lib/match-health";
 import type { EligibilityResult } from "@/lib/claude";
 
 const DASHBOARD_MATCH_PREVIEW_LIMIT = 60;
@@ -152,12 +154,12 @@ async function loadDashboardMatches({
               met: [],
               missing: a.missing_criteria ?? [],
               winProbability: baseScore,
-              evidenceStrength: baseScore >= 80 ? "strong" : baseScore >= 55 ? "medium" : "weak",
+              evidenceStrength: baseScore >= 85 ? "strong" : baseScore >= 55 ? "medium" : "weak",
             }
           ), outcomeAdvisory)
         : null;
       const score = guarded ? (guarded.score ?? guarded.confidence) : baseScore;
-      if (isOpenAIChecked(source) && score >= 80) suggestedGrants.push({ grantId: a.grant_id, grantName: name, score, addedAt: grant?.createdAt ?? null });
+      if (isOpenAIChecked(source) && score >= 85) suggestedGrants.push({ grantId: a.grant_id, grantName: name, score, addedAt: grant?.createdAt ?? null });
       else if (score >= 50) withinReachGrants.push({ grantId: a.grant_id, grantName: name, score, summary: guarded?.summary ?? a.summary ?? undefined, addedAt: grant?.createdAt ?? null });
     }
   }
@@ -343,6 +345,13 @@ export default async function DashboardPage() {
     profile: profile as ({ id: string } & Record<string, unknown>) | undefined,
     completionScore,
   });
+  const matchHealth = profile?.id
+    ? await getMatchHealthReport({
+        supabase,
+        orgId,
+        profile: profile as Record<string, unknown> & { id: string },
+      })
+    : null;
 
   const displayName =
     String(
@@ -368,6 +377,7 @@ export default async function DashboardPage() {
   return (
     <div className="min-w-0 space-y-6 sm:space-y-7">
       <OutcomeFeedbackBanner pending={pendingOutcomes} />
+      {matchHealth && <BusinessDnaMatchHealth report={matchHealth} profile={profile as Record<string, unknown>} />}
       <section className="overflow-hidden rounded-[26px] bg-white shadow-[0_24px_70px_rgba(7,26,58,0.08)]">
         <div className="grid min-w-0 gap-0 xl:grid-cols-[minmax(0,1fr)_360px]">
           <div className="@container/main min-w-0 p-4 sm:p-8">

@@ -16,6 +16,7 @@ const DAILY_ELIGIBILITY_NOTIFICATION_TYPES: NotificationType[] = [
   "grant_scan_digest",
   "grant_match_high",
   "eligibility_upgrade_prompt",
+  "business_dna_match_health",
 ];
 
 type ProfileRow = {
