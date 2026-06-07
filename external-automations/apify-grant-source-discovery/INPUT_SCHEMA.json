@@ -1,0 +1,32 @@
+{
+  "title": "GrantsCopilot source discovery input",
+  "type": "object",
+  "schemaVersion": 1,
+  "properties": {
+    "maxSources": {
+      "title": "Maximum sources",
+      "type": "integer",
+      "description": "Maximum candidate source URLs to send to GrantsCopilot per run.",
+      "default": 20,
+      "minimum": 1,
+      "maximum": 50
+    },
+    "queries": {
+      "title": "Search queries",
+      "type": "array",
+      "description": "Grant-source discovery search queries.",
+      "editor": "stringList",
+      "prefill": [
+        "UK business grants official funding opportunities",
+        "UKRI Innovate UK funding calls startups SMEs",
+        "EU funding calls open to UK applicants",
+        "European Commission grants calls proposals innovation SMEs",
+        "global innovation grant open to UK businesses",
+        "foundation grants UK startups technology social impact"
+      ],
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

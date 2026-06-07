@@ -38,6 +38,81 @@ interface EligibilityResult {
   winProbability?: number;
   evidenceStrength?: "strong" | "medium" | "weak";
   scoringSource?: "openai" | "heuristic" | "embedding" | "manual";
+  outcomeWarnings?: string[];
+  outcomeStrengths?: string[];
+}
+
+function cleanOutcomeWarning(value: string): string {
+  const warning = value
+    .replace(/^Outcome feedback advisory:\s*/i, "")
+    .replace(/^Before applying:\s*/i, "")
+    .replace(/This warning does not reduce the eligibility score\.?/gi, "")
+    .replace(/\s*;\s*/g, "; ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (/prior funder feedback/i.test(warning)) {
+    return "Review previous funder feedback before submitting this application.";
+  }
+
+  if (/revenue|employee|registration age|company age/i.test(warning)) {
+    return "Confirm whether this funder asks for revenue, employee-count, or company-age evidence.";
+  }
+
+  if (/early-stage|startup stage|business maturity|startup/i.test(warning)) {
+    return "Check whether this funder is suitable for early-stage businesses or expects more trading history.";
+  }
+
+  if (/eligibility pre-screening|eligibility criteria|qualification checks/i.test(warning)) {
+    return "Review the funder's eligibility criteria before starting the application.";
+  }
+
+  if (/^advise\s+/i.test(warning)) {
+    return warning.replace(/^advise\s+/i, "Consider whether ").replace(/\.$/, "") + ".";
+  }
+
+  if (/^provide guidance/i.test(warning)) {
+    return "Review the application guidance before starting the submission.";
+  }
+
+  return warning;
+}
+
+function OutcomeFeedbackNotice({ warnings }: { warnings?: string[] }) {
+  const checks = [...new Set((warnings ?? []).map(cleanOutcomeWarning).filter(Boolean))].slice(0, 4);
+  if (checks.length === 0) return null;
+
+  return (
+    <details className="group rounded-md border border-amber-200 bg-amber-50/60 dark:border-amber-800 dark:bg-amber-950/30">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 marker:hidden">
+        <span className="flex min-w-0 items-center gap-2">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+          <span className="min-w-0">
+            <span className="block text-sm font-medium text-amber-900 dark:text-amber-100">
+              Checks before applying
+            </span>
+            <span className="block truncate text-xs text-amber-800/80 dark:text-amber-200/80">
+              Advisory notes from outcome feedback. These do not change this score.
+            </span>
+          </span>
+        </span>
+        <span className="shrink-0 text-xs font-medium text-amber-800 group-open:hidden dark:text-amber-200">
+          View
+        </span>
+        <span className="hidden shrink-0 text-xs font-medium text-amber-800 group-open:inline dark:text-amber-200">
+          Hide
+        </span>
+      </summary>
+      <ul className="space-y-1 border-t border-amber-200 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:text-amber-100">
+        {checks.map((warning, i) => (
+          <li key={i} className="flex gap-2">
+            <span aria-hidden="true" className="mt-2 h-1 w-1 shrink-0 rounded-full bg-amber-700 dark:bg-amber-300" />
+            <span>{warning}</span>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
 }
 
 function AutoImproveButton({ grantId, applicationId }: { grantId: string; applicationId?: string }) {
@@ -297,6 +372,7 @@ export function EligibilityCard({
                 ))}
               </ul>
             )}
+            <OutcomeFeedbackNotice warnings={result.outcomeWarnings} />
             {result.alignment && result.alignment.length > 0 && (
               <div>
                 <p className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">

@@ -8,6 +8,7 @@ import { toast } from "sonner";
 
 export function TestNotificationButton() {
   const [loading, setLoading] = useState(false);
+  const [eligibilityEmailLoading, setEligibilityEmailLoading] = useState(false);
 
   async function handleSend() {
     setLoading(true);
@@ -35,6 +36,23 @@ export function TestNotificationButton() {
     }
   }
 
+  async function handleSendEligibilityEmail() {
+    setEligibilityEmailLoading(true);
+    try {
+      const res = await fetch("/api/admin/test-eligibility-email", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || data.email !== "sent") {
+        toast.error(data.error ?? "Failed to send eligibility test email");
+        return;
+      }
+      toast.success(data.message ?? "Eligibility test email sent.");
+    } catch {
+      toast.error("Failed to send eligibility test email");
+    } finally {
+      setEligibilityEmailLoading(false);
+    }
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -44,13 +62,24 @@ export function TestNotificationButton() {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <p className="text-sm text-muted-foreground mb-3">
+        <p className="mb-3 text-sm text-muted-foreground">
           Send a sample grant_match_high notification to your own email and WhatsApp (if you have a phone number and WhatsApp template configured).
         </p>
-        <Button onClick={handleSend} disabled={loading} size="sm">
-          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bell className="h-4 w-4" />}
-          {loading ? " Sending…" : " Send test notification"}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={handleSend} disabled={loading} size="sm">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bell className="h-4 w-4" />}
+            {loading ? " Sending..." : " Send test notification"}
+          </Button>
+          <Button
+            onClick={handleSendEligibilityEmail}
+            disabled={eligibilityEmailLoading}
+            variant="outline"
+            size="sm"
+          >
+            {eligibilityEmailLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bell className="h-4 w-4" />}
+            {eligibilityEmailLoading ? " Sending..." : " Send eligibility email only"}
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );

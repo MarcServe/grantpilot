@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { runEligibilityRefreshJob } from "@/inngest/eligibility-refresh";
+import { runWithCronLog } from "@/lib/cron-run-log";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -16,7 +17,10 @@ export async function GET(req: Request) {
   }
 
   try {
-    const result = await runEligibilityRefreshJob();
+    const result = await runWithCronLog(
+      { jobName: "Eligibility Refresh", route: "/api/cron/eligibility-refresh", trigger: "vercel" },
+      () => runEligibilityRefreshJob()
+    );
     return NextResponse.json({ ok: true, result });
   } catch (error) {
     console.error("[cron/eligibility-refresh]", error);

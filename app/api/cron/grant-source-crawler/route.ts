@@ -1,14 +1,18 @@
 import { NextResponse } from "next/server";
-import { runGrantSourceCrawlerJob } from "@/inngest/grant-source-crawler";
+import { runDueGrantSources } from "@/lib/grant-sources";
+import { runWithCronLog } from "@/lib/cron-run-log";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
+function cronLimit(): number {
+  const raw = Number(process.env.GRANT_SOURCE_CRON_LIMIT ?? 20);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 20;
+}
+
 /**
  * GET /api/cron/grant-source-crawler
- * Vercel Cron (Hobby: daily): crawl due rows in grant_sources when Inngest is unavailable.
- *
- * Security: requires Authorization: Bearer <CRON_SECRET>.
+ * Vercel Cron fallback for the grant_sources registry used by RSS/crawl links.
  */
 export async function GET(req: Request) {
   const authHeader = req.headers.get("authorization");
@@ -18,12 +22,15 @@ export async function GET(req: Request) {
   }
 
   try {
-    const result = await runGrantSourceCrawlerJob();
+    const result = await runWithCronLog(
+      { jobName: "Grant Source Registry Crawler", route: "/api/cron/grant-source-crawler", trigger: "vercel" },
+      () => runDueGrantSources({ limit: cronLimit() })
+    );
     return NextResponse.json({ ok: true, result });
-  } catch (e) {
-    console.error("[cron/grant-source-crawler]", e);
+  } catch (error) {
+    console.error("[cron/grant-source-crawler]", error);
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Crawler failed" },
+      { error: error instanceof Error ? error.message : "Grant source crawl failed" },
       { status: 500 }
     );
   }

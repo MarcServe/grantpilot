@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { Suspense } from "react";
 import { Bell } from "lucide-react";
 import { UserNav } from "@/components/layout/user-nav";
 import { DashboardNav } from "@/components/layout/dashboard-nav";
@@ -7,15 +8,19 @@ import { getActiveOrg } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
-export default async function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+async function SidebarNavWithProfileStrength() {
   const { org } = await getActiveOrg();
   const profile = org.profiles?.[0];
   const profileStrength = profile?.completionScore ?? 0;
 
+  return <DashboardNav profileStrength={profileStrength} placement="sidebar" />;
+}
+
+export default function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <div className="min-h-screen bg-[#f4f8ff] text-[#071a3a]">
       <aside className="fixed inset-y-0 left-0 z-40 hidden h-screen max-h-screen w-[250px] flex-col overflow-hidden bg-[#041d38] px-5 py-7 text-white lg:flex">
@@ -39,16 +44,18 @@ export default async function DashboardLayout({
         </Link>
 
         <div className="mt-8 flex min-h-0 flex-1 flex-col overflow-hidden">
-          <DashboardNav profileStrength={profileStrength} placement="sidebar" />
+          <Suspense fallback={<DashboardNav profileStrength={0} placement="sidebar" />}>
+            <SidebarNavWithProfileStrength />
+          </Suspense>
         </div>
       </aside>
 
       <div className="min-w-0 lg:pl-[250px]">
         <header className="sticky top-0 z-30 border-b border-[#dfe8f5] bg-white/90 backdrop-blur-xl">
-          <div className="mx-auto flex h-20 max-w-[1280px] items-center justify-between px-5 sm:px-7 lg:px-8">
-            <div className="flex items-center gap-3">
-              <DashboardNav profileStrength={profileStrength} placement="header" />
-              <Link href="/dashboard" className="flex items-center gap-2 lg:hidden">
+          <div className="mx-auto flex h-20 max-w-[1280px] items-center justify-between gap-2 px-3 sm:px-7 lg:px-8">
+            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+              <DashboardNav profileStrength={0} placement="header" />
+              <Link href="/dashboard" className="flex min-w-0 items-center gap-2 lg:hidden">
                 <Image
                   src="/logogc.png"
                   alt=""
@@ -57,7 +64,7 @@ export default async function DashboardLayout({
                   className="h-10 w-10 object-contain"
                   priority
                 />
-                <span className="text-lg font-black">
+                <span className="hidden truncate text-lg font-black min-[390px]:inline">
                   Grants<span className="text-[#2468e8]">Copilot</span>
                 </span>
               </Link>
@@ -66,15 +73,15 @@ export default async function DashboardLayout({
                   Autonomous Funding Infrastructure
                 </p>
                 <p className="mt-1 text-sm font-semibold text-[#243a5a]">
-                  Find it. Qualify it. Prepare it.
+                  Find it. Fill it. Fund it. Apply on autopilot.
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex shrink-0 items-center gap-2 sm:gap-3">
               <button
                 type="button"
-                className="flex h-10 w-10 items-center justify-center rounded-full border border-[#dce6f4] bg-white text-[#071a3a] shadow-sm"
+                className="hidden h-10 w-10 items-center justify-center rounded-full border border-[#dce6f4] bg-white text-[#071a3a] shadow-sm min-[360px]:flex"
                 aria-label="Notifications"
               >
                 <Bell className="h-5 w-5" />
@@ -84,7 +91,7 @@ export default async function DashboardLayout({
           </div>
         </header>
 
-        <main className="mx-auto w-full min-w-0 max-w-[1280px] px-5 py-7 sm:px-7 lg:px-8">{children}</main>
+        <main className="mx-auto w-full min-w-0 max-w-[1280px] px-3 py-5 sm:px-7 sm:py-7 lg:px-8">{children}</main>
       </div>
     </div>
   );

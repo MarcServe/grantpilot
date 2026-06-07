@@ -7,7 +7,7 @@ import { checkUsageLimit, recordUsage } from "@/lib/plan-check";
 import { verifyStartApplicationToken } from "@/lib/start-application-token";
 import { createDefaultTasksForApplication } from "@/lib/application-tasks";
 import { buildSessionItems, matchPortalRecipe } from "@/lib/session-items";
-import { isGrantLinkUsable } from "@/lib/grant-freshness";
+import { isGrantActionableNow } from "@/lib/grant-actionability";
 
 const bodySchema = z.object({ token: z.string().min(1) });
 
@@ -50,16 +50,16 @@ export async function POST(req: Request): Promise<NextResponse> {
 
     const { data: grant } = await supabase
       .from("Grant")
-      .select("id, name, applicationUrl, deadline, url_status")
+      .select("id, name, applicationUrl, deadline, url_status, eligibility, description, objectives")
       .eq("id", grantId)
       .single();
     if (!grant) {
       return NextResponse.json({ error: "Grant not found" }, { status: 404 });
     }
 
-    if (!isGrantLinkUsable(grant as { deadline?: string | null; url_status?: string | null })) {
+    if (!isGrantActionableNow(grant as { deadline?: string | null; url_status?: string | null; eligibility?: string | null; description?: string | null; objectives?: string | null })) {
       return NextResponse.json(
-        { error: "This grant's application link is broken or the deadline has passed. Please choose a current grant or use 'Apply by link' with an updated URL." },
+        { error: "This grant appears closed, stale, or has a broken application link. Please choose a current grant or use 'Apply by link' with an updated URL." },
         { status: 400 }
       );
     }

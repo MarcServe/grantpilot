@@ -22,19 +22,82 @@ import { UrlStatusBadge } from "@/components/grants/url-status-badge";
 import { computeUrgency } from "@/lib/urgency";
 import { checkRequirementsAgainstDocuments } from "@/lib/grant-requirements";
 import type { RequiredAttachment } from "@/lib/grant-requirements";
-import { getApplicantTypeGate } from "@/lib/eligibility-hard-gates";
-import { planAllows, resolvePlanKey } from "@/lib/plan-features";
+import { planAllowsForOrg } from "@/lib/plan-features";
 import { grantFinderLabel } from "@/lib/grant-source-policy";
 import { getConfidenceBand } from "@/lib/claude";
 import { markGrantUserState } from "@/lib/grant-user-state";
 import { GrantStateActions } from "@/components/grants/grant-state-actions";
+import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
+import { applyOutcomeScoreAdjustment, deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
+import {
+  getGrantFreshnessStatus,
+  getGrantVerificationWarning,
+  type GrantFreshnessStatus,
+} from "@/lib/grant-freshness";
+
+function profileForEligibilityGuards(profile: Record<string, unknown>) {
+  return {
+    location: String(profile.location ?? ""),
+    sector: String(profile.sector ?? ""),
+    fundingPurposes: Array.isArray(profile.fundingPurposes) ? profile.fundingPurposes as string[] : (Array.isArray(profile.funding_purposes) ? profile.funding_purposes as string[] : []),
+    businessType: String(profile.businessType ?? profile.business_type ?? "") || null,
+    employeeCount: profile.employeeCount != null ? Number(profile.employeeCount) : (profile.employee_count != null ? Number(profile.employee_count) : null),
+    annualRevenue: profile.annualRevenue != null ? Number(profile.annualRevenue) : (profile.annual_revenue != null ? Number(profile.annual_revenue) : null),
+    yearEstablished: profile.yearEstablished != null ? Number(profile.yearEstablished) : (profile.year_established != null ? Number(profile.year_established) : null),
+  };
+}
+
+const BACK_LINKS = {
+  matches: { href: "/grants/eligible", label: "Back to My Matches" },
+  dashboard: { href: "/dashboard", label: "Back to Dashboard" },
+  applications: { href: "/applications", label: "Back to Applications" },
+  grants: { href: "/grants", label: "Back to Grants" },
+} as const;
+
+function resolveBackLink(searchParams?: Record<string, string | string[] | undefined>) {
+  const rawFrom = searchParams?.from;
+  const from = Array.isArray(rawFrom) ? rawFrom[0] : rawFrom;
+
+  if (from === "matches") return BACK_LINKS.matches;
+  if (from === "dashboard") return BACK_LINKS.dashboard;
+  if (from === "applications") return BACK_LINKS.applications;
+  return BACK_LINKS.grants;
+}
+
+function closedEligibilityResult(freshness: GrantFreshnessStatus) {
+  const message = freshness.message ?? "This opportunity appears closed or stale.";
+  return {
+    decision: "unlikely" as const,
+    reason: message,
+    confidence: 0,
+    score: 0,
+    summary: message,
+    reasons: [message],
+    alignment: [],
+    improvementPlan: {
+      gaps: ["Opportunity appears closed or temporally stale"],
+      actions: ["Do not apply through this listing unless the funder confirms the programme is still open."],
+      timeline: "Before applying",
+    },
+    met: [],
+    missing: ["Opportunity appears closed or temporally stale"],
+    confidenceBand: "low" as const,
+    winProbability: 0,
+    evidenceStrength: "weak" as const,
+    scoringSource: "manual" as const,
+  };
+}
 
 export default async function GrantDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { id } = await params;
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const backLink = resolveBackLink(resolvedSearchParams);
   const supabase = getSupabaseAdmin();
 
   const { data: grant, error: grantError } = await supabase
@@ -46,9 +109,13 @@ export default async function GrantDetailPage({
   if (grantError || !grant) notFound();
 
   const { org, orgId } = await getActiveOrg();
+  const freshness = getGrantFreshnessStatus(grant);
+  const verificationWarning = getGrantVerificationWarning(grant);
   const profile = org.profiles?.[0];
-  const plan = resolvePlanKey((org as { plan?: string }).plan);
-  const grantAutoImproveEnabled = planAllows(plan, "grant_auto_improve");
+  const grantAutoImproveEnabled = planAllowsForOrg(
+    org as { plan?: string; createdAt?: string | Date | null },
+    "grant_auto_improve"
+  );
   const hasProfile = !!profile && (profile.completionScore ?? 0) >= 50;
   const profileId = profile?.id ?? null;
   if (profileId) {
@@ -85,15 +152,26 @@ export default async function GrantDetailPage({
     winProbability?: number;
     evidenceStrength?: "strong" | "medium" | "weak";
     scoringSource?: "openai" | "heuristic" | "embedding" | "manual";
+    outcomeWarnings?: string[];
+    outcomeStrengths?: string[];
   } | null = null;
   if (profileId) {
-    const { data: assessment } = await supabase
-      .from("EligibilityAssessment")
-      .select("score, decision, summary, reasons, alignment, improvement_plan, met_criteria, missing_criteria, scoring_source")
-      .eq("organisation_id", orgId)
-      .eq("profile_id", profileId)
-      .eq("grant_id", grant.id)
-      .maybeSingle();
+    const [{ data: assessment }, { data: outcomeRows }] = await Promise.all([
+      supabase
+        .from("EligibilityAssessment")
+        .select("score, decision, summary, reasons, alignment, improvement_plan, met_criteria, missing_criteria, scoring_source")
+        .eq("organisation_id", orgId)
+        .eq("profile_id", profileId)
+        .eq("grant_id", grant.id)
+        .maybeSingle(),
+      supabase
+        .from("ApplicationOutcome")
+        .select("outcome, awardedAmount, funderFeedback, learningNotes, Grant(name, funder)")
+        .eq("organisationId", orgId)
+        .eq("profileId", profileId)
+        .order("reportedAt", { ascending: false })
+        .limit(8),
+    ]);
     const assessmentRow = assessment as {
       score?: number;
       decision?: "likely_eligible" | "review" | "unlikely";
@@ -128,20 +206,31 @@ export default async function GrantDetailPage({
         evidenceStrength: eligibilityScore >= 80 ? "strong" : eligibilityScore >= 55 ? "medium" : "weak",
         scoringSource: source,
       };
-    }
-    const applicantGate = getApplicantTypeGate(
-      String((profile as Record<string, unknown>).businessType ?? (profile as Record<string, unknown>).business_type ?? ""),
-      {
-        eligibility: (grant as { eligibility?: string | null }).eligibility,
-        applicantTypes: (grant as { applicantTypes?: string[] | null }).applicantTypes,
-      }
-    );
-    if (applicantGate && !applicantGate.profileMatches) {
-      eligibilityScore = eligibilityScore == null ? 25 : Math.min(eligibilityScore, 25);
+      const guarded = applyOutcomeScoreAdjustment(applyEligibilityScoreGuards(
+        profileForEligibilityGuards(profile as Record<string, unknown>),
+        grant,
+        initialEligibilityResult
+      ), deriveOutcomeLearningAdvisory(outcomeRows ?? []));
+      eligibilityScore = guarded.score ?? guarded.confidence;
+      initialEligibilityResult = {
+        ...guarded,
+        confidence: eligibilityScore,
+        score: eligibilityScore,
+        confidenceBand: getConfidenceBand(eligibilityScore),
+        winProbability: guarded.winProbability ?? eligibilityScore,
+        evidenceStrength: guarded.evidenceStrength ?? (eligibilityScore >= 80 ? "strong" : eligibilityScore >= 55 ? "medium" : "weak"),
+        scoringSource: source,
+      };
     }
   }
 
   const urgency = computeUrgency(grant.deadline ?? null);
+  if (!freshness.usable) {
+    eligibilityScore = 0;
+    if (hasProfile && profileId) {
+      initialEligibilityResult = closedEligibilityResult(freshness);
+    }
+  }
 
   let missingDocLabels: string[] = [];
   if (profileId) {
@@ -151,9 +240,16 @@ export default async function GrantDetailPage({
       const { data: docRows } = await supabase
         .from("Document")
         .select("name, type, category")
-        .eq("profileId", profileId);
+        .eq("profileId", profileId)
+        .order("createdAt", { ascending: false })
+        .limit(20);
       const docRowsAlt = !docRows?.length
-        ? await supabase.from("Document").select("name, type, category").eq("profile_id", profileId)
+        ? await supabase
+            .from("Document")
+            .select("name, type, category")
+            .eq("profile_id", profileId)
+            .order("created_at", { ascending: false })
+            .limit(20)
         : { data: docRows };
       const documents = (docRowsAlt.data ?? []).map((d: { name: string; type?: string; category?: string }) => ({
         name: d.name,
@@ -167,22 +263,23 @@ export default async function GrantDetailPage({
 
   return (
     <div className="mx-auto max-w-4xl min-w-0 overflow-hidden px-4 py-6 sm:p-6">
-      <EnsureFormLinkScout
-        grantId={grant.id}
-        applicationUrl={grant.applicationUrl ?? ""}
-        eligibilityScore={eligibilityScore}
-      />
+      {freshness.usable && (
+        <EnsureFormLinkScout
+          grantId={grant.id}
+          applicationUrl={grant.applicationUrl ?? ""}
+          eligibilityScore={eligibilityScore}
+        />
+      )}
       <Link
-        href="/grants"
+        href={backLink.href}
         className="mb-6 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft className="h-4 w-4" />
-        Back to Grants
+        {backLink.label}
       </Link>
 
-      {((grant as { url_status?: string }).url_status === "dead" ||
-        (grant as { url_status?: string }).url_status === "expired") && (() => {
-        const isDead = (grant as { url_status?: string }).url_status === "dead";
+      {!freshness.usable && (() => {
+        const isDead = freshness.reason === "url_dead";
         const applyByLinkHref = `/grants/apply-by-link?name=${encodeURIComponent(grant.name ?? "")}&funder=${encodeURIComponent(grant.funder ?? "")}&fixGrantId=${grant.id}`;
         return (
           <div className={`mb-6 flex gap-3 rounded-lg border p-4 ${
@@ -199,14 +296,14 @@ export default async function GrantDetailPage({
               }`}>
                 {isDead
                   ? "This grant link appears to be broken"
-                  : "This grant programme appears to be closed"}
+                  : "This grant programme appears to be closed or stale"}
               </p>
               <p className={`mt-1 text-sm ${
                 isDead ? "text-red-700 dark:text-red-300" : "text-amber-700 dark:text-amber-300"
               }`}>
                 {isDead
                   ? "Our automated check found the application link is broken or returns an error. The grant may have been removed or the URL may have changed."
-                  : "Our automated check detected that this programme may no longer be accepting applications."}
+                  : freshness.message ?? "Our automated check detected that this programme may no longer be accepting applications."}
               </p>
               <Link
                 href={applyByLinkHref}
@@ -220,6 +317,20 @@ export default async function GrantDetailPage({
           </div>
         );
       })()}
+
+      {freshness.usable && verificationWarning && (
+        <div className="mb-6 flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/40">
+          <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-500" />
+          <div>
+            <p className="font-medium text-amber-800 dark:text-amber-200">
+              {verificationWarning.title}
+            </p>
+            <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">
+              {verificationWarning.message}
+            </p>
+          </div>
+        </div>
+      )}
 
       {missingDocLabels.length > 0 && (
         <div className="mb-6 flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/40">
@@ -372,7 +483,7 @@ export default async function GrantDetailPage({
                   View Application
                 </Button>
               </Link>
-            ) : hasProfile && profileId ? (
+            ) : hasProfile && profileId && freshness.usable ? (
               <ApplyButton
                 key={grant.id}
                 grantId={grant.id}
@@ -380,6 +491,10 @@ export default async function GrantDetailPage({
                 applicationUrl={grant.applicationUrl ?? ""}
                 eligibilityScore={eligibilityScore ?? undefined}
               />
+            ) : hasProfile && profileId && !freshness.usable ? (
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                Application prep is disabled because this opportunity appears closed or stale.
+              </div>
             ) : (
               <div className="text-sm text-muted-foreground">
                 Complete at least 50% of your business profile to apply.
@@ -402,7 +517,7 @@ export default async function GrantDetailPage({
               <p className="mb-2 text-sm font-medium">After reviewing this grant</p>
               <GrantStateActions grantId={grant.id} />
               <p className="mt-2 text-xs text-muted-foreground">
-                Viewed, deferred, and applied grants are removed from future eligibility reminders for your profile.
+                Deferred and applied grants are removed from repeated eligibility reminders. Viewing a grant keeps it active in matches and reminders.
               </p>
             </div>
           )}

@@ -122,8 +122,9 @@ export function PortalCredentialsManager() {
           Portal Credentials
         </CardTitle>
         <CardDescription>
-          Save login credentials for grant portals so the AI worker can automatically log in and fill applications.
-          Passwords are encrypted at rest with AES-256-GCM.
+          Save grant portal credentials for future Version 2 login-assisted workflows. Version 1 uses these only as
+          stored credentials; users still review and submit on the funder site. Passwords are encrypted at rest with
+          AES-256-GCM.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -168,7 +169,7 @@ export function PortalCredentialsManager() {
 
             {credentials.length === 0 && !showAddForm && (
               <p className="text-sm text-muted-foreground">
-                No portal credentials saved yet. Add one to enable automatic portal login.
+                No portal credentials saved yet. Add one only when you want to test future portal-login workflows.
               </p>
             )}
 

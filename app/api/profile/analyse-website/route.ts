@@ -2,12 +2,11 @@ import { NextResponse } from "next/server";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { analyseWebsite } from "@/lib/website-intelligence";
-import { planAllows, PLAN_CAPABILITY_MESSAGES, resolvePlanKey } from "@/lib/plan-features";
+import { planAllowsForOrg, PLAN_CAPABILITY_MESSAGES } from "@/lib/plan-features";
 
 export async function POST() {
   const { orgId, org } = await getActiveOrg();
-  const plan = resolvePlanKey((org as { plan?: string }).plan);
-  if (!planAllows(plan, "website_intelligence_refresh")) {
+  if (!planAllowsForOrg(org as { plan?: string; createdAt?: string | Date | null }, "website_intelligence_refresh")) {
     return NextResponse.json(
       { error: PLAN_CAPABILITY_MESSAGES.website_intelligence_refresh, code: "FEATURE_FORBIDDEN" },
       { status: 402 }

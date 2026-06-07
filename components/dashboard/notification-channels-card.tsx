@@ -7,7 +7,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Loader2, CheckCircle2, Clock } from "lucide-react";
 import { toast } from "sonner";
-import { updateOrganisationTimezone } from "@/app/(dashboard)/settings/actions";
 import { VALID_TIMEZONES } from "@/lib/timezone";
 
 function formatRelativeTime(isoDate: string): string {
@@ -82,9 +81,14 @@ export function DashboardNotificationChannels({
   async function handleTzSave() {
     setSavingTz(true);
     try {
-      const result = await updateOrganisationTimezone(tz === "UTC" ? null : tz);
-      if (result.error) {
-        toast.error(result.error);
+      const res = await fetch("/api/profile/timezone", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ timezone: tz }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data.error ?? "Could not save timezone");
       } else {
         toast.success("Notification timezone saved");
       }

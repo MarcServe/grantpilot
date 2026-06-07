@@ -21,8 +21,10 @@ import { requestEligibilityRefresh } from "@/lib/eligibility-refresh-trigger";
 import { analyseWebsite } from "@/lib/website-intelligence";
 import { generateAndStoreProfileEmbedding } from "@/lib/embeddings";
 import { PLAN_LIMITS } from "@/lib/plans";
-import { planAllows } from "@/lib/plan-features";
-import { getOrganisationPlanKey } from "@/lib/plan-check";
+import { getOrganisationPlanKey, organisationAllowsCapability } from "@/lib/plan-check";
+import { syncEligibilityWhatsAppPreference } from "@/lib/eligibility-preferences";
+
+const PROFILE_DOCUMENT_BATCH_SIZE = 20;
 
 async function getOrgId(): Promise<string> {
   const { orgId } = await getActiveOrg();
@@ -103,6 +105,18 @@ function optionalNumber(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+async function loadProfileDocuments(profileId: string) {
+  const supabase = getSupabaseAdmin();
+  const { data } = await supabase
+    .from("Document")
+    .select("id, name, url, type, size, category, createdAt")
+    .eq("profileId", profileId)
+    .order("createdAt", { ascending: false })
+    .limit(PROFILE_DOCUMENT_BATCH_SIZE);
+
+  return data ?? [];
+}
+
 async function getOrCreateProfile(organisationId: string) {
   if (!organisationId?.trim()) {
     throw new Error("Organisation ID is required to load or create profile.");
@@ -116,19 +130,14 @@ async function getOrCreateProfile(organisationId: string) {
 
   const { data: existing } = await supabase
     .from("BusinessProfile")
-    .select("*, Document(*)")
+    .select("*")
     .eq("organisationId", organisationId)
     .order("createdAt", { ascending: true })
     .limit(1)
     .maybeSingle();
 
   if (existing) {
-    const rawDocs =
-      (existing as Record<string, unknown>).Document ??
-      (existing as Record<string, unknown>).document ??
-      (existing as Record<string, unknown>).documents ??
-      [];
-    const documents = Array.isArray(rawDocs) ? rawDocs : [];
+    const documents = await loadProfileDocuments(existing.id);
     return {
       ...existing,
       documents,
@@ -160,22 +169,16 @@ async function getOrCreateProfile(organisationId: string) {
       fundingDetails: null,
       funderLocations: [],
     })
-    .select("*, Document(*)")
+    .select("*")
     .single();
 
   if (error || !created) {
     throw new Error(error?.message ?? "Failed to create profile");
   }
 
-  const rawDocs =
-    (created as Record<string, unknown>).Document ??
-    (created as Record<string, unknown>).document ??
-    (created as Record<string, unknown>).documents ??
-    [];
-  const documents = Array.isArray(rawDocs) ? rawDocs : [];
   return {
     ...created,
-    documents,
+    documents: [],
   };
 }
 
@@ -244,8 +247,7 @@ async function analyseAndSaveWebsiteIntelligence(
   organisationId: string
 ): Promise<void> {
   try {
-    const plan = await getOrganisationPlanKey(organisationId);
-    if (!planAllows(plan, "website_intelligence_refresh")) return;
+    if (!(await organisationAllowsCapability(organisationId, "website_intelligence_refresh"))) return;
 
     console.info(`[website-intelligence] Analysing ${url} for profile ${profileId}`);
     const intelligence = await analyseWebsite(url);
@@ -413,6 +415,48 @@ export async function saveStep6(data: Step6Data) {
   return { success: true };
 }
 
+export async function saveTeamVault(data: Pick<
+  Step6Data,
+  "directorNames" | "directorProfiles" | "teamMembers" | "boardMembers" | "teamExpertise"
+>) {
+  const parsed = step6Schema
+    .pick({
+      directorNames: true,
+      directorProfiles: true,
+      teamMembers: true,
+      boardMembers: true,
+      teamExpertise: true,
+    })
+    .safeParse(data);
+  if (!parsed.success) return { error: "Invalid data" };
+
+  const orgId = await getOrgId();
+  const profile = await getOrCreateProfile(orgId);
+
+  const supabase = getSupabaseAdmin();
+  const { data: updated, error: updateError } = await supabase
+    .from("BusinessProfile")
+    .update({
+      directorNames: parsed.data.directorNames || null,
+      directorProfiles: parsed.data.directorProfiles || null,
+      teamMembers: parsed.data.teamMembers || null,
+      boardMembers: parsed.data.boardMembers || null,
+      teamExpertise: parsed.data.teamExpertise || null,
+    })
+    .eq("id", profile.id)
+    .select()
+    .single();
+
+  if (updateError || !updated) return { error: updateError?.message ?? "Update failed" };
+
+  await recalcAndSaveCompletionScore(profile.id);
+  await syncGrantMemoryForProfile(profile.id);
+  await refreshProfileEmbedding(profile.id);
+  await triggerEligibilityForOrg(orgId, "data-vault.team.saved");
+
+  return { success: true };
+}
+
 export async function saveDocument(doc: {
   name: string;
   url: string;
@@ -464,7 +508,7 @@ export async function updateNotificationPreferences(data: NotificationPreference
   const parsed = notificationPreferencesSchema.safeParse(data);
   if (!parsed.success) return { error: "Invalid data" };
 
-  const { user } = await getActiveOrg();
+  const { user, orgId } = await getActiveOrg();
   const userId = (user as { id?: string }).id;
   if (!userId) return { error: "User not found" };
 
@@ -480,5 +524,10 @@ export async function updateNotificationPreferences(data: NotificationPreference
   const { error } = await supabase.from("User").update(update).eq("id", userId);
 
   if (error) return { error: error.message };
+  try {
+    await syncEligibilityWhatsAppPreference(orgId, parsed.data.whatsappOptIn);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Could not sync eligibility WhatsApp preference" };
+  }
   return { success: true };
 }

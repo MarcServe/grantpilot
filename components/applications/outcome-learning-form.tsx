@@ -11,15 +11,14 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
 const OUTCOME_OPTIONS = [
-  { value: "applied", label: "Applied" },
   { value: "shortlisted", label: "Shortlisted" },
   { value: "awarded", label: "Awarded" },
   { value: "rejected", label: "Rejected" },
   { value: "withdrawn", label: "Withdrawn" },
-  { value: "unknown", label: "Unknown" },
+  { value: "unknown", label: "Final outcome unclear" },
 ] as const;
 
-type OutcomeValue = (typeof OUTCOME_OPTIONS)[number]["value"];
+type OutcomeValue = "applied" | (typeof OUTCOME_OPTIONS)[number]["value"];
 
 interface ExistingOutcome {
   outcome?: OutcomeValue;
@@ -29,6 +28,14 @@ interface ExistingOutcome {
   responseScreenshotName?: string | null;
   responseScreenshotDataUrl?: string | null;
   learningNotes?: string | null;
+}
+
+interface OutcomeLearningInsight {
+  summary?: string;
+  strengths?: string[];
+  weaknesses?: string[];
+  nextActions?: string[];
+  scoringAdjustment?: number;
 }
 
 function parseLearningNotes(value?: string | null): string {
@@ -41,6 +48,16 @@ function parseLearningNotes(value?: string | null): string {
   }
 }
 
+function parseLearningInsight(value?: string | null): OutcomeLearningInsight | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as { insight?: OutcomeLearningInsight | null };
+    return parsed.insight ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function OutcomeLearningForm({
   applicationId,
   existingOutcome,
@@ -50,7 +67,7 @@ export function OutcomeLearningForm({
 }) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
-  const [outcome, setOutcome] = useState<OutcomeValue>(existingOutcome?.outcome ?? "applied");
+  const [outcome, setOutcome] = useState<OutcomeValue | "">(existingOutcome?.outcome ?? "");
   const [awardedAmount, setAwardedAmount] = useState(
     existingOutcome?.awardedAmount != null ? String(existingOutcome.awardedAmount) : ""
   );
@@ -59,6 +76,9 @@ export function OutcomeLearningForm({
   const [responseScreenshotName, setResponseScreenshotName] = useState(existingOutcome?.responseScreenshotName ?? "");
   const [responseScreenshotDataUrl, setResponseScreenshotDataUrl] = useState(existingOutcome?.responseScreenshotDataUrl ?? "");
   const [learningNotes, setLearningNotes] = useState(parseLearningNotes(existingOutcome?.learningNotes));
+  const [savedInsight, setSavedInsight] = useState<OutcomeLearningInsight | null>(
+    parseLearningInsight(existingOutcome?.learningNotes)
+  );
 
   function handleScreenshot(file?: File) {
     if (!file) return;
@@ -76,6 +96,25 @@ export function OutcomeLearningForm({
   }
 
   async function save() {
+    const hasEvidence = Boolean(
+      funderFeedback.trim() ||
+        responseText.trim() ||
+        responseScreenshotDataUrl.trim() ||
+        learningNotes.trim()
+    );
+    if (!outcome) {
+      toast.error(
+        hasEvidence
+          ? "Select the final funder outcome before saving this evidence."
+          : "Select the final funder outcome."
+      );
+      return;
+    }
+    if ((outcome === "applied" || outcome === "unknown") && hasEvidence) {
+      toast.error("This response evidence still needs a final decision: awarded, rejected, shortlisted, or withdrawn.");
+      return;
+    }
+
     setSaving(true);
     try {
       const res = await fetch(`/api/applications/${applicationId}/outcome`, {
@@ -96,7 +135,8 @@ export function OutcomeLearningForm({
         toast.error(data.error ?? "Could not save outcome");
         return;
       }
-      toast.success("Outcome saved. Funding intelligence will use this signal.");
+      setSavedInsight((data.insight ?? null) as OutcomeLearningInsight | null);
+      toast.success("Outcome saved. Future grant checks will show this as advisory context.");
       router.refresh();
     } catch {
       toast.error("Could not save outcome");
@@ -106,7 +146,7 @@ export function OutcomeLearningForm({
   }
 
   return (
-    <Card className="mb-6 border-primary/20">
+    <Card id="outcome-learning" className="mb-6 scroll-mt-24 border-primary/20">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-sm font-medium">
           <BarChart3 className="h-4 w-4" />
@@ -126,6 +166,8 @@ export function OutcomeLearningForm({
               onChange={(event) => setOutcome(event.target.value as OutcomeValue)}
               className="h-10 w-full rounded-md border bg-background px-3 text-sm"
             >
+              <option value="">Select final outcome</option>
+              {outcome === "applied" && <option value="applied">Applied (not final)</option>}
               {OUTCOME_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
@@ -165,7 +207,7 @@ export function OutcomeLearningForm({
             placeholder="Paste the email, portal message, reviewer response, or award/rejection wording exactly as received."
           />
           <p className="text-xs text-muted-foreground">
-            This is used as outcome-learning evidence so future scoring and document drafts become more accurate.
+            This is used as outcome-learning evidence so future checks can show better warnings and document drafts become more accurate.
           </p>
         </div>
         <div className="space-y-2">
@@ -200,7 +242,38 @@ export function OutcomeLearningForm({
           {saving && <Loader2 className="h-4 w-4 animate-spin" />}
           Save outcome signal
         </Button>
+        {savedInsight?.summary && (
+          <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-semibold text-foreground">Learning signal saved</p>
+              {typeof savedInsight.scoringAdjustment === "number" && (
+                <span className="rounded-full bg-background px-2 py-1 text-xs font-medium text-muted-foreground">
+                  {savedInsight.scoringAdjustment >= 0 ? "+" : ""}{savedInsight.scoringAdjustment} advisory signal
+                </span>
+              )}
+            </div>
+            <p className="mt-2 break-words text-sm leading-6 text-muted-foreground">{savedInsight.summary}</p>
+            <LearningInsightList title="Strengths to repeat" items={savedInsight.strengths} />
+            <LearningInsightList title="Gaps to improve" items={savedInsight.weaknesses} />
+            <LearningInsightList title="Next actions" items={savedInsight.nextActions} />
+          </div>
+        )}
       </CardContent>
     </Card>
+  );
+}
+
+function LearningInsightList({ title, items }: { title: string; items?: string[] }) {
+  const list = Array.isArray(items) ? items.filter(Boolean).slice(0, 4) : [];
+  if (list.length === 0) return null;
+  return (
+    <div className="mt-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
+      <ul className="mt-1 space-y-1 text-sm text-foreground">
+        {list.map((item) => (
+          <li key={item} className="break-words">- {item}</li>
+        ))}
+      </ul>
+    </div>
   );
 }

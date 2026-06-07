@@ -208,7 +208,7 @@ export function Step1Basics({ defaultValues, onSubmit, isPending }: Step1Props) 
                 <Input placeholder="https://www.yourcompany.com" type="url" {...field} />
               </FormControl>
               <p className="text-muted-foreground text-xs">
-                Our AI will analyse your website to better understand your business when filling grant applications.
+                Our AI will analyse your website to better understand your business for grant matching and preparation.
               </p>
               <FormMessage />
             </FormItem>

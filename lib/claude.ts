@@ -14,6 +14,7 @@ interface ProfileForMatching {
   location: string;
   employeeCount: number | null;
   annualRevenue: number | null;
+  yearEstablished?: number | null;
   fundingMin: number;
   fundingMax: number;
   fundingPurposes: string[];
@@ -72,6 +73,9 @@ export interface EligibilityResult {
   /** Estimated chance of a competitive funding outcome, not just rule eligibility. */
   winProbability?: number;
   evidenceStrength?: "strong" | "medium" | "weak";
+  /** Advisory-only warnings from past outcomes. These must not alter score or decision. */
+  outcomeWarnings?: string[];
+  outcomeStrengths?: string[];
 }
 
 export function getConfidenceBand(score: number): ConfidenceBand {
@@ -88,12 +92,13 @@ export async function getEligibilityDecision(
   profile: ProfileForMatching,
   grant: GrantForMatching
 ): Promise<EligibilityResult> {
+  const companyAge = profile.yearEstablished ? Math.max(0, new Date().getFullYear() - profile.yearEstablished) : null;
   const rawText = await completeJson(
     `You are a UK grant eligibility expert. Given this business and this grant, give an eligibility assessment.
 
-Business: ${profile.businessName} (${profile.sector}). Location: ${profile.location}. Employees: ${profile.employeeCount ?? "N/A"}. Revenue: ${profile.annualRevenue ? `£${profile.annualRevenue.toLocaleString("en-GB")}` : "N/A"}. Funding sought: £${profile.fundingMin.toLocaleString("en-GB")}–£${profile.fundingMax.toLocaleString("en-GB")}. Purposes: ${profile.fundingPurposes.join(", ")}. ${profile.missionStatement ? `Mission: ${profile.missionStatement}.` : ""} ${profile.description ? `Description: ${profile.description}` : ""}
+Business: ${profile.businessName} (${profile.sector}). Location: ${profile.location}. Employees: ${profile.employeeCount ?? "N/A"}. Revenue: ${profile.annualRevenue ? `£${profile.annualRevenue.toLocaleString("en-GB")}` : "N/A"}. Year established: ${profile.yearEstablished ?? "N/A"}. Company age: ${companyAge != null ? `${companyAge} years` : "N/A"}. Funding sought: £${profile.fundingMin.toLocaleString("en-GB")}–£${profile.fundingMax.toLocaleString("en-GB")}. Purposes: ${profile.fundingPurposes.join(", ")}. ${profile.missionStatement ? `Mission: ${profile.missionStatement}.` : ""} ${profile.description ? `Description: ${profile.description}` : ""}
 Business type: ${profile.businessType || "N/A"}.
-Prior funding outcome signals: ${profile.fundingOutcomeSignals || "No structured outcome history yet."}
+Prior funding outcome advisories: ${profile.fundingOutcomeSignals || "No structured outcome history yet."}
 
 Grant: ${grant.name} (${grant.funder}). Amount: ${grant.amount != null ? `£${grant.amount.toLocaleString("en-GB")}` : "Varies"}. Eligibility: ${grant.eligibility}.${grant.description ? ` Description: ${grant.description.slice(0, 800)}.` : ""}${grant.objectives ? ` Objectives: ${grant.objectives.slice(0, 400)}.` : ""}${grant.applicantTypes?.length ? ` Applicant types: ${grant.applicantTypes.join(", ")}.` : ""} Sectors: ${(grant.sectors ?? []).join(", ")}. Regions: ${(grant.regions ?? []).join(", ")}.
 
@@ -116,6 +121,10 @@ Return ONLY valid JSON. No markdown. Use this exact shape:
 Rules:
 - score and confidence should match (0-100). likely_eligible => score >= 75, review => 40-74, unlikely => < 40.
 - Treat legal applicant type as a hard gate. If the grant is only for charities, non-profits, CICs, or social enterprises and the business type does not match, decision must be unlikely and score must be below 30 even if sector, region, and purpose align.
+- Treat expired opportunities and past project windows as hard gates. If the grant text says applications have closed, the deadline has passed, or projects must start/end in a period that is already over, decision must be unlikely and score must be below 10.
+- Treat explicit measurable criteria as hard qualification gates. If the grant requires minimum revenue, minimum employee count, maximum employee count, or minimum trading/company age and the profile does not meet it, decision must be unlikely and score must be below 40.
+- If revenue, employee count, or year established is missing and the grant depends on it, do not recommend as high fit; mark it review and call out the missing profile data.
+- Treat prior funding outcome advisories as warning/context only. Do not lower or raise score, confidence, winProbability, or decision because of prior outcomes. If relevant, mention them only as checks before applying, and only when the current grant text explicitly supports that concern. Do not invent revenue, employee-count, age, or other criteria that are not stated in the current grant.
 - reasons: 3-5 short bullets. For high score explain why they're eligible; for low/medium explain what doesn't match or is missing.
 - alignment: only when score >= 70, 2-4 bullets on how this grant fits their business.
 - improvementPlan: only when score < 75. gaps = what's missing or misaligned; actions = concrete steps to improve fit; timeline optional (e.g. "0-3 months"). Use null when score >= 75.
@@ -186,6 +195,18 @@ export interface ProfileImprovementSuggestions {
   fundingDetails?: string;
 }
 
+export interface BusinessDnaCoverageSuggestions {
+  missionStatement?: string;
+  description?: string;
+  fundingDetails?: string;
+  innovationCapabilities?: string;
+  socialImpact?: string;
+  teamExpertise?: string;
+  fundingPurposes?: string[];
+  rationale?: string[];
+  safeguards?: string[];
+}
+
 /**
  * Suggests rewritten profile sections to improve eligibility for a specific grant.
  * Uses improvementPlan and missing criteria from eligibility result.
@@ -219,6 +240,69 @@ Omit a key if no change suggested. Keep each value concise and human; do not exc
       ...(parsed.missionStatement && { missionStatement: parsed.missionStatement }),
       ...(parsed.description && { description: parsed.description }),
       ...(parsed.fundingDetails && { fundingDetails: parsed.fundingDetails }),
+    };
+  } catch {
+    return {};
+  }
+}
+
+export async function suggestBusinessDnaCoverageImprovements(
+  profile: Record<string, unknown>,
+  matchHealth: {
+    currentHighMatches: number;
+    currentWithinReach: number;
+    daysSinceHighMatch: number | null;
+    topBlockers: Array<{ label: string; detail: string; count: number }>;
+    profileGaps: string[];
+    recommendedActions: string[];
+  }
+): Promise<BusinessDnaCoverageSuggestions> {
+  const text = await completeJson(
+    `You are improving a GrantsCopilot Business DNA profile so future grant eligibility scoring can recognise the business more accurately.
+
+Rules:
+- Use ONLY facts already present in the profile, team data, document summaries, website intelligence, and blocker list below.
+- Do NOT invent revenue, employee count, customers, awards, certifications, traction, partnerships, grant wins, dates, team size, or legal status.
+- If a missing fact is important, put it in safeguards/rationale, not in rewritten profile text.
+- Broaden positioning only when the profile already supports it.
+- Keep language grant-ready, factual, and concise.
+
+Current profile JSON:
+${JSON.stringify(profile, null, 2).slice(0, 9000)}
+
+Match health:
+${JSON.stringify(matchHealth, null, 2)}
+
+Return ONLY valid JSON with this shape. Omit fields where no safe improvement is possible:
+{
+  "missionStatement": "optional improved mission",
+  "description": "optional improved description",
+  "fundingDetails": "optional improved funding use summary",
+  "innovationCapabilities": "optional improved innovation/R&D capability",
+  "socialImpact": "optional improved social impact",
+  "teamExpertise": "optional improved team expertise",
+  "fundingPurposes": ["optional", "existing-fact-supported", "purposes"],
+  "rationale": ["why these safe edits may improve matching"],
+  "safeguards": ["facts the user should add manually instead of AI inventing them"]
+}`,
+    2200
+  );
+
+  try {
+    const parsed = JSON.parse(cleanJsonResponse(text)) as BusinessDnaCoverageSuggestions;
+    const fundingPurposes = Array.isArray(parsed.fundingPurposes)
+      ? uniqueStrings(parsed.fundingPurposes.map((value) => String(value).trim())).slice(0, 12)
+      : undefined;
+    return {
+      ...(parsed.missionStatement && { missionStatement: String(parsed.missionStatement).trim() }),
+      ...(parsed.description && { description: String(parsed.description).trim() }),
+      ...(parsed.fundingDetails && { fundingDetails: String(parsed.fundingDetails).trim() }),
+      ...(parsed.innovationCapabilities && { innovationCapabilities: String(parsed.innovationCapabilities).trim() }),
+      ...(parsed.socialImpact && { socialImpact: String(parsed.socialImpact).trim() }),
+      ...(parsed.teamExpertise && { teamExpertise: String(parsed.teamExpertise).trim() }),
+      ...(fundingPurposes && fundingPurposes.length > 0 && { fundingPurposes }),
+      ...(Array.isArray(parsed.rationale) && { rationale: parsed.rationale.map(String).filter(Boolean).slice(0, 6) }),
+      ...(Array.isArray(parsed.safeguards) && { safeguards: parsed.safeguards.map(String).filter(Boolean).slice(0, 6) }),
     };
   } catch {
     return {};

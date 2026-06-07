@@ -91,7 +91,7 @@ export function NeedsInputForm({ applicationId, needsInput }: NeedsInputFormProp
         toast.error(data.error ?? "Failed to submit");
         return;
       }
-      toast.success("Details saved. The AI will continue filling your application.");
+      toast.success("Details saved for your application preparation.");
       router.refresh();
     } catch {
       toast.error("Something went wrong");

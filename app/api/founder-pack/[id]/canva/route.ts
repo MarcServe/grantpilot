@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildFounderPackTextSections, type FounderPackExportInput } from "@/lib/founder-pack-export";
-import type { FounderPackContent, FounderPackDocumentType } from "@/lib/founder-pack";
+import { sanitiseFounderPackContent, type FounderPackContent, type FounderPackDocumentType } from "@/lib/founder-pack";
+import { planAllowsForOrg, PLAN_CAPABILITY_MESSAGES } from "@/lib/plan-features";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -16,6 +17,14 @@ const CANVA_API_BASE = process.env.CANVA_API_BASE ?? "https://api.canva.com/rest
 
 export async function POST(_req: Request, context: RouteContext): Promise<NextResponse> {
   try {
+    const { org, orgId } = await getActiveOrg();
+    if (!planAllowsForOrg(org as { plan?: string; createdAt?: string | Date | null }, "founder_pack")) {
+      return NextResponse.json(
+        { error: PLAN_CAPABILITY_MESSAGES.founder_pack, code: "FEATURE_FORBIDDEN" },
+        { status: 402 }
+      );
+    }
+
     const token = process.env.CANVA_ACCESS_TOKEN;
     const brandTemplateId = process.env.CANVA_PITCH_DECK_TEMPLATE_ID ?? process.env.CANVA_BRAND_TEMPLATE_ID;
     if (!token || !brandTemplateId) {
@@ -28,7 +37,6 @@ export async function POST(_req: Request, context: RouteContext): Promise<NextRe
       );
     }
 
-    const { orgId } = await getActiveOrg();
     const { id } = await context.params;
     const pack = await loadPack(id, orgId);
     if (!pack) return NextResponse.json({ error: "Founder pack not found" }, { status: 404 });
@@ -113,6 +121,7 @@ async function loadPack(id: string, orgId: string): Promise<FounderPackExportInp
     ? (pack.inputs as Record<string, unknown>)
     : {};
 
+  const businessName = String(profile?.businessName ?? "Founder Pack");
   return {
     id: String(pack.id),
     createdAt: String(pack.createdAt ?? ""),
@@ -124,9 +133,9 @@ async function loadPack(id: string, orgId: string): Promise<FounderPackExportInp
         ? inputs.documentTypes.map((item) => String(item) as FounderPackDocumentType)
         : undefined,
     },
-    content: pack.content as FounderPackContent,
+    content: sanitiseFounderPackContent(pack.content as FounderPackContent, { businessName }),
     profile: {
-      businessName: String(profile?.businessName ?? "Founder Pack"),
+      businessName,
       sector: String(profile?.sector ?? ""),
     },
   };

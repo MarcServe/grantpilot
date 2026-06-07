@@ -78,6 +78,13 @@ const SITEMAP_SOURCES: { url: string; source: string; pattern?: RegExp }[] = [
   { url: "https://www.nsf.gov/sitemap.xml", source: "sitemap-nsf", pattern: GRANT_PATH_PATTERN },
 ];
 
+const RSS_DISCOVERY_FEEDS = [
+  { url: "https://www.grants.gov/rss/GG_NewOppByAgency.xml", source: "rss-grants-gov-agency" },
+  { url: "https://www.grants.gov/rss/GG_NewOppByCategory.xml", source: "rss-grants-gov-category" },
+  { url: "https://grants.nih.gov/grants/guide/newsfeed/fundingopps.xml", source: "rss-nih-funding" },
+  { url: "https://www.grants.gov.au/public_data/rss/rss.xml", source: "rss-australia-grantconnect" },
+];
+
 /**
  * Discover URLs from configured sitemaps and enqueue them. Returns count of newly enqueued.
  */
@@ -199,11 +206,9 @@ async function discoverFromGoogle(): Promise<number> {
  */
 export async function runDiscoveryEnqueue(): Promise<{ enqueued: number }> {
   let enqueued = await discoverFromSitemaps();
-  if (enqueued < MAX_URLS_PER_RUN) {
-    const fromRss = await discoverFromRssFeed(
-      "https://www.grants.gov/rss/GG_NewOppByAgency.xml",
-      "rss-grants-gov"
-    );
+  for (const feed of RSS_DISCOVERY_FEEDS) {
+    if (enqueued >= MAX_URLS_PER_RUN) break;
+    const fromRss = await discoverFromRssFeed(feed.url, feed.source);
     enqueued += fromRss;
   }
   if (enqueued < MAX_URLS_PER_RUN) {

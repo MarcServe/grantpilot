@@ -5,9 +5,20 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Check, RefreshCw } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Loader2, Check, RefreshCw, X } from "lucide-react";
 import { toast } from "sonner";
-import { PLAN_CATALOG, getPublicStripePriceId } from "@/lib/plans";
+import { PLAN_CATALOG, comparePlans, getPublicStripePriceId, type PlanKey } from "@/lib/plans";
 
 interface BillingClientProps {
   currentPlan: string;
@@ -26,6 +37,31 @@ const PLANS = PLAN_CATALOG.map((plan) => ({
   priceId: getPublicStripePriceId(plan.value),
 }));
 
+type BillingCheckoutResponse = {
+  url?: string;
+  success?: boolean;
+  plan?: PlanKey;
+  changed?: boolean;
+  scheduled?: boolean;
+  effectiveAt?: string;
+  error?: string;
+};
+
+function isPlanKey(value: string): value is PlanKey {
+  return PLAN_CATALOG.some((plan) => plan.value === value);
+}
+
+function formatEffectiveDate(value?: string): string {
+  if (!value) return "the end of the current billing period";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "the end of the current billing period";
+  return date.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 export function BillingClient({
   currentPlan,
   autoFillCount,
@@ -36,6 +72,15 @@ export function BillingClient({
   const router = useRouter();
   const [loading, setLoading] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [enterpriseOpen, setEnterpriseOpen] = useState(false);
+  const [enterpriseSubmitting, setEnterpriseSubmitting] = useState(false);
+  const [enterpriseForm, setEnterpriseForm] = useState({
+    name: "",
+    email: "",
+    company: "",
+    teamSize: "",
+    message: "",
+  });
 
   // After Stripe checkout success: sync plan from Stripe and show toast, then clear URL
   useEffect(() => {
@@ -84,7 +129,7 @@ export function BillingClient({
     }
   }
 
-  async function handleUpgrade(priceId: string, planValue: string) {
+  async function handlePlanChange(priceId: string, planValue: PlanKey) {
     if (!priceId) {
       toast.error("Price ID not configured");
       return;
@@ -98,15 +143,26 @@ export function BillingClient({
         body: JSON.stringify({ priceId }),
       });
 
-      const data = await res.json().catch(() => ({}));
+      const data = (await res.json().catch(() => ({}))) as BillingCheckoutResponse;
       if (res.ok && data.url) {
         window.location.href = data.url;
+        return;
+      }
+      if (res.ok && data.success) {
+        if (data.scheduled) {
+          toast.success(`Downgrade scheduled for ${formatEffectiveDate(data.effectiveAt)}.`);
+        } else if (data.changed) {
+          toast.success("Plan updated successfully.");
+        } else {
+          toast.success("You are already on this plan.");
+        }
+        router.refresh();
         return;
       }
       const message =
         data.error ||
         (res.status === 403
-          ? "Only organisation owners or admins can upgrade. Switch to an owner/admin account."
+          ? "Only organisation owners or admins can manage billing. Switch to an owner/admin account."
           : res.status === 500
             ? "Server error. Please try again or contact support."
             : "Failed to open checkout. Please try again.");
@@ -115,6 +171,30 @@ export function BillingClient({
       toast.error("Network error. Please check your connection and try again.");
     } finally {
       setLoading(null);
+    }
+  }
+
+  async function handleEnterpriseSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setEnterpriseSubmitting(true);
+    try {
+      const res = await fetch("/api/billing/enterprise-contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(enterpriseForm),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data.error ?? "Could not send enterprise enquiry");
+        return;
+      }
+      toast.success("Enterprise enquiry sent. We will reply from billing shortly.");
+      setEnterpriseOpen(false);
+      setEnterpriseForm({ name: "", email: "", company: "", teamSize: "", message: "" });
+    } catch {
+      toast.error("Network error. Please check your connection and try again.");
+    } finally {
+      setEnterpriseSubmitting(false);
     }
   }
 
@@ -162,6 +242,9 @@ export function BillingClient({
       <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
         {PLANS.map((plan) => {
           const isCurrent = plan.value === currentPlan;
+          const currentPlanKey = isPlanKey(currentPlan) ? currentPlan : "FREE_TRIAL";
+          const planDirection = comparePlans(plan.value, currentPlanKey);
+          const buttonLabel = planDirection < 0 ? "Downgrade" : "Upgrade";
           return (
             <Card
               key={plan.value}
@@ -182,12 +265,20 @@ export function BillingClient({
                         {block.heading}
                       </p>
                       <ul className="space-y-2">
-                        {block.bullets.map((bullet) => (
-                          <li key={bullet} className="flex items-start gap-2 text-sm">
-                            <Check className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
-                            <span>{bullet}</span>
-                          </li>
-                        ))}
+                        {block.bullets.map((bullet) => {
+                          const notIncluded = block.heading.toLowerCase() === "not included";
+                          const Icon = notIncluded ? X : Check;
+                          return (
+                            <li key={bullet} className="flex items-start gap-2 text-sm">
+                              <Icon
+                                className={`mt-0.5 h-4 w-4 shrink-0 ${
+                                  notIncluded ? "text-muted-foreground" : "text-accent"
+                                }`}
+                              />
+                              <span className={notIncluded ? "text-muted-foreground" : undefined}>{bullet}</span>
+                            </li>
+                          );
+                        })}
                       </ul>
                     </div>
                   ))}
@@ -195,13 +286,13 @@ export function BillingClient({
                 {!isCurrent && plan.priceId && (
                   <Button
                     className="w-full"
-                    onClick={() => handleUpgrade(plan.priceId, plan.value)}
+                    onClick={() => handlePlanChange(plan.priceId, plan.value)}
                     disabled={!!loading}
                   >
                     {loading === plan.value && (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     )}
-                    Upgrade
+                    {buttonLabel}
                   </Button>
                 )}
                 {isCurrent && (
@@ -214,6 +305,115 @@ export function BillingClient({
           );
         })}
       </div>
+
+      <Card className="border-[#071a3a] bg-[#071a3a] text-white">
+        <CardHeader>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <CardTitle className="text-xl">Enterprise</CardTitle>
+              <p className="mt-2 text-sm text-white/72">
+                Custom grant intelligence for larger teams, advisors, accelerators, and multi-organisation workspaces.
+              </p>
+            </div>
+            <Badge className="w-fit bg-white text-[#071a3a] hover:bg-white">Custom</Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-end">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              "Custom profile and user limits",
+              "Higher-volume application workflows",
+              "Priority onboarding and support",
+              "Procurement and invoice billing",
+            ].map((feature) => (
+              <div key={feature} className="flex items-start gap-2 text-sm text-white/88">
+                <Check className="mt-0.5 h-4 w-4 shrink-0 text-[#4bc7ad]" />
+                <span>{feature}</span>
+              </div>
+            ))}
+          </div>
+          <Button
+            type="button"
+            className="bg-white text-[#071a3a] hover:bg-white/90 lg:w-[180px]"
+            onClick={() => setEnterpriseOpen(true)}
+          >
+            Contact billing
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Dialog open={enterpriseOpen} onOpenChange={setEnterpriseOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Enterprise plan enquiry</DialogTitle>
+            <DialogDescription>
+              Send your requirements to billing and we will follow up with pricing and setup options.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleEnterpriseSubmit} className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="enterprise-name">Name</Label>
+                <Input
+                  id="enterprise-name"
+                  value={enterpriseForm.name}
+                  onChange={(event) => setEnterpriseForm((form) => ({ ...form, name: event.target.value }))}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="enterprise-email">Email</Label>
+                <Input
+                  id="enterprise-email"
+                  type="email"
+                  value={enterpriseForm.email}
+                  onChange={(event) => setEnterpriseForm((form) => ({ ...form, email: event.target.value }))}
+                  required
+                />
+              </div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="enterprise-company">Company</Label>
+                <Input
+                  id="enterprise-company"
+                  value={enterpriseForm.company}
+                  onChange={(event) => setEnterpriseForm((form) => ({ ...form, company: event.target.value }))}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="enterprise-team-size">Team size</Label>
+                <Input
+                  id="enterprise-team-size"
+                  value={enterpriseForm.teamSize}
+                  onChange={(event) => setEnterpriseForm((form) => ({ ...form, teamSize: event.target.value }))}
+                  placeholder="Users, profiles, or clients"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="enterprise-message">Requirements</Label>
+              <Textarea
+                id="enterprise-message"
+                value={enterpriseForm.message}
+                onChange={(event) => setEnterpriseForm((form) => ({ ...form, message: event.target.value }))}
+                placeholder="Tell us about profiles, users, grant volume, onboarding, procurement, or billing needs."
+                rows={5}
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setEnterpriseOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={enterpriseSubmitting}>
+                {enterpriseSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Send enquiry
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

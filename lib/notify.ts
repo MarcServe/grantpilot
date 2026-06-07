@@ -2,6 +2,7 @@ import { sendEmail } from "./email";
 import { sendWhatsApp, sendWhatsAppWithTemplate } from "./whatsapp";
 import { getSupabaseAdmin } from "./supabase";
 import { buildEmailHtml, buildWhatsAppMessage } from "./notification-templates";
+import { organisationAllowsCapability } from "./plan-check";
 
 interface NotifyUser {
   id: string;
@@ -18,6 +19,10 @@ export type NotificationType =
   | "application_login_required"
   | "application_needs_info"
   | "deadline_reminder"
+  | "daily_grant_update"
+  | "deadline_daily_update"
+  | "eligibility_upgrade_prompt"
+  | "business_dna_match_health"
   | "welcome"
   | "grant_match"
   | "grant_match_high"
@@ -55,6 +60,8 @@ export interface NotificationPayload {
   startApplicationToken?: string;
   /** For grant_scan_digest: list of grants with View + Start application links */
   grants?: DigestGrantItem[];
+  /** For grant_scan_digest: partial-fit grants worth reviewing, shown separately from strong matches. */
+  withinReachGrants?: DigestGrantItem[];
   /** Business/profile name for digest subject and body */
   profileName?: string;
   /** Subscription plan name for billing notifications */
@@ -65,6 +72,20 @@ export interface NotificationPayload {
   outcomeGrantNames?: string[];
   /** Labels for details required before the application can continue. */
   needsInputLabels?: string[];
+  /** Count of grants considered by a daily scan/update. */
+  checkedGrantsCount?: number;
+  /** Count of opportunities included in a daily scan/update. */
+  matchedGrantsCount?: number;
+  /** Count of deadline reminders included in a daily deadline update. */
+  deadlineReminderCount?: number;
+  /** Count of within-reach grants used by Business DNA match-health prompts. */
+  withinReachCount?: number;
+  /** Days since the last current/actionable 85%+ match. */
+  daysWithoutHighMatch?: number;
+  /** Top match-health blockers shown to the user. */
+  matchHealthBlockers?: string[];
+  /** Suggested safe profile improvements shown to the user. */
+  matchHealthActions?: string[];
 }
 
 export interface NotifyOptions {
@@ -72,6 +93,51 @@ export interface NotifyOptions {
   sendEmail?: boolean;
   /** When false, skip WhatsApp for this notification (e.g. org preference for eligibility digest). */
   sendWhatsApp?: boolean;
+}
+
+const PLAN_GATED_NOTIFICATION_TYPES = new Set<NotificationType>([
+  "deadline_reminder",
+  "grant_match",
+  "grant_match_high",
+  "grant_scan_digest",
+  "business_dna_match_health",
+  "outcome_feedback_reminder",
+]);
+
+function notificationRequiresPaidPlan(type: NotificationType): boolean {
+  return PLAN_GATED_NOTIFICATION_TYPES.has(type);
+}
+
+async function logPlanSkippedNotification(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  users: NotifyUser[],
+  type: NotificationType,
+  options?: NotifyOptions
+): Promise<void> {
+  const rows: Record<string, unknown>[] = [];
+  for (const user of users) {
+    if (options?.sendEmail !== false && user.email) {
+      rows.push({
+        userId: user.id,
+        channel: "email",
+        type,
+        status: "skipped",
+        error: "plan_requires_paid_notifications",
+      });
+    }
+    if (options?.sendWhatsApp !== false && user.whatsappOptIn && user.phoneNumber) {
+      rows.push({
+        userId: user.id,
+        channel: "whatsapp",
+        type,
+        status: "skipped",
+        error: "plan_requires_paid_notifications",
+      });
+    }
+  }
+  if (rows.length > 0) {
+    await supabase.from("NotificationLog").insert(rows);
+  }
 }
 
 export async function notifyUser(
@@ -100,7 +166,12 @@ export async function notifyUser(
     // Org opted out of WhatsApp for this notification type (e.g. eligibility digest).
   } else if (user.whatsappOptIn && user.phoneNumber) {
     const grantMatchSid = (process.env.TWILIO_WHATSAPP_GRANT_MATCH_CONTENT_SID ?? "").trim();
-    const deadlineSid = (process.env.TWILIO_WHATSAPP_DEADLINE_CONTENT_SID ?? "").trim();
+    const deadlineSid = (
+      process.env.TWILIO_WHATSAPP_DEADLINE_CONTENT_SID ??
+      process.env.TWILIO_WHATSAPP_DEADLINE_TEMPLATE_SID ??
+      process.env.TWILIO_DEADLINE_CONTENT_SID ??
+      ""
+    ).trim();
     const needsInfoSid = (process.env.TWILIO_WHATSAPP_APPLICATION_NEEDS_INFO_CONTENT_SID ?? "").trim();
 
     const useGrantTemplate =
@@ -108,7 +179,8 @@ export async function notifyUser(
     const useDeadlineTemplate = type === "deadline_reminder" && deadlineSid.length > 0;
     const useNeedsInfoTemplate = type === "application_needs_info" && needsInfoSid.length > 0;
 
-    // WhatsApp business-initiated messages require Content Templates (Twilio 63016). Never use body.
+    // Prefer approved Content Templates. Deadline reminders keep a legacy body fallback
+    // so a missing template env var does not silently suppress urgent notifications.
     if (useGrantTemplate) {
       const linkUrl =
         type === "grant_match_high" && payload.startApplicationToken
@@ -179,6 +251,23 @@ export async function notifyUser(
         logPayload.metadata = { twilioSid: result.twilioSid ?? null, twilioStatus: result.twilioStatus ?? null };
       }
       await supabase.from("NotificationLog").insert(logPayload);
+    } else if (type === "deadline_reminder") {
+      const result = await sendWhatsApp(user.phoneNumber, buildWhatsAppMessage(type, payload, appUrl));
+      const logPayload: Record<string, unknown> = {
+        userId: user.id,
+        channel: "whatsapp",
+        type,
+        status: result.success ? "sent" : "failed",
+        error: result.error ?? null,
+      };
+      if (result.twilioSid ?? result.twilioStatus) {
+        logPayload.metadata = {
+          twilioSid: result.twilioSid ?? null,
+          twilioStatus: result.twilioStatus ?? null,
+          fallback: "legacy_body",
+        };
+      }
+      await supabase.from("NotificationLog").insert(logPayload);
     } else {
       await supabase.from("NotificationLog").insert({
         userId: user.id,
@@ -222,16 +311,10 @@ function toNotifyUser(raw: Record<string, unknown> | null | undefined): NotifyUs
   };
 }
 
-/**
- * Notify all members of an organisation (excluding viewers).
- */
-export async function notifyOrgMembers(
-  organisationId: string,
-  type: NotificationType,
-  payload: NotificationPayload,
-  options?: NotifyOptions
-): Promise<void> {
-  const supabase = getSupabaseAdmin();
+async function getNotifyUsersForOrg(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  organisationId: string
+): Promise<NotifyUser[]> {
   const userColumns = "id, email, phoneNumber, whatsappOptIn";
   let { data: members = [] } = await supabase
     .from("OrganisationMember")
@@ -256,10 +339,50 @@ export async function notifyOrgMembers(
     members = altSnake.data ?? [];
   }
 
-  const list = Array.isArray(members) ? members : [];
-  const withUser = list
+  return (Array.isArray(members) ? members : [])
     .map((m: Record<string, unknown>) => toNotifyUser((m.User ?? m.user) as Record<string, unknown> | null))
     .filter((u): u is NotifyUser => u != null);
+}
+
+export async function orgHasNotificationSince(
+  organisationId: string,
+  types: NotificationType[],
+  since: Date
+): Promise<boolean> {
+  const supabase = getSupabaseAdmin();
+  const users = await getNotifyUsersForOrg(supabase, organisationId);
+  if (users.length === 0) return false;
+
+  const { data } = await supabase
+    .from("NotificationLog")
+    .select("id")
+    .in("userId", users.map((u) => u.id))
+    .in("type", types)
+    .eq("status", "sent")
+    .gte("createdAt", since.toISOString())
+    .limit(1);
+
+  return (data?.length ?? 0) > 0;
+}
+
+/**
+ * Notify all members of an organisation (excluding viewers).
+ */
+export async function notifyOrgMembers(
+  organisationId: string,
+  type: NotificationType,
+  payload: NotificationPayload,
+  options?: NotifyOptions
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const withUser = await getNotifyUsersForOrg(supabase, organisationId);
+
+  if (notificationRequiresPaidPlan(type)) {
+    if (!(await organisationAllowsCapability(organisationId, "proactive_notifications"))) {
+      await logPlanSkippedNotification(supabase, withUser, type, options);
+      return;
+    }
+  }
 
   await Promise.allSettled(
     withUser.map((u) => notifyUser(u, type, payload, options))

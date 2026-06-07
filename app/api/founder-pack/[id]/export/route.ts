@@ -8,7 +8,8 @@ import {
   isFounderPackExportFormat,
   type FounderPackExportInput,
 } from "@/lib/founder-pack-export";
-import type { FounderPackContent, FounderPackDocumentType } from "@/lib/founder-pack";
+import { sanitiseFounderPackContent, type FounderPackContent, type FounderPackDocumentType } from "@/lib/founder-pack";
+import { planAllowsForOrg, PLAN_CAPABILITY_MESSAGES } from "@/lib/plan-features";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -21,8 +22,16 @@ export async function GET(req: Request, context: RouteContext): Promise<NextResp
     if (!isFounderPackExportFormat(format)) {
       return NextResponse.json({ error: "Unsupported export format" }, { status: 400 });
     }
+    const includePitchDeckNotes = url.searchParams.get("includePitchDeckNotes") === "true";
 
-    const { orgId } = await getActiveOrg();
+    const { org, orgId } = await getActiveOrg();
+    if (!planAllowsForOrg(org as { plan?: string; createdAt?: string | Date | null }, "founder_pack")) {
+      return NextResponse.json(
+        { error: PLAN_CAPABILITY_MESSAGES.founder_pack, code: "FEATURE_FORBIDDEN" },
+        { status: 402 }
+      );
+    }
+
     const { id } = await context.params;
     const supabase = getSupabaseAdmin();
     const { data: pack, error: packError } = await supabase
@@ -44,15 +53,19 @@ export async function GET(req: Request, context: RouteContext): Promise<NextResp
 
     if (profileError) return NextResponse.json({ error: profileError.message }, { status: 502 });
 
+    const businessName = String(profile?.businessName ?? "Founder Pack");
     const exportPack: FounderPackExportInput = {
       id: String(pack.id),
       createdAt: String(pack.createdAt ?? ""),
       type: String(pack.type ?? ""),
       inputs: normaliseInputs(pack.inputs),
-      content: pack.content as FounderPackContent,
+      content: sanitiseFounderPackContent(pack.content as FounderPackContent, { businessName }),
       profile: {
-        businessName: String(profile?.businessName ?? "Founder Pack"),
+        businessName,
         sector: String(profile?.sector ?? ""),
+      },
+      exportOptions: {
+        includePitchDeckNotes,
       },
     };
     const body = generateFounderPackExport(exportPack, format);
@@ -61,7 +74,10 @@ export async function GET(req: Request, context: RouteContext): Promise<NextResp
       headers: {
         "Content-Type": founderPackExportMime(format),
         "Content-Disposition": `attachment; filename="${founderPackExportFilename(exportPack, format)}"`,
-        "Cache-Control": "no-store",
+        "Cache-Control": "no-store, no-cache, max-age=0, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+        "X-Founder-Pack-Export-Version": "slide-pages-v3-notes-toggle",
       },
     });
   } catch (e) {

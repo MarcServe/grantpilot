@@ -10,7 +10,8 @@ import { looksLikeGenericOrListUrl } from "@/lib/grant-url-validation";
 import { enqueueGrantForScoutIfProgrammeUrl } from "@/lib/enqueue-scout";
 import { generateAndStoreGrantEmbedding } from "@/lib/embeddings";
 import { checkUrlHealth } from "@/lib/url-health-check";
-import { isPastGrantDeadline } from "@/lib/grant-freshness";
+import { getGrantFreshnessStatus, isPastGrantDeadline } from "@/lib/grant-freshness";
+import { verifyGrantActionable } from "@/lib/grant-actionability";
 
 /** Normalize string for hashing: lowercase, trim, collapse whitespace. */
 function normalizeForHash(s: string): string {
@@ -49,7 +50,7 @@ export interface GrantInput {
   /** Which regions this funder serves: US, UK, EU, Global. Used to match user preference. */
   funderLocations?: string[];
   /** Origin finder. Kept for ops/debugging; customer-facing confidence comes from OpenAI scoring. */
-  source?: "default" | "claude" | "openai" | "gemini" | "perplexity" | "grants-gov" | "bing" | "google";
+  source?: "default" | "claude" | "openai" | "gemini" | "perplexity" | "grants-gov" | "bing" | "google" | "admin";
 }
 
 function toArray(x: unknown): string[] {
@@ -77,6 +78,8 @@ export function parseGrantRow(row: unknown): GrantInput | null {
   const funder = typeof o.funder === "string" ? o.funder : null;
   const applicationUrl = typeof o.applicationUrl === "string" ? o.applicationUrl : typeof o.url === "string" ? o.url : "";
   const eligibility = typeof o.eligibility === "string" ? o.eligibility : typeof o.description === "string" ? o.description : "";
+  const description = typeof o.description === "string" ? o.description : null;
+  const objectives = typeof o.objectives === "string" ? o.objectives : null;
 
   if (!name || !funder || !applicationUrl) return null;
   if (looksLikeGenericOrListUrl(applicationUrl)) return null;
@@ -85,11 +88,19 @@ export function parseGrantRow(row: unknown): GrantInput | null {
   const externalId = typeof o.externalId === "string" ? o.externalId : typeof o.id === "string" ? o.id : undefined;
   const parsedDeadline = parseDeadline(o.deadline);
   if (isPastGrantDeadline(parsedDeadline)) return null;
+  const freshness = getGrantFreshnessStatus({
+    deadline: parsedDeadline,
+    name,
+    eligibility,
+    description,
+    objectives,
+  });
+  if (!freshness.usable) return null;
 
   const funderLocations = toArray(o.funderLocations ?? o.funder_locations);
   const applicantTypes = toArray(o.applicantTypes ?? o.applicant_types);
   const source = typeof o.source === "string" &&
-    ["default", "claude", "openai", "gemini", "perplexity", "grants-gov", "bing", "google"].includes(o.source)
+    ["default", "claude", "openai", "gemini", "perplexity", "grants-gov", "bing", "google", "admin"].includes(o.source)
     ? (o.source as GrantInput["source"])
     : undefined;
   return {
@@ -101,6 +112,8 @@ export function parseGrantRow(row: unknown): GrantInput | null {
     deadline: typeof o.deadline === "string" ? o.deadline : o.deadline != null ? String(o.deadline) : null,
     applicationUrl,
     eligibility: eligibility || "See application page.",
+    description,
+    objectives,
     sectors: toArray(o.sectors ?? o.sector),
     regions: toArray(o.regions ?? o.region),
     funderLocations: funderLocations.length > 0 ? funderLocations : undefined,
@@ -116,6 +129,14 @@ export async function upsertGrant(input: GrantInput): Promise<{ id: string; crea
   const deadline = parseDeadline(input.deadline);
   if (isPastGrantDeadline(deadline)) {
     throw new Error(`Grant deadline has passed: ${input.name}`);
+  }
+  const freshness = getGrantFreshnessStatus(input);
+  if (!freshness.usable) {
+    throw new Error(freshness.message ?? `Grant appears closed: ${input.name}`);
+  }
+  const verified = await verifyGrantActionable(input);
+  if (!verified.usable) {
+    throw new Error(verified.message ?? `Grant appears closed: ${input.name}`);
   }
   const sectors = input.sectors?.length ? input.sectors : ["Other"];
   const regions = input.regions?.length ? input.regions : ["England"];
@@ -153,7 +174,7 @@ export async function upsertGrant(input: GrantInput): Promise<{ id: string; crea
     if (existing) {
       await supabase.from("Grant").update(data).eq("id", existing.id);
       if (input.applicationUrl) {
-        checkUrlHealth(input.applicationUrl)
+        checkUrlHealth(input.applicationUrl, input)
           .then(async (result) => {
             await getSupabaseAdmin()
               .from("Grant")
@@ -181,7 +202,7 @@ export async function upsertGrant(input: GrantInput): Promise<{ id: string; crea
   generateAndStoreGrantEmbedding(grant.id).catch(() => {});
 
   if (input.applicationUrl) {
-    checkUrlHealth(input.applicationUrl)
+    checkUrlHealth(input.applicationUrl, input)
       .then(async (result) => {
         await getSupabaseAdmin()
           .from("Grant")

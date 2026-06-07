@@ -1,8 +1,9 @@
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import type { FounderPackContent, FounderPackDocumentType } from "@/lib/founder-pack";
+import { sanitiseFounderPackContent, type FounderPackContent, type FounderPackDocumentType } from "@/lib/founder-pack";
 import { FounderPackClient } from "@/components/founder-pack/founder-pack-client";
-import { planAllows, resolvePlanKey } from "@/lib/plan-features";
+import { planAllowsForOrg } from "@/lib/plan-features";
+import { getGrantFreshnessStatus } from "@/lib/grant-freshness";
 
 export const dynamic = "force-dynamic";
 
@@ -101,7 +102,7 @@ export default async function FounderPackPage({
   const initialApplicationId = params?.applicationId?.trim() || "";
   const { org, orgId } = await getActiveOrg();
   const supabase = getSupabaseAdmin();
-  const allowed = planAllows(resolvePlanKey((org as { plan?: string } | undefined)?.plan), "founder_pack");
+  const allowed = planAllowsForOrg(org as { plan?: string; createdAt?: string | Date | null }, "founder_pack");
 
   const [{ data: profiles }, { data: packs }, { data: applicationsData }, { data: eligibilityData }] = await Promise.all([
     supabase
@@ -120,13 +121,13 @@ export default async function FounderPackPage({
       .select("id, status, profileId, grantId, Grant(id, name, funder)")
       .eq("organisationId", orgId)
       .order("updatedAt", { ascending: false })
-      .limit(100),
+      .limit(20),
     supabase
       .from("EligibilityAssessment")
-      .select("grant_id, profile_id, score, decision, summary, Grant(id, name, funder, createdAt)")
+      .select("grant_id, profile_id, score, decision, summary, Grant(id, name, funder, createdAt, deadline, url_status, eligibility, description, objectives)")
       .eq("organisation_id", orgId)
       .order("score", { ascending: false })
-      .limit(500),
+      .limit(20),
   ]);
 
   let applicationRows: ApplicationOption[] = mapApplicationRows((applicationsData ?? []) as Record<string, unknown>[]);
@@ -136,7 +137,7 @@ export default async function FounderPackPage({
       .select("id, status, profile_id, grant_id, Grant(id, name, funder)")
       .eq("organisation_id", orgId)
       .order("updated_at", { ascending: false })
-      .limit(100);
+      .limit(20);
     if (!alt.error && alt.data?.length) {
       applicationRows = mapApplicationRows(
         (alt.data as Record<string, unknown>[]).map((r) => ({
@@ -167,18 +168,23 @@ export default async function FounderPackPage({
     financialProjections: profile.financialProjections ?? null,
   }));
 
-  let eligibleGrantRows = mapEligibleAssessmentRows((eligibilityData ?? []) as Record<string, unknown>[]).filter(
+  const freshEligibilityRows = ((eligibilityData ?? []) as Record<string, unknown>[]).filter((row) => {
+    const gRaw = row.Grant ?? row.grant;
+    const g = Array.isArray(gRaw) ? gRaw[0] : gRaw;
+    return !g || typeof g !== "object" || getGrantFreshnessStatus(g as Record<string, unknown>).usable;
+  });
+  let eligibleGrantRows = mapEligibleAssessmentRows(freshEligibilityRows).filter(
     (row) => row.grantId && row.profileId && !appliedGrantByProfile.has(`${row.profileId}:${row.grantId}`)
   );
 
   if (initialGrantId && !eligibleGrantRows.some((row) => row.grantId === initialGrantId)) {
     const { data: grant } = await supabase
       .from("Grant")
-      .select("id, name, funder, createdAt")
+      .select("id, name, funder, createdAt, deadline, url_status, eligibility, description, objectives")
       .eq("id", initialGrantId)
       .maybeSingle();
     const profileId = profileRows[0]?.id;
-    if (grant && profileId) {
+    if (grant && profileId && getGrantFreshnessStatus(grant).usable) {
       eligibleGrantRows = [
         {
           grantId: String(grant.id),
@@ -202,7 +208,7 @@ export default async function FounderPackPage({
       createdAt: pack.createdAt,
       createdAtLabel: formatDateLabel(pack.createdAt),
       type: pack.type,
-      content: pack.content,
+      content: sanitiseFounderPackContent(pack.content, { businessName: profile?.businessName }),
       documentTypes: pack.inputs?.documentTypes ?? null,
       profileBusinessName: profile?.businessName ?? null,
       profileSector: profile?.sector ?? null,

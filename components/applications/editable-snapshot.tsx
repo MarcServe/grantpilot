@@ -129,7 +129,7 @@ export function EditableSnapshot({
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2 text-sm font-medium">
               <FileText className="h-4 w-4" />
-              Filled data {editing && <Badge variant="outline" className="text-xs">Editing</Badge>}
+              Prepared field data {editing && <Badge variant="outline" className="text-xs">Editing</Badge>}
             </CardTitle>
             <div className="flex items-center gap-2">
               {editable && !editing && (
@@ -153,11 +153,11 @@ export function EditableSnapshot({
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="rounded-md border border-blue-200 bg-blue-50/50 p-3 text-sm dark:border-blue-800 dark:bg-blue-950/30">
-            <p className="font-medium text-blue-900 dark:text-blue-100">How to review and approve</p>
+            <p className="font-medium text-blue-900 dark:text-blue-100">How to use this preparation data</p>
             <ol className="mt-1 list-inside list-decimal space-y-0.5 text-blue-800 dark:text-blue-200">
               <li>Review the prefilled fields below{editable ? " — click \"Edit values\" to make changes" : ""}.</li>
               <li>Optionally use the bookmarklet to pre-fill the funder&apos;s form in your browser.</li>
-              <li>When ready, tick the confirmation and click &quot;Submit Application&quot;.</li>
+              <li>Submit on the funder site, then return here and click &quot;Mark as submitted&quot;.</li>
             </ol>
           </div>
 
@@ -230,7 +230,7 @@ export function EditableSnapshot({
           {dirty && (
             <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50/50 p-2 text-xs text-amber-800">
               <Check className="h-3 w-3" />
-              You have unsaved edits — click &quot;Save edits&quot; so the worker uses your changes when submitting.
+              You have unsaved edits — click &quot;Save edits&quot; so your preparation data stays current.
             </div>
           )}
         </CardContent>
@@ -256,7 +256,7 @@ export function EditableSnapshot({
                 onClick={(e) => { e.preventDefault(); toast.info("Drag this link to your bookmarks bar, then click it on the grant form page."); }}
               >
                 <Code className="h-4 w-4" />
-                Grants-Copilot Auto-Fill
+                Grants-Copilot Pre-fill Helper
               </a>
               <a
                 href={grantUrl}

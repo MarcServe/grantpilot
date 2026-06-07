@@ -10,11 +10,12 @@ import {
   runDiscoveryAndUpsert,
   profileToDiscoveryProfile,
 } from "@/lib/grants-discovery";
+import { runWithCronLog } from "@/lib/cron-run-log";
 
 export const grantDiscovery = inngest.createFunction(
   { id: "grant-discovery", name: "AI Web Search Grant Discovery (primary)" },
   { cron: "30 */6 * * *" }, // every 6 hours — primary grant source via web search
-  async () => {
+  async () => runWithCronLog({ jobName: "AI Web Search Grant Discovery", route: "inngest/grant-discovery", trigger: "inngest" }, async () => {
     const supabase = getSupabaseAdmin();
     const { data } = await supabase
       .from("BusinessProfile")
@@ -56,5 +57,5 @@ export const grantDiscovery = inngest.createFunction(
       created: totalCreated,
       updated: totalUpdated,
     };
-  }
+  })
 );

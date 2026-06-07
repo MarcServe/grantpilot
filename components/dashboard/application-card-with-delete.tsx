@@ -90,17 +90,15 @@ export function ApplicationCardWithDelete({
 
   return (
     <>
-      <Card className="transition-colors hover:bg-muted/50 group">
-        <CardContent className="flex items-center justify-between p-4">
-          <Link href={`/applications/${id}`} className="min-w-0 flex-1">
-            <div className="flex items-center gap-4">
-              <div>
-                <p className="font-medium">{grantName}</p>
-                <p className="text-sm text-muted-foreground">{funder}</p>
-              </div>
+      <Card className="group min-w-0 overflow-hidden transition-colors hover:bg-muted/50">
+        <CardContent className="flex min-w-0 flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <Link href={`/applications/${id}`} className="min-w-0 sm:flex-1">
+            <div className="min-w-0">
+              <p className="break-words font-medium leading-snug">{grantName}</p>
+              <p className="mt-1 break-words text-sm text-muted-foreground">{funder}</p>
             </div>
           </Link>
-          <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end">
             {needsOutcomeReminder && (
               <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-900">
                 Outcome?
@@ -109,7 +107,7 @@ export function ApplicationCardWithDelete({
             <Badge variant="secondary" className={STATUS_COLORS[displayStatus] ?? ""}>
               {displayStatus.replace(/_/g, " ")}
             </Badge>
-            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+            <div className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
               <Clock className="h-3 w-3" />
               {new Date(createdAt).toLocaleDateString("en-GB")}
             </div>
@@ -117,18 +115,18 @@ export function ApplicationCardWithDelete({
               <Button
                 variant="outline"
                 size="sm"
-                className="h-8 gap-1"
+                className="h-8 min-w-0 max-w-full flex-1 gap-1 px-2 sm:flex-none"
                 onClick={handleMarkSubmitted}
                 disabled={markingSubmitted}
               >
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                {markingSubmitted ? "Saving..." : "Mark submitted"}
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                <span className="min-w-0 truncate">{markingSubmitted ? "Saving..." : "Mark submitted"}</span>
               </Button>
             )}
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 text-muted-foreground hover:text-destructive"
+              className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(true); }}
               title="Remove from list"
             >

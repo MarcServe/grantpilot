@@ -27,6 +27,17 @@ export const PLAN_LIMITS = {
 
 export type PlanKey = keyof typeof PLAN_LIMITS;
 
+export const PLAN_RANK: Record<PlanKey, number> = {
+  FREE_TRIAL: 0,
+  GROWTH: 1,
+  PRO: 2,
+  BUSINESS: 3,
+};
+
+export function comparePlans(left: PlanKey, right: PlanKey): number {
+  return PLAN_RANK[left] - PLAN_RANK[right];
+}
+
 export type StripePriceIdEnv =
   | "NEXT_PUBLIC_STRIPE_GROWTH_PRICE_ID"
   | "NEXT_PUBLIC_STRIPE_PRO_PRICE_ID"
@@ -45,6 +56,7 @@ export type PlanCatalogRow = {
   price: string;
   detail: string;
   stripePriceIdEnv?: StripePriceIdEnv;
+  stripePriceId?: string;
   /** Logical groupings aligned with PLAN_CAPABILITIES + PLAN_LIMITS enforcement */
   features: PlanCatalogFeatureBlock[];
   homepageFeatures: string[];
@@ -63,25 +75,31 @@ export const PLAN_CATALOG: PlanCatalogRow[] = [
     features: [
       {
         heading: "Workspace",
-        bullets: ["7-day Starter trial", "1 business profile"],
+        bullets: ["7-day full-access trial", "1 business profile"],
       },
       {
         heading: "Discovery & scoring",
         bullets: [
-          "5 full company-DNA eligibility checks per month (cached scores don’t count)",
+          "5 full company-DNA eligibility checks during the trial (cached scores don’t count)",
           "Preliminary fit signals while browsing grants",
         ],
       },
       {
         heading: "Applications",
-        bullets: ["Application prep checklist and official-link handoff"],
+        bullets: ["1 grant-specific application prep run during the trial"],
       },
       {
-        heading: "Not included",
-        bullets: ["Company DNA autofill & website intelligence refresh", "Grant auto-improve", "Founder Funding Pack", "AI outcome learning insights"],
+        heading: "Trial access",
+        bullets: [
+          "Company DNA autofill and website intelligence refresh",
+          "Grant auto-improve",
+          "Founder Funding Pack",
+          "AI outcome learning insights",
+          "Email reminders and WhatsApp opportunity alerts",
+        ],
       },
     ],
-    homepageFeatures: ["Manual profile & uploads", "Browse grants with preliminary fit", "5 full DNA scores per month"],
+    homepageFeatures: ["7-day full-access trial", "Browse grants with preliminary fit", "5 full DNA scores during trial"],
     cta: "Start Free",
     href: "/sign-up",
   },
@@ -92,6 +110,7 @@ export const PLAN_CATALOG: PlanCatalogRow[] = [
     price: "£29/mo",
     detail: "Entry paid automation for founders & sole SMEs",
     stripePriceIdEnv: "NEXT_PUBLIC_STRIPE_GROWTH_PRICE_ID",
+    stripePriceId: "price_1TSmtoP8zypO5fiCQ5fs9USz",
     features: [
       {
         heading: "Workspace",
@@ -119,7 +138,7 @@ export const PLAN_CATALOG: PlanCatalogRow[] = [
       },
       {
         heading: "Notifications",
-        bullets: ["Email & WhatsApp"],
+        bullets: ["Email reminders and WhatsApp opportunity alerts"],
       },
     ],
     homepageFeatures: ["Company DNA engine & unlimited scoring", "10 prep runs/month", "Founder Pack & outcome learning"],
@@ -133,6 +152,7 @@ export const PLAN_CATALOG: PlanCatalogRow[] = [
     price: "£99/mo",
     detail: "For teams scaling grant volume across profiles",
     stripePriceIdEnv: "NEXT_PUBLIC_STRIPE_PRO_PRICE_ID",
+    stripePriceId: "price_1T6LUJP8zypO5fiCTSH92fYM",
     features: [
       {
         heading: "Workspace",
@@ -160,7 +180,7 @@ export const PLAN_CATALOG: PlanCatalogRow[] = [
       },
       {
         heading: "Notifications",
-        bullets: ["Email & WhatsApp"],
+        bullets: ["Email reminders and WhatsApp opportunity alerts"],
       },
     ],
     homepageFeatures: ["2 profiles & 25 prep runs/month", "Everything in Growth with higher limits", "Built for heavier funding pipelines"],
@@ -175,6 +195,7 @@ export const PLAN_CATALOG: PlanCatalogRow[] = [
     price: "£199/mo",
     detail: "For teams, advisors, and operators",
     stripePriceIdEnv: "NEXT_PUBLIC_STRIPE_BUSINESS_PRICE_ID",
+    stripePriceId: "price_1T6LUuP8zypO5fiCgUzxEh7v",
     features: [
       {
         heading: "Workspace",
@@ -202,10 +223,10 @@ export const PLAN_CATALOG: PlanCatalogRow[] = [
       },
       {
         heading: "Notifications & support",
-        bullets: ["Email & WhatsApp", "Priority support"],
+        bullets: ["Email reminders and WhatsApp opportunity alerts", "Priority support"],
       },
     ],
-    homepageFeatures: ["Multi-profile workspace", "Unlimited automation", "Priority support & intelligence"],
+    homepageFeatures: ["Multi-profile workspace", "Unlimited prep runs", "Priority support & intelligence"],
     cta: "Get Business",
     href: "/sign-up",
   },
@@ -220,5 +241,5 @@ export function planNotifyDisplayName(plan: PlanKey): string {
 export function getPublicStripePriceId(plan: PlanKey): string {
   const item = PLAN_CATALOG.find((p) => p.value === plan);
   if (!item?.stripePriceIdEnv) return "";
-  return process.env[item.stripePriceIdEnv] ?? "";
+  return item.stripePriceId ?? process.env[item.stripePriceIdEnv] ?? "";
 }

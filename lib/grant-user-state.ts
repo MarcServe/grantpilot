@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type GrantUserState = "saved" | "viewed" | "deferred" | "applied" | "dismissed";
 
-const SUPPRESSING_STATES = new Set<GrantUserState>(["viewed", "deferred", "applied", "dismissed"]);
+const SUPPRESSING_STATES = new Set<GrantUserState>(["deferred", "applied", "dismissed"]);
 const PRIORITY: Record<GrantUserState, number> = {
   saved: 1,
   viewed: 2,
@@ -18,11 +18,12 @@ export function shouldSuppressGrantNotifications(status: GrantUserState): boolea
 export async function getSuppressedGrantIds(
   supabase: SupabaseClient,
   organisationId: string,
-  profileId: string
+  profileId: string,
+  options?: { includeViewed?: boolean }
 ): Promise<Set<string>> {
   const { data, error } = await supabase
     .from("SavedGrant")
-    .select("grant_id")
+    .select("grant_id, status")
     .eq("organisation_id", organisationId)
     .eq("profile_id", profileId)
     .eq("suppress_notifications", true);
@@ -30,7 +31,12 @@ export async function getSuppressedGrantIds(
     console.warn("[grant-user-state] suppression lookup failed", error.message);
     return new Set();
   }
-  return new Set((data ?? []).map((row: { grant_id: string }) => row.grant_id));
+  const includeViewed = options?.includeViewed === true;
+  return new Set(
+    (data ?? [])
+      .filter((row: { status?: GrantUserState | null }) => includeViewed || row.status !== "viewed")
+      .map((row: { grant_id: string }) => row.grant_id)
+  );
 }
 
 export async function markGrantUserState(

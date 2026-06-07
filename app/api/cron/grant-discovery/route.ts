@@ -4,6 +4,7 @@ import {
   runDiscoveryAndUpsert,
   profileToDiscoveryProfile,
 } from "@/lib/grants-discovery";
+import { runWithCronLog } from "@/lib/cron-run-log";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5 min for many orgs
@@ -24,46 +25,63 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const supabase = getSupabaseAdmin();
-  const { data } = await supabase
-    .from("BusinessProfile")
-    .select("*")
-    .gte("completionScore", 30);
-  const profiles = data ?? [];
+  try {
+    const result = await runWithCronLog(
+      { jobName: "AI Web Search Grant Discovery", route: "/api/cron/grant-discovery", trigger: "vercel" },
+      async () => {
+        const supabase = getSupabaseAdmin();
+        const { data } = await supabase
+          .from("BusinessProfile")
+          .select("*")
+          .gte("completionScore", 30);
+        const profiles = data ?? [];
 
-  const byOrg = new Map<string, (typeof profiles)[number]>();
-  for (const p of profiles as { organisationId?: string; organisation_id?: string }[]) {
-    const orgId = p.organisationId ?? p.organisation_id;
-    if (orgId && !byOrg.has(orgId)) byOrg.set(orgId, p as (typeof profiles)[number]);
+        const byOrg = new Map<string, (typeof profiles)[number]>();
+        for (const p of profiles as { organisationId?: string; organisation_id?: string }[]) {
+          const orgId = p.organisationId ?? p.organisation_id;
+          if (orgId && !byOrg.has(orgId)) byOrg.set(orgId, p as (typeof profiles)[number]);
+        }
+
+        let totalCreated = 0;
+        let totalUpdated = 0;
+
+        for (const [, profile] of byOrg) {
+          try {
+            const discoveryProfile = profileToDiscoveryProfile({
+              businessName: profile.businessName,
+              sector: profile.sector,
+              description: profile.description,
+              location: profile.location,
+              fundingMin: profile.fundingMin,
+              fundingMax: profile.fundingMax,
+              fundingPurposes: profile.fundingPurposes,
+              funderLocations: (profile as { funderLocations?: string[] }).funderLocations,
+            });
+            const result = await runDiscoveryAndUpsert(discoveryProfile);
+            totalCreated += result.created;
+            totalUpdated += result.updated;
+          } catch (err) {
+            console.error("[cron/grant-discovery] org error:", err);
+          }
+        }
+
+        return {
+          orgs: byOrg.size,
+          created: totalCreated,
+          updated: totalUpdated,
+        };
+      }
+    );
+
+    return NextResponse.json({
+      ok: true,
+      ...result,
+    });
+  } catch (error) {
+    console.error("[cron/grant-discovery]", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Grant discovery failed" },
+      { status: 500 }
+    );
   }
-
-  let totalCreated = 0;
-  let totalUpdated = 0;
-
-  for (const [, profile] of byOrg) {
-    try {
-      const discoveryProfile = profileToDiscoveryProfile({
-        businessName: profile.businessName,
-        sector: profile.sector,
-        description: profile.description,
-        location: profile.location,
-        fundingMin: profile.fundingMin,
-        fundingMax: profile.fundingMax,
-        fundingPurposes: profile.fundingPurposes,
-        funderLocations: (profile as { funderLocations?: string[] }).funderLocations,
-      });
-      const result = await runDiscoveryAndUpsert(discoveryProfile);
-      totalCreated += result.created;
-      totalUpdated += result.updated;
-    } catch (err) {
-      console.error("[cron/grant-discovery] org error:", err);
-    }
-  }
-
-  return NextResponse.json({
-    ok: true,
-    orgs: byOrg.size,
-    created: totalCreated,
-    updated: totalUpdated,
-  });
 }

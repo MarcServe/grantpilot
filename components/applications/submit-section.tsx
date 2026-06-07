@@ -19,16 +19,14 @@ export function SubmitSection({ applicationId }: SubmitSectionProps) {
 
   async function handleSubmit() {
     if (!checked) {
-      toast.error("Please confirm you have reviewed the application.");
+      toast.error("Please confirm the funder application has been sent.");
       return;
     }
 
     setLoading(true);
     try {
-      const res = await fetch("/api/applications/submit", {
+      const res = await fetch(`/api/applications/${applicationId}/mark-submitted`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ applicationId, confirmed: true }),
       });
 
       const data = await res.json();
@@ -38,7 +36,7 @@ export function SubmitSection({ applicationId }: SubmitSectionProps) {
         return;
       }
 
-      toast.success("Application submitted successfully!");
+      toast.success("Application marked as submitted");
       router.refresh();
     } catch {
       toast.error("Something went wrong");
@@ -50,12 +48,12 @@ export function SubmitSection({ applicationId }: SubmitSectionProps) {
   return (
     <Card id="application-submit" className="scroll-mt-24 border-primary/20 bg-primary/5">
       <CardHeader>
-        <CardTitle>Ready to Submit</CardTitle>
+        <CardTitle>Mark Submitted</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          The AI has completed filling in your application. Please review all the
-          information above carefully before submitting.
+          Submit the application on the official funder website or portal. After it has been sent, mark it submitted
+          here so GrantPilot stops sending repeat eligibility prompts and starts outcome tracking.
         </p>
 
         <div className="flex items-start gap-3">
@@ -65,9 +63,7 @@ export function SubmitSection({ applicationId }: SubmitSectionProps) {
             onCheckedChange={(value) => setChecked(value === true)}
           />
           <label htmlFor="confirm" className="text-sm leading-relaxed">
-            I have reviewed this application and confirm that all information is
-            accurate. I authorise Grants-Copilot to submit this application on my
-            behalf.
+            I have submitted this application to the funder, or I am recording that it has been sent outside GrantPilot.
           </label>
         </div>
 
@@ -81,7 +77,7 @@ export function SubmitSection({ applicationId }: SubmitSectionProps) {
           ) : (
             <Send className="h-4 w-4" />
           )}
-          Submit Application
+          Mark as submitted
         </Button>
       </CardContent>
     </Card>

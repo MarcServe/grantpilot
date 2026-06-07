@@ -3,12 +3,13 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { notifyOrgMembers } from "@/lib/notify";
 import { isMondayLocal, isNineAmLocal } from "@/lib/timezone";
 import { fetchApplicationsNeedingOutcome } from "@/lib/outcome-feedback";
+import { runWithCronLog } from "@/lib/cron-run-log";
 
 /** Runs hourly; emails each org only when it is Monday ~9am in their timezone and pending outcomes exist */
 export const outcomeFeedbackReminder = inngest.createFunction(
   { id: "outcome-feedback-reminder", name: "Outcome feedback reminder" },
   { cron: "15 * * * *" },
-  async () => {
+  async () => runWithCronLog({ jobName: "Outcome Feedback Reminder", route: "inngest/outcome-feedback-reminder", trigger: "inngest" }, async () => {
     const supabase = getSupabaseAdmin();
 
     const { data: orgsData = [] } = await supabase.from("Organisation").select("id, preferredTimezone");
@@ -53,5 +54,5 @@ export const outcomeFeedbackReminder = inngest.createFunction(
       console.info("[outcome-feedback-reminder] No emails sent", summary);
     }
     return summary;
-  }
+  })
 );

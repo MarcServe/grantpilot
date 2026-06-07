@@ -24,12 +24,12 @@ export async function GET(): Promise<NextResponse> {
 
     if (!data) {
       return NextResponse.json({
-        minScore: 0,
+        minScore: 85,
         maxScore: 100,
-        eligibleThreshold: 70,
+        eligibleThreshold: 85,
         notifyEmail: true,
         notifyInApp: true,
-        notifyWhatsApp: false,
+        notifyWhatsApp: true,
       });
     }
 

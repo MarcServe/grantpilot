@@ -15,16 +15,17 @@ export function getStripe(): Stripe {
 export function getPlanFromPriceId(priceId: string): PlanKey | null {
   if (!priceId) return null;
   for (const plan of PLAN_CATALOG) {
-    if (!plan.stripePriceIdEnv) continue;
-    if (priceId === process.env[plan.stripePriceIdEnv]) return plan.value;
+    const envPriceId = plan.stripePriceIdEnv ? process.env[plan.stripePriceIdEnv] : "";
+    const configuredPriceId = plan.stripePriceId ?? envPriceId;
+    if (priceId === configuredPriceId) return plan.value;
   }
   return null;
 }
 
 export function getAllowedCheckoutPriceIds(): Set<string> {
-  return new Set(
-    PLAN_CATALOG
-      .map((plan) => plan.stripePriceIdEnv ? process.env[plan.stripePriceIdEnv] : "")
-      .filter((value): value is string => Boolean(value?.trim()))
-  );
+  const ids = PLAN_CATALOG.map((plan) => {
+    const envPriceId = plan.stripePriceIdEnv ? process.env[plan.stripePriceIdEnv] : "";
+    return plan.stripePriceId ?? envPriceId;
+  });
+  return new Set(ids.filter((value): value is string => Boolean(value?.trim())));
 }

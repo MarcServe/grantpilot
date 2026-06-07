@@ -16,6 +16,9 @@ export interface FounderPackExportInput {
     businessName?: string | null;
     sector?: string | null;
   } | null;
+  exportOptions?: {
+    includePitchDeckNotes?: boolean;
+  } | null;
 }
 
 interface TextSection {
@@ -99,6 +102,10 @@ function includes(pack: FounderPackExportInput, type: FounderPackDocumentType): 
   return selectedTypes(pack).includes(type);
 }
 
+function includePitchDeckNotes(pack: FounderPackExportInput): boolean {
+  return pack.exportOptions?.includePitchDeckNotes === true;
+}
+
 function splitParagraphs(text: string): string[] {
   return String(text || "")
     .split(/\n{2,}|\r?\n/)
@@ -108,6 +115,10 @@ function splitParagraphs(text: string): string[] {
 
 function listLines(items: string[], prefix = "- "): string[] {
   return items.filter(Boolean).map((item) => `${prefix}${item}`);
+}
+
+function businessLabel(pack: FounderPackExportInput): string {
+  return pack.profile?.businessName?.trim() || "Founder Funding Pack";
 }
 
 export function buildFounderPackTextSections(pack: FounderPackExportInput): TextSection[] {
@@ -121,14 +132,15 @@ export function buildFounderPackTextSections(pack: FounderPackExportInput): Text
   addText("business_plan", "Business Plan", content.businessPlan);
 
   if (includes(pack, "pitch_deck") && content.pitchDeck?.length) {
+    const includeNotes = includePitchDeckNotes(pack);
     sections.push({
       title: "Canvas Standard Pitch Deck",
       lines: content.pitchDeck.flatMap((slide, index) => [
         `Slide ${index + 1}: ${slide.title}`,
         slide.objective ? `Objective: ${slide.objective}` : "",
         ...listLines(slide.bullets),
-        slide.speakerNotes ? `Speaker notes: ${slide.speakerNotes}` : "",
-        slide.visualDirection ? `Design direction: ${slide.visualDirection}` : "",
+        includeNotes && slide.speakerNotes ? `Speaker notes: ${slide.speakerNotes}` : "",
+        includeNotes && slide.visualDirection ? `Design direction: ${slide.visualDirection}` : "",
         "",
       ]).filter(Boolean),
     });
@@ -226,7 +238,7 @@ export function buildFounderPackTextSections(pack: FounderPackExportInput): Text
 }
 
 function packTitle(pack: FounderPackExportInput): string {
-  const business = pack.profile?.businessName || "Founder Funding Pack";
+  const business = businessLabel(pack);
   const types = selectedTypes(pack);
   const typeLabel =
     types.length === 1
@@ -270,7 +282,7 @@ function docParagraph(text: string, style?: string): string {
 }
 
 function docBullet(text: string): string {
-  return `<w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:ind w:left="720" w:hanging="360"/></w:pPr><w:r><w:t>•</w:t></w:r><w:r><w:tab/></w:r><w:r><w:t xml:space="preserve">${xmlEscape(text.replace(/^[-•]\s*/, ""))}</w:t></w:r></w:p>`;
+  return `<w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:ind w:left="720" w:hanging="360"/></w:pPr><w:r><w:t>-</w:t></w:r><w:r><w:tab/></w:r><w:r><w:t xml:space="preserve">${xmlEscape(text.replace(/^[-•]\s*/, ""))}</w:t></w:r></w:p>`;
 }
 
 function docPageBreak(): string {
@@ -294,7 +306,7 @@ export function generateFounderPackDocx(pack: FounderPackExportInput): Buffer {
     pack.profile?.sector ? docParagraph(`Sector: ${pack.profile.sector}`) : "",
     pack.inputs?.founderName ? docParagraph(`Founder: ${pack.inputs.founderName}`) : "",
     pack.createdAt ? docParagraph(`Generated: ${new Date(pack.createdAt).toLocaleString("en-GB")}`) : "",
-    docParagraph("Prepared by GrantsCopilot", "Subtitle"),
+    pack.profile?.businessName ? docParagraph(pack.profile.businessName, "Subtitle") : "",
     ...buildFounderPackTextSections(pack).flatMap((section) => [
       docPageBreak(),
       docParagraph(section.title, "Heading1"),
@@ -329,25 +341,42 @@ function wrapText(text: string, max = 84): string[] {
   return lines;
 }
 
+function pdfSafeText(text: string): string {
+  return text
+    .replace(/[£]/g, "GBP ")
+    .replace(/[€]/g, "EUR ")
+    .replace(/[–—]/g, "-")
+    .replace(/[“”]/g, "\"")
+    .replace(/[‘’]/g, "'")
+    .replace(/[•]/g, "-")
+    .replace(/[^\t\n\r\x20-\x7E]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function pdfEscape(text: string): string {
-  return text.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+  return pdfSafeText(text).replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
 }
 
 interface PdfRow {
   text: string;
   size: number;
   font: "F1" | "F2";
+  kind?: "section" | "slideTitle" | "slideTitleContinuation" | "subheading" | "bullet" | "note" | "body";
+  slideNo?: number;
   indent?: number;
   gapBefore?: number;
   gapAfter?: number;
 }
 
 function addWrappedPdfRows(rows: PdfRow[], text: string, options: Omit<PdfRow, "text"> & { max?: number }) {
-  for (const line of wrapText(text, options.max ?? 92)) {
+  for (const line of wrapText(pdfSafeText(text), options.max ?? 92)) {
     rows.push({
       text: line,
       size: options.size,
       font: options.font,
+      kind: options.kind,
+      slideNo: options.slideNo,
       indent: options.indent,
       gapBefore: options.gapBefore,
       gapAfter: options.gapAfter,
@@ -364,27 +393,52 @@ function buildPdfRows(pack: FounderPackExportInput): PdfRow[] {
   ];
 
   for (const section of buildFounderPackTextSections(pack)) {
-    rows.push({ text: `__PAGE_BREAK__${section.title}`, size: 16, font: "F2", gapAfter: 8 });
+    const isPitchDeckSection = section.title === "Canvas Standard Pitch Deck";
+    if (!isPitchDeckSection) {
+      rows.push({ text: `__PAGE_BREAK__${section.title}`, size: 16, font: "F2", kind: "section", gapAfter: 8 });
+    }
     for (const raw of section.lines) {
       const line = raw.trim();
       if (!line) continue;
       if (/^Slide\s+\d+:/i.test(line)) {
-        rows.push({ text: line, size: 13, font: "F2", gapBefore: 8, gapAfter: 3 });
+        const slideNo = Number(line.match(/^Slide\s+(\d+):/i)?.[1] ?? 0);
+        rows.push({
+          text: `${isPitchDeckSection ? "__PAGE_BREAK__" : ""}${line.replace(/^Slide\s+\d+:\s*/i, "")}`,
+          size: 14,
+          font: "F2",
+          kind: "slideTitle",
+          slideNo: Number.isFinite(slideNo) ? slideNo : undefined,
+          indent: 66,
+          gapBefore: 14,
+          gapAfter: 22,
+        });
       } else if (/^(Objective|Speaker notes|Design direction|Activities|Outputs|Assumptions|Year \d|Key Partners|Key Activities|Key Resources|Value Propositions|Customer Relationships|Channels|Customer Segments|Cost Structure|Revenue Streams)$/i.test(line)) {
-        rows.push({ text: line, size: 11, font: "F2", gapBefore: 6, gapAfter: 2 });
+        rows.push({
+          text: line,
+          size: 11,
+          font: "F2",
+          kind: "subheading",
+          indent: isPitchDeckSection ? 82 : undefined,
+          gapBefore: 6,
+          gapAfter: 2,
+        });
       } else if (/^[-•]\s+/.test(line)) {
-        addWrappedPdfRows(rows, `• ${line.replace(/^[-•]\s*/, "")}`, {
+        addWrappedPdfRows(rows, `- ${line.replace(/^[-•]\s*/, "")}`, {
           size: 10,
           font: "F1",
-          indent: 18,
-          max: 84,
+          kind: "bullet",
+          indent: isPitchDeckSection ? 96 : 18,
+          max: isPitchDeckSection ? 72 : 84,
           gapAfter: 1,
         });
       } else {
+        const isNote = /^(Objective|Speaker notes|Design direction):/i.test(line);
         addWrappedPdfRows(rows, line, {
           size: 10.5,
-          font: "F1",
-          max: 88,
+          font: isNote ? "F2" : "F1",
+          kind: isNote ? "note" : "body",
+          indent: isPitchDeckSection ? 82 : undefined,
+          max: isPitchDeckSection ? 74 : 88,
           gapAfter: 3,
         });
       }
@@ -393,25 +447,180 @@ function buildPdfRows(pack: FounderPackExportInput): PdfRow[] {
   return rows;
 }
 
-export function generateFounderPackPdf(pack: FounderPackExportInput): Buffer {
-  const rows = buildPdfRows(pack);
+function buildPdfTitleRows(pack: FounderPackExportInput): PdfRow[] {
+  return [
+    { text: packTitle(pack), size: 19, font: "F2", gapAfter: 8 },
+    ...(pack.profile?.sector ? [{ text: `Sector: ${pack.profile.sector}`, size: 11, font: "F1" as const }] : []),
+    ...(pack.inputs?.founderName ? [{ text: `Founder: ${pack.inputs.founderName}`, size: 11, font: "F1" as const }] : []),
+    ...(pack.createdAt
+      ? [{ text: `Generated: ${new Date(pack.createdAt).toLocaleString("en-GB")}`, size: 10, font: "F1" as const, gapAfter: 14 }]
+      : []),
+  ];
+}
+
+function appendStandardPdfLine(rows: PdfRow[], raw: string): void {
+  const line = raw.trim();
+  if (!line) return;
+  if (/^Slide\s+\d+:/i.test(line)) {
+    const slideNo = Number(line.match(/^Slide\s+(\d+):/i)?.[1] ?? 0);
+    rows.push({
+      text: line.replace(/^Slide\s+\d+:\s*/i, ""),
+      size: 14,
+      font: "F2",
+      kind: "slideTitle",
+      slideNo: Number.isFinite(slideNo) ? slideNo : undefined,
+      indent: 66,
+      gapBefore: 14,
+      gapAfter: 22,
+    });
+    return;
+  }
+  if (/^(Objective|Speaker notes|Design direction|Activities|Outputs|Assumptions|Year \d|Key Partners|Key Activities|Key Resources|Value Propositions|Customer Relationships|Channels|Customer Segments|Cost Structure|Revenue Streams)$/i.test(line)) {
+    rows.push({ text: line, size: 11, font: "F2", kind: "subheading", gapBefore: 6, gapAfter: 2 });
+    return;
+  }
+  if (/^[-•]\s+/.test(line)) {
+    addWrappedPdfRows(rows, `- ${line.replace(/^[-•]\s*/, "")}`, {
+      size: 10,
+      font: "F1",
+      kind: "bullet",
+      indent: 18,
+      max: 84,
+      gapAfter: 1,
+    });
+    return;
+  }
+  addWrappedPdfRows(rows, line, {
+    size: 10.5,
+    font: "F1",
+    max: 88,
+    gapAfter: 3,
+  });
+}
+
+function buildPdfSectionRows(section: TextSection): PdfRow[] {
+  const rows: PdfRow[] = [{ text: section.title, size: 16, font: "F2", kind: "section", gapAfter: 8 }];
+  section.lines.forEach((line) => appendStandardPdfLine(rows, line));
+  return rows;
+}
+
+function buildPitchSlideTitleRows(title: string, slideNo: number): PdfRow[] {
+  const titleLines = wrapText(pdfSafeText(title), 42);
+  const lines = titleLines.length > 0 ? titleLines : ["Untitled slide"];
+  return lines.map((line, index) => ({
+    text: line,
+    size: 18,
+    font: "F2" as const,
+    kind: index === 0 ? "slideTitle" as const : "slideTitleContinuation" as const,
+    slideNo: index === 0 ? slideNo : undefined,
+    indent: 80,
+    gapBefore: index === 0 ? 10 : 0,
+    gapAfter: index === lines.length - 1 ? 24 : 2,
+  }));
+}
+
+function buildPitchSlidePdfRows(
+  slide: FounderPackContent["pitchDeck"][number],
+  index: number,
+  options: { includeNotes?: boolean } = {}
+): PdfRow[] {
+  const rows: PdfRow[] = buildPitchSlideTitleRows(slide.title, index + 1);
+  if (slide.objective) {
+    addWrappedPdfRows(rows, `Objective: ${slide.objective}`, {
+      size: 11,
+      font: "F2",
+      kind: "note",
+      indent: 94,
+      max: 70,
+      gapAfter: 10,
+    });
+  }
+  slide.bullets.slice(0, 8).forEach((bullet) => {
+    addWrappedPdfRows(rows, `- ${bullet}`, {
+      size: 11,
+      font: "F1",
+      kind: "bullet",
+      indent: 104,
+      max: 68,
+      gapAfter: 3,
+    });
+  });
+  if (options.includeNotes && slide.speakerNotes) {
+    addWrappedPdfRows(rows, `Speaker notes: ${slide.speakerNotes}`, {
+      size: 10.5,
+      font: "F2",
+      kind: "note",
+      indent: 94,
+      max: 70,
+      gapBefore: 18,
+      gapAfter: 8,
+    });
+  }
+  if (options.includeNotes && slide.visualDirection) {
+    addWrappedPdfRows(rows, `Design direction: ${slide.visualDirection}`, {
+      size: 10.5,
+      font: "F2",
+      kind: "note",
+      indent: 94,
+      max: 70,
+      gapAfter: 8,
+    });
+  }
+  return rows;
+}
+
+function paginatePdfRows(rows: PdfRow[]): PdfRow[][] {
   const pages: PdfRow[][] = [];
   let current: PdfRow[] = [];
   let y = 742;
   const bottom = 62;
   for (const row of rows) {
-    const forcedBreak = row.text.startsWith("__PAGE_BREAK__");
-    const cleanRow = forcedBreak ? { ...row, text: row.text.replace("__PAGE_BREAK__", "") } : row;
-    const lineHeight = cleanRow.size + 5 + (cleanRow.gapBefore ?? 0) + (cleanRow.gapAfter ?? 0);
-    if ((forcedBreak && current.length > 0) || y - lineHeight < bottom) {
+    const lineHeight = row.size + 5 + (row.gapBefore ?? 0) + (row.gapAfter ?? 0);
+    if (current.length > 0 && y - lineHeight < bottom) {
       pages.push(current);
       current = [];
       y = 742;
     }
-    current.push(cleanRow);
+    current.push(row);
     y -= lineHeight;
   }
   if (current.length > 0) pages.push(current);
+  return pages;
+}
+
+function buildPdfPages(pack: FounderPackExportInput): PdfRow[][] {
+  const pages = paginatePdfRows(buildPdfTitleRows(pack));
+  const includeNotes = includePitchDeckNotes(pack);
+  for (const section of buildFounderPackTextSections(pack)) {
+    if (section.title === "Canvas Standard Pitch Deck" && includes(pack, "pitch_deck") && pack.content.pitchDeck?.length) {
+      pack.content.pitchDeck.forEach((slide, index) => {
+        pages.push(buildPitchSlidePdfRows(slide, index, { includeNotes }));
+      });
+      continue;
+    }
+    pages.push(...paginatePdfRows(buildPdfSectionRows(section)));
+  }
+  return pages.filter((page) => page.length > 0);
+}
+
+function rgb(hex: string): [number, number, number] {
+  const clean = hex.replace(/^#/, "");
+  const value = /^[0-9a-f]{6}$/i.test(clean) ? clean : "000000";
+  return [0, 2, 4].map((index) => Number.parseInt(value.slice(index, index + 2), 16) / 255) as [number, number, number];
+}
+
+function fillRect(x: number, y: number, w: number, h: number, color: string): string {
+  const [r, g, b] = rgb(color);
+  return `${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} rg ${x} ${y} ${w} ${h} re f`;
+}
+
+function textAt(font: "F1" | "F2", size: number, x: number, y: number, text: string, color = "111827"): string {
+  const [r, g, b] = rgb(color);
+  return `${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} rg BT /${font} ${size} Tf ${x} ${y} Td (${pdfEscape(text)}) Tj ET`;
+}
+
+export function generateFounderPackPdf(pack: FounderPackExportInput): Buffer {
+  const pages = buildPdfPages(pack);
 
   const objects: string[] = [];
   objects.push("<< /Type /Catalog /Pages 2 0 R >>");
@@ -425,10 +634,24 @@ export function generateFounderPackPdf(pack: FounderPackExportInput): Buffer {
     page.forEach((row) => {
       cursorY -= row.gapBefore ?? 0;
       const x = 50 + (row.indent ?? 0);
-      commands.push(`BT /${row.font} ${row.size} Tf ${x} ${cursorY} Td (${pdfEscape(row.text)}) Tj ET`);
+      if (row.kind === "section") {
+        commands.push(fillRect(44, cursorY - 5, 520, 24, "EAF2FC"));
+      }
+      if (row.kind === "slideTitle") {
+        commands.push(fillRect(50, cursorY - 28, 52, 42, "081B36"));
+        commands.push(textAt("F2", 6, 57, cursorY + 1, "SLIDE", "8FB8FF"));
+        commands.push(textAt("F2", 18, 59, cursorY - 18, String(row.slideNo || ""), "FFFFFF"));
+      }
+      if (row.kind === "bullet") {
+        commands.push(fillRect(Math.max(44, x - 8), cursorY - row.size - 5, Math.max(120, 560 - x), row.size + 8, "F3F7FC"));
+      }
+      if (row.kind === "note") {
+        commands.push(fillRect(Math.max(44, x - 8), cursorY - row.size - 5, Math.max(120, 560 - x), row.size + 8, "F8FBFF"));
+      }
+      commands.push(textAt(row.font, row.size, x, cursorY, row.text, row.kind === "subheading" ? "1F5B99" : "111827"));
       cursorY -= row.size + 5 + (row.gapAfter ?? 0);
     });
-    commands.push(`BT /F1 8 Tf 50 34 Td (${pdfEscape(`GrantsCopilot • ${index + 1}/${pages.length}`)}) Tj ET`);
+    commands.push(textAt("F1", 8, 50, 34, `${businessLabel(pack)} | ${index + 1}/${pages.length}`, "374151"));
     const content = commands.join("\n");
     objects.push(`<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`);
   });
@@ -472,6 +695,7 @@ function slideBullet(text: string): string {
 }
 
 function slideXml(
+  brandLabel: string,
   title: string,
   bullets: string[],
   slideNo: number,
@@ -495,10 +719,11 @@ function slideXml(
         "F3F7FC"
       )
     : "";
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:bg><p:bgPr><a:solidFill><a:srgbClr val="F8FBFF"/></a:solidFill></p:bgPr></p:bg><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr><p:sp><p:nvSpPr><p:cNvPr id="2" name="Slide Number Band"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1200000" cy="5143500"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="081B36"/></a:solidFill></p:spPr><p:txBody><a:bodyPr lIns="190000" tIns="380000" rIns="90000" bIns="90000"/><a:lstStyle/>${slideParagraph("SLIDE", 1050, true, "8FB8FF")}${slideParagraph(String(slideNo), 3300, true, "FFFFFF")}${slideParagraph("GrantsCopilot", 950, true, "43C28A")}</p:txBody></p:sp><p:sp><p:nvSpPr><p:cNvPr id="3" name="Title"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="1700000" y="520000"/><a:ext cx="4200000" cy="1000000"/></a:xfrm><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/>${slideParagraph(title, 2700, true, "071A3A")}</p:txBody></p:sp>${objectiveBlock}${slideTextShape(6, "Slide Bullets", 1700000, 1700000, 6800000, 2050000, bulletRuns || slideParagraph("Add supporting evidence for this slide.", 1500), "EAF2FC")}${notes}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`;
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:bg><p:bgPr><a:solidFill><a:srgbClr val="F8FBFF"/></a:solidFill></p:bgPr></p:bg><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr><p:sp><p:nvSpPr><p:cNvPr id="2" name="Slide Number Band"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1200000" cy="5143500"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="081B36"/></a:solidFill></p:spPr><p:txBody><a:bodyPr lIns="190000" tIns="380000" rIns="90000" bIns="90000"/><a:lstStyle/>${slideParagraph("SLIDE", 1050, true, "8FB8FF")}${slideParagraph(String(slideNo), 3300, true, "FFFFFF")}${slideParagraph(brandLabel, 950, true, "43C28A")}</p:txBody></p:sp><p:sp><p:nvSpPr><p:cNvPr id="3" name="Title"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="1700000" y="520000"/><a:ext cx="4200000" cy="1000000"/></a:xfrm><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/>${slideParagraph(title, 2700, true, "071A3A")}</p:txBody></p:sp>${objectiveBlock}${slideTextShape(6, "Slide Bullets", 1700000, 1700000, 6800000, 2050000, bulletRuns || slideParagraph("Add supporting evidence for this slide.", 1500), "EAF2FC")}${notes}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`;
 }
 
 export function generateFounderPackPptx(pack: FounderPackExportInput): Buffer {
+  const includeNotes = includePitchDeckNotes(pack);
   const slides: {
     title: string;
     bullets: string[];
@@ -510,8 +735,8 @@ export function generateFounderPackPptx(pack: FounderPackExportInput): Buffer {
         title: slide.title,
         bullets: slide.bullets,
         objective: slide.objective,
-        speakerNotes: slide.speakerNotes,
-        visualDirection: slide.visualDirection,
+        speakerNotes: includeNotes ? slide.speakerNotes : undefined,
+        visualDirection: includeNotes ? slide.visualDirection : undefined,
       }))
     : buildFounderPackTextSections(pack).slice(0, 12).map((section) => ({
         title: section.title,
@@ -532,6 +757,7 @@ export function generateFounderPackPptx(pack: FounderPackExportInput): Buffer {
   };
   slides.forEach((slide, index) => {
     files[`ppt/slides/slide${index + 1}.xml`] = slideXml(
+      businessLabel(pack).slice(0, 26),
       slide.title,
       slide.bullets,
       index + 1,
@@ -541,7 +767,7 @@ export function generateFounderPackPptx(pack: FounderPackExportInput): Buffer {
     );
     files[`ppt/slides/_rels/slide${index + 1}.xml.rels`] = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdLayout1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/></Relationships>`;
   });
-  if (count === 1 && slides.length === 0) files["ppt/slides/slide1.xml"] = slideXml(packTitle(pack), ["Generate a pitch deck first for richer slides."], 1);
+  if (count === 1 && slides.length === 0) files["ppt/slides/slide1.xml"] = slideXml(businessLabel(pack).slice(0, 26), packTitle(pack), ["Generate a pitch deck first for richer slides."], 1);
   return createZip(files);
 }
 

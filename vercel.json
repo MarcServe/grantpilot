@@ -24,6 +24,10 @@
     {
       "path": "/api/cron/deadline-reminder",
       "schedule": "30 8 * * *"
+    },
+    {
+      "path": "/api/cron/daily-notification-safeguard",
+      "schedule": "15 * * * *"
     }
   ]
 }

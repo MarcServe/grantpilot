@@ -63,12 +63,12 @@ export function buildEmailHtml(
 
     case "application_started":
       return {
-        subject: `Application started: ${grant}`,
+        subject: `Application prep added: ${grant}`,
         html: baseLayout(
-          "Your application has started",
-          `<p>We've started processing your application for <strong>${grant}</strong>.</p><p>GrantsCopilot is filling in the form using your business profile. We'll let you know when it's ready for review.</p>`,
+          "Your application prep workspace is ready",
+          `<p>We added <strong>${grant}</strong> to your application workspace.</p><p>Review eligibility, generate your preparation documents, open the official funder form, then mark the application submitted after you send it.</p>`,
           payload.applicationId ? `${appUrl}/applications/${payload.applicationId}` : undefined,
-          "Track Progress"
+          "Open application"
         ),
       };
 
@@ -79,13 +79,13 @@ export function buildEmailHtml(
         : undefined;
       const ctaUrl = reviewUrl;
       const extra = approveUrl
-        ? `<p style="margin-top:16px"><a href="${approveUrl}" style="color:#1B3A6B;font-weight:600">Approve &amp; submit (no login)</a></p>`
+        ? `<p style="margin-top:16px"><a href="${approveUrl}" style="color:#1B3A6B;font-weight:600">Open review link</a></p>`
         : "";
       return {
         subject: `Review required: ${grant}`,
         html: baseLayout(
-          "Your application is ready for review",
-          `<p>Your application for <strong>${grant}</strong> has been filled in by GrantsCopilot and is ready for your review.</p><p>Please review all the information carefully before approving the submission.</p>${extra}`,
+          "Your application needs review",
+          `<p>Your application workspace for <strong>${grant}</strong> is ready for review.</p><p>Check your prepared answers and documents, then submit on the official funder site when ready.</p>${extra}`,
           ctaUrl,
           "Review Application"
         ),
@@ -120,7 +120,7 @@ export function buildEmailHtml(
         subject: `Sign-in required: ${grant}`,
         html: baseLayout(
           "Sign in required to continue",
-          `<p>Your application for <strong>${grant}</strong> needs you to sign in on the funder's website.</p><p>Open the application below, then sign in or create an account on their site. After that, use the bookmarklet or click Resume to let GrantsCopilot continue filling the form.</p>`,
+          `<p>Your application for <strong>${grant}</strong> needs you to sign in on the funder's website.</p><p>Open the application below, sign in or create an account on the funder site, then use your prepared answers and documents to complete the form.</p>`,
           applicationUrl,
           "Open Application"
         ),
@@ -139,7 +139,7 @@ export function buildEmailHtml(
         subject: `More info needed: ${grant}`,
         html: baseLayout(
           "We need a few details to continue",
-          `<p>Your application for <strong>${grant}</strong> needs a few required details that aren't in your profile.</p>${detailsList}<p>Open the application below, fill in the requested fields, and click Resume so GrantsCopilot can continue.</p>`,
+          `<p>Your application for <strong>${grant}</strong> needs a few required details that aren't in your profile.</p>${detailsList}<p>Open the application below, add the missing details, and keep them with your preparation materials before you submit on the funder site.</p>`,
           applicationUrl,
           "Provide Details"
         ),
@@ -155,6 +155,85 @@ export function buildEmailHtml(
           `<p>The deadline for <strong>${grant}</strong> is ${payload.deadline ?? "approaching soon"}.</p><p>Don't miss out — review the fit, prepare your documents, and apply on the official funder site.</p>`,
           viewGrantUrl,
           "View Grant"
+        ),
+      };
+    }
+
+    case "daily_grant_update": {
+      const profileName = payload.profileName ?? "your business";
+      const checked = payload.checkedGrantsCount ?? 0;
+      const matched = Math.max(0, Math.round(Number(payload.matchedGrantsCount ?? 0)));
+      const matchedLine =
+        matched > 0
+          ? `<p>You currently have <strong>${matched}</strong> eligible ${matched === 1 ? "grant" : "grants"} available in My Matches.</p>`
+          : "<p>No new high-confidence eligible grants were ready to notify you about this morning.</p>";
+      return {
+        subject: "Today's GrantsCopilot scan is complete",
+        html: baseLayout(
+          "Today's grant scan is complete",
+          `<p>GrantsCopilot checked fresh opportunities for <strong>${escapeHtml(profileName)}</strong>.</p>
+          ${matchedLine}
+          <p>We&apos;ll keep scanning daily and send WhatsApp only when there is a strong opportunity alert.</p>
+          ${checked > 0 ? `<p style="color:#64748b;font-size:13px">Checked ${checked} available grants.</p>` : ""}`,
+          `${appUrl}/grants/eligible`,
+          "View My Matches"
+        ),
+      };
+    }
+
+    case "deadline_daily_update":
+      return {
+        subject: "Today's grant deadline check is complete",
+        html: baseLayout(
+          "No urgent grant deadlines today",
+          "<p>GrantsCopilot checked your eligible and saved opportunities for upcoming deadline reminders.</p><p>There are no deadline reminders due this morning. We'll email you when an eligible grant is 7, 3, or 1 day from closing, or due today.</p>",
+          `${appUrl}/grants/eligible`,
+          "View My Matches"
+        ),
+      };
+
+    case "eligibility_upgrade_prompt": {
+      const count = Math.max(0, Math.round(Number(payload.matchedGrantsCount ?? 0)));
+      const noun = count === 1 ? "grant" : "grants";
+      return {
+        subject:
+          count > 0
+            ? `${count} eligible ${noun} waiting in GrantsCopilot`
+            : "Eligible grants are waiting in GrantsCopilot",
+        html: baseLayout(
+          count > 0 ? `${count} eligible ${noun} waiting` : "Eligible grants are waiting",
+          `<p>GrantsCopilot found <strong>${count || "new"}</strong> strong-fit grant ${count === 1 ? "opportunity" : "opportunities"} for your business.</p>
+          <p>Choose a plan to unlock daily opportunity alerts, full eligibility reasoning, and automatic application preparation.</p>
+          <p>You can still browse your account, but auto-prep and proactive notifications require an active plan.</p>`,
+          `${appUrl}/billing`,
+          "Choose a plan"
+        ),
+      };
+    }
+
+    case "business_dna_match_health": {
+      const profileName = payload.profileName ?? "your business";
+      const withinReach = Math.max(0, Math.round(Number(payload.withinReachCount ?? payload.matchedGrantsCount ?? 0)));
+      const days = Math.max(3, Math.round(Number(payload.daysWithoutHighMatch ?? 3)));
+      const blockers = (payload.matchHealthBlockers ?? []).filter(Boolean).slice(0, 5);
+      const actions = (payload.matchHealthActions ?? []).filter(Boolean).slice(0, 5);
+      const blockersHtml = blockers.length
+        ? `<p><strong>What is holding matches back:</strong></p><ul style="padding-left:20px">${blockers.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
+        : "";
+      const actionsHtml = actions.length
+        ? `<p><strong>What to improve:</strong></p><ul style="padding-left:20px">${actions.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
+        : "";
+      return {
+        subject: "Improve your Business DNA to unlock stronger grant matches",
+        html: baseLayout(
+          "No new high-confidence matches yet",
+          `<p>GrantsCopilot has not found a new 85%+ actionable match for <strong>${escapeHtml(profileName)}</strong> in about ${days} days.</p>
+          <p>We did find <strong>${withinReach}</strong> within-reach ${withinReach === 1 ? "grant" : "grants"}, but your Business DNA may need stronger evidence or broader factual positioning before we can recommend them with high confidence.</p>
+          ${blockersHtml}
+          ${actionsHtml}
+          <p>Open My Matches and use <strong>Improve Business DNA</strong> to review AI-suggested edits before applying them.</p>`,
+          `${appUrl}/grants/eligible`,
+          "Review Business DNA"
         ),
       };
     }
@@ -188,8 +267,9 @@ export function buildEmailHtml(
     case "grant_scan_digest": {
       const profileName = payload.profileName ?? "Your business";
       const grants = payload.grants ?? [];
-      const rows = grants
-        .map((g: DigestGrantItem) => {
+      const withinReachGrants = payload.withinReachGrants ?? [];
+      const renderRows = (items: DigestGrantItem[]) =>
+        items.map((g: DigestGrantItem) => {
           const viewUrl = `${appUrl}/grants/${g.grantId}`;
           const summaryText = g.summary ? ` — ${g.summary.slice(0, 120)}${g.summary.length > 120 ? "…" : ""}` : "";
           const missingNote =
@@ -197,7 +277,7 @@ export function buildEmailHtml(
               ? `<br><span style="color:#b45309;font-size:13px">May require: ${escapeHtml((g.missingDocuments ?? []).join(", "))}. <a href="${appUrl}/profile" style="color:#1B3A6B">Add in Profile → Documents</a></span>`
               : "";
           const hasWorkNeeded =
-            g.score < 70 &&
+            g.score < 80 &&
             ((g.improvementPlan?.actions?.length ?? 0) > 0 ||
               (g.improvementPlan?.gaps?.length ?? 0) > 0 ||
               (g.missingCriteria?.length ?? 0) > 0);
@@ -212,16 +292,23 @@ export function buildEmailHtml(
           return `<tr><td style="padding:12px 0;border-bottom:1px solid #e2e8f0"><strong>${escapeHtml(g.grantName)}</strong> (${g.score}% match)${escapeHtml(summaryText)}<br><a href="${viewUrl}" style="color:#1B3A6B">View grant and prepare</a>${missingNote}${workNeededNote}</td></tr>`;
         })
         .join("");
-      const table = rows ? `<table style="width:100%;border-collapse:collapse">${rows}</table>` : "";
-      const hasAnyMissing = grants.some((g: DigestGrantItem) => ((g.missingDocuments?.length) ?? 0) > 0);
+      const strongRows = renderRows(grants);
+      const withinReachRows = renderRows(withinReachGrants);
+      const strongSection = strongRows
+        ? `<h2 style="font-size:16px;color:#1a1a1a;margin:20px 0 4px">Strong matches</h2><table style="width:100%;border-collapse:collapse">${strongRows}</table>`
+        : "";
+      const withinReachSection = withinReachRows
+        ? `<h2 style="font-size:16px;color:#1a1a1a;margin:20px 0 4px">Within reach</h2><p style="margin:0 0 8px;color:#64748b;font-size:13px">These may be worth reviewing, but check the listed gaps before applying.</p><table style="width:100%;border-collapse:collapse">${withinReachRows}</table>`
+        : "";
+      const hasAnyMissing = [...grants, ...withinReachGrants].some((g: DigestGrantItem) => ((g.missingDocuments?.length) ?? 0) > 0);
       const missingReminder = hasAnyMissing
         ? `<p style="margin-top:16px;padding:12px;background:#fef3c7;border-radius:8px;color:#92400e">Some grants may require documents you haven&apos;t uploaded yet. Add them in <a href="${appUrl}/profile" style="color:#1B3A6B;font-weight:600">Profile → Documents</a> before you apply.</p>`
         : "";
-      const body = `<p>New grant opportunities for <strong>${escapeHtml(profileName)}</strong> — review the fit, prepare your documents, and apply on the official funder site.</p>${table}${missingReminder}<p style="margin-top:16px">You can also browse all your matches from the app.</p>`;
+      const body = `<p>Today&apos;s grant opportunities for <strong>${escapeHtml(profileName)}</strong> — review the fit, prepare your documents, and apply on the official funder site.</p>${strongSection}${withinReachSection}${missingReminder}<p style="margin-top:16px">You can also browse all your matches from the app.</p>`;
       return {
-        subject: `[Grants-Copilot] New grant opportunities for ${profileName}`,
+        subject: `[Grants-Copilot] Today's grant opportunities for ${profileName}`,
         html: baseLayout(
-          `New grant opportunities for ${escapeHtml(profileName)}`,
+          `Today's grant opportunities for ${escapeHtml(profileName)}`,
           body,
           `${appUrl}/grants/eligible`,
           "View all matches"
@@ -313,15 +400,15 @@ export function buildWhatsAppMessage(
 
   switch (type) {
     case "application_started":
-      return `Your application for ${grant} has started processing. We'll let you know when it's ready for review.\n\n${appUrl}/applications/${payload.applicationId ?? ""}`;
+      return `Your application prep workspace for ${grant} is ready. Review eligibility, generate prep documents, apply on the funder site, then mark it submitted.\n\n${appUrl}/applications/${payload.applicationId ?? ""}`;
 
     case "review_required": {
       const reviewLink = payload.applicationId ? `${appUrl}/applications/${payload.applicationId}` : appUrl;
       const approveLink = payload.approveToken
         ? `${appUrl}/approve?token=${encodeURIComponent(payload.approveToken)}`
         : null;
-      let msg = `Your application for ${grant} is ready for review.\n\n📋 Review: ${reviewLink}`;
-      if (approveLink) msg += `\n✅ Approve (one tap): ${approveLink}`;
+      let msg = `Your application workspace for ${grant} is ready for review.\n\nReview: ${reviewLink}`;
+      if (approveLink) msg += `\nReview link: ${approveLink}`;
       return msg;
     }
 
@@ -333,7 +420,7 @@ export function buildWhatsAppMessage(
 
     case "application_login_required": {
       const applicationUrl = payload.applicationId ? `${appUrl}/applications/${payload.applicationId}` : appUrl;
-      return `Sign-in required for ${grant}. Sign in on the funder's site, then open the application and use Resume or the bookmarklet to continue.\n\nOpen application: ${applicationUrl}`;
+      return `Sign-in required for ${grant}. Sign in on the funder's site, then use your prepared answers and documents to complete the form.\n\nOpen application: ${applicationUrl}`;
     }
 
     case "application_needs_info": {
@@ -343,12 +430,30 @@ export function buildWhatsAppMessage(
         .slice(0, 3)
         .join("; ");
       const detailLine = details ? `\n\nNeeded: ${details}` : "";
-      return `We need a few details to continue your ${grant} application.${detailLine}\n\nOpen the link, fill in the requested fields, and click Resume.\n\n${applicationUrl}`;
+      return `We need a few details for your ${grant} application.${detailLine}\n\nOpen the link and add the missing details to your preparation materials before submitting on the funder site.\n\n${applicationUrl}`;
     }
 
     case "deadline_reminder": {
       const viewUrl = payload.grantId ? `${appUrl}/grants/${payload.grantId}` : appUrl + "/grants";
       return `Reminder: The deadline for ${grant} is ${payload.deadline ?? "approaching soon"}. Review the fit and prepare your documents before applying.\n\nView grant: ${viewUrl}`;
+    }
+
+    case "daily_grant_update":
+      return `Today's GrantsCopilot scan is complete. You currently have ${Math.max(0, Math.round(Number(payload.matchedGrantsCount ?? 0)))} eligible grants available in My Matches.\n\nView matches: ${appUrl}/grants/eligible`;
+
+    case "deadline_daily_update":
+      return `Today's deadline check is complete. There are no urgent eligible grant deadline reminders due this morning.\n\nView matches: ${appUrl}/grants/eligible`;
+
+    case "eligibility_upgrade_prompt": {
+      const count = Math.max(0, Math.round(Number(payload.matchedGrantsCount ?? 0)));
+      const noun = count === 1 ? "grant" : "grants";
+      return `GrantsCopilot found ${count || "new"} eligible ${noun} waiting for your business. Choose a plan to unlock automatic application preparation and daily opportunity alerts.\n\n${appUrl}/billing`;
+    }
+
+    case "business_dna_match_health": {
+      const profileName = payload.profileName ?? "your business";
+      const withinReach = Math.max(0, Math.round(Number(payload.withinReachCount ?? payload.matchedGrantsCount ?? 0)));
+      return `No new 85%+ match for ${profileName} yet. GrantsCopilot found ${withinReach} within-reach grants, but your Business DNA may need stronger evidence or broader factual positioning.\n\nReview: ${appUrl}/grants/eligible`;
     }
 
     case "grant_match_high": {
@@ -360,8 +465,10 @@ export function buildWhatsAppMessage(
     case "grant_scan_digest": {
       const profileName = payload.profileName ?? "Your business";
       const grants = payload.grants ?? [];
-      let msg = `New grant opportunities for ${profileName}\n\n`;
+      const withinReachGrants = payload.withinReachGrants ?? [];
+      let msg = `Today's grant opportunities for ${profileName}\n\n`;
       let anyMissing = false;
+      if (grants.length > 0) msg += "Strong matches:\n";
       for (const g of grants as DigestGrantItem[]) {
         const viewUrl = `${appUrl}/grants/${g.grantId}`;
         msg += `• ${g.grantName} (${g.score}% match)\n  View: ${viewUrl}\n`;
@@ -369,6 +476,14 @@ export function buildWhatsAppMessage(
         const workParts = [...(g.improvementPlan?.actions ?? []), ...(g.missingCriteria ?? [])].slice(0, 2);
         if (g.score < 70 && workParts.length > 0)
           msg += `  Work needed: ${workParts.join("; ")}\n`;
+      }
+      if (withinReachGrants.length > 0) msg += `${grants.length > 0 ? "\n" : ""}Within reach:\n`;
+      for (const g of withinReachGrants as DigestGrantItem[]) {
+        const viewUrl = `${appUrl}/grants/${g.grantId}`;
+        msg += `• ${g.grantName} (${g.score}% match)\n  View: ${viewUrl}\n`;
+        if ((g.missingDocuments?.length ?? 0) > 0) anyMissing = true;
+        const workParts = [...(g.improvementPlan?.actions ?? []), ...(g.missingCriteria ?? [])].slice(0, 2);
+        if (workParts.length > 0) msg += `  Check: ${workParts.join("; ")}\n`;
       }
       msg += `\nView all: ${appUrl}/grants`;
       if (anyMissing) msg += `\n\nSome grants may require documents you haven't uploaded. Add them in Profile → Documents: ${appUrl}/profile`;

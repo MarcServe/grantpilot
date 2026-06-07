@@ -11,6 +11,7 @@ import { grantSourceCrawler } from "@/inngest/grant-source-crawler";
 import { grantDiscoveryEnqueue } from "@/inngest/grant-discovery-enqueue";
 import { grantDiscoveryProcess } from "@/inngest/grant-discovery-process";
 import { grantUrlHealthSweep } from "@/inngest/grant-url-health-sweep";
+import { dailyNotificationSafeguard } from "@/inngest/daily-notification-safeguard";
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
@@ -27,5 +28,6 @@ export const { GET, POST, PUT } = serve({
     grantDiscovery,
     grantFormUrlScout,
     grantUrlHealthSweep,
+    dailyNotificationSafeguard,
   ],
 });

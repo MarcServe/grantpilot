@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { getActiveOrg, getCurrentUser } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { syncEligibilityWhatsAppPreference } from "@/lib/eligibility-preferences";
 
 /**
  * GET /api/profile/notification-channels
@@ -24,10 +25,13 @@ export async function GET() {
  * Updates the current user's WhatsApp opt-in (for grant match and deadline notifications).
  */
 export async function PATCH(req: Request) {
-  const user = await getCurrentUser();
-  if (!user) {
+  let activeOrg;
+  try {
+    activeOrg = await getActiveOrg();
+  } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const { user, orgId } = activeOrg;
   let body: { whatsappOptIn?: boolean };
   try {
     body = await req.json();
@@ -49,6 +53,12 @@ export async function PATCH(req: Request) {
   const { error } = await supabase.from("User").update(update).eq("id", userId);
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+  try {
+    await syncEligibilityWhatsAppPreference(orgId, whatsappOptIn);
+  } catch (e) {
+    console.error("[NOTIFICATION_CHANNELS] sync eligibility WhatsApp", e);
+    return NextResponse.json({ error: "WhatsApp was saved, but eligibility WhatsApp could not be synced." }, { status: 500 });
   }
   return NextResponse.json({ ok: true, whatsappOptIn });
 }

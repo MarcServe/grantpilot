@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getEligibilityNotifyMinCompletion } from "@/lib/eligibility-notify-config";
+import { getEligibilityWhatsAppTraceForOrg } from "@/lib/eligibility-notification-diagnostics";
 
 const INTERNAL_SECRET = process.env.INTERNAL_API_SECRET;
 
@@ -23,6 +24,7 @@ export async function GET(req: Request): Promise<NextResponse> {
     }
 
     const supabase = getSupabaseAdmin();
+    const whatsappTrace = await getEligibilityWhatsAppTraceForOrg(orgId, { days });
 
     let { data: profileRows = [] } = await supabase
       .from("BusinessProfile")
@@ -79,7 +81,15 @@ export async function GET(req: Request): Promise<NextResponse> {
         .from("NotificationLog")
         .select("channel, type, status, error")
         .in("userId", userIds)
-        .in("type", ["grant_scan_digest", "grant_match_high"])
+        .in("type", [
+          "grant_scan_digest",
+          "grant_match_high",
+          "daily_grant_update",
+          "eligibility_upgrade_prompt",
+          "business_dna_match_health",
+          "deadline_reminder",
+          "deadline_daily_update",
+        ])
         .gte("createdAt", since.toISOString())
         .order("createdAt", { ascending: false })
         .limit(200);
@@ -126,7 +136,8 @@ export async function GET(req: Request): Promise<NextResponse> {
         days,
         totalsByTypeAndChannel: byTypeChannel,
       },
-      blockers,
+      whatsappTrace,
+      blockers: Array.from(new Set([...blockers, ...(whatsappTrace?.blockers ?? [])])),
     });
   } catch (e) {
     console.error("[internal/eligibility-diagnostics]", e);

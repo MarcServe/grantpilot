@@ -6,7 +6,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:grant-actionability": "tsx scripts/test-grant-actionability.ts",
+    "video:studio": "remotion studio",
+    "video:render": "remotion render GrantsCopilotLaunch out/grantscopilot-launch.mp4 --concurrency=1",
+    "video:poster": "remotion still GrantsCopilotPoster out/grantscopilot-poster.png",
+    "video:voiceover": "node scripts/generate-grantscopilot-voiceover.mjs"
   },
   "dependencies": {
     "@google/genai": "^1.43.0",
@@ -40,6 +45,7 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
+    "@remotion/cli": "^4.0.443",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

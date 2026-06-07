@@ -1,10 +1,52 @@
 import { NextResponse } from "next/server";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { requestEligibilityRefresh } from "@/lib/eligibility-refresh-trigger";
+import { syncGrantMemoryFromProfile } from "@/lib/grant-memory";
 
 const BUCKET = "documents";
 const MAX_SIZE_DOC = 10 * 1024 * 1024; // 10MB
 const MAX_SIZE_VIDEO = 100 * 1024 * 1024; // 100MB for video
+
+async function refreshProfileAfterDocumentUpload(profileId: string, organisationId: string): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const { data: profile } = await supabase
+    .from("BusinessProfile")
+    .select("businessName, location, sector, missionStatement, description, employeeCount, annualRevenue, fundingMin, fundingMax, fundingPurposes")
+    .eq("id", profileId)
+    .maybeSingle();
+  if (!profile) return;
+
+  const { count } = await supabase
+    .from("Document")
+    .select("id", { count: "exact", head: true })
+    .eq("profileId", profileId);
+
+  let score = 0;
+  if (profile.businessName?.trim()) score++;
+  if (profile.location?.trim()) score++;
+  if (profile.sector?.trim()) score++;
+  if (profile.missionStatement?.trim()) score++;
+  if (profile.description?.trim()) score++;
+  if (profile.employeeCount != null && Number(profile.employeeCount) > 0) score++;
+  if (profile.annualRevenue != null && Number(profile.annualRevenue) > 0) score++;
+  if (profile.fundingMin != null && Number(profile.fundingMin) > 0) score++;
+  if (profile.fundingMax != null && Number(profile.fundingMax) > 0) score++;
+  if (Array.isArray(profile.fundingPurposes) && profile.fundingPurposes.length > 0) score++;
+  if ((count ?? 0) >= 1) score++;
+
+  await supabase
+    .from("BusinessProfile")
+    .update({ completionScore: Math.round((score / 11) * 100) })
+    .eq("id", profileId);
+
+  await syncGrantMemoryFromProfile(profileId, organisationId).catch((error) =>
+    console.error("[documents/upload] Grant memory sync failed:", error)
+  );
+  await requestEligibilityRefresh(organisationId, "profile.document.uploaded").catch((error) =>
+    console.error("[documents/upload] Eligibility refresh trigger failed:", error)
+  );
+}
 
 export async function POST(request: Request) {
   try {
@@ -83,6 +125,10 @@ export async function POST(request: Request) {
       console.error("[documents/upload] Document insert error:", docError);
       return NextResponse.json({ error: "Failed to save document record" }, { status: 502 });
     }
+
+    await refreshProfileAfterDocumentUpload(profile.id, orgId).catch((error) =>
+      console.error("[documents/upload] Profile refresh failed:", error)
+    );
 
     return NextResponse.json({
       success: true,

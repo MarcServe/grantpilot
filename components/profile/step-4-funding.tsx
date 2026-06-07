@@ -474,7 +474,7 @@ export function Step4Funding({
         />
 
         <p className="text-xs text-muted-foreground">
-          Grants-Copilot uses this information to match your business with the most relevant grants and prepare stronger applications automatically.
+          Grants-Copilot uses this information to match your business with relevant grants and prepare stronger application materials.
         </p>
 
         <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">

@@ -1,5 +1,6 @@
 import { inngest } from "./client";
 import { syncGrantsFromGrantsGov } from "@/lib/grants-ingest";
+import { runWithCronLog } from "@/lib/cron-run-log";
 
 /**
  * US federal grants only — official Grants.gov API (no Apify). Runs daily.
@@ -10,12 +11,12 @@ import { syncGrantsFromGrantsGov } from "@/lib/grants-ingest";
 export const grantSync = inngest.createFunction(
   { id: "grant-sync", name: "Grants.gov federal sync (US only)" },
   { cron: "0 6 * * *" },
-  async () => {
+  async () => runWithCronLog({ jobName: "Grants.gov federal sync", route: "inngest/grant-sync", trigger: "inngest" }, async () => {
     const govResult = await syncGrantsFromGrantsGov(500);
     return {
       grantsGov: govResult,
       totalSynced: govResult.synced,
       message: "UK/EU/feed syncs disabled; use grant-discovery for web search",
     };
-  }
+  })
 );

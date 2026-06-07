@@ -19,7 +19,7 @@ export async function getAppliedGrantIds(
 
   const camel = supabase
     .from("Application")
-    .select("*")
+    .select("grantId")
     .eq("organisationId", organisationId);
   const camelResult = profileId
     ? await camel.eq("profileId", profileId)
@@ -28,7 +28,7 @@ export async function getAppliedGrantIds(
 
   const snake = supabase
     .from("Application")
-    .select("*")
+    .select("grant_id")
     .eq("organisation_id", organisationId);
   const snakeResult = profileId
     ? await snake.eq("profile_id", profileId)

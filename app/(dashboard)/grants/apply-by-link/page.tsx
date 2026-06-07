@@ -39,7 +39,7 @@ export default async function ApplyByLinkPage({
 
       {!hasProfile ? (
         <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-          Create a business profile first so we can fill the form for you.
+          Create a business profile first so we can verify the link and prepare your application materials.
           <Link href="/profile" className="ml-1 font-medium text-foreground underline">
             Go to Profile
           </Link>

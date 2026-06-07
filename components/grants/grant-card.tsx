@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Calendar, Building2, MapPin, ArrowRight, Users, Bookmark } from "lucide-react";
+import { Calendar, Building2, MapPin, ArrowRight, Users, Bookmark, AlertTriangle } from "lucide-react";
 import { UrlStatusBadge } from "./url-status-badge";
 import { grantFinderLabel } from "@/lib/grant-source-policy";
 
@@ -24,18 +24,30 @@ interface GrantCardProps {
   /** When the grant was added to the database (ISO string). */
   addedAt?: string | null;
   isSaved?: boolean;
+  userState?: GrantUserState | null;
   onToggleSave?: () => void;
   urlStatus?: string | null;
   urlCheckedAt?: string | null;
+  verificationWarning?: string | null;
   source?: string | null;
   scoringSource?: string | null;
 }
+
+type GrantUserState = "saved" | "viewed" | "deferred" | "applied" | "dismissed";
 
 const URGENCY_CLASS: Record<string, string> = {
   HIGH: "border-red-500/50 bg-red-50 text-red-800 dark:bg-red-950/30",
   MEDIUM: "border-amber-500/50 bg-amber-50 text-amber-800 dark:bg-amber-950/30",
   LOW: "border-muted text-muted-foreground",
 };
+
+function stateLabel(status?: GrantUserState | null, isSaved?: boolean): string | null {
+  if (status === "saved" || (!status && isSaved)) return "Saved";
+  if (status === "deferred") return "Deferred";
+  if (status === "applied") return "In Applications";
+  if (status === "dismissed") return "Dismissed";
+  return null;
+}
 
 export function GrantCard({
   id,
@@ -52,27 +64,30 @@ export function GrantCard({
   urgencyLabel,
   addedAt,
   isSaved,
+  userState,
   onToggleSave,
   urlStatus,
   urlCheckedAt,
+  verificationWarning,
   source,
   scoringSource,
 }: GrantCardProps) {
   const scoreLabel = scoringSource === "heuristic" ? "Prelim" : "Match";
   const sourceLabel = grantFinderLabel(source);
+  const state = stateLabel(userState, isSaved);
   return (
-    <Card className="transition-shadow hover:shadow-md">
+    <Card className="min-w-0 transition-shadow hover:shadow-md">
       <CardHeader className="pb-3">
-        <div className="flex items-start justify-between gap-2">
+        <div className="flex min-w-0 flex-col gap-3 min-[420px]:flex-row min-[420px]:items-start min-[420px]:justify-between">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5">
-              <CardTitle className="text-lg">{name}</CardTitle>
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+              <CardTitle className="min-w-0 break-words text-lg leading-snug">{name}</CardTitle>
               {urlStatus && urlStatus !== "unknown" && (
                 <UrlStatusBadge status={urlStatus} checkedAt={urlCheckedAt} compact />
               )}
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm text-muted-foreground">
-              <span className="flex items-center gap-1">
+              <span className="flex min-w-0 items-center gap-1 break-words">
                 <Building2 className="h-3.5 w-3.5 shrink-0" />
                 {funder}
               </span>
@@ -83,7 +98,7 @@ export function GrantCard({
               )}
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="flex shrink-0 items-center gap-1 self-start">
             {onToggleSave && (
               <Button
                 type="button"
@@ -116,9 +131,9 @@ export function GrantCard({
           )}
           </div>
         </div>
-        {isSaved && (
+        {state && (
           <Badge variant="secondary" className="mt-2 w-fit text-xs">
-            Saved
+            {state}
           </Badge>
         )}
         <div className="mt-2 flex flex-wrap gap-1.5">
@@ -158,6 +173,13 @@ export function GrantCard({
           <p className="text-sm text-muted-foreground">{matchReason}</p>
         )}
 
+        {verificationWarning && (
+          <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>{verificationWarning}</span>
+          </div>
+        )}
+
         <div className="flex flex-wrap gap-1">
           {sectors.slice(0, 3).map((s, i) => (
             <Badge key={`sector-${i}-${s}`} variant="outline" className="text-xs">
@@ -183,7 +205,7 @@ export function GrantCard({
           </div>
         )}
 
-        <Link href={`/grants/${id}`}>
+        <Link href={`/grants/${id}?from=grants`}>
           <Button variant="outline" size="sm" className="mt-2 w-full gap-2">
             View Details <ArrowRight className="h-4 w-4" />
           </Button>

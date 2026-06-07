@@ -2,9 +2,17 @@ import { NextResponse } from "next/server";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getEligibilityDecision, getConfidenceBand } from "@/lib/claude";
+import type { EligibilityResult } from "@/lib/claude";
 import { getApplicantTypeGate } from "@/lib/eligibility-hard-gates";
+import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
 import { checkUsageLimit, recordUsage } from "@/lib/plan-check";
-import { resolvePlanKey } from "@/lib/plan-features";
+import { isFreeTrialActive, resolvePlanKey } from "@/lib/plan-features";
+import { getGrantFreshnessStatus } from "@/lib/grant-freshness";
+import {
+  applyOutcomeScoreAdjustment,
+  buildFundingOutcomeSignals,
+  deriveOutcomeLearningAdvisory,
+} from "@/lib/outcome-learning";
 
 function profileToMatching(profile: Record<string, unknown>) {
   const get = (key: string) => profile[key] ?? profile[key.replace(/([A-Z])/g, "_$1").toLowerCase()];
@@ -16,6 +24,7 @@ function profileToMatching(profile: Record<string, unknown>) {
     location: String(get("location") ?? ""),
     employeeCount: profile.employeeCount != null ? Number(profile.employeeCount) : (profile.employee_count != null ? Number(profile.employee_count) : null),
     annualRevenue: profile.annualRevenue != null ? Number(profile.annualRevenue) : (profile.annual_revenue != null ? Number(profile.annual_revenue) : null),
+    yearEstablished: profile.yearEstablished != null ? Number(profile.yearEstablished) : (profile.year_established != null ? Number(profile.year_established) : null),
     fundingMin: Number(get("fundingMin") ?? get("funding_min") ?? 0),
     fundingMax: Number(get("fundingMax") ?? get("funding_max") ?? 0),
     fundingPurposes: Array.isArray(profile.fundingPurposes) ? profile.fundingPurposes as string[] : (Array.isArray(profile.funding_purposes) ? profile.funding_purposes as string[] : []),
@@ -25,19 +34,27 @@ function profileToMatching(profile: Record<string, unknown>) {
   };
 }
 
-function buildOutcomeSignals(outcomes: unknown[] | null): string {
-  const rows = Array.isArray(outcomes) ? outcomes : [];
-  if (rows.length === 0) return "";
-  return rows
-    .slice(0, 8)
-    .map((row) => {
-      const item = row as { outcome?: string; awardedAmount?: number | null; funderFeedback?: string | null; Grant?: { name?: string; funder?: string } | { name?: string; funder?: string }[] };
-      const grant = Array.isArray(item.Grant) ? item.Grant[0] : item.Grant;
-      const amount = item.awardedAmount ? `, awarded £${Number(item.awardedAmount).toLocaleString("en-GB")}` : "";
-      const feedback = item.funderFeedback ? `, feedback: ${item.funderFeedback.slice(0, 240)}` : "";
-      return `${grant?.name ?? "Grant"} (${grant?.funder ?? "Funder"}): ${item.outcome ?? "unknown"}${amount}${feedback}`;
-    })
-    .join("\n");
+function closedEligibilityPayload(message: string, scoringSource: "openai" | "heuristic" | "embedding" | "manual" = "manual") {
+  return {
+    decision: "unlikely" as const,
+    reason: message,
+    confidence: 0,
+    score: 0,
+    summary: message,
+    reasons: [message],
+    alignment: [],
+    improvementPlan: {
+      gaps: ["Opportunity appears closed or temporally stale"],
+      actions: ["Do not apply through this listing unless the funder confirms the programme is still open."],
+      timeline: "Before applying",
+    },
+    met: [],
+    missing: ["Opportunity appears closed or temporally stale"],
+    confidenceBand: getConfidenceBand(0),
+    winProbability: 0,
+    evidenceStrength: "weak" as const,
+    scoringSource,
+  };
 }
 
 export async function GET(
@@ -61,7 +78,7 @@ export async function GET(
 
     const { data: grant, error: grantError } = await supabase
       .from("Grant")
-      .select("id, name, funder, amount, eligibility, description, objectives, applicantTypes, sectors, regions")
+      .select("id, name, funder, amount, deadline, url_status, eligibility, description, objectives, applicantTypes, sectors, regions")
       .eq("id", grantId)
       .single();
 
@@ -74,6 +91,8 @@ export async function GET(
       name: string;
       funder: string;
       amount: number | null;
+      deadline?: string | null;
+      url_status?: string | null;
       eligibility: string;
       description?: string;
       objectives?: string;
@@ -81,10 +100,14 @@ export async function GET(
       sectors: string[];
       regions: string[];
     };
+    const freshness = getGrantFreshnessStatus(g);
+    if (!freshness.usable) {
+      return NextResponse.json(closedEligibilityPayload(freshness.message ?? "This opportunity appears closed or stale."));
+    }
 
     const { data: outcomeRows } = await supabase
       .from("ApplicationOutcome")
-      .select("outcome, awardedAmount, funderFeedback, Grant(name, funder)")
+      .select("outcome, awardedAmount, funderFeedback, learningNotes, Grant(name, funder)")
       .eq("organisationId", orgId)
       .eq("profileId", profile.id)
       .order("reportedAt", { ascending: false })
@@ -139,20 +162,29 @@ export async function GET(
             scoringSource,
           });
         }
+        const profileMatch = profileToMatching(profile as Record<string, unknown>);
+        const cachedResult = applyOutcomeScoreAdjustment(applyEligibilityScoreGuards(
+          profileMatch,
+          g,
+          {
+            decision: c.decision === "likely_eligible" || c.decision === "review" || c.decision === "unlikely" ? c.decision : "review",
+            reason: c.summary ?? "",
+            confidence: score,
+            score,
+            summary: c.summary ?? undefined,
+            reasons: (c.reasons as string[]) ?? [],
+            alignment: (c.alignment as string[]) ?? undefined,
+            improvementPlan: c.improvement_plan as EligibilityResult["improvementPlan"],
+            met: (c.met_criteria as string[]) ?? [],
+            missing: (c.missing_criteria as string[]) ?? [],
+            winProbability: score,
+            evidenceStrength: score >= 80 ? "strong" : score >= 55 ? "medium" : "weak",
+          }
+        ), deriveOutcomeLearningAdvisory(outcomeRows ?? []));
+        const cachedScore = cachedResult.score ?? cachedResult.confidence;
         return NextResponse.json({
-          decision: c.decision,
-          reason: c.summary ?? "",
-          confidence: score,
-          score,
-          summary: c.summary ?? undefined,
-          reasons: (c.reasons as string[]) ?? [],
-          alignment: (c.alignment as string[]) ?? undefined,
-          improvementPlan: c.improvement_plan ?? undefined,
-          met: (c.met_criteria as string[]) ?? [],
-          missing: (c.missing_criteria as string[]) ?? [],
-          confidenceBand: getConfidenceBand(score),
-          winProbability: score,
-          evidenceStrength: score >= 80 ? "strong" : score >= 55 ? "medium" : "weak",
+          ...cachedResult,
+          confidenceBand: getConfidenceBand(cachedScore),
           scoringSource,
         });
       }
@@ -161,8 +193,13 @@ export async function GET(
     const plan = resolvePlanKey((org as { plan?: string }).plan);
     const { allowed, remaining } = await checkUsageLimit(orgId, "match");
     if (!allowed) {
+      const trialExpired =
+        plan === "FREE_TRIAL" &&
+        !isFreeTrialActive(org as { plan?: string; createdAt?: string | Date | null });
       const message =
-        plan === "FREE_TRIAL"
+        trialExpired
+          ? "Your 7-day Starter trial has expired. Upgrade to continue full company-DNA eligibility checks."
+          : plan === "FREE_TRIAL"
           ? "You've used all Starter full eligibility checks this month. Cached scores still appear for grants you've already assessed. Upgrade for unlimited company-DNA scoring."
           : "Monthly eligibility check quota reached.";
       return NextResponse.json({ error: message, code: "MATCH_LIMIT", remaining }, { status: 402 });
@@ -171,7 +208,7 @@ export async function GET(
     const result = await getEligibilityDecision(
       profileToMatching({
         ...(profile as Record<string, unknown>),
-        fundingOutcomeSignals: buildOutcomeSignals(outcomeRows ?? []),
+        fundingOutcomeSignals: buildFundingOutcomeSignals(outcomeRows ?? []),
       }),
       {
         id: g.id,
@@ -186,21 +223,22 @@ export async function GET(
         regions: g.regions ?? [],
       }
     );
+    const adjustedResult = applyOutcomeScoreAdjustment(result, deriveOutcomeLearningAdvisory(outcomeRows ?? []));
 
-    const score = result.score ?? result.confidence;
+    const score = adjustedResult.score ?? adjustedResult.confidence;
     await supabase.from("EligibilityAssessment").upsert(
       {
         organisation_id: orgId,
         profile_id: profile.id,
         grant_id: grantId,
         score,
-        decision: result.decision,
-        summary: result.summary ?? result.reason,
-        reasons: result.reasons ?? [],
-        alignment: result.alignment ?? null,
-        improvement_plan: result.improvementPlan ?? null,
-        met_criteria: result.met ?? [],
-        missing_criteria: result.missing ?? [],
+        decision: adjustedResult.decision,
+        summary: adjustedResult.summary ?? adjustedResult.reason,
+        reasons: adjustedResult.reasons ?? [],
+        alignment: adjustedResult.alignment ?? null,
+        improvement_plan: adjustedResult.improvementPlan ?? null,
+        met_criteria: adjustedResult.met ?? [],
+        missing_criteria: adjustedResult.missing ?? [],
         scoring_source: "openai",
         updated_at: new Date().toISOString(),
       },
@@ -210,7 +248,7 @@ export async function GET(
     await recordUsage(orgId, "match");
 
     return NextResponse.json({
-      ...result,
+      ...adjustedResult,
       confidenceBand: getConfidenceBand(score),
       scoringSource: "openai",
     });

@@ -8,6 +8,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import type { GrantInput } from "@/lib/grants-ingest";
 import { upsertGrant } from "@/lib/grants-ingest";
 import { waitForDomainThrottle } from "@/lib/throttle-per-domain";
+import { autoSeedDefaultGrantSources, type AutoSeedGrantSourcesResult } from "@/lib/grant-source-auto-seed";
 
 export interface GrantSourceRow {
   id: string;
@@ -20,6 +21,15 @@ export interface GrantSourceRow {
   last_crawled_at: string | null;
   last_content_hash: string | null;
   adapter: string | null;
+}
+
+export interface GrantSourceRunResult {
+  sourceId: string;
+  sourceName: string;
+  synced: number;
+  created: number;
+  updated: number;
+  error?: string;
 }
 
 const CRAWL_INTERVAL_SQL: Record<string, string> = {
@@ -37,7 +47,9 @@ export async function getDueGrantSources(): Promise<GrantSourceRow[]> {
   const { data, error } = await supabase
     .from("grant_sources")
     .select("id, source_name, country, type, endpoint, crawl_frequency, enabled, last_crawled_at, last_content_hash, adapter")
-    .eq("enabled", true);
+    .eq("enabled", true)
+    .order("last_crawled_at", { ascending: true, nullsFirst: true })
+    .order("source_name", { ascending: true });
 
   if (error) throw new Error(`grant_sources query failed: ${error.message}`);
   if (!data?.length) return [];
@@ -63,6 +75,21 @@ function parseIntervalToMs(interval: string): number {
   if (unit.startsWith("h")) return n * 60 * 60 * 1000;
   if (unit.startsWith("m")) return n * 60 * 1000;
   return n * 60 * 60 * 1000;
+}
+
+function sourceRunPriority(source: GrantSourceRow): number {
+  const adapter = (source.adapter ?? source.type).toLowerCase();
+  if (adapter === "rss" || adapter === "feed" || adapter === "json") return 0;
+  if (["grants-gov", "grants_gov", "uk", "eu", "au", "australia", "ca", "canada", "nih", "us-nih"].includes(adapter)) {
+    return 1;
+  }
+  return 2;
+}
+
+function sourceLastCrawledTime(source: GrantSourceRow): number {
+  if (!source.last_crawled_at) return 0;
+  const time = new Date(source.last_crawled_at).getTime();
+  return Number.isFinite(time) ? time : 0;
 }
 
 /**
@@ -185,4 +212,82 @@ export async function runSourceAndUpsert(source: GrantSourceRow): Promise<{
   }
   await updateLastCrawled(source.id, contentHash ?? undefined);
   return { synced: grants.length, created, updated };
+}
+
+/**
+ * Run due registry sources with per-source isolation. Failed sources are marked
+ * attempted so one bad portal/feed cannot starve the rest of the registry.
+ */
+export async function runDueGrantSources(options?: { limit?: number }): Promise<{
+  dueCount: number;
+  attempted: number;
+  synced: number;
+  created: number;
+  updated: number;
+  failed: number;
+  sourceSeed?: AutoSeedGrantSourcesResult;
+  results: GrantSourceRunResult[];
+}> {
+  const sourceSeed = await autoSeedDefaultGrantSources({
+    runSource: "app_default_seed",
+    createdBy: "grant-source-crawler",
+  });
+  const due = await getDueGrantSources();
+  const limit = options?.limit;
+  const prioritized = [...due].sort((a, b) =>
+    sourceRunPriority(a) - sourceRunPriority(b) ||
+    sourceLastCrawledTime(a) - sourceLastCrawledTime(b) ||
+    a.source_name.localeCompare(b.source_name)
+  );
+  const selected = typeof limit === "number" && Number.isFinite(limit) && limit > 0
+    ? prioritized.slice(0, Math.floor(limit))
+    : prioritized;
+  const results: GrantSourceRunResult[] = [];
+
+  let synced = 0;
+  let created = 0;
+  let updated = 0;
+  let failed = 0;
+
+  for (const source of selected) {
+    try {
+      const result = await runSourceAndUpsert(source);
+      synced += result.synced;
+      created += result.created;
+      updated += result.updated;
+      results.push({
+        sourceId: source.id,
+        sourceName: source.source_name,
+        synced: result.synced,
+        created: result.created,
+        updated: result.updated,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      failed++;
+      console.error(`[grant-source-crawler] ${source.source_name} (${source.id}):`, err);
+      await updateLastCrawled(source.id).catch((updateErr) => {
+        console.error(`[grant-source-crawler] failed to mark attempted ${source.id}:`, updateErr);
+      });
+      results.push({
+        sourceId: source.id,
+        sourceName: source.source_name,
+        synced: 0,
+        created: 0,
+        updated: 0,
+        error: message,
+      });
+    }
+  }
+
+  return {
+    dueCount: due.length,
+    attempted: selected.length,
+    synced,
+    created,
+    updated,
+    failed,
+    sourceSeed,
+    results,
+  };
 }

@@ -9,10 +9,11 @@ import {
   CreditCard,
   Database,
   FileText,
-  Gauge,
   LayoutDashboard,
+  LinkIcon,
   Menu,
   MessageSquareReply,
+  MessagesSquare,
   Settings,
   Sparkles,
   UserRound,
@@ -30,22 +31,22 @@ import { cn } from "@/lib/utils";
 const primaryNavItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/grants/eligible", label: "Opportunities", icon: BriefcaseBusiness },
+  { href: "/grants/apply-by-link", label: "Add by link", icon: LinkIcon },
   { href: "/applications", label: "Applications", icon: FileText },
   { href: "/applications/outcomes", label: "Outcome feedback", icon: MessageSquareReply },
   { href: "/profile", label: "My Profile", icon: UserRound },
-  { href: "/profile", label: "Data Vault", icon: Database },
-  { href: "/dashboard", label: "Activity", icon: Gauge },
-  { href: "/intelligence", label: "Analytics", icon: BarChart3 },
+  { href: "/data-vault", label: "Data Vault", icon: Database },
+  { href: "/intelligence", label: "Intelligence", icon: BarChart3 },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 const secondaryNavItems = [
   { href: "/founder-pack", label: "Founder Pack", icon: Sparkles },
   { href: "/billing", label: "Billing", icon: CreditCard },
+  { href: "/feedback", label: "Contact us", icon: MessagesSquare },
 ];
 
-function isActive(pathname: string, href: string, label: string): boolean {
-  if (label === "Data Vault" || label === "Activity") return false;
+function isActive(pathname: string, href: string): boolean {
   if (href === "/dashboard") return pathname === href;
   if (href === "/applications/outcomes") {
     return pathname === href || pathname.startsWith(`${href}/`);
@@ -67,22 +68,23 @@ function NavLinks({
   compact?: boolean;
 }) {
   const pathname = usePathname();
+  const currentPathname = pathname ?? "";
   const router = useRouter();
   const groups = [primaryNavItems, secondaryNavItems];
 
   return (
     <>
       {groups.map((items, groupIndex) => (
-        <div key={groupIndex} className={cn(groupIndex > 0 && "mt-7 border-t border-white/10 pt-5")}>
+        <div key={groupIndex} className={cn(groupIndex > 0 && "mt-5 border-t border-white/10 pt-4")}>
           {groupIndex > 0 && !compact && (
             <p className="mb-2 px-3 text-[11px] font-bold uppercase tracking-[0.12em] text-white/45">
               Growth
             </p>
           )}
-          <div className="space-y-1.5">
+          <div className="space-y-1">
             {items.map((item) => {
               const Icon = item.icon;
-              const active = isActive(pathname, item.href, item.label);
+              const active = isActive(currentPathname, item.href);
               return (
                 <Link
                   key={`${item.href}-${item.label}`}
@@ -92,7 +94,7 @@ function NavLinks({
                   onFocus={() => router.prefetch(item.href)}
                   onClick={onLinkClick}
                   className={cn(
-                    "flex h-11 items-center gap-3 rounded-lg px-3 text-[14px] font-extrabold transition-colors",
+                    "flex h-10 items-center gap-3 rounded-lg px-3 text-[14px] font-extrabold transition-colors",
                     compact
                       ? active
                         ? "bg-[#2167e8] text-white"
@@ -140,7 +142,7 @@ export function DashboardNav({
             <Menu className="h-5 w-5" />
           </Button>
         </SheetTrigger>
-        <SheetContent side="left" className="w-[300px] bg-white sm:max-w-[300px]">
+        <SheetContent side="left" className="w-[min(300px,calc(100vw-1rem))] bg-white sm:max-w-[300px]">
           <SheetHeader>
             <SheetTitle className="text-left text-xl font-black text-[#071a3a]">
               Grants<span className="text-[#2468e8]">Copilot</span>
@@ -160,7 +162,7 @@ export function DashboardNav({
         <NavLinks />
       </nav>
 
-      <div className="mt-auto shrink-0 rounded-2xl border border-white/18 bg-white/[0.04] p-4 text-white">
+      <div className="mt-4 shrink-0 rounded-2xl border border-white/18 bg-white/[0.04] p-4 text-white">
         <p className="text-[13px] font-bold text-white/86">Profile Strength</p>
         <p className="mt-2 text-[28px] font-black leading-none">{score}%</p>
         <div className="mt-4 h-2 rounded-full bg-white/18">
