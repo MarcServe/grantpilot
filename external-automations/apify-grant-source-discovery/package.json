@@ -1,0 +1,12 @@
+{
+  "name": "grantscopilot-apify-source-discovery",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node main.js"
+  },
+  "dependencies": {
+    "apify": "^3.5.0"
+  }
+}

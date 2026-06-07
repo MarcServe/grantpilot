@@ -11,7 +11,7 @@ import { getEligibilityNotifyMinCompletion } from "@/lib/eligibility-notify-conf
 import { preFilterGrants } from "@/lib/heuristic-scorer";
 import { rankGrantsByEmbedding, generateAndStoreProfileEmbedding } from "@/lib/embeddings";
 import { isEligibilityNotificationTime } from "@/lib/timezone";
-import { isGrantLinkUsable } from "@/lib/grant-freshness";
+import { isGrantActionableNow, verifyGrantActionable } from "@/lib/grant-actionability";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { isOpenAIChecked } from "@/lib/grant-source-policy";
 import { runWithCronLog } from "@/lib/cron-run-log";
@@ -118,6 +118,7 @@ type GrantRow = {
   funder: string;
   amount?: number;
   deadline?: string;
+  applicationUrl?: string | null;
   eligibility: string;
   description?: string;
   objectives?: string;
@@ -155,7 +156,7 @@ async function fetchCurrentGrants(
   for (let offset = 0; offset < MAX_GRANTS_PER_REFRESH; offset += GRANT_FETCH_BATCH_SIZE) {
     const { data, error } = await supabase
       .from("Grant")
-      .select("id, name, funder, amount, deadline, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, required_attachments, url_status, createdAt")
+      .select("id, name, funder, amount, deadline, applicationUrl, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, required_attachments, url_status, createdAt")
       .order("createdAt", { ascending: false })
       .range(offset, offset + GRANT_FETCH_BATCH_SIZE - 1);
 
@@ -165,7 +166,7 @@ async function fetchCurrentGrants(
     if (batch.length < GRANT_FETCH_BATCH_SIZE) break;
   }
 
-  return rows.filter(isGrantLinkUsable);
+  return rows.filter((grant) => isGrantActionableNow(grant));
 }
 
 export async function runEligibilityRefreshJob(options?: {
@@ -474,12 +475,19 @@ export async function runEligibilityRefreshJob(options?: {
         const outcomeAdvisory = deriveOutcomeLearningAdvisory(outcomeRows ?? []);
         const grantsByIdForDigest = new Map(locationFiltered.map((grant) => [grant.id, grant]));
 
-        const buildDigestItem = (
+        const buildDigestItem = async (
           assessment: CachedEligibilityRow,
           range?: { minScore?: number; maxScore?: number }
-        ): DigestGrantItem | null => {
+        ): Promise<DigestGrantItem | null> => {
           const grant = grantsByIdForDigest.get(assessment.grant_id);
           if (!grant) return null;
+          const actionability = await verifyGrantActionable(grant, { supabase });
+          if (!actionability.usable) {
+            console.info(
+              `[eligibility-refresh]   Skipping stale grant ${grant.id}: ${actionability.message ?? actionability.reason ?? "not actionable"}`
+            );
+            return null;
+          }
           const finalResult = finaliseEligibilityAssessment(
             profile as Record<string, unknown>,
             grant,
@@ -533,9 +541,13 @@ export async function runEligibilityRefreshJob(options?: {
             return [];
           }
 
-          return ((currentRows ?? []) as CachedEligibilityRow[])
-            .map((row) => buildDigestItem(row, { minScore, maxScore }))
-            .filter((item): item is DigestGrantItem => item != null)
+          const items: DigestGrantItem[] = [];
+          for (const row of (currentRows ?? []) as CachedEligibilityRow[]) {
+            const item = await buildDigestItem(row, { minScore, maxScore });
+            if (item) items.push(item);
+          }
+
+          return items
             .sort((a, b) => {
               if (b.score !== a.score) return b.score - a.score;
               return grantCreatedTime(grantsByIdForDigest.get(b.grantId)) - grantCreatedTime(grantsByIdForDigest.get(a.grantId));
@@ -560,9 +572,13 @@ export async function runEligibilityRefreshJob(options?: {
             return [];
           }
 
-          return ((currentRows ?? []) as CachedEligibilityRow[])
-            .map((row) => buildDigestItem(row, { minScore: 50, maxScore: 79 }))
-            .filter((item): item is DigestGrantItem => item != null)
+          const items: DigestGrantItem[] = [];
+          for (const row of (currentRows ?? []) as CachedEligibilityRow[]) {
+            const item = await buildDigestItem(row, { minScore: 50, maxScore: 79 });
+            if (item) items.push(item);
+          }
+
+          return items
             .sort((a, b) => {
               if (b.score !== a.score) return b.score - a.score;
               return grantCreatedTime(grantsByIdForDigest.get(b.grantId)) - grantCreatedTime(grantsByIdForDigest.get(a.grantId));
@@ -587,7 +603,7 @@ export async function runEligibilityRefreshJob(options?: {
             continue;
           }
 
-          const digestItem = buildDigestItem(cached, { minScore, maxScore });
+          const digestItem = await buildDigestItem(cached, { minScore, maxScore });
           if (digestItem) digestGrants.push(digestItem);
         }
 
@@ -676,7 +692,7 @@ export async function runEligibilityRefreshJob(options?: {
               const notifiedAt = (existing as { notified_at: string | null } | null)?.notified_at;
               const includeInDigest = isOutsideNotificationCooldown(notifiedAt, cooldown);
               if (includeInDigest) {
-                const digestItem = buildDigestItem(
+                const digestItem = await buildDigestItem(
                   {
                     grant_id: grant.id,
                     score,

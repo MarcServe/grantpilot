@@ -10,8 +10,10 @@ import {
   Database,
   FileText,
   LayoutDashboard,
+  LinkIcon,
   Menu,
   MessageSquareReply,
+  MessagesSquare,
   Settings,
   Sparkles,
   UserRound,
@@ -29,6 +31,7 @@ import { cn } from "@/lib/utils";
 const primaryNavItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/grants/eligible", label: "Opportunities", icon: BriefcaseBusiness },
+  { href: "/grants/apply-by-link", label: "Add by link", icon: LinkIcon },
   { href: "/applications", label: "Applications", icon: FileText },
   { href: "/applications/outcomes", label: "Outcome feedback", icon: MessageSquareReply },
   { href: "/profile", label: "My Profile", icon: UserRound },
@@ -40,6 +43,7 @@ const primaryNavItems = [
 const secondaryNavItems = [
   { href: "/founder-pack", label: "Founder Pack", icon: Sparkles },
   { href: "/billing", label: "Billing", icon: CreditCard },
+  { href: "/feedback", label: "Contact us", icon: MessagesSquare },
 ];
 
 function isActive(pathname: string, href: string): boolean {
@@ -71,13 +75,13 @@ function NavLinks({
   return (
     <>
       {groups.map((items, groupIndex) => (
-        <div key={groupIndex} className={cn(groupIndex > 0 && "mt-7 border-t border-white/10 pt-5")}>
+        <div key={groupIndex} className={cn(groupIndex > 0 && "mt-5 border-t border-white/10 pt-4")}>
           {groupIndex > 0 && !compact && (
             <p className="mb-2 px-3 text-[11px] font-bold uppercase tracking-[0.12em] text-white/45">
               Growth
             </p>
           )}
-          <div className="space-y-1.5">
+          <div className="space-y-1">
             {items.map((item) => {
               const Icon = item.icon;
               const active = isActive(currentPathname, item.href);
@@ -90,7 +94,7 @@ function NavLinks({
                   onFocus={() => router.prefetch(item.href)}
                   onClick={onLinkClick}
                   className={cn(
-                    "flex h-11 items-center gap-3 rounded-lg px-3 text-[14px] font-extrabold transition-colors",
+                    "flex h-10 items-center gap-3 rounded-lg px-3 text-[14px] font-extrabold transition-colors",
                     compact
                       ? active
                         ? "bg-[#2167e8] text-white"
@@ -158,7 +162,7 @@ export function DashboardNav({
         <NavLinks />
       </nav>
 
-      <div className="mt-auto shrink-0 rounded-2xl border border-white/18 bg-white/[0.04] p-4 text-white">
+      <div className="mt-4 shrink-0 rounded-2xl border border-white/18 bg-white/[0.04] p-4 text-white">
         <p className="text-[13px] font-bold text-white/86">Profile Strength</p>
         <p className="mt-2 text-[28px] font-black leading-none">{score}%</p>
         <div className="mt-4 h-2 rounded-full bg-white/18">

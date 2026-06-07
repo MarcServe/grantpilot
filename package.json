@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test:grant-actionability": "tsx scripts/test-grant-actionability.ts",
     "video:studio": "remotion studio",
     "video:render": "remotion render GrantsCopilotLaunch out/grantscopilot-launch.mp4 --concurrency=1",
     "video:poster": "remotion still GrantsCopilotPoster out/grantscopilot-poster.png",

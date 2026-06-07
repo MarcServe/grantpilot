@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, CheckCircle2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
@@ -65,7 +65,8 @@ export function BusinessDnaMatchHealth({
   const [open, setOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<SuggestionMap | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [isPending, startTransition] = useTransition();
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+  const [isApplying, setIsApplying] = useState(false);
 
   const fields = useMemo(() => suggestedFieldEntries(suggestions ?? {}), [suggestions]);
 
@@ -73,12 +74,12 @@ export function BusinessDnaMatchHealth({
 
   function loadSuggestions() {
     setOpen(true);
-    if (suggestions || isPending) return;
-    startTransition(() => {
-      void (async () => {
+    if (suggestions || isLoadingSuggestions) return;
+    setIsLoadingSuggestions(true);
+    void (async () => {
       try {
         const res = await fetch("/api/profile/match-health/improve", { method: "POST" });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error ?? "Could not generate Business DNA suggestions");
         const nextSuggestions = (data.suggestions ?? {}) as SuggestionMap;
         const nextFields = suggestedFieldEntries(nextSuggestions);
@@ -89,9 +90,10 @@ export function BusinessDnaMatchHealth({
         }
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Could not generate Business DNA suggestions");
+      } finally {
+        setIsLoadingSuggestions(false);
       }
-      })();
-    });
+    })();
   }
 
   function applySuggestions() {
@@ -106,24 +108,25 @@ export function BusinessDnaMatchHealth({
         updates[field] = value;
       }
     }
-    startTransition(() => {
-      void (async () => {
+    setIsApplying(true);
+    void (async () => {
       try {
         const res = await fetch("/api/profile/match-health/apply", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ updates }),
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error ?? "Could not apply Business DNA improvements");
         toast.success("Business DNA updated. A fresh eligibility refresh has been queued.");
         setOpen(false);
         router.refresh();
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Could not apply Business DNA improvements");
+      } finally {
+        setIsApplying(false);
       }
-      })();
-    });
+    })();
   }
 
   return (
@@ -138,7 +141,7 @@ export function BusinessDnaMatchHealth({
               </div>
               <p className="mt-2 max-w-2xl text-sm text-amber-900 dark:text-amber-200">{report.promptBody}</p>
             </div>
-            <Button type="button" onClick={loadSuggestions} className="shrink-0 gap-2">
+            <Button type="button" onClick={loadSuggestions} disabled={isLoadingSuggestions} className="shrink-0 gap-2">
               <Sparkles className="h-4 w-4" />
               Improve Business DNA
             </Button>
@@ -172,7 +175,7 @@ export function BusinessDnaMatchHealth({
             </DialogDescription>
           </DialogHeader>
 
-          {isPending && !suggestions ? (
+          {isLoadingSuggestions && !suggestions ? (
             <div className="space-y-3 py-6">
               <div className="h-4 w-2/3 animate-pulse rounded bg-muted" />
               <div className="h-24 animate-pulse rounded bg-muted" />
@@ -228,8 +231,8 @@ export function BusinessDnaMatchHealth({
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button type="button" onClick={applySuggestions} disabled={isPending || fields.length === 0}>
-              Apply selected improvements
+            <Button type="button" onClick={applySuggestions} disabled={isApplying || isLoadingSuggestions || fields.length === 0}>
+              {isApplying ? "Applying..." : "Apply selected improvements"}
             </Button>
           </DialogFooter>
         </DialogContent>

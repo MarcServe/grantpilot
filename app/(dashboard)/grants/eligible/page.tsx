@@ -8,7 +8,8 @@ import { ArrowLeft, ArrowRight, Building2 } from "lucide-react";
 import type { EligibleGrant } from "@/components/grants/eligible-grant-card";
 import { EligibleGrantsList } from "@/components/grants/eligible-grants-list";
 import { BusinessDnaMatchHealth } from "@/components/profile/business-dna-match-health";
-import { getGrantVerificationWarning, isGrantLinkUsable } from "@/lib/grant-freshness";
+import { getGrantVerificationWarning } from "@/lib/grant-freshness";
+import { isGrantActionableNow } from "@/lib/grant-actionability";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
 import { getMatchHealthReport } from "@/lib/match-health";
@@ -280,7 +281,7 @@ async function EligibleGrantsPageContent({
     }
 
     const validGrants = allGrantsData.filter((grant) =>
-      isGrantLinkUsable(grant) && !appliedGrantIds.has(grant.id) && !hiddenStateGrantIds.has(grant.id)
+      isGrantActionableNow(grant) && !appliedGrantIds.has(grant.id) && !hiddenStateGrantIds.has(grant.id)
     );
 
     const userFunderLocations = inferFunderLocationsFromProfile(profile as {
@@ -364,8 +365,9 @@ async function EligibleGrantsPageContent({
         Dashboard
       </Link>
 
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold">My Matches</h1>
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">My Matches</h1>
         <p className="mt-1 text-muted-foreground">
           Grants scored against your profile, ranked by eligibility.
           {rawAssessmentCount > 0 && (
@@ -377,8 +379,15 @@ async function EligibleGrantsPageContent({
             </>
           )}
         </p>
+        </div>
+        <Link
+          href="/grants?shelf=expired"
+          className="shrink-0 rounded-md border bg-background px-4 py-2 text-sm font-medium hover:bg-muted"
+        >
+          Expired archive
+        </Link>
         {allScoredCount > 0 && (
-          <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+          <div className="sm:basis-full flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
             {totalPages > 1 && <span>Page {safePage} of {totalPages}</span>}
             <span className="hidden text-muted-foreground sm:inline">·</span>
             <span className="flex items-center gap-2">
@@ -413,8 +422,6 @@ async function EligibleGrantsPageContent({
           </CardContent>
         </Card>
       )}
-
-      <BusinessDnaMatchHealth report={matchHealth} profile={profile as Record<string, unknown>} />
 
       {rawAssessmentCount === 0 ? (
         <Card>
@@ -461,6 +468,9 @@ async function EligibleGrantsPageContent({
           }}
         />
       )}
+
+      <BusinessDnaMatchHealth report={matchHealth} profile={profile as Record<string, unknown>} />
+
       {totalPages > 1 && (
         <div className="mt-6 flex items-center justify-center gap-3">
           <Link

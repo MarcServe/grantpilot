@@ -1,6 +1,7 @@
 import { createHash } from "crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { DEFAULT_UK_EU_GLOBAL_GRANT_SOURCE_SEEDS } from "@/lib/default-grant-source-seeds";
 import { grantSourceEndpointKey, normaliseGrantSourceEndpoint } from "@/lib/grant-source-endpoint";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
@@ -149,10 +150,19 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   const body = await request.json().catch(() => null);
-  const sourceRows = Array.isArray(body) ? body : body?.sources;
-  if (!Array.isArray(sourceRows)) {
+  const explicitRows = Array.isArray(body) ? body : body?.sources;
+  if (explicitRows != null && !Array.isArray(explicitRows)) {
     return NextResponse.json({ error: "Body must be a JSON array or { sources: [...] }." }, { status: 400 });
   }
+  const shouldSeedDefaults =
+    body?.seedDefaultSources === true ||
+    body?.autoSeedDefaultSources === true ||
+    (Array.isArray(explicitRows) && explicitRows.length === 0);
+  const sourceRows = Array.isArray(explicitRows) && explicitRows.length > 0
+    ? explicitRows
+    : shouldSeedDefaults
+      ? DEFAULT_UK_EU_GLOBAL_GRANT_SOURCE_SEEDS
+      : [];
 
   const supabase = getSupabaseAdmin();
   const existingResult = await supabase.from("grant_sources").select("id, endpoint");
@@ -257,6 +267,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     duplicates,
     rejected,
     manualReview,
+    defaultSeeded: sourceRows === DEFAULT_UK_EU_GLOBAL_GRANT_SOURCE_SEEDS,
     results,
   });
 }

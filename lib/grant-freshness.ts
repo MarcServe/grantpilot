@@ -17,7 +17,7 @@ export interface GrantVerificationWarning {
   message: string;
 }
 
-interface GrantFreshnessInput {
+export interface GrantFreshnessInput {
   deadline?: string | Date | null;
   url_status?: string | null;
   urlStatus?: string | null;
@@ -206,11 +206,11 @@ function findProgrammeWindowPassed(grant: GrantFreshnessInput, now = new Date())
 
   for (const dateInfo of dates) {
     const sentence = sentenceWindowAround(lower, dateInfo.index);
-    const mentionsProgramme = /\b(project|projects|programme|program|pilot|trial|contract|funded work|work must|activities)\b/.test(sentence);
+    const mentionsProgramme = /\b(project|projects|programme|program|pilot|trial|contract|competition|winner|award|awarded|funded work|work must|activities)\b/.test(sentence);
     const startWindow = /\b(must|required|expected|need(?:s)?|will|should)\b.{0,60}\b(start|commence|begin)\b/.test(sentence)
       || /\b(start|commence|begin)\b.{0,25}\b(by|in|on|from)\b/.test(sentence);
-    const endWindow = /\b(end|finish|complete|completion|deliver|close)\b.{0,40}\b(by|in|on|before|no later than)\b/.test(sentence)
-      || /\b(by|before|no later than)\b.{0,40}\b(end|finish|complete|completion)\b/.test(sentence);
+    const endWindow = /\b(end|finish|complete|completion|deliver|close|announce|announced|award|awarded)\b.{0,40}\b(by|in|on|before|no later than)\b/.test(sentence)
+      || /\b(by|before|no later than)\b.{0,40}\b(end|finish|complete|completion|announce|announced|award|awarded)\b/.test(sentence);
     const applicationDeadline = /\b(deadline|closing date|applications? close|applications? closed|apply by|submission deadline|submit by|closes)\b/.test(sentence);
 
     if (!mentionsProgramme && !applicationDeadline) continue;

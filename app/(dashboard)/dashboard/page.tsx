@@ -33,8 +33,9 @@ import { applyOutcomeScoreAdjustment, deriveOutcomeLearningAdvisory } from "@/li
 import { getMatchHealthReport } from "@/lib/match-health";
 import type { EligibilityResult } from "@/lib/claude";
 
-const DASHBOARD_MATCH_PREVIEW_LIMIT = 60;
-const GRANT_QUERY_BATCH_SIZE = 20;
+const DASHBOARD_MATCH_PREVIEW_LIMIT = 12;
+const GRANT_QUERY_BATCH_SIZE = 12;
+const DASHBOARD_MATCH_HEALTH_LIMIT = 80;
 
 type SupabaseAdmin = ReturnType<typeof getSupabaseAdmin>;
 type DashboardMatchGrant = { grantId: string; grantName: string; score: number; summary?: string; addedAt?: string | null };
@@ -97,7 +98,7 @@ async function loadDashboardMatches({
       .eq("organisationId", orgId)
       .eq("profileId", profile.id)
       .order("reportedAt", { ascending: false })
-      .limit(8),
+      .limit(3),
   ]);
   const assessments = assessmentsResult.data ?? [];
   const grantIds = [
@@ -281,26 +282,7 @@ export default async function DashboardPage() {
   const submittedApplications = submittedApplicationsResult.count ?? 0;
   const upcomingTasksData = upcomingTasksResult.data ?? [];
   const taskRows = (upcomingTasksData ?? []) as { id: string; name: string; status: string; dueDate: string | null; applicationId: string; grantId: string | null }[];
-  const applicationIdsFromTasks = [...new Set(taskRows.map((t) => t.applicationId).filter(Boolean))] as string[];
-  const validApplicationIds = new Set<string>();
-  if (applicationIdsFromTasks.length > 0) {
-    const { data: applicationRows } = await supabase
-      .from("Application")
-      .select("id")
-      .eq("organisationId", orgId)
-      .in("id", applicationIdsFromTasks);
-    for (const app of applicationRows ?? []) {
-      validApplicationIds.add((app as { id: string }).id);
-    }
-    const orphanTaskIds = taskRows
-      .filter((task) => !validApplicationIds.has(task.applicationId))
-      .map((task) => task.id);
-    if (orphanTaskIds.length > 0) {
-      await supabase.from("ApplicationTask").delete().in("id", orphanTaskIds).eq("organisationId", orgId);
-    }
-  }
-  const validTaskRows = taskRows.filter((task) => validApplicationIds.has(task.applicationId));
-  const grantIdsFromTasks = [...new Set(validTaskRows.map((t) => t.grantId).filter(Boolean))] as string[];
+  const grantIdsFromTasks = [...new Set(taskRows.map((t) => t.grantId).filter(Boolean))] as string[];
   const grantNameById: Record<string, string> = {};
   if (grantIdsFromTasks.length > 0) {
     const { data: grantRows } = await supabase
@@ -311,7 +293,7 @@ export default async function DashboardPage() {
       grantNameById[(g as { id: string }).id] = (g as { name: string }).name;
     }
   }
-  const upcomingTasks = validTaskRows.map((t) => ({
+  const upcomingTasks = taskRows.map((t) => ({
     id: t.id,
     name: t.name,
     status: t.status,
@@ -345,13 +327,11 @@ export default async function DashboardPage() {
     profile: profile as ({ id: string } & Record<string, unknown>) | undefined,
     completionScore,
   });
-  const matchHealth = profile?.id
-    ? await getMatchHealthReport({
-        supabase,
-        orgId,
-        profile: profile as Record<string, unknown> & { id: string },
-      })
-    : null;
+  const matchHealthPromise = loadDashboardMatchHealth({
+    supabase,
+    orgId,
+    profile: profile as (Record<string, unknown> & { id: string }) | undefined,
+  });
 
   const displayName =
     String(
@@ -377,7 +357,6 @@ export default async function DashboardPage() {
   return (
     <div className="min-w-0 space-y-6 sm:space-y-7">
       <OutcomeFeedbackBanner pending={pendingOutcomes} />
-      {matchHealth && <BusinessDnaMatchHealth report={matchHealth} profile={profile as Record<string, unknown>} />}
       <section className="overflow-hidden rounded-[26px] bg-white shadow-[0_24px_70px_rgba(7,26,58,0.08)]">
         <div className="grid min-w-0 gap-0 xl:grid-cols-[minmax(0,1fr)_360px]">
           <div className="@container/main min-w-0 p-4 sm:p-8">
@@ -508,6 +487,13 @@ export default async function DashboardPage() {
         </div>
       </section>
 
+      <Suspense fallback={null}>
+        <DashboardBusinessDnaPrompt
+          matchHealthPromise={matchHealthPromise}
+          profile={profile as Record<string, unknown> | undefined}
+        />
+      </Suspense>
+
       {upcomingTasks.length > 0 && (
         <Card className="rounded-2xl border-[#e1eaf6] bg-white shadow-[0_18px_45px_rgba(7,26,58,0.07)]">
           <CardHeader>
@@ -595,6 +581,36 @@ export default async function DashboardPage() {
       </div>
     </div>
   );
+}
+
+async function loadDashboardMatchHealth({
+  supabase,
+  orgId,
+  profile,
+}: {
+  supabase: SupabaseAdmin;
+  orgId: string;
+  profile?: (Record<string, unknown> & { id: string }) | null;
+}) {
+  if (!profile?.id) return null;
+  return getMatchHealthReport({
+    supabase,
+    orgId,
+    profile,
+    assessmentLimit: DASHBOARD_MATCH_HEALTH_LIMIT,
+  });
+}
+
+async function DashboardBusinessDnaPrompt({
+  matchHealthPromise,
+  profile,
+}: {
+  matchHealthPromise: Promise<Awaited<ReturnType<typeof loadDashboardMatchHealth>>>;
+  profile?: Record<string, unknown>;
+}) {
+  const matchHealth = await matchHealthPromise;
+  if (!matchHealth || !profile) return null;
+  return <BusinessDnaMatchHealth report={matchHealth} profile={profile} />;
 }
 
 async function TopMatchedOpportunities({ matchesPromise }: { matchesPromise: Promise<DashboardMatchesData> }) {

@@ -3,7 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { notifyOrgMembers, orgHasNotificationSince } from "@/lib/notify";
 import { createStartApplicationToken } from "@/lib/start-application-token";
 import { isNineAmLocal } from "@/lib/timezone";
-import { isGrantLinkUsable } from "@/lib/grant-freshness";
+import { isGrantActionableNow } from "@/lib/grant-actionability";
 import { isOpenAIChecked } from "@/lib/grant-source-policy";
 import { getSuppressedGrantIds } from "@/lib/grant-user-state";
 import { runWithCronLog } from "@/lib/cron-run-log";
@@ -115,7 +115,7 @@ export async function runDeadlineReminderJob(): Promise<{
         .gte("deadline", startOfDay.toISOString())
         .lte("deadline", endOfDay.toISOString());
 
-      const currentGrants = (grants ?? []).filter(isGrantLinkUsable);
+      const currentGrants = (grants ?? []).filter((grant) => isGrantActionableNow(grant));
       const grantCount = currentGrants.length;
       diagnostics.grantsByDay[days] = grantCount;
       if (grantCount === 0) continue;

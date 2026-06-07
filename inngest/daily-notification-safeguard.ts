@@ -2,7 +2,7 @@ import { inngest } from "./client";
 import { runWithCronLog } from "@/lib/cron-run-log";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { isNineAmLocal } from "@/lib/timezone";
-import { isGrantLinkUsable } from "@/lib/grant-freshness";
+import { isGrantActionableNow } from "@/lib/grant-actionability";
 import { notifyOrgMembers, orgHasNotificationSince, type NotificationType } from "@/lib/notify";
 import { organisationAllowsCapability } from "@/lib/plan-check";
 
@@ -86,7 +86,7 @@ async function countUsableGrants(supabase: ReturnType<typeof getSupabaseAdmin>):
 
     if (error) throw error;
     const batch = data ?? [];
-    count += batch.filter(isGrantLinkUsable).length;
+    count += batch.filter((grant) => isGrantActionableNow(grant)).length;
     if (batch.length < GRANT_COUNT_BATCH_SIZE) break;
   }
 
@@ -98,15 +98,26 @@ async function countStrongEligibleForOrg(
   orgId: string,
   minScore: number
 ): Promise<number> {
-  const { count } = await supabase
+  const { data } = await supabase
     .from("EligibilityAssessment")
-    .select("grant_id", { count: "exact", head: true })
+    .select("grant_id")
     .eq("organisation_id", orgId)
     .eq("decision", "likely_eligible")
     .eq("scoring_source", "openai")
-    .gte("score", minScore);
+    .gte("score", minScore)
+    .limit(200);
 
-  return count ?? 0;
+  const grantIds = [...new Set(((data ?? []) as { grant_id?: string | null }[])
+    .map((row) => row.grant_id)
+    .filter((id): id is string => Boolean(id)))];
+  if (grantIds.length === 0) return 0;
+
+  const { data: grants } = await supabase
+    .from("Grant")
+    .select("id, url_status, deadline, eligibility, description, objectives")
+    .in("id", grantIds);
+
+  return ((grants ?? []) as Record<string, unknown>[]).filter((grant) => isGrantActionableNow(grant)).length;
 }
 
 export async function runDailyNotificationSafeguardJob(options?: {

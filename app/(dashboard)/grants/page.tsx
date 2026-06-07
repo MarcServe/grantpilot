@@ -3,7 +3,8 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg } from "@/lib/auth";
 import { GrantsListClient } from "@/components/grants/grants-list-client";
 import { computeUrgency } from "@/lib/urgency";
-import { getGrantVerificationWarning, isGrantLinkUsable } from "@/lib/grant-freshness";
+import { getGrantVerificationWarning } from "@/lib/grant-freshness";
+import { isGrantActionableNow } from "@/lib/grant-actionability";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { grantMatchesFunderLocations, inferFunderLocationsFromProfile } from "@/lib/constants";
 import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
@@ -16,6 +17,7 @@ const GRANT_FETCH_OVERAGE = 2;
 
 type GrantsSearchParams = Promise<Record<string, string | string[] | undefined>>;
 type GrantSortMode = "newest" | "recommended" | "deadline";
+type GrantShelf = "active" | "expired";
 type GrantUserState = "saved" | "viewed" | "deferred" | "applied" | "dismissed";
 type SavedGrantStateRow = {
   grant_id: string;
@@ -81,6 +83,14 @@ function normalizeSort(value: string | undefined): GrantSortMode {
   return "newest";
 }
 
+function normalizeShelf(value: string | undefined): GrantShelf {
+  return value === "expired" ? "expired" : "active";
+}
+
+function buildShelfHref(shelf: GrantShelf): string {
+  return shelf === "expired" ? "/grants?shelf=expired" : "/grants";
+}
+
 export default async function GrantsPage({
   searchParams,
 }: {
@@ -90,10 +100,11 @@ export default async function GrantsPage({
   const page = parsePositiveInt(firstParam(params.page), 1);
   const pageSize = normalizePageSize(firstParam(params.pageSize));
   const sortMode = normalizeSort(firstParam(params.sort));
+  const shelf = normalizeShelf(firstParam(params.shelf) ?? firstParam(params.status));
   const regionFilter = firstParam(params.region) ?? "";
   const funderFilter = firstParam(params.funder) ?? "";
-  const hideExpired = firstParam(params.hideExpired) !== "0";
-  const hideBroken = firstParam(params.hideBroken) === "1";
+  const hideExpired = shelf === "active" ? firstParam(params.hideExpired) !== "0" : false;
+  const hideBroken = shelf === "active" ? firstParam(params.hideBroken) === "1" : false;
 
   const { org, orgId } = await getActiveOrg();
   const supabase = getSupabaseAdmin();
@@ -169,7 +180,9 @@ export default async function GrantsPage({
     .from("Grant")
     .select(grantColumns, { count: "exact" });
 
-  if (hideExpired) {
+  if (shelf === "expired") {
+    grantsQuery = grantsQuery.or(`deadline.lt.${nowIso},url_status.in.(dead,expired)`);
+  } else if (hideExpired) {
     grantsQuery = grantsQuery.or(`deadline.is.null,deadline.gte.${nowIso}`);
   }
   if (hideBroken) {
@@ -193,7 +206,7 @@ export default async function GrantsPage({
   const { data: grantsData, count: totalGrantCount } = await grantsQuery.range(offset, fetchEnd);
   const candidateGrants = (Array.isArray(grantsData) ? grantsData : []) as unknown as GrantListRow[];
   const grants = candidateGrants
-    .filter(isGrantLinkUsable)
+    .filter((grant) => shelf === "expired" ? !isGrantActionableNow(grant) : isGrantActionableNow(grant))
     .filter((grant) => !appliedGrantIds.has(grant.id))
     .filter((grant) => {
       if (regionFilter === "recommended") {
@@ -293,7 +306,9 @@ export default async function GrantsPage({
         <div>
           <h1 className="text-2xl font-bold">Available Grants</h1>
           <p className="mt-1 text-muted-foreground">
-            Browse grants or use GrantsCopilot matching to find the best fit for your business.
+            {shelf === "expired"
+              ? "Review expired or unavailable opportunities separately from current grants."
+              : "Browse current grants or use GrantsCopilot matching to find the best fit for your business."}
           </p>
           <div className="mt-2 space-y-1 text-xs font-medium text-muted-foreground">
             {latestCreatedAt && (
@@ -316,6 +331,22 @@ export default async function GrantsPage({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={buildShelfHref("active")}
+            className={`shrink-0 rounded-md border px-4 py-2 text-sm font-medium ${
+              shelf === "active" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-muted"
+            }`}
+          >
+            Current grants
+          </Link>
+          <Link
+            href={buildShelfHref("expired")}
+            className={`shrink-0 rounded-md border px-4 py-2 text-sm font-medium ${
+              shelf === "expired" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-muted"
+            }`}
+          >
+            Expired archive
+          </Link>
           <Link
             href="/grants/apply-by-link"
             className="shrink-0 rounded-md border bg-background px-4 py-2 text-sm font-medium hover:bg-muted"
@@ -364,6 +395,7 @@ export default async function GrantsPage({
           totalItems,
           totalPages,
           sortMode,
+          shelf,
           regionFilter,
           funderFilter,
           hideExpired,

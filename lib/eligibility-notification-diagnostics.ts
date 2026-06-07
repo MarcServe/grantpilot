@@ -2,7 +2,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { getEligibilityNotifyMinCompletion } from "@/lib/eligibility-notify-config";
 import { planAllowsForOrg, resolvePlanKey } from "@/lib/plan-features";
 import { grantMatchesFunderLocations, inferFunderLocationsFromProfile } from "@/lib/constants";
-import { isGrantLinkUsable } from "@/lib/grant-freshness";
+import { isGrantActionableNow } from "@/lib/grant-actionability";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { getSuppressedGrantIds } from "@/lib/grant-user-state";
 import { deriveOutcomeLearningAdvisory, type OutcomeLearningAdvisory } from "@/lib/outcome-learning";
@@ -101,6 +101,7 @@ type GrantTraceRow = {
   id: string;
   name?: string | null;
   deadline?: string | null;
+  applicationUrl?: string | null;
   eligibility?: string | null;
   description?: string | null;
   objectives?: string | null;
@@ -300,7 +301,7 @@ async function getCurrentActionableGrantTrace(
   for (let offset = 0; offset < MAX_GRANTS_FOR_TRACE; offset += TRACE_BATCH_SIZE) {
     const { data, error } = await supabase
       .from("Grant")
-      .select("id, name, deadline, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, url_status, createdAt")
+      .select("id, name, deadline, applicationUrl, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, url_status, createdAt")
       .order("createdAt", { ascending: false })
       .range(offset, offset + TRACE_BATCH_SIZE - 1);
 
@@ -314,7 +315,7 @@ async function getCurrentActionableGrantTrace(
     if (batch.length < TRACE_BATCH_SIZE) break;
   }
 
-  const usable = rows.filter(isGrantLinkUsable);
+  const usable = rows.filter((grant) => isGrantActionableNow(grant));
   const [appliedGrantIds, suppressedGrantIds] = await Promise.all([
     getAppliedGrantIds(supabase, orgId, profile.id),
     getSuppressedGrantIds(supabase, orgId, profile.id),

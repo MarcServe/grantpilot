@@ -8,6 +8,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import type { GrantInput } from "@/lib/grants-ingest";
 import { upsertGrant } from "@/lib/grants-ingest";
 import { waitForDomainThrottle } from "@/lib/throttle-per-domain";
+import { autoSeedDefaultGrantSources, type AutoSeedGrantSourcesResult } from "@/lib/grant-source-auto-seed";
 
 export interface GrantSourceRow {
   id: string;
@@ -224,8 +225,13 @@ export async function runDueGrantSources(options?: { limit?: number }): Promise<
   created: number;
   updated: number;
   failed: number;
+  sourceSeed?: AutoSeedGrantSourcesResult;
   results: GrantSourceRunResult[];
 }> {
+  const sourceSeed = await autoSeedDefaultGrantSources({
+    runSource: "app_default_seed",
+    createdBy: "grant-source-crawler",
+  });
   const due = await getDueGrantSources();
   const limit = options?.limit;
   const prioritized = [...due].sort((a, b) =>
@@ -281,6 +287,7 @@ export async function runDueGrantSources(options?: { limit?: number }): Promise<
     created,
     updated,
     failed,
+    sourceSeed,
     results,
   };
 }

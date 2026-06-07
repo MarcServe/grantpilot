@@ -11,6 +11,7 @@ import { enqueueGrantForScoutIfProgrammeUrl } from "@/lib/enqueue-scout";
 import { generateAndStoreGrantEmbedding } from "@/lib/embeddings";
 import { checkUrlHealth } from "@/lib/url-health-check";
 import { getGrantFreshnessStatus, isPastGrantDeadline } from "@/lib/grant-freshness";
+import { verifyGrantActionable } from "@/lib/grant-actionability";
 
 /** Normalize string for hashing: lowercase, trim, collapse whitespace. */
 function normalizeForHash(s: string): string {
@@ -132,6 +133,10 @@ export async function upsertGrant(input: GrantInput): Promise<{ id: string; crea
   const freshness = getGrantFreshnessStatus(input);
   if (!freshness.usable) {
     throw new Error(freshness.message ?? `Grant appears closed: ${input.name}`);
+  }
+  const verified = await verifyGrantActionable(input);
+  if (!verified.usable) {
+    throw new Error(verified.message ?? `Grant appears closed: ${input.name}`);
   }
   const sectors = input.sectors?.length ? input.sectors : ["Other"];
   const regions = input.regions?.length ? input.regions : ["England"];

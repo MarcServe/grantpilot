@@ -2,7 +2,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { grantMatchesFunderLocations, inferFunderLocationsFromProfile } from "@/lib/constants";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { getSuppressedGrantIds } from "@/lib/grant-user-state";
-import { isGrantLinkUsable } from "@/lib/grant-freshness";
+import { isGrantActionableNow } from "@/lib/grant-actionability";
 import { deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
 import { finalEligibilityScore, finaliseEligibilityAssessment } from "@/lib/eligibility-final-score";
 import type { EligibilityResult } from "@/lib/claude";
@@ -11,7 +11,7 @@ const MATCH_HEALTH_HIGH_THRESHOLD = 85;
 const MATCH_HEALTH_WITHIN_REACH_MIN = 50;
 const MATCH_HEALTH_DRY_SPELL_DAYS = 3;
 const MATCH_HEALTH_ASSESSMENT_LIMIT = 800;
-const MATCH_HEALTH_BATCH_SIZE = 20;
+const MATCH_HEALTH_BATCH_SIZE = 50;
 
 type SupabaseAdmin = ReturnType<typeof getSupabaseAdmin>;
 
@@ -265,11 +265,13 @@ export async function getMatchHealthReport(params: {
   profile: Record<string, unknown> & { id?: string };
   highThreshold?: number;
   drySpellDays?: number;
+  assessmentLimit?: number;
 }): Promise<MatchHealthReport> {
   const supabase = params.supabase ?? getSupabaseAdmin();
   const profileId = String(params.profile.id ?? "");
   const highThreshold = params.highThreshold ?? MATCH_HEALTH_HIGH_THRESHOLD;
   const drySpellLimit = params.drySpellDays ?? MATCH_HEALTH_DRY_SPELL_DAYS;
+  const assessmentLimit = Math.max(20, Math.min(params.assessmentLimit ?? MATCH_HEALTH_ASSESSMENT_LIMIT, MATCH_HEALTH_ASSESSMENT_LIMIT));
   const completion = profileCompletion(params.profile);
 
   if (!profileId) {
@@ -301,7 +303,7 @@ export async function getMatchHealthReport(params: {
     .eq("profile_id", profileId)
     .gte("score", MATCH_HEALTH_WITHIN_REACH_MIN)
     .order("updated_at", { ascending: false })
-    .limit(MATCH_HEALTH_ASSESSMENT_LIMIT);
+    .limit(assessmentLimit);
 
   if (assessmentError) {
     console.warn("[match-health] assessment lookup failed", assessmentError.message);
@@ -336,7 +338,7 @@ export async function getMatchHealthReport(params: {
   for (const row of assessments) {
     const grant = grantMap.get(row.grant_id);
     if (!grant) continue;
-    if (!isGrantLinkUsable(grant)) {
+    if (!isGrantActionableNow(grant)) {
       addCount(blockerCounts, "expired_or_unusable");
       continue;
     }
@@ -381,7 +383,8 @@ export async function getMatchHealthReport(params: {
     .map(([reason, count]) => ({ ...blockerCopy(reason), count }));
 
   const daysSinceHighMatch = daysSince(latestHighMatchAt);
-  const drySpell = daysSinceHighMatch == null || daysSinceHighMatch >= drySpellLimit;
+  const daysSinceRelevantScore = daysSinceHighMatch ?? daysSince(latestScoreAt);
+  const drySpell = daysSinceRelevantScore != null && daysSinceRelevantScore >= drySpellLimit;
   const status: MatchHealthStatus =
     assessments.length === 0 ? "no_recent_scores" : drySpell ? (gaps.length > 0 ? "needs_profile_evidence" : "dry_spell") : "healthy";
   const shouldPrompt =
@@ -398,7 +401,7 @@ export async function getMatchHealthReport(params: {
     status,
     latestScoreAt,
     latestHighMatchAt,
-    daysSinceHighMatch,
+    daysSinceHighMatch: daysSinceRelevantScore,
     currentHighMatches,
     currentWithinReach,
     storedHighMatches,

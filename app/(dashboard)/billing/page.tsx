@@ -46,7 +46,7 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
       </div>
 
       <BillingClient
-        currentPlan={org.plan}
+        currentPlan={plan}
         autoFillCount={autoFillCount ?? 0}
         matchCount={matchCount ?? 0}
         limits={{

@@ -72,6 +72,7 @@ interface GrantsListClientProps {
     totalItems: number;
     totalPages: number;
     sortMode: (typeof SORT_OPTIONS)[number]["value"];
+    shelf?: "active" | "expired";
     regionFilter: string;
     funderFilter: string;
     hideExpired: boolean;
@@ -126,6 +127,7 @@ export function GrantsListClient({
   const currentPathname = pathname ?? "/grants";
   const searchParams = useSearchParams();
   const isServerPaged = Boolean(serverPagination);
+  const shelf = serverPagination?.shelf ?? "active";
   const [savedSet, setSavedSet] = useState<Set<string>>(() => new Set(savedGrantIds));
   const [stateMap, setStateMap] = useState<Record<string, GrantUserState>>(() => ({ ...grantUserStates }));
   const [sortMode, setSortMode] = useState<(typeof SORT_OPTIONS)[number]["value"]>(serverPagination?.sortMode ?? "newest");
@@ -145,9 +147,10 @@ export function GrantsListClient({
       if (value === null || value === "" || value === false) params.delete(key);
       else params.set(key, String(value));
     }
+    if (shelf === "expired") params.set("shelf", "expired");
     if (!("page" in updates)) params.set("page", "1");
     router.push(`${currentPathname}?${params.toString()}`);
-  }, [currentPathname, router, searchParams, serverPagination]);
+  }, [currentPathname, router, searchParams, serverPagination, shelf]);
 
   const toggleSaved = useCallback(async (grantId: string, currentlySaved: boolean) => {
     if (currentlySaved) {
@@ -261,7 +264,7 @@ export function GrantsListClient({
     <div className="min-w-0">
       <div className="mb-6 flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center">
         <p className="text-sm text-muted-foreground">
-          {visibleCount} grant{visibleCount !== 1 ? "s" : ""}
+          {visibleCount} {shelf === "expired" ? "archived " : ""}grant{visibleCount !== 1 ? "s" : ""}
           {totalPages > 1 && ` \u00b7 Page ${safePage} of ${totalPages}`}
         </p>
         <select
@@ -335,37 +338,48 @@ export function GrantsListClient({
             <option key={n} value={n}>{n} per page</option>
           ))}
         </select>
-        <label className="flex items-center gap-1.5 text-sm" htmlFor="grants-hide-expired">
-          <input
-            id="grants-hide-expired"
-            name="hideExpired"
-            type="checkbox"
-            checked={hideExpired}
-            onChange={(e) => {
-              setHideExpired(e.target.checked);
-              setCurrentPage(1);
-              if (isServerPaged) updateServerParams({ hideExpired: e.target.checked ? "1" : "0", page: 1 });
-            }}
-            className="rounded border-input"
-          />
-          Hide expired
-        </label>
-        <label className="flex items-center gap-1.5 text-sm" htmlFor="grants-hide-broken">
-          <input
-            id="grants-hide-broken"
-            name="hideBroken"
-            type="checkbox"
-            checked={hideBroken}
-            onChange={(e) => {
-              setHideBroken(e.target.checked);
-              setCurrentPage(1);
-              if (isServerPaged) updateServerParams({ hideBroken: e.target.checked ? "1" : null, page: 1 });
-            }}
-            className="rounded border-input"
-          />
-          Hide broken links
-        </label>
+        {shelf === "active" && (
+          <>
+            <label className="flex items-center gap-1.5 text-sm" htmlFor="grants-hide-expired">
+              <input
+                id="grants-hide-expired"
+                name="hideExpired"
+                type="checkbox"
+                checked={hideExpired}
+                onChange={(e) => {
+                  setHideExpired(e.target.checked);
+                  setCurrentPage(1);
+                  if (isServerPaged) updateServerParams({ hideExpired: e.target.checked ? "1" : "0", page: 1 });
+                }}
+                className="rounded border-input"
+              />
+              Hide expired
+            </label>
+            <label className="flex items-center gap-1.5 text-sm" htmlFor="grants-hide-broken">
+              <input
+                id="grants-hide-broken"
+                name="hideBroken"
+                type="checkbox"
+                checked={hideBroken}
+                onChange={(e) => {
+                  setHideBroken(e.target.checked);
+                  setCurrentPage(1);
+                  if (isServerPaged) updateServerParams({ hideBroken: e.target.checked ? "1" : null, page: 1 });
+                }}
+                className="rounded border-input"
+              />
+              Hide broken links
+            </label>
+          </>
+        )}
       </div>
+
+      {shelf === "expired" && (
+        <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          Expired and unavailable grants are kept here for auditability. They are not mixed into current matches,
+          daily alerts, or proactive WhatsApp/email notifications.
+        </div>
+      )}
 
       {!hasProfile && (
         <div className="mb-6 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
@@ -373,8 +387,20 @@ export function GrantsListClient({
         </div>
       )}
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {displayGrants.map((grant) => {
+      {displayGrants.length === 0 ? (
+        <div className="rounded-lg border border-dashed bg-background p-8 text-center">
+          <p className="font-semibold">
+            {shelf === "expired" ? "No expired grants found" : "No current grants found"}
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {shelf === "expired"
+              ? "Expired opportunities will appear here after their deadline passes or their source link is marked unavailable."
+              : "Try changing the region, funder, or saved-grants filter."}
+          </p>
+        </div>
+      ) : (
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {displayGrants.map((grant) => {
           const cached = cachedScores[grant.id];
           const isSaved = savedSet.has(grant.id);
           const userState = stateMap[grant.id] ?? null;
@@ -404,8 +430,9 @@ export function GrantsListClient({
               scoringSource={cached?.scoringSource}
             />
           );
-        })}
-      </div>
+          })}
+        </div>
+      )}
 
       {totalPages > 1 && (
         <nav className="mt-8 flex flex-wrap items-center justify-center gap-2">
