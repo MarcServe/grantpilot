@@ -10,6 +10,10 @@
       "schedule": "30 6 * * *"
     },
     {
+      "path": "/api/cron/apify-grant-source-discovery",
+      "schedule": "0 7 * * *"
+    },
+    {
       "path": "/api/cron/grant-source-crawler",
       "schedule": "15 7 * * *"
     },
