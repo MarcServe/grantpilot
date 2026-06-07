@@ -27,6 +27,12 @@ const RECOMMENDED_ENV = [
   "EMAIL_FROM",
   "CRON_SECRET",
   "INTERNAL_API_SECRET",
+  "APIFY_TOKEN",
+  "PERPLEXITY_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "CLAUDE_API_KEY",
+  "GEMINI_API_KEY",
+  "GOOGLE_AI_API_KEY",
 ];
 
 function envCheck(name: string, required: boolean): Check {
@@ -35,6 +41,10 @@ function envCheck(name: string, required: boolean): Check {
     required,
     ok: Boolean(process.env[name]?.trim()),
   };
+}
+
+function anyEnv(names: string[]): boolean {
+  return names.some((name) => Boolean(process.env[name]?.trim()));
 }
 
 export async function GET(req: Request): Promise<NextResponse> {
@@ -51,6 +61,30 @@ export async function GET(req: Request): Promise<NextResponse> {
       required: true,
       ok: Boolean(process.env.OPENAI_API_KEY?.trim()),
       detail: "Trusted matching, digests, and deadline reminders require OpenAI-scored eligibility assessments.",
+    },
+    {
+      name: "GRANT_DISCOVERY_AI_PROVIDERS",
+      required: false,
+      ok: anyEnv(["OPENAI_API_KEY", "PERPLEXITY_API_KEY", "ANTHROPIC_API_KEY", "CLAUDE_API_KEY", "GEMINI_API_KEY", "GOOGLE_AI_API_KEY"]),
+      detail: "Grant discovery uses any configured provider among OpenAI, Perplexity, Claude/Anthropic, and Gemini/Google AI.",
+    },
+    {
+      name: "CLAUDE_DISCOVERY",
+      required: false,
+      ok: anyEnv(["ANTHROPIC_API_KEY", "CLAUDE_API_KEY"]),
+      detail: "Claude discovery accepts ANTHROPIC_API_KEY or CLAUDE_API_KEY.",
+    },
+    {
+      name: "GEMINI_DISCOVERY",
+      required: false,
+      ok: anyEnv(["GEMINI_API_KEY", "GOOGLE_AI_API_KEY"]),
+      detail: "Gemini discovery accepts GEMINI_API_KEY or GOOGLE_AI_API_KEY.",
+    },
+    {
+      name: "APIFY_SOURCE_DISCOVERY",
+      required: false,
+      ok: anyEnv(["APIFY_TOKEN"]),
+      detail: "The Apify source-discovery cron uses APIFY_TOKEN plus CRON_SECRET and INTERNAL_API_SECRET.",
     },
   ];
 

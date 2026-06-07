@@ -157,6 +157,12 @@ type GrantSourceAttributionRow = {
   createdAt: string | null;
 };
 
+type DiscoveryProviderStatus = {
+  label: string;
+  configured: boolean;
+  detail: string;
+};
+
 type QueueStatus = {
   pending: number;
   crawled?: number;
@@ -244,6 +250,40 @@ function grantSourceLabel(source?: string | null): string {
   if (value === "admin") return "Admin import";
   if (value === "grants-gov") return "Grants.gov";
   return source ?? "Unknown";
+}
+
+function hasEnv(...names: string[]): boolean {
+  return names.some((name) => Boolean(process.env[name]?.trim()));
+}
+
+function discoveryProviderStatuses(): DiscoveryProviderStatus[] {
+  return [
+    {
+      label: "OpenAI",
+      configured: hasEnv("OPENAI_API_KEY"),
+      detail: "Trusted eligibility scoring and web discovery",
+    },
+    {
+      label: "Perplexity",
+      configured: hasEnv("PERPLEXITY_API_KEY"),
+      detail: "Web-grounded grant discovery",
+    },
+    {
+      label: "Claude",
+      configured: hasEnv("ANTHROPIC_API_KEY", "CLAUDE_API_KEY"),
+      detail: "Web-search grant discovery",
+    },
+    {
+      label: "Gemini",
+      configured: hasEnv("GEMINI_API_KEY", "GOOGLE_AI_API_KEY"),
+      detail: "Grant discovery enrichment",
+    },
+    {
+      label: "Apify",
+      configured: hasEnv("APIFY_TOKEN"),
+      detail: "Daily source-discovery cron",
+    },
+  ];
 }
 
 function formatDurationMs(value?: number | null): string {
@@ -761,6 +801,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
       return counts;
     }, new Map<string, number>())
   ).sort((a, b) => b[1] - a[1]);
+  const aiDiscoveryProviders = discoveryProviderStatuses();
   const discoveryQueue: QueueStatus = {
     pending: discoveryPendingResult.count ?? 0,
     failed: discoveryFailedResult.count ?? 0,
@@ -1145,6 +1186,42 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                     <p className="text-muted-foreground">No grant deadlines are recorded for the next 7 days.</p>
                   )}
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card className="min-w-0 overflow-hidden">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <SearchCheck className="h-4 w-4 text-blue-600" />
+                  AI discovery providers
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                <p className="text-sm text-muted-foreground">
+                  Runtime key status for grant discovery providers. Secret values are never displayed.
+                </p>
+                <div className="space-y-2">
+                  {aiDiscoveryProviders.map((provider) => (
+                    <div key={provider.label} className="flex items-center justify-between gap-3 rounded-md border bg-muted/30 p-3">
+                      <div className="min-w-0">
+                        <div className="font-medium">{provider.label}</div>
+                        <div className="text-xs text-muted-foreground">{provider.detail}</div>
+                      </div>
+                      <span
+                        className={`shrink-0 rounded-full border px-2 py-1 text-xs font-medium ${
+                          provider.configured
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                            : "border-amber-200 bg-amber-50 text-amber-700"
+                        }`}
+                      >
+                        {provider.configured ? "Configured" : "Missing"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  OpenAI remains required for trusted eligibility scoring; the other providers enrich source discovery when configured.
+                </p>
               </CardContent>
             </Card>
 
