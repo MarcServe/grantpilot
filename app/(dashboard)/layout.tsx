@@ -8,6 +8,11 @@ import { getActiveOrg } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
+function preferredAccountName(org: Awaited<ReturnType<typeof getActiveOrg>>["org"]): string | null {
+  const profileName = org.profiles?.[0]?.businessName?.trim();
+  return profileName || org.name?.trim() || null;
+}
+
 async function SidebarNavWithProfileStrength() {
   const { org } = await getActiveOrg();
   const profile = org.profiles?.[0];
@@ -21,6 +26,10 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const accountNamePromise = getActiveOrg()
+    .then(({ org }) => preferredAccountName(org))
+    .catch(() => null);
+
   return (
     <div className="min-h-screen bg-[#f4f8ff] text-[#071a3a]">
       <aside className="fixed inset-y-0 left-0 z-40 hidden h-screen max-h-screen w-[250px] flex-col overflow-hidden bg-[#041d38] px-5 py-7 text-white lg:flex">
@@ -86,7 +95,9 @@ export default function DashboardLayout({
               >
                 <Bell className="h-5 w-5" />
               </button>
-              <UserNav />
+              <Suspense fallback={<div className="h-11 w-11 animate-pulse rounded-full bg-muted" />}>
+                <UserNavWithAccountName accountNamePromise={accountNamePromise} />
+              </Suspense>
             </div>
           </div>
         </header>
@@ -95,4 +106,9 @@ export default function DashboardLayout({
       </div>
     </div>
   );
+}
+
+async function UserNavWithAccountName({ accountNamePromise }: { accountNamePromise: Promise<string | null> }) {
+  const accountName = await accountNamePromise;
+  return <UserNav accountName={accountName} />;
 }

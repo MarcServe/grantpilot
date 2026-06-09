@@ -14,7 +14,17 @@ import {
 import { ChevronDown, LogOut, User } from "lucide-react";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 
-export function UserNav() {
+function displayInitials(value: string): string {
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase() || "U";
+}
+
+export function UserNav({ accountName }: { accountName?: string | null }) {
   const router = useRouter();
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -33,10 +43,9 @@ export function UserNav() {
 
   if (!user) return null;
 
-  const initials = (user.email ?? "U")
-    .split("@")[0]
-    .slice(0, 2)
-    .toUpperCase();
+  const fallbackName = user.email?.split("@")[0] ?? "Account";
+  const displayName = accountName?.trim() || fallbackName;
+  const initials = displayInitials(displayName);
 
   async function handleSignOut() {
     const supabase = createClient();
@@ -56,7 +65,7 @@ export function UserNav() {
             {initials}
           </span>
           <span className="hidden max-w-[150px] truncate text-sm font-extrabold sm:inline">
-            {user.email?.split("@")[0] ?? "Account"}
+            {displayName}
           </span>
           <ChevronDown className="hidden h-4 w-4 text-[#64748b] sm:block" />
         </Button>
@@ -67,7 +76,8 @@ export function UserNav() {
             {initials}
           </div>
           <div className="flex flex-col space-y-0.5">
-            <p className="text-sm font-medium">{user.email}</p>
+            <p className="text-sm font-medium">{displayName}</p>
+            <p className="text-xs text-muted-foreground">{user.email}</p>
           </div>
         </div>
         <DropdownMenuSeparator />
