@@ -5,7 +5,7 @@
  */
 
 import type { GrantInput } from "@/lib/grants-ingest";
-import { isGrantPage, extractGrantsFromPage } from "@/lib/grants-ai-extract";
+import { isGrantPage, extractGrantsFromPage, extractGrantsFromPageWithPerplexity } from "@/lib/grants-ai-extract";
 import { createHash } from "crypto";
 import { waitForDomainThrottle } from "@/lib/throttle-per-domain";
 import { isAllowedByRobots } from "@/lib/robots-txt";
@@ -71,7 +71,10 @@ export async function fetchGrantsFromCrawl(
     if (!isGrant) return { grants: [], contentHash };
   }
 
-  const grants = await extractGrantsFromPage(html, pageUrl);
+  let grants = await extractGrantsFromPage(html, pageUrl);
+  if (grants.length === 0) {
+    grants = await extractGrantsFromPageWithPerplexity(html, pageUrl);
+  }
   return {
     grants: grants.map((g) => ({
       ...g,

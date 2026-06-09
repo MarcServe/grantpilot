@@ -5,6 +5,7 @@
 
 import type { GrantInput } from "@/lib/grants-ingest";
 import { cleanJsonResponse, completeJson, completeText } from "@/lib/openai-client";
+import OpenAI from "openai";
 
 const MAX_TOKENS = 8192;
 const MAX_PAGE_CHARS = 80_000;
@@ -148,4 +149,123 @@ ${text}`,
     });
   }
   return out;
+}
+
+/**
+ * Optional Perplexity fallback for source-page enrichment.
+ * Use only after the primary extractor finds no grants; trusted eligibility scoring still runs separately.
+ */
+export async function extractGrantsFromPageWithPerplexity(
+  htmlOrText: string,
+  pageUrl: string
+): Promise<GrantInput[]> {
+  const apiKey = process.env.PERPLEXITY_API_KEY?.trim();
+  if (!apiKey) return [];
+
+  const isHtml = /<[a-z][\s\S]*>/i.test(htmlOrText);
+  const text = (isHtml ? stripHtmlToText(htmlOrText) : htmlOrText).slice(0, 20_000);
+  if (!text.trim()) return [];
+
+  const client = new OpenAI({
+    apiKey,
+    baseURL: "https://api.perplexity.ai",
+  });
+
+  const response = await client.chat.completions.create({
+    model: "sonar",
+    temperature: 0.1,
+    max_tokens: 4096,
+    messages: [
+      {
+        role: "user",
+        content: `Use the source URL and page content below to extract current, real grant or funding opportunities only.
+
+Rules:
+- Prefer official UK, EU, or global programmes open to UK applicants.
+- Do not include expired, closed, archived, historical, scholarship-only, or login-only pages as actionable grants.
+- Do not invent deadlines, amounts, eligibility rules, or URLs.
+- application_link must be the most direct official grant detail/application URL you can verify from the source context.
+- If no current grants are present, return {"grants":[]}.
+
+Return JSON only with this shape:
+{
+  "grants": [
+    {
+      "grant_title": "Grant name",
+      "funder": "Funder",
+      "funding_amount": 0,
+      "deadline": "YYYY-MM-DD or null",
+      "country": "UK/EU/Global or null",
+      "eligibility": "Short eligibility summary",
+      "sector": "Sector or null",
+      "application_link": "https://..."
+    }
+  ]
+}
+
+Source URL: ${pageUrl}
+
+Page content:
+${text}`,
+      },
+    ],
+  });
+
+  const raw = response.choices[0]?.message?.content;
+  if (!raw || typeof raw !== "string") return [];
+
+  let arr: unknown[] = [];
+  try {
+    const cleaned = cleanJsonResponse(raw);
+    const parsed = JSON.parse(cleaned) as unknown;
+    arr = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray((parsed as { grants?: unknown }).grants)
+        ? (parsed as { grants: unknown[] }).grants
+        : [];
+  } catch {
+    const match = raw.match(/\[[\s\S]*\]/);
+    if (!match) return [];
+    try {
+      arr = JSON.parse(match[0]) as unknown[];
+    } catch {
+      return [];
+    }
+  }
+
+  return arr
+    .map((item): GrantInput | null => {
+      if (!item || typeof item !== "object") return null;
+      const o = item as Record<string, unknown>;
+      const name = typeof o.grant_title === "string" ? o.grant_title.trim() : "";
+      const funder = typeof o.funder === "string" ? o.funder.trim() : "";
+      const applicationUrl = typeof o.application_link === "string" ? o.application_link.trim() : pageUrl;
+      if (!name || !funder || !applicationUrl) return null;
+
+      const amount = typeof o.funding_amount === "number" && !Number.isNaN(o.funding_amount)
+        ? o.funding_amount
+        : null;
+      const country = typeof o.country === "string" ? o.country.trim() : "";
+      const sector = typeof o.sector === "string" ? o.sector.trim() : "";
+      const eligibility = typeof o.eligibility === "string" && o.eligibility.trim()
+        ? o.eligibility.trim()
+        : "See application page.";
+      const deadline = typeof o.deadline === "string" && o.deadline.trim().toLowerCase() !== "null"
+        ? o.deadline.trim()
+        : null;
+
+      return {
+        name,
+        funder,
+        amount,
+        deadline,
+        applicationUrl,
+        eligibility: eligibility.slice(0, 5000),
+        sectors: sector ? [sector] : [],
+        regions: country ? [country] : [],
+        funderLocations: country ? [country] : [],
+        source: "perplexity",
+      };
+    })
+    .filter((grant): grant is GrantInput => grant != null);
 }
