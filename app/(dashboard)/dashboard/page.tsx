@@ -31,10 +31,11 @@ import { getSuppressedGrantIds } from "@/lib/grant-user-state";
 import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
 import { applyOutcomeScoreAdjustment, deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
 import { getMatchHealthReport } from "@/lib/match-health";
+import { fetchCachedGrantRowsByIds } from "@/lib/grant-record-cache";
 import type { EligibilityResult } from "@/lib/claude";
 
 const DASHBOARD_MATCH_PREVIEW_LIMIT = 12;
-const GRANT_QUERY_BATCH_SIZE = 12;
+const GRANT_QUERY_BATCH_SIZE = 24;
 const DASHBOARD_MATCH_HEALTH_LIMIT = 80;
 
 type SupabaseAdmin = ReturnType<typeof getSupabaseAdmin>;
@@ -106,30 +107,32 @@ async function loadDashboardMatches({
   ];
 
   if (grantIds.length > 0) {
-    const allGrantsList: { id: string; name: string; funderLocations?: string[]; createdAt?: string | null; eligibility?: string | null; description?: string | null; objectives?: string | null; applicantTypes?: string[]; sectors?: string[]; regions?: string[] }[] = [];
-    const grantIdBatches = Array.from(
-      { length: Math.ceil(grantIds.length / GRANT_QUERY_BATCH_SIZE) },
-      (_, index) => grantIds.slice(index * GRANT_QUERY_BATCH_SIZE, (index + 1) * GRANT_QUERY_BATCH_SIZE)
-    );
-    const grantBatchResults = await Promise.all(
-      grantIdBatches.map((ids) =>
-        supabase
-          .from("Grant")
-          .select("id, name, funderLocations, createdAt, eligibility, description, objectives, applicantTypes, sectors, regions")
-          .in("id", ids)
-      )
-    );
-    for (const { data: batch } of grantBatchResults) {
-      if (batch) allGrantsList.push(...(batch as typeof allGrantsList));
-    }
-    const grantsList = allGrantsList;
+    const grantById = await fetchCachedGrantRowsByIds<{
+      id: string;
+      name: string;
+      funderLocations?: string[];
+      createdAt?: string | null;
+      eligibility?: string | null;
+      description?: string | null;
+      objectives?: string | null;
+      applicantTypes?: string[];
+      sectors?: string[];
+      regions?: string[];
+    }>({
+      supabase,
+      ids: grantIds,
+      select: "id, name, funderLocations, createdAt, eligibility, description, objectives, applicantTypes, sectors, regions",
+      batchSize: GRANT_QUERY_BATCH_SIZE,
+      ttlMs: 60_000,
+      cacheNamespace: "dashboard-grants",
+    });
+    const grantsList = [...grantById.values()];
     const userFunderLocations = inferFunderLocationsFromProfile(profile as {
       funderLocations?: string[] | null;
       location?: string | null;
       country?: string | null;
       region?: string | null;
     });
-    const grantById = new Map(grantsList.map((g) => [g.id, g]));
     const matchesLocation = new Set(grantsList.filter((g) => grantMatchesFunderLocations(g.funderLocations, userFunderLocations)).map((g) => g.id));
     const outcomeAdvisory = deriveOutcomeLearningAdvisory(outcomeRowsResult.data ?? []);
     for (const a of assessments as { grant_id: string; score: number; decision?: string | null; summary: string | null; missing_criteria?: string[] | null; improvement_plan?: { gaps?: string[]; actions?: string[]; timeline?: string } | null; scoring_source?: string | null }[]) {

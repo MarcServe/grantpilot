@@ -14,6 +14,7 @@ import { isGrantActionableNow } from "@/lib/grant-actionability";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
 import { getMatchHealthReport } from "@/lib/match-health";
+import { fetchCachedGrantRowsByIds } from "@/lib/grant-record-cache";
 import {
   finalEligibilityScore,
   finaliseEligibilityAssessment,
@@ -275,19 +276,15 @@ async function EligibleGrantsPageContent({
         .filter((row) => row.status === "deferred" || row.status === "applied" || row.status === "dismissed")
         .map((row) => row.grant_id)
     );
-    // Batch .in() queries to avoid URL length limits (Supabase/PostgREST caps ~8KB)
-    const allGrantsData: GrantRow[] = [];
-    for (let i = 0; i < grantIds.length; i += GRANT_QUERY_BATCH_SIZE) {
-      const batch = grantIds.slice(i, i + GRANT_QUERY_BATCH_SIZE);
-      const { data: batchData, error: grantErr } = await supabase
-        .from("Grant")
-        .select("id, name, funder, deadline, funderLocations, url_status, createdAt, eligibility, description, objectives, applicantTypes, sectors, regions")
-        .in("id", batch);
-      if (grantErr) {
-        console.error("[eligible-page] grants query error:", grantErr);
-      }
-      if (batchData) allGrantsData.push(...(batchData as GrantRow[]));
-    }
+    const grantsById = await fetchCachedGrantRowsByIds<GrantRow>({
+      supabase,
+      ids: grantIds,
+      select: "id, name, funder, deadline, funderLocations, url_status, createdAt, eligibility, description, objectives, applicantTypes, sectors, regions",
+      batchSize: GRANT_QUERY_BATCH_SIZE,
+      ttlMs: 60_000,
+      cacheNamespace: "eligible-grants",
+    });
+    const allGrantsData = [...grantsById.values()];
 
     const validGrants = allGrantsData.filter((grant) =>
       isGrantActionableNow(grant) && !appliedGrantIds.has(grant.id) && !hiddenStateGrantIds.has(grant.id)
