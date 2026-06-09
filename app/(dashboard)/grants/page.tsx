@@ -9,11 +9,13 @@ import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { grantMatchesFunderLocations, inferFunderLocationsFromProfile } from "@/lib/constants";
 import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
 import { applyOutcomeScoreAdjustment, deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
+import { getServerCache } from "@/lib/server-cache";
 import type { EligibilityResult } from "@/lib/claude";
 
 const GRANT_PAGE_SIZE_OPTIONS = [20, 30, 50] as const;
 const DEFAULT_GRANT_PAGE_SIZE = 20;
 const GRANT_FETCH_OVERAGE = 2;
+const GRANTS_PUBLIC_CACHE_TTL_MS = 60_000;
 
 type GrantsSearchParams = Promise<Record<string, string | string[] | undefined>>;
 type GrantSortMode = "newest" | "recommended" | "deadline";
@@ -141,19 +143,24 @@ export default async function GrantsPage({
     }
   }
 
+  const grantsOverviewCacheKey = "grants-overview:v1";
   const [
     latestCreatedResult,
     latestUpdatedResult,
     newTodayResult,
     newThisWeekResult,
     funderOptionsResult,
-  ] = await Promise.all([
-    supabase.from("Grant").select("createdAt").order("createdAt", { ascending: false }).limit(1).maybeSingle(),
-    supabase.from("Grant").select("updatedAt, createdAt").order("updatedAt", { ascending: false }).limit(1).maybeSingle(),
-    supabase.from("Grant").select("id", { count: "exact", head: true }).gte("createdAt", startOfToday.toISOString()),
-    supabase.from("Grant").select("id", { count: "exact", head: true }).gte("createdAt", startOfWeek.toISOString()),
-    supabase.from("Grant").select("funder").order("funder", { ascending: true }).limit(500),
-  ]);
+  ] = await getServerCache(
+    grantsOverviewCacheKey,
+    { ttlMs: GRANTS_PUBLIC_CACHE_TTL_MS, maxEntries: 10 },
+    () => Promise.all([
+      supabase.from("Grant").select("createdAt").order("createdAt", { ascending: false }).limit(1).maybeSingle(),
+      supabase.from("Grant").select("updatedAt, createdAt").order("updatedAt", { ascending: false }).limit(1).maybeSingle(),
+      supabase.from("Grant").select("id", { count: "exact", head: true }).gte("createdAt", startOfToday.toISOString()),
+      supabase.from("Grant").select("id", { count: "exact", head: true }).gte("createdAt", startOfWeek.toISOString()),
+      supabase.from("Grant").select("funder").order("funder", { ascending: true }).limit(500),
+    ])
+  );
 
   const grantColumns = [
     "id",
@@ -176,34 +183,52 @@ export default async function GrantsPage({
   const offset = (page - 1) * pageSize;
   const fetchEnd = offset + pageSize * GRANT_FETCH_OVERAGE - 1;
   const nowIso = new Date().toISOString();
-  let grantsQuery = supabase
-    .from("Grant")
-    .select(grantColumns, { count: "exact" });
+  const grantsListCacheKey = [
+    "grants-list:v2",
+    `shelf:${shelf}`,
+    `sort:${sortMode}`,
+    `region:${regionFilter || "all"}`,
+    `funder:${funderFilter || "all"}`,
+    `hideExpired:${hideExpired ? 1 : 0}`,
+    `hideBroken:${hideBroken ? 1 : 0}`,
+    `page:${page}`,
+    `size:${pageSize}`,
+    regionFilter === "saved" ? `saved:${savedGrantIds.slice().sort().join(",")}` : "saved:na",
+  ].join(":");
+  const { data: grantsData, count: totalGrantCount } = await getServerCache(
+    grantsListCacheKey,
+    { ttlMs: GRANTS_PUBLIC_CACHE_TTL_MS, maxEntries: 100 },
+    async () => {
+      let grantsQuery = supabase
+        .from("Grant")
+        .select(grantColumns, { count: "exact" });
 
-  if (shelf === "expired") {
-    grantsQuery = grantsQuery.or(`deadline.lt.${nowIso},url_status.in.(dead,expired)`);
-  } else if (hideExpired) {
-    grantsQuery = grantsQuery.or(`deadline.is.null,deadline.gte.${nowIso}`);
-  }
-  if (hideBroken) {
-    grantsQuery = grantsQuery.not("url_status", "in", "(dead,expired)");
-  }
-  if (funderFilter) {
-    grantsQuery = grantsQuery.eq("funder", funderFilter);
-  }
-  if (regionFilter === "saved") {
-    grantsQuery = savedGrantIds.length > 0
-      ? grantsQuery.in("id", savedGrantIds)
-      : grantsQuery.eq("id", "__no_saved_grants__");
-  }
+      if (shelf === "expired") {
+        grantsQuery = grantsQuery.or(`deadline.lt.${nowIso},url_status.in.(dead,expired)`);
+      } else if (hideExpired) {
+        grantsQuery = grantsQuery.or(`deadline.is.null,deadline.gte.${nowIso}`);
+      }
+      if (hideBroken) {
+        grantsQuery = grantsQuery.not("url_status", "in", "(dead,expired)");
+      }
+      if (funderFilter) {
+        grantsQuery = grantsQuery.eq("funder", funderFilter);
+      }
+      if (regionFilter === "saved") {
+        grantsQuery = savedGrantIds.length > 0
+          ? grantsQuery.in("id", savedGrantIds)
+          : grantsQuery.eq("id", "__no_saved_grants__");
+      }
 
-  if (sortMode === "deadline") {
-    grantsQuery = grantsQuery.order("deadline", { ascending: true, nullsFirst: false });
-  } else {
-    grantsQuery = grantsQuery.order("createdAt", { ascending: false });
-  }
+      if (sortMode === "deadline") {
+        grantsQuery = grantsQuery.order("deadline", { ascending: true, nullsFirst: false });
+      } else {
+        grantsQuery = grantsQuery.order("createdAt", { ascending: false });
+      }
 
-  const { data: grantsData, count: totalGrantCount } = await grantsQuery.range(offset, fetchEnd);
+      return grantsQuery.range(offset, fetchEnd);
+    }
+  );
   const candidateGrants = (Array.isArray(grantsData) ? grantsData : []) as unknown as GrantListRow[];
   const grants = candidateGrants
     .filter((grant) => shelf === "expired" ? !isGrantActionableNow(grant) : isGrantActionableNow(grant))

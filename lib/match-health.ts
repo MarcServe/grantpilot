@@ -5,6 +5,7 @@ import { getSuppressedGrantIds } from "@/lib/grant-user-state";
 import { isGrantActionableNow } from "@/lib/grant-actionability";
 import { deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
 import { finalEligibilityScore, finaliseEligibilityAssessment } from "@/lib/eligibility-final-score";
+import { fetchCachedGrantRowsByIds } from "@/lib/grant-record-cache";
 import type { EligibilityResult } from "@/lib/claude";
 
 const MATCH_HEALTH_HIGH_THRESHOLD = 85;
@@ -231,21 +232,14 @@ function daysSince(value: string | null): number | null {
 }
 
 async function fetchGrantsById(supabase: SupabaseAdmin, grantIds: string[]): Promise<Map<string, GrantRow>> {
-  const rows: GrantRow[] = [];
-  const uniqueIds = [...new Set(grantIds)];
-  for (let i = 0; i < uniqueIds.length; i += MATCH_HEALTH_BATCH_SIZE) {
-    const batch = uniqueIds.slice(i, i + MATCH_HEALTH_BATCH_SIZE);
-    const { data, error } = await supabase
-      .from("Grant")
-      .select("id, name, funder, deadline, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, url_status, createdAt")
-      .in("id", batch);
-    if (error) {
-      console.warn("[match-health] grant lookup failed", error.message);
-      continue;
-    }
-    rows.push(...((data ?? []) as GrantRow[]));
-  }
-  return new Map(rows.map((row) => [row.id, row]));
+  return fetchCachedGrantRowsByIds<GrantRow>({
+    supabase,
+    ids: grantIds,
+    select: "id, name, funder, deadline, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, url_status, createdAt",
+    batchSize: MATCH_HEALTH_BATCH_SIZE,
+    ttlMs: 60_000,
+    cacheNamespace: "match-health-grants",
+  });
 }
 
 async function getOutcomeAdvisory(supabase: SupabaseAdmin, orgId: string, profileId: string) {

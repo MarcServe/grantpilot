@@ -25,6 +25,7 @@ import { ScoutModeSettings } from "@/components/admin/scout-mode-settings";
 import { GrantComposer } from "@/components/admin/grant-composer";
 import { GrantSourceManager } from "@/components/admin/grant-source-manager";
 import { getAdminEligibilityWhatsAppTraces, type EligibilityWhatsAppReason } from "@/lib/eligibility-notification-diagnostics";
+import { getServerCache } from "@/lib/server-cache";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +42,7 @@ const ADMIN_BATCH_SIZE = 20;
 const ADMIN_NOTIFICATION_SAMPLE_SIZE = 120;
 const ADMIN_GRANT_SOURCE_STATUS_LIMIT = 120;
 const ADMIN_SOURCE_ATTRIBUTION_SAMPLE_SIZE = 500;
+const ADMIN_OVERVIEW_CACHE_TTL_MS = 20_000;
 
 type AdminSearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -574,6 +576,15 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
   const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const last7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   const next7d = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const adminOverviewCacheKey = [
+    "admin-overview:v2",
+    `latest:${latestGrantsPage}`,
+    `deadlines:${deadlinesPage}`,
+    `cron:${cronRunsPage}`,
+    `suppressed:${suppressedPage}`,
+    `deliveries:${deliveriesPage}`,
+    `wa:${showWhatsAppDiagnostics ? 1 : 0}`,
+  ].join(":");
 
   const [
     grantsLast24hResult,
@@ -601,109 +612,113 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
     cronRunsResult,
     suppressedGrantsResult,
     eligibilityWhatsAppTraces,
-  ] = await Promise.all([
-    supabase.from("Grant").select("id", { count: "exact", head: true }).gte("createdAt", last24h.toISOString()),
-    supabase.from("Grant").select("id", { count: "exact", head: true }).gte("createdAt", last7d.toISOString()),
-    supabase
-      .from("Grant")
-      .select("id, name, funder, source, deadline, createdAt", { count: "exact" })
-      .order("createdAt", { ascending: false })
-      .range(latestGrantsRange.from, latestGrantsRange.to),
-    supabase
-      .from("NotificationLog")
-      .select("userId, channel, type, status, error, createdAt")
-      .in("type", [...OPS_NOTIFICATION_TYPES])
-      .gte("createdAt", last7d.toISOString())
-      .order("createdAt", { ascending: false })
-      .limit(ADMIN_NOTIFICATION_SAMPLE_SIZE),
-    supabase
-      .from("NotificationLog")
-      .select("userId, channel, type, status, error, createdAt", { count: "exact" })
-      .in("type", [...OPS_NOTIFICATION_TYPES])
-      .gte("createdAt", last7d.toISOString())
-      .order("createdAt", { ascending: false })
-      .range(deliveriesRange.from, deliveriesRange.to),
-    supabase
-      .from("EligibilityAssessment")
-      .select("id", { count: "exact", head: true })
-      .gte("updated_at", last24h.toISOString()),
-    supabase
-      .from("EligibilityAssessment")
-      .select("id", { count: "exact", head: true })
-      .gte("updated_at", last7d.toISOString()),
-    supabase
-      .from("Grant")
-      .select("id, name, funder, source, deadline, createdAt", { count: "exact" })
-      .gte("deadline", now.toISOString())
-      .lte("deadline", next7d.toISOString())
-      .order("deadline", { ascending: true })
-      .range(deadlinesRange.from, deadlinesRange.to),
-    supabase
-      .from("grant_sources")
-      .select("source_name, type, adapter, enabled, crawl_frequency, last_crawled_at")
-      .order("last_crawled_at", { ascending: false, nullsFirst: false })
-      .limit(ADMIN_GRANT_SOURCE_STATUS_LIMIT),
-    supabase
-      .from("grant_sources")
-      .select("id", { count: "exact", head: true })
-      .eq("enabled", true),
-    supabase
-      .from("grant_source_import_runs")
-      .select("run_source, created_by, requested_count, added_count, skipped_duplicate_count, rejected_count, manual_review_count, created_at")
-      .order("created_at", { ascending: false })
-      .limit(6),
-    supabase
-      .from("Grant")
-      .select("source, createdAt")
-      .gte("createdAt", last7d.toISOString())
-      .limit(ADMIN_SOURCE_ATTRIBUTION_SAMPLE_SIZE),
-    supabase.from("grant_discovery_queue").select("id", { count: "exact", head: true }).eq("status", "pending"),
-    supabase.from("grant_discovery_queue").select("id", { count: "exact", head: true }).eq("status", "failed"),
-    supabase.from("grant_links").select("id", { count: "exact", head: true }).eq("status", "pending"),
-    supabase.from("grant_links").select("id", { count: "exact", head: true }).eq("status", "found"),
-    supabase.from("grant_links").select("id", { count: "exact", head: true }).eq("status", "manual_review_needed"),
-    supabase.from("grant_links").select("id", { count: "exact", head: true }).eq("status", "failed"),
-    supabase
-      .from("CronRunLog")
-      .select("job_name, route, trigger, status, result, error, started_at, finished_at, duration_ms")
-      .order("started_at", { ascending: false })
-      .limit(1),
-    supabase
-      .from("CronRunLog")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "failed")
-      .gte("started_at", last24h.toISOString()),
-    supabase
-      .from("CronRunLog")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "failed")
-      .gte("started_at", last7d.toISOString()),
-    supabase
-      .from("CronRunLog")
-      .select("job_name, route, trigger, status, result, error, started_at, finished_at, duration_ms")
-      .eq("status", "failed")
-      .gte("started_at", last7d.toISOString())
-      .order("started_at", { ascending: false })
-      .limit(6),
-    supabase
-      .from("CronRunLog")
-      .select("job_name, route, trigger, status, result, error, started_at, finished_at, duration_ms", { count: "exact" })
-      .gte("started_at", last7d.toISOString())
-      .order("started_at", { ascending: false })
-      .range(cronRunsRange.from, cronRunsRange.to),
-    supabase
-      .from("SavedGrant")
-      .select(
-        "organisation_id, profile_id, grant_id, status, suppress_notifications, viewed_at, deferred_at, applied_at, dismissed_at, notes, created_at, updated_at",
-        { count: "exact" }
-      )
-      .eq("suppress_notifications", true)
-      .order("updated_at", { ascending: false })
-      .range(suppressedRange.from, suppressedRange.to),
-    showWhatsAppDiagnostics
-      ? getAdminEligibilityWhatsAppTraces({ days: 7, limit: 8 })
-      : Promise.resolve([]),
-  ]);
+  ] = await getServerCache(
+    adminOverviewCacheKey,
+    { ttlMs: ADMIN_OVERVIEW_CACHE_TTL_MS, maxEntries: 60 },
+    () => Promise.all([
+      supabase.from("Grant").select("id", { count: "exact", head: true }).gte("createdAt", last24h.toISOString()),
+      supabase.from("Grant").select("id", { count: "exact", head: true }).gte("createdAt", last7d.toISOString()),
+      supabase
+        .from("Grant")
+        .select("id, name, funder, source, deadline, createdAt", { count: "exact" })
+        .order("createdAt", { ascending: false })
+        .range(latestGrantsRange.from, latestGrantsRange.to),
+      supabase
+        .from("NotificationLog")
+        .select("userId, channel, type, status, error, createdAt")
+        .in("type", [...OPS_NOTIFICATION_TYPES])
+        .gte("createdAt", last7d.toISOString())
+        .order("createdAt", { ascending: false })
+        .limit(ADMIN_NOTIFICATION_SAMPLE_SIZE),
+      supabase
+        .from("NotificationLog")
+        .select("userId, channel, type, status, error, createdAt", { count: "exact" })
+        .in("type", [...OPS_NOTIFICATION_TYPES])
+        .gte("createdAt", last7d.toISOString())
+        .order("createdAt", { ascending: false })
+        .range(deliveriesRange.from, deliveriesRange.to),
+      supabase
+        .from("EligibilityAssessment")
+        .select("id", { count: "exact", head: true })
+        .gte("updated_at", last24h.toISOString()),
+      supabase
+        .from("EligibilityAssessment")
+        .select("id", { count: "exact", head: true })
+        .gte("updated_at", last7d.toISOString()),
+      supabase
+        .from("Grant")
+        .select("id, name, funder, source, deadline, createdAt", { count: "exact" })
+        .gte("deadline", now.toISOString())
+        .lte("deadline", next7d.toISOString())
+        .order("deadline", { ascending: true })
+        .range(deadlinesRange.from, deadlinesRange.to),
+      supabase
+        .from("grant_sources")
+        .select("source_name, type, adapter, enabled, crawl_frequency, last_crawled_at")
+        .order("last_crawled_at", { ascending: false, nullsFirst: false })
+        .limit(ADMIN_GRANT_SOURCE_STATUS_LIMIT),
+      supabase
+        .from("grant_sources")
+        .select("id", { count: "exact", head: true })
+        .eq("enabled", true),
+      supabase
+        .from("grant_source_import_runs")
+        .select("run_source, created_by, requested_count, added_count, skipped_duplicate_count, rejected_count, manual_review_count, created_at")
+        .order("created_at", { ascending: false })
+        .limit(6),
+      supabase
+        .from("Grant")
+        .select("source, createdAt")
+        .gte("createdAt", last7d.toISOString())
+        .limit(ADMIN_SOURCE_ATTRIBUTION_SAMPLE_SIZE),
+      supabase.from("grant_discovery_queue").select("id", { count: "exact", head: true }).eq("status", "pending"),
+      supabase.from("grant_discovery_queue").select("id", { count: "exact", head: true }).eq("status", "failed"),
+      supabase.from("grant_links").select("id", { count: "exact", head: true }).eq("status", "pending"),
+      supabase.from("grant_links").select("id", { count: "exact", head: true }).eq("status", "found"),
+      supabase.from("grant_links").select("id", { count: "exact", head: true }).eq("status", "manual_review_needed"),
+      supabase.from("grant_links").select("id", { count: "exact", head: true }).eq("status", "failed"),
+      supabase
+        .from("CronRunLog")
+        .select("job_name, route, trigger, status, result, error, started_at, finished_at, duration_ms")
+        .order("started_at", { ascending: false })
+        .limit(1),
+      supabase
+        .from("CronRunLog")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "failed")
+        .gte("started_at", last24h.toISOString()),
+      supabase
+        .from("CronRunLog")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "failed")
+        .gte("started_at", last7d.toISOString()),
+      supabase
+        .from("CronRunLog")
+        .select("job_name, route, trigger, status, result, error, started_at, finished_at, duration_ms")
+        .eq("status", "failed")
+        .gte("started_at", last7d.toISOString())
+        .order("started_at", { ascending: false })
+        .limit(6),
+      supabase
+        .from("CronRunLog")
+        .select("job_name, route, trigger, status, result, error, started_at, finished_at, duration_ms", { count: "exact" })
+        .gte("started_at", last7d.toISOString())
+        .order("started_at", { ascending: false })
+        .range(cronRunsRange.from, cronRunsRange.to),
+      supabase
+        .from("SavedGrant")
+        .select(
+          "organisation_id, profile_id, grant_id, status, suppress_notifications, viewed_at, deferred_at, applied_at, dismissed_at, notes, created_at, updated_at",
+          { count: "exact" }
+        )
+        .eq("suppress_notifications", true)
+        .order("updated_at", { ascending: false })
+        .range(suppressedRange.from, suppressedRange.to),
+      showWhatsAppDiagnostics
+        ? getAdminEligibilityWhatsAppTraces({ days: 7, limit: 8 })
+        : Promise.resolve([]),
+    ])
+  );
 
   const notificationRows = (notificationResult.data ?? []) as NotificationLogRow[];
   const notificationDeliveryRows = (notificationDeliveryResult.data ?? []) as NotificationLogRow[];
