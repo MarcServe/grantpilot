@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { grantMatchesFunderLocations, inferFunderLocationsFromProfile } from "@/lib/constants";
@@ -21,8 +22,9 @@ import {
 
 const MATCH_PAGE_SIZE_OPTIONS = [20, 30, 50] as const;
 const DEFAULT_MATCH_PAGE_SIZE = 20;
-const MAX_MATCH_ASSESSMENTS = 5000;
-const GRANT_QUERY_BATCH_SIZE = 20;
+const MAX_MATCH_ASSESSMENTS = 800;
+const MATCH_HEALTH_ASSESSMENT_LIMIT = 300;
+const GRANT_QUERY_BATCH_SIZE = 80;
 
 type ScoreTier = "suggested" | "within_reach" | "other";
 type MatchSearchParams = Promise<{ page?: string; pageSize?: string; tier?: string }>;
@@ -200,6 +202,13 @@ async function EligibleGrantsPageContent({
     );
   }
 
+  const matchHealthPromise = getMatchHealthReport({
+    supabase,
+    orgId,
+    profile: profile as Record<string, unknown> & { id: string },
+    assessmentLimit: MATCH_HEALTH_ASSESSMENT_LIMIT,
+  });
+
   // Build counts and pages from the same final match set that users see.
   // Raw assessment counts can include expired, applied, wrong-region, or
   // post-guard downgraded grants, which made "16 suggested" render fewer rows.
@@ -349,12 +358,6 @@ async function EligibleGrantsPageContent({
     ...assessments.map((assessment) => assessment.updated_at),
   ]);
   const lastScoredLabel = formatLastScoredAt(lastScoredAt, timezone);
-  const matchHealth = await getMatchHealthReport({
-    supabase,
-    orgId,
-    profile: profile as Record<string, unknown> & { id: string },
-  });
-
   return (
     <div className="mx-auto max-w-4xl px-4 py-6 sm:p-6">
       <Link
@@ -469,7 +472,12 @@ async function EligibleGrantsPageContent({
         />
       )}
 
-      <BusinessDnaMatchHealth report={matchHealth} profile={profile as Record<string, unknown>} />
+      <Suspense fallback={<BusinessDnaMatchHealthSkeleton />}>
+        <BusinessDnaMatchHealthPanel
+          matchHealthPromise={matchHealthPromise}
+          profile={profile as Record<string, unknown>}
+        />
+      </Suspense>
 
       {totalPages > 1 && (
         <div className="mt-6 flex items-center justify-center gap-3">
@@ -494,6 +502,32 @@ async function EligibleGrantsPageContent({
           </Link>
         </div>
       )}
+    </div>
+  );
+}
+
+async function BusinessDnaMatchHealthPanel({
+  matchHealthPromise,
+  profile,
+}: {
+  matchHealthPromise: Promise<Awaited<ReturnType<typeof getMatchHealthReport>>>;
+  profile: Record<string, unknown>;
+}) {
+  const matchHealth = await matchHealthPromise;
+  return <BusinessDnaMatchHealth report={matchHealth} profile={profile} />;
+}
+
+function BusinessDnaMatchHealthSkeleton() {
+  return (
+    <div className="mb-6 rounded-xl border border-amber-100 bg-amber-50/50 p-4 sm:p-5">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 flex-1 space-y-2">
+          <div className="h-5 w-56 animate-pulse rounded bg-amber-100" />
+          <div className="h-4 w-full max-w-2xl animate-pulse rounded bg-amber-100" />
+          <div className="h-4 w-5/6 animate-pulse rounded bg-amber-100" />
+        </div>
+        <div className="h-10 w-44 animate-pulse rounded bg-amber-100" />
+      </div>
     </div>
   );
 }
