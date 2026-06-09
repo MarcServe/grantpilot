@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { runEligibilityRefreshJob } from "@/inngest/eligibility-refresh";
+import { enqueueEligibilityRefreshes } from "@/inngest/eligibility-refresh";
 import { runWithCronLog } from "@/lib/cron-run-log";
 
 export const dynamic = "force-dynamic";
@@ -7,7 +7,7 @@ export const maxDuration = 300;
 
 /**
  * GET /api/cron/eligibility-refresh
- * Runs the OpenAI eligibility checking funnel after new grants are discovered.
+ * Enqueues scoped OpenAI eligibility checks after new grants are discovered.
  */
 export async function GET(req: Request) {
   const authHeader = req.headers.get("authorization");
@@ -18,8 +18,8 @@ export async function GET(req: Request) {
 
   try {
     const result = await runWithCronLog(
-      { jobName: "Eligibility Refresh", route: "/api/cron/eligibility-refresh", trigger: "vercel" },
-      () => runEligibilityRefreshJob()
+      { jobName: "Eligibility Refresh Enqueue", route: "/api/cron/eligibility-refresh", trigger: "vercel" },
+      () => enqueueEligibilityRefreshes({ source: "vercel.cron.eligibility_refresh", dueOnly: true })
     );
     return NextResponse.json({ ok: true, result });
   } catch (error) {

@@ -4,7 +4,7 @@ import { grantSync } from "@/inngest/grant-sync";
 import { deadlineReminder } from "@/inngest/deadline-reminder";
 import { outcomeFeedbackReminder } from "@/inngest/outcome-feedback-reminder";
 import { monitorSession } from "@/inngest/monitor-session";
-import { eligibilityRefresh, eligibilityRefreshRequested } from "@/inngest/eligibility-refresh";
+import { eligibilityRefresh, eligibilityRefreshEnqueueRequested, eligibilityRefreshRequested } from "@/inngest/eligibility-refresh";
 import { grantDiscovery } from "@/inngest/grant-discovery";
 import { grantFormUrlScout } from "@/inngest/grant-form-url-scout";
 import { grantSourceCrawler } from "@/inngest/grant-source-crawler";
@@ -24,6 +24,7 @@ export const { GET, POST, PUT } = serve({
     outcomeFeedbackReminder,
     monitorSession,
     eligibilityRefresh,
+    eligibilityRefreshEnqueueRequested,
     eligibilityRefreshRequested,
     grantDiscovery,
     grantFormUrlScout,
