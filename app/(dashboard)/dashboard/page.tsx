@@ -334,15 +334,12 @@ export default async function DashboardPage() {
   });
 
   const displayName =
-    String(
-      rawUser?.name ??
-        rawUser?.fullName ??
-        rawUser?.email ??
-        "there"
-    )
+    profile?.businessName?.trim() ||
+    org.name?.trim() ||
+    (String(rawUser?.name ?? rawUser?.fullName ?? rawUser?.email ?? "there")
       .split("@")[0]
       .replace(/[._-]+/g, " ")
-      .replace(/\b\w/g, (char) => char.toUpperCase()) || "there";
+      .replace(/\b\w/g, (char) => char.toUpperCase()) || "there");
   const totalCount = totalApplications ?? 0;
   const activeCount = activeApplications ?? 0;
   const submittedCount = submittedApplications ?? 0;
