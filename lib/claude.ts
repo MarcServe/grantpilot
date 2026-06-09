@@ -98,7 +98,6 @@ export async function getEligibilityDecision(
 
 Business: ${profile.businessName} (${profile.sector}). Location: ${profile.location}. Employees: ${profile.employeeCount ?? "N/A"}. Revenue: ${profile.annualRevenue ? `£${profile.annualRevenue.toLocaleString("en-GB")}` : "N/A"}. Year established: ${profile.yearEstablished ?? "N/A"}. Company age: ${companyAge != null ? `${companyAge} years` : "N/A"}. Funding sought: £${profile.fundingMin.toLocaleString("en-GB")}–£${profile.fundingMax.toLocaleString("en-GB")}. Purposes: ${profile.fundingPurposes.join(", ")}. ${profile.missionStatement ? `Mission: ${profile.missionStatement}.` : ""} ${profile.description ? `Description: ${profile.description}` : ""}
 Business type: ${profile.businessType || "N/A"}.
-Prior funding outcome advisories: ${profile.fundingOutcomeSignals || "No structured outcome history yet."}
 
 Grant: ${grant.name} (${grant.funder}). Amount: ${grant.amount != null ? `£${grant.amount.toLocaleString("en-GB")}` : "Varies"}. Eligibility: ${grant.eligibility}.${grant.description ? ` Description: ${grant.description.slice(0, 800)}.` : ""}${grant.objectives ? ` Objectives: ${grant.objectives.slice(0, 400)}.` : ""}${grant.applicantTypes?.length ? ` Applicant types: ${grant.applicantTypes.join(", ")}.` : ""} Sectors: ${(grant.sectors ?? []).join(", ")}. Regions: ${(grant.regions ?? []).join(", ")}.
 
@@ -123,8 +122,9 @@ Rules:
 - Treat legal applicant type as a hard gate. If the grant is only for charities, non-profits, CICs, or social enterprises and the business type does not match, decision must be unlikely and score must be below 30 even if sector, region, and purpose align.
 - Treat expired opportunities and past project windows as hard gates. If the grant text says applications have closed, the deadline has passed, or projects must start/end in a period that is already over, decision must be unlikely and score must be below 10.
 - Treat explicit measurable criteria as hard qualification gates. If the grant requires minimum revenue, minimum employee count, maximum employee count, or minimum trading/company age and the profile does not meet it, decision must be unlikely and score must be below 40.
-- If revenue, employee count, or year established is missing and the grant depends on it, do not recommend as high fit; mark it review and call out the missing profile data.
-- Treat prior funding outcome advisories as warning/context only. Do not lower or raise score, confidence, winProbability, or decision because of prior outcomes. If relevant, mention them only as checks before applying, and only when the current grant text explicitly supports that concern. Do not invent revenue, employee-count, age, or other criteria that are not stated in the current grant.
+- If revenue, employee count, or year established is missing and the grant explicitly depends on it, do not recommend as high fit; mark it review and call out the missing profile data.
+- Do not penalise missing revenue, employee count, or company age when the grant text does not state a measurable threshold or clearly depend on that fact.
+- Do not invent revenue, employee-count, company-age, traction, or investment-readiness criteria that are not stated in the current grant. Missing profile data can be an advisory note only when useful, not a scoring blocker.
 - reasons: 3-5 short bullets. For high score explain why they're eligible; for low/medium explain what doesn't match or is missing.
 - alignment: only when score >= 70, 2-4 bullets on how this grant fits their business.
 - improvementPlan: only when score < 75. gaps = what's missing or misaligned; actions = concrete steps to improve fit; timeline optional (e.g. "0-3 months"). Use null when score >= 75.

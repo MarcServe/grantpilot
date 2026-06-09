@@ -32,7 +32,7 @@ function money(value: number): string {
 
 function parseAmount(raw: string | undefined): number | null {
   if (!raw) return null;
-  const normalized = raw.toLowerCase().replace(/,/g, "").replace(/\s+/g, "");
+  const normalized = raw.toLowerCase().replace(/\b(?:gbp|eur|usd)\b/g, "").replace(/,/g, "").replace(/\s+/g, "");
   const match = normalized.match(/(\d+(?:\.\d+)?)/);
   if (!match) return null;
   const base = Number(match[1]);
@@ -149,7 +149,7 @@ export function evaluateEligibilityPreScreen(
     }
   }
 
-  const amountToken = String.raw`([\u00a3$\u20ac]?\s*\d[\d,]*(?:\.\d+)?\s*(?:m|mn|k|million|thousand)?)`;
+  const amountToken = String.raw`((?:gbp|eur|usd)?\s*[\u00a3$\u20ac]?\s*\d[\d,]*(?:\.\d+)?\s*(?:m|mn|k|million|thousand)?)`;
   const revenueTerms = String.raw`(?:annual\s+)?(?:revenue|turnover|income|sales|gross\s+revenue)`;
   const minRevenue = firstAmount([
     new RegExp(String.raw`\b(?:minimum|min\.?|at least|over|more than)\s+(?:of\s+)?${amountToken}\s+(?:in\s+)?${revenueTerms}\b`, "i"),
