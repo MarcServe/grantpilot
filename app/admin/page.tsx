@@ -176,10 +176,22 @@ type CronRunLogRow = {
   route: string | null;
   trigger: string | null;
   status: string | null;
+  result?: unknown;
   error: string | null;
   started_at: string | null;
   finished_at: string | null;
   duration_ms: number | null;
+};
+
+type AiDiscoveryActivity = {
+  openai: number;
+  perplexity: number;
+  claude: number;
+  gemini: number;
+  created: number;
+  updated: number;
+  rejected: number;
+  runs: number;
 };
 
 const NOTIFICATION_LABELS: Record<OpsNotificationType, string> = {
@@ -284,6 +296,43 @@ function discoveryProviderStatuses(): DiscoveryProviderStatus[] {
       detail: "Daily source-discovery cron",
     },
   ];
+}
+
+function readNumber(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function discoveryActivityFromCronRuns(rows: CronRunLogRow[]): AiDiscoveryActivity {
+  const activity: AiDiscoveryActivity = {
+    openai: 0,
+    perplexity: 0,
+    claude: 0,
+    gemini: 0,
+    created: 0,
+    updated: 0,
+    rejected: 0,
+    runs: 0,
+  };
+
+  for (const row of rows) {
+    if (row.status !== "success") continue;
+    if (row.route !== "/api/cron/grant-discovery" && row.route !== "inngest/grant-discovery") continue;
+    const result = row.result && typeof row.result === "object" ? row.result as Record<string, unknown> : null;
+    if (!result) continue;
+    const providers = result.providers && typeof result.providers === "object"
+      ? result.providers as Record<string, unknown>
+      : null;
+    activity.openai += readNumber(providers?.openai);
+    activity.perplexity += readNumber(providers?.perplexity);
+    activity.claude += readNumber(providers?.claude);
+    activity.gemini += readNumber(providers?.gemini);
+    activity.created += readNumber(result.created);
+    activity.updated += readNumber(result.updated);
+    activity.rejected += readNumber(result.rejected);
+    activity.runs += 1;
+  }
+
+  return activity;
 }
 
 function formatDurationMs(value?: number | null): string {
@@ -606,7 +655,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
     supabase.from("grant_links").select("id", { count: "exact", head: true }).eq("status", "failed"),
     supabase
       .from("CronRunLog")
-      .select("job_name, route, trigger, status, error, started_at, finished_at, duration_ms")
+      .select("job_name, route, trigger, status, result, error, started_at, finished_at, duration_ms")
       .order("started_at", { ascending: false })
       .limit(1),
     supabase
@@ -621,14 +670,14 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
       .gte("started_at", last7d.toISOString()),
     supabase
       .from("CronRunLog")
-      .select("job_name, route, trigger, status, error, started_at, finished_at, duration_ms")
+      .select("job_name, route, trigger, status, result, error, started_at, finished_at, duration_ms")
       .eq("status", "failed")
       .gte("started_at", last7d.toISOString())
       .order("started_at", { ascending: false })
       .limit(6),
     supabase
       .from("CronRunLog")
-      .select("job_name, route, trigger, status, error, started_at, finished_at, duration_ms", { count: "exact" })
+      .select("job_name, route, trigger, status, result, error, started_at, finished_at, duration_ms", { count: "exact" })
       .gte("started_at", last7d.toISOString())
       .order("started_at", { ascending: false })
       .range(cronRunsRange.from, cronRunsRange.to),
@@ -784,6 +833,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
   }
 
   const cronRuns = (cronRunsResult.data ?? []) as CronRunLogRow[];
+  const aiDiscoveryActivity = discoveryActivityFromCronRuns(cronRuns);
   const latestCronRun = ((latestCronRunResult.data ?? []) as CronRunLogRow[])[0] ?? null;
   const failedCronRunsLast24hCount = failedCronRunsLast24hResult.count ?? 0;
   const failedCronRunsLast7dCount = failedCronRunsLast7dResult.count ?? 0;
@@ -1323,8 +1373,36 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
               </CardHeader>
               <CardContent className="max-h-[28rem] space-y-3 overflow-y-auto pr-2 text-sm">
                 <p className="text-sm text-muted-foreground">
-                  New grants added in the last 7 days, grouped by the discovery/import route stored on the grant record.
+                  New grants added in the last 7 days, grouped by the final discovery/import route stored on the grant record.
                 </p>
+                {aiDiscoveryActivity.runs > 0 ? (
+                  <div className="rounded-md border bg-blue-50/60 p-3">
+                    <div className="font-medium text-blue-950">AI provider activity</div>
+                    <div className="mt-1 text-xs text-blue-900/80">
+                      Raw candidates from recent grant-discovery cron runs before dedupe, URL health checks, and final source attribution.
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                      {[
+                        ["OpenAI", aiDiscoveryActivity.openai],
+                        ["Perplexity", aiDiscoveryActivity.perplexity],
+                        ["Claude", aiDiscoveryActivity.claude],
+                        ["Gemini", aiDiscoveryActivity.gemini],
+                      ].map(([label, count]) => (
+                        <div key={String(label)} className="rounded border border-blue-100 bg-white/70 p-2">
+                          <div className="text-muted-foreground">{label}</div>
+                          <div className="text-lg font-semibold">{count}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-2 text-xs text-blue-900/80">
+                      Accepted this page: {aiDiscoveryActivity.created} created, {aiDiscoveryActivity.updated} updated, {aiDiscoveryActivity.rejected} rejected across {aiDiscoveryActivity.runs} run{aiDiscoveryActivity.runs === 1 ? "" : "s"}.
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
+                    AI provider activity will appear after the next successful grant-discovery cron run logs provider counts.
+                  </div>
+                )}
                 {sourceAttributionCounts.length > 0 ? (
                   <div className="space-y-2">
                     {sourceAttributionCounts.map(([source, count]) => (

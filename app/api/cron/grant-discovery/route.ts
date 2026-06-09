@@ -44,6 +44,13 @@ export async function GET(req: Request) {
 
         let totalCreated = 0;
         let totalUpdated = 0;
+        const providers = {
+          openai: 0,
+          perplexity: 0,
+          claude: 0,
+          gemini: 0,
+        };
+        let rejected = 0;
 
         for (const [, profile] of byOrg) {
           try {
@@ -58,8 +65,13 @@ export async function GET(req: Request) {
               funderLocations: (profile as { funderLocations?: string[] }).funderLocations,
             });
             const result = await runDiscoveryAndUpsert(discoveryProfile);
+            providers.openai += result.openai;
+            providers.perplexity += result.perplexity;
+            providers.claude += result.claude;
+            providers.gemini += result.gemini;
             totalCreated += result.created;
             totalUpdated += result.updated;
+            rejected += result.rejected;
           } catch (err) {
             console.error("[cron/grant-discovery] org error:", err);
           }
@@ -67,8 +79,10 @@ export async function GET(req: Request) {
 
         return {
           orgs: byOrg.size,
+          providers,
           created: totalCreated,
           updated: totalUpdated,
+          rejected,
         };
       }
     );

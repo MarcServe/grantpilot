@@ -31,6 +31,13 @@ export const grantDiscovery = inngest.createFunction(
 
     let totalCreated = 0;
     let totalUpdated = 0;
+    const providers = {
+      openai: 0,
+      perplexity: 0,
+      claude: 0,
+      gemini: 0,
+    };
+    let rejected = 0;
 
     for (const [, profile] of byOrg) {
       try {
@@ -45,8 +52,13 @@ export const grantDiscovery = inngest.createFunction(
           funderLocations: (profile as { funderLocations?: string[] }).funderLocations,
         });
         const result = await runDiscoveryAndUpsert(discoveryProfile);
+        providers.openai += result.openai;
+        providers.perplexity += result.perplexity;
+        providers.claude += result.claude;
+        providers.gemini += result.gemini;
         totalCreated += result.created;
         totalUpdated += result.updated;
+        rejected += result.rejected;
       } catch (err) {
         console.error("[grant-discovery] org error:", err);
       }
@@ -54,8 +66,10 @@ export const grantDiscovery = inngest.createFunction(
 
     return {
       orgs: byOrg.size,
+      providers,
       created: totalCreated,
       updated: totalUpdated,
+      rejected,
     };
   })
 );

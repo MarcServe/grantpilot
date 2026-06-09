@@ -131,7 +131,7 @@ export async function discoverGrantSourcesWithApify(options: {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      queries,
+      queries: queries.join("\n"),
       maxPagesPerQuery: 1,
       resultsPerPage: 10,
       countryCode: "gb",
