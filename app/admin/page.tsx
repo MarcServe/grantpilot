@@ -38,7 +38,9 @@ const OPS_NOTIFICATION_TYPES = [
   "deadline_daily_update",
 ] as const;
 const ADMIN_BATCH_SIZE = 20;
-const ADMIN_NOTIFICATION_SAMPLE_SIZE = 200;
+const ADMIN_NOTIFICATION_SAMPLE_SIZE = 120;
+const ADMIN_GRANT_SOURCE_STATUS_LIMIT = 120;
+const ADMIN_SOURCE_ATTRIBUTION_SAMPLE_SIZE = 500;
 
 type AdminSearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -560,6 +562,9 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
   const cronRunsPage = normalizePage(params.cronRunsPage);
   const suppressedPage = normalizePage(params.suppressedPage);
   const deliveriesPage = normalizePage(params.deliveriesPage);
+  const showWhatsAppDiagnostics =
+    firstParam(params.diagnostics) === "whatsapp" ||
+    firstParam(params.whatsappDiagnostics) === "1";
   const latestGrantsRange = pageRange(latestGrantsPage);
   const deadlinesRange = pageRange(deadlinesPage);
   const cronRunsRange = pageRange(cronRunsPage);
@@ -580,6 +585,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
     assessmentLast7dResult,
     upcomingDeadlineResult,
     grantSourcesResult,
+    enabledGrantSourcesResult,
     sourceImportRunsResult,
     grantSourceAttributionResult,
     discoveryPendingResult,
@@ -636,7 +642,11 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
       .from("grant_sources")
       .select("source_name, type, adapter, enabled, crawl_frequency, last_crawled_at")
       .order("last_crawled_at", { ascending: false, nullsFirst: false })
-      .limit(500),
+      .limit(ADMIN_GRANT_SOURCE_STATUS_LIMIT),
+    supabase
+      .from("grant_sources")
+      .select("id", { count: "exact", head: true })
+      .eq("enabled", true),
     supabase
       .from("grant_source_import_runs")
       .select("run_source, created_by, requested_count, added_count, skipped_duplicate_count, rejected_count, manual_review_count, created_at")
@@ -646,7 +656,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
       .from("Grant")
       .select("source, createdAt")
       .gte("createdAt", last7d.toISOString())
-      .limit(2000),
+      .limit(ADMIN_SOURCE_ATTRIBUTION_SAMPLE_SIZE),
     supabase.from("grant_discovery_queue").select("id", { count: "exact", head: true }).eq("status", "pending"),
     supabase.from("grant_discovery_queue").select("id", { count: "exact", head: true }).eq("status", "failed"),
     supabase.from("grant_links").select("id", { count: "exact", head: true }).eq("status", "pending"),
@@ -690,7 +700,9 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
       .eq("suppress_notifications", true)
       .order("updated_at", { ascending: false })
       .range(suppressedRange.from, suppressedRange.to),
-    getAdminEligibilityWhatsAppTraces({ days: 7, limit: 8 }),
+    showWhatsAppDiagnostics
+      ? getAdminEligibilityWhatsAppTraces({ days: 7, limit: 8 })
+      : Promise.resolve([]),
   ]);
 
   const notificationRows = (notificationResult.data ?? []) as NotificationLogRow[];
@@ -839,7 +851,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
   const failedCronRunsLast7dCount = failedCronRunsLast7dResult.count ?? 0;
   const recentFailedCronRuns = (recentFailedCronRunsResult.data ?? []) as CronRunLogRow[];
   const dueSources = grantSources.filter((source) => isSourceDue(source)).length;
-  const enabledSources = grantSources.filter((source) => source.enabled).length;
+  const enabledSources = enabledGrantSourcesResult.count ?? grantSources.filter((source) => source.enabled).length;
   const latestSourceCrawl = grantSources
     .map((source) => source.last_crawled_at)
     .filter((value): value is string => Boolean(value))
@@ -1090,7 +1102,16 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                   plan, phone, template, cooldown, or send failures.
                 </p>
                 <div className="space-y-3">
-                  {eligibilityWhatsAppTraces.length > 0 ? (
+                  {!showWhatsAppDiagnostics ? (
+                    <div className="rounded-md border bg-muted/20 p-3">
+                      <p className="text-sm text-muted-foreground">
+                        Detailed WhatsApp diagnostics are loaded on demand so the admin page stays fast as data grows.
+                      </p>
+                      <Button asChild size="sm" variant="outline" className="mt-3">
+                        <Link href="/admin?diagnostics=whatsapp">Load WhatsApp diagnostics</Link>
+                      </Button>
+                    </div>
+                  ) : eligibilityWhatsAppTraces.length > 0 ? (
                     eligibilityWhatsAppTraces.map((trace) => (
                       <div key={trace.orgId} className="rounded-md border p-3">
                         <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-start">
