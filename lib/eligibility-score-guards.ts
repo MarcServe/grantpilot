@@ -75,6 +75,25 @@ function purposeLooksAligned(profilePurposes: string[], grant: GuardGrant): bool
   );
 }
 
+function grantCriteriaText(grant: GuardGrant): string {
+  return [grant.eligibility ?? "", grant.description ?? "", grant.objectives ?? ""].join(" ").toLowerCase();
+}
+
+function hasExplicitMeasurableProfileCriteria(grant: GuardGrant): boolean {
+  const text = grantCriteriaText(grant);
+  return [
+    /\b(?:employee|employees|staff|fte|full[- ]time equivalent)/,
+    /\b(?:revenue|turnover|income|sales|gross revenue)/,
+    /\b(?:trading|operating|registered|incorporated|established)[^.;\n]{0,80}\b(?:at least|minimum|min\.?|for|within|last|under|less than|up to|max)/,
+    /\b(?:at least|minimum|min\.?|under|less than|up to|max)\s+\d+(?:\.\d+)?\s+(?:years?|months?)[^.;\n]{0,80}\b(?:trading|operating|registration|incorporation|established)/,
+    /\bpre[- ]?revenue\b/,
+  ].some((pattern) => pattern.test(text));
+}
+
+function isSoftProfileEvidenceGap(value: string): boolean {
+  return /\b(company registration age|company age|year established|registration date|trading history|revenue data|annual revenue|turnover|employee count|team size)\b/i.test(value);
+}
+
 function capResult(result: EligibilityResult, maxScore: number, reason: string, actions?: string[]): EligibilityResult {
   const current = result.score ?? result.confidence;
   if (current <= maxScore) return result;
@@ -160,10 +179,14 @@ export function applyEligibilityScoreGuards(
     };
   }
 
-  const warningText = [...(guarded.missing ?? []), ...(guarded.reasons ?? [])].join(" ").toLowerCase();
+  const explicitMeasurableCriteria = hasExplicitMeasurableProfileCriteria(grant);
+  const scoreRelevantMissing = (guarded.missing ?? []).filter(
+    (item) => explicitMeasurableCriteria || !isSoftProfileEvidenceGap(item)
+  );
+  const warningText = [...scoreRelevantMissing, ...(guarded.reasons ?? [])].join(" ").toLowerCase();
   if (/\b(sector mismatch|purpose mismatch|unrelated|not related|focus required|required expertise|required capability)\b/.test(warningText)) {
     guarded = capResult(guarded, 55, "Core grant focus does not clearly match the company DNA");
-  } else if ((guarded.missing ?? []).length >= 3) {
+  } else if (scoreRelevantMissing.length >= 3) {
     guarded = capResult(guarded, 65, "Several eligibility gaps need evidence before this can be treated as high fit");
   }
 

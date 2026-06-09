@@ -34,8 +34,13 @@ import { getMatchHealthReport } from "@/lib/match-health";
  * + Cache: skip grants already scored within CACHE_DAYS
  */
 
-const LAYER2_TOP_N = 15;
-const LAYER3_TOP_N = 10;
+function positiveIntFromEnv(name: string, fallback: number): number {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+}
+
+const LAYER3_TOP_N = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_TOP_N", 25);
+const LAYER2_TOP_N = Math.max(LAYER3_TOP_N, positiveIntFromEnv("ELIGIBILITY_EMBEDDING_TOP_N", 40));
 const GRANT_FETCH_BATCH_SIZE = 1000;
 const MAX_GRANTS_PER_REFRESH = 10000;
 const DIGEST_SCORE_THRESHOLD = 85;
@@ -623,7 +628,6 @@ export async function runEligibilityRefreshJob(options?: {
             const result = await getEligibilityDecision(
               profileToMatching({
                 ...(profile as Record<string, unknown>),
-                fundingOutcomeSignals,
               }),
               {
                 id: grant.id,
