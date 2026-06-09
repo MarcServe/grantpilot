@@ -39,8 +39,8 @@ function positiveIntFromEnv(name: string, fallback: number): number {
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
 }
 
-const LAYER3_TOP_N = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_TOP_N", 25);
-const LAYER2_TOP_N = Math.max(LAYER3_TOP_N, positiveIntFromEnv("ELIGIBILITY_EMBEDDING_TOP_N", 40));
+const LAYER3_TOP_N = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_TOP_N", 50);
+const LAYER2_TOP_N = Math.max(LAYER3_TOP_N, positiveIntFromEnv("ELIGIBILITY_EMBEDDING_TOP_N", 75));
 const GRANT_FETCH_BATCH_SIZE = 1000;
 const MAX_GRANTS_PER_REFRESH = 10000;
 const DIGEST_SCORE_THRESHOLD = 85;
