@@ -146,11 +146,81 @@ function uniqueGrantIds(ids: string[]): string[] {
   const seen = new Set<string>();
   const unique: string[] = [];
   for (const id of ids) {
+    if (!id) continue;
     if (seen.has(id)) continue;
     seen.add(id);
     unique.push(id);
   }
   return unique;
+}
+
+type EligibilityRefreshEnqueueResult = {
+  orgsChecked: number;
+  orgsEligible: number;
+  enqueued: number;
+  failed: number;
+  source: string;
+  dueOnly: boolean;
+  errors: string[];
+};
+
+async function enqueueEligibilityRefreshForOrgIds(
+  orgIds: string[],
+  source: string
+): Promise<Omit<EligibilityRefreshEnqueueResult, "orgsChecked" | "orgsEligible" | "dueOnly">> {
+  const uniqueOrgIds = uniqueGrantIds(orgIds);
+  let enqueued = 0;
+  let failed = 0;
+  const errors: string[] = [];
+
+  for (const orgId of uniqueOrgIds) {
+    try {
+      await inngest.send({
+        name: "eligibility/refresh.requested",
+        data: { orgId, source },
+      });
+      enqueued++;
+    } catch (error) {
+      failed++;
+      errors.push(`${orgId}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  return {
+    source,
+    enqueued,
+    failed,
+    errors: errors.slice(0, 10),
+  };
+}
+
+export async function enqueueEligibilityRefreshes(options: {
+  source: string;
+  dueOnly?: boolean;
+}): Promise<EligibilityRefreshEnqueueResult> {
+  const supabase = getSupabaseAdmin();
+  const { data: orgsData, error } = await supabase
+    .from("Organisation")
+    .select("id, preferredTimezone");
+
+  if (error) throw error;
+
+  const allOrgs = (orgsData ?? []) as { id: string; preferredTimezone?: string | null }[];
+  const dueOnly = options.dueOnly !== false;
+  const eligible = dueOnly
+    ? allOrgs.filter((org) => isEligibilityNotificationTime(org.preferredTimezone ?? "UTC"))
+    : allOrgs;
+  const enqueue = await enqueueEligibilityRefreshForOrgIds(
+    eligible.map((org) => org.id),
+    options.source
+  );
+
+  return {
+    orgsChecked: allOrgs.length,
+    orgsEligible: eligible.length,
+    dueOnly,
+    ...enqueue,
+  };
 }
 
 async function fetchCurrentGrants(
@@ -864,25 +934,16 @@ export const eligibilityRefresh = inngest.createFunction(
   { id: "eligibility-refresh", name: "Eligibility 8:30 AM local (hourly check)" },
   { cron: "30 * * * *" },
   async () => runWithCronLog({ jobName: "Eligibility 8:30 AM local", route: "inngest/eligibility-refresh", trigger: "inngest" }, async () => {
-    const supabase = getSupabaseAdmin();
-
-    const { data: orgsData } = await supabase
-      .from("Organisation")
-      .select("id, preferredTimezone");
-
-    const allOrgs = (orgsData ?? []) as { id: string; preferredTimezone?: string | null }[];
-    const eligible = allOrgs.filter((o) =>
-      isEligibilityNotificationTime(o.preferredTimezone ?? "UTC")
-    );
-
-    if (eligible.length === 0) {
-      console.info(`[eligibility-refresh] No orgs at 8:30 AM local this hour (checked ${allOrgs.length} orgs)`);
-      return { skipped: true, orgsChecked: allOrgs.length, orgsAtLocalTime: 0 };
+    const result = await enqueueEligibilityRefreshes({
+      source: "scheduled.local_830",
+      dueOnly: true,
+    });
+    if (result.orgsEligible === 0) {
+      console.info(`[eligibility-refresh] No orgs at 8:30 AM local this hour (checked ${result.orgsChecked} orgs)`);
+      return { skipped: true, ...result };
     }
-
-    const orgIds = new Set(eligible.map((o) => o.id));
-    console.info(`[eligibility-refresh] ${eligible.length}/${allOrgs.length} orgs at 8:30 AM local — running pipeline`);
-    return runEligibilityRefreshJob({ orgIdsFilter: orgIds });
+    console.info(`[eligibility-refresh] Enqueued ${result.enqueued}/${result.orgsEligible} scoped org refreshes`);
+    return result;
   })
 );
 
@@ -893,10 +954,29 @@ export const eligibilityRefreshRequested = inngest.createFunction(
     const orgId = typeof event.data?.orgId === "string" ? event.data.orgId.trim() : "";
     const source = typeof event.data?.source === "string" ? event.data.source : "manual";
     const bypassCache = /^(application\.outcome|profile\.)/.test(source);
-    return runEligibilityRefreshJob(
-      orgId
-        ? { orgIdsFilter: new Set([orgId]), bypassCache, refreshReason: source }
-        : { bypassCache, refreshReason: source }
+    if (!orgId) {
+      return enqueueEligibilityRefreshes({
+        source: `${source}.fallback_enqueue`,
+        dueOnly: false,
+      });
+    }
+    return runEligibilityRefreshJob({
+      orgIdsFilter: new Set([orgId]),
+      bypassCache,
+      refreshReason: source,
+    });
+  }
+);
+
+export const eligibilityRefreshEnqueueRequested = inngest.createFunction(
+  { id: "eligibility-refresh-enqueue-requested", name: "Eligibility refresh enqueue request" },
+  { event: "eligibility/refresh.enqueue.requested" },
+  async ({ event }) => {
+    const source = typeof event.data?.source === "string" ? event.data.source : "manual.enqueue";
+    const dueOnly = event.data?.dueOnly !== false;
+    return runWithCronLog(
+      { jobName: "Eligibility Refresh Enqueue", route: "inngest/eligibility-refresh.enqueue", trigger: "inngest" },
+      () => enqueueEligibilityRefreshes({ source, dueOnly })
     );
   }
 );
