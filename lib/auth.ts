@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
@@ -142,7 +143,7 @@ async function ensureProvisionedUser(admin: ReturnType<typeof getSupabaseAdmin>,
   return fetchFullUserBySupabaseId(admin, supabaseId);
 }
 
-export async function getCurrentUser(): Promise<NormalisedUser | null> {
+export const getCurrentUser = cache(async function getCurrentUser(): Promise<NormalisedUser | null> {
   const supabase = await createClient();
   const {
     data: { user: authUser },
@@ -157,21 +158,21 @@ export async function getCurrentUser(): Promise<NormalisedUser | null> {
   if (existingUser?.memberships?.length) return existingUser;
 
   return ensureProvisionedUser(admin, authUser.id, email);
-}
+});
 
-export async function requireUser(): Promise<NormalisedUser> {
+export const requireUser = cache(async function requireUser(): Promise<NormalisedUser> {
   const user = await getCurrentUser();
   if (!user) {
     throw new Error("Unauthorized");
   }
   return user;
-}
+});
 
 /**
  * Returns the user's active organisation (first membership for MVP).
  * In a multi-org future this would read from a cookie/session.
  */
-export async function getActiveOrg(): Promise<{
+export const getActiveOrg = cache(async function getActiveOrg(): Promise<{
   user: Awaited<ReturnType<typeof requireUser>>;
   org: NormalisedOrganisation;
   role: string;
@@ -195,4 +196,4 @@ export async function getActiveOrg(): Promise<{
     role: membership.role,
     orgId,
   };
-}
+});
