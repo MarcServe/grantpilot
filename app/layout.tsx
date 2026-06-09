@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import Script from "next/script";
 import { Providers } from "@/components/providers";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
@@ -34,6 +35,12 @@ export default function RootLayout({
           {children}
           <Toaster />
         </Providers>
+        <Script
+          src="https://talkweb.io/widget.js"
+          strategy="afterInteractive"
+          data-assistant="5572556c-ab93-425e-abe4-1363a7157e4f"
+          data-base-url="https://talkweb.io"
+        />
       </body>
     </html>
   );
