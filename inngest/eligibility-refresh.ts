@@ -334,6 +334,7 @@ export async function runEligibilityRefreshJob(options?: {
         const sendNotifyEmail = (prefs as { notify_email?: boolean } | null)?.notify_email !== false;
         const canReceiveProactiveNotifications = await organisationAllowsCapability(orgId, "proactive_notifications");
         const recentWindow = recentNotificationWindow();
+        let sendCurrentDigestIfAvailable: (() => Promise<boolean>) | null = null;
 
         const sendEligibilityStatusEmail = async (checkedGrantsCount: number, digestCandidateCount = 0) => {
           if (!sendNotifyEmail) return;
@@ -363,6 +364,11 @@ export async function runEligibilityRefreshJob(options?: {
             recentWindow
           );
           if (alreadyUpdated) return;
+
+          if (sendCurrentDigestIfAvailable && await sendCurrentDigestIfAvailable()) {
+            return;
+          }
+
           await notifyOrgMembers(orgId, "daily_grant_update", {
             profileName,
             checkedGrantsCount,
@@ -664,6 +670,35 @@ export async function runEligibilityRefreshJob(options?: {
         const getCurrentStrongDigest = async () => {
           if (!currentStrongDigestCache) currentStrongDigestCache = await buildCurrentStrongDigest();
           return currentStrongDigestCache;
+        };
+        sendCurrentDigestIfAvailable = async () => {
+          const currentStrongDigest = await getCurrentStrongDigest();
+          const currentWithinReachDigest = await buildCurrentWithinReachDigest();
+          if (currentStrongDigest.length === 0 && currentWithinReachDigest.length === 0) return false;
+
+          console.info(
+            `[eligibility-refresh]   SENDING fallback current-match digest for ${currentStrongDigest.length} strong and ${currentWithinReachDigest.length} within-reach grants to org ${orgId}`
+          );
+          await notifyOrgMembers(orgId, "grant_scan_digest", {
+            grants: currentStrongDigest,
+            withinReachGrants: currentWithinReachDigest,
+            profileName,
+          }, {
+            sendEmail: true,
+            sendWhatsApp: false,
+          });
+          diagnostics.dailyUpdates++;
+          notifiedCount += currentStrongDigest.length;
+          const notifiedAt = new Date().toISOString();
+          for (const item of currentStrongDigest) {
+            await supabase
+              .from("EligibilityAssessment")
+              .update({ notified_at: notifiedAt })
+              .eq("organisation_id", orgId)
+              .eq("profile_id", profileId)
+              .eq("grant_id", item.grantId);
+          }
+          return true;
         };
 
         for (const cached of (cachedRows ?? []) as CachedEligibilityRow[]) {

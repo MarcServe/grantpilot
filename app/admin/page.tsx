@@ -161,6 +161,13 @@ type GrantSourceAttributionRow = {
   createdAt: string | null;
 };
 
+type GrantSourceCountRow = {
+  label: string;
+  detail: string;
+  total: number;
+  last7d: number;
+};
+
 type DiscoveryProviderStatus = {
   label: string;
   configured: boolean;
@@ -266,6 +273,75 @@ function grantSourceLabel(source?: string | null): string {
   if (value === "admin") return "Admin import";
   if (value === "grants-gov") return "Grants.gov";
   return source ?? "Unknown";
+}
+
+const GRANT_SOURCE_COUNT_BUCKETS: Array<{
+  label: string;
+  detail: string;
+  sources: Array<string | null>;
+}> = [
+  { label: "Database links / RSS", detail: "Registry, feed, API, or source crawler import", sources: [null, "default"] },
+  { label: "OpenAI search", detail: "AI discovery", sources: ["openai"] },
+  { label: "Perplexity search", detail: "AI discovery", sources: ["perplexity"] },
+  { label: "Claude search", detail: "AI discovery", sources: ["claude"] },
+  { label: "Gemini search", detail: "AI discovery", sources: ["gemini"] },
+  { label: "Grants.gov", detail: "US registry import", sources: ["grants-gov"] },
+  { label: "Google search", detail: "Search discovery", sources: ["google"] },
+  { label: "Bing search", detail: "Search discovery", sources: ["bing"] },
+  { label: "Admin import", detail: "Manual/admin-created grants", sources: ["admin"] },
+];
+
+async function countGrantSourceBucket(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  sources: Array<string | null>,
+  since?: Date
+): Promise<number> {
+  let query = supabase.from("Grant").select("id", { count: "exact", head: true });
+  if (since) query = query.gte("createdAt", since.toISOString());
+
+  if (sources.includes(null) && sources.includes("default")) {
+    query = query.or("source.is.null,source.eq.default");
+  } else if (sources.includes(null)) {
+    query = query.is("source", null);
+  } else if (sources.length === 1) {
+    query = query.eq("source", sources[0] ?? "");
+  } else {
+    query = query.in("source", sources.filter((source): source is string => Boolean(source)));
+  }
+
+  const result = await query;
+  if (result.error) {
+    console.warn("[admin] Grant source count query failed:", result.error.message);
+    return 0;
+  }
+  return result.count ?? 0;
+}
+
+async function getGrantSourceCountRows(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  last7d: Date
+): Promise<GrantSourceCountRow[]> {
+  const rows = await Promise.all(
+    GRANT_SOURCE_COUNT_BUCKETS.map(async (bucket) => {
+      const [total, recent] = await Promise.all([
+        countGrantSourceBucket(supabase, bucket.sources),
+        countGrantSourceBucket(supabase, bucket.sources, last7d),
+      ]);
+      return {
+        label: bucket.label,
+        detail: bucket.detail,
+        total,
+        last7d: recent,
+      };
+    })
+  );
+
+  return rows
+    .filter((row) => row.total > 0 || row.last7d > 0)
+    .sort((a, b) => {
+      if (b.last7d !== a.last7d) return b.last7d - a.last7d;
+      return b.total - a.total;
+    });
 }
 
 function hasEnv(...names: string[]): boolean {
@@ -599,6 +675,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
     enabledGrantSourcesResult,
     sourceImportRunsResult,
     grantSourceAttributionResult,
+    grantSourceCountRows,
     discoveryPendingResult,
     discoveryFailedResult,
     linksPendingResult,
@@ -671,6 +748,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
         .select("source, createdAt")
         .gte("createdAt", last7d.toISOString())
         .limit(ADMIN_SOURCE_ATTRIBUTION_SAMPLE_SIZE),
+      getGrantSourceCountRows(supabase, last7d),
       supabase.from("grant_discovery_queue").select("id", { count: "exact", head: true }).eq("status", "pending"),
       supabase.from("grant_discovery_queue").select("id", { count: "exact", head: true }).eq("status", "failed"),
       supabase.from("grant_links").select("id", { count: "exact", head: true }).eq("status", "pending"),
@@ -757,6 +835,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
   const grantSources = (grantSourcesResult.data ?? []) as GrantSourceRow[];
   const sourceImportRuns = (sourceImportRunsResult.data ?? []) as GrantSourceImportRunRow[];
   const grantSourceAttributionRows = (grantSourceAttributionResult.data ?? []) as GrantSourceAttributionRow[];
+  const grantSourceCounts = (grantSourceCountRows ?? []) as GrantSourceCountRow[];
   const suppressedGrantRows = (suppressedGrantsResult.data ?? []) as SavedGrantSuppressionRow[];
   if (sourceImportRunsResult.error) {
     console.warn("[admin] Grant source import run query failed:", sourceImportRunsResult.error.message);
@@ -871,13 +950,22 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
     .map((source) => source.last_crawled_at)
     .filter((value): value is string => Boolean(value))
     .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ?? null;
-  const sourceAttributionCounts = Array.from(
-    grantSourceAttributionRows.reduce((counts, row) => {
-      const key = grantSourceLabel(row.source);
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-      return counts;
-    }, new Map<string, number>())
-  ).sort((a, b) => b[1] - a[1]);
+  const sourceAttributionCounts = grantSourceCounts.length > 0
+    ? grantSourceCounts
+    : Array.from(
+        grantSourceAttributionRows.reduce((counts, row) => {
+          const key = grantSourceLabel(row.source);
+          counts.set(key, (counts.get(key) ?? 0) + 1);
+          return counts;
+        }, new Map<string, number>())
+      )
+        .sort((a, b) => b[1] - a[1])
+        .map(([label, last7d]) => ({
+          label,
+          detail: label.includes("search") ? "AI discovery" : "Registry, feed, API, or admin import",
+          total: last7d,
+          last7d,
+        }));
   const aiDiscoveryProviders = discoveryProviderStatuses();
   const discoveryQueue: QueueStatus = {
     pending: discoveryPendingResult.count ?? 0,
@@ -1441,15 +1529,18 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                 )}
                 {sourceAttributionCounts.length > 0 ? (
                   <div className="space-y-2">
-                    {sourceAttributionCounts.map(([source, count]) => (
-                      <div key={source} className="flex items-center justify-between gap-3 rounded-md border bg-muted/30 p-3">
+                    {sourceAttributionCounts.map((source) => (
+                      <div key={source.label} className="flex items-center justify-between gap-3 rounded-md border bg-muted/30 p-3">
                         <div className="min-w-0">
-                          <div className="font-medium">{source}</div>
+                          <div className="font-medium">{source.label}</div>
                           <div className="text-xs text-muted-foreground">
-                            {source.includes("search") ? "AI discovery" : "Registry, feed, API, or admin import"}
+                            {source.detail}
                           </div>
                         </div>
-                        <div className="text-2xl font-semibold">{count}</div>
+                        <div className="shrink-0 text-right">
+                          <div className="text-2xl font-semibold">{source.last7d}</div>
+                          <div className="text-xs text-muted-foreground">{source.total} total</div>
+                        </div>
                       </div>
                     ))}
                   </div>
