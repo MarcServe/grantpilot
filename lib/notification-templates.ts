@@ -165,8 +165,8 @@ export function buildEmailHtml(
       const matched = Math.max(0, Math.round(Number(payload.matchedGrantsCount ?? 0)));
       const matchedLine =
         matched > 0
-          ? `<p>You currently have <strong>${matched}</strong> eligible ${matched === 1 ? "grant" : "grants"} available in My Matches.</p>`
-          : "<p>No new high-confidence eligible grants were ready to notify you about this morning.</p>";
+          ? `<p>You currently have <strong>${matched}</strong> 85%+ suggested ${matched === 1 ? "grant" : "grants"} available in My Matches.</p>`
+          : "<p>No new 85%+ suggested grants were ready to notify you about this morning. Check My Matches for within-reach opportunities.</p>";
       return {
         subject: "Today's GrantsCopilot scan is complete",
         html: baseLayout(
@@ -439,7 +439,7 @@ export function buildWhatsAppMessage(
     }
 
     case "daily_grant_update":
-      return `Today's GrantsCopilot scan is complete. You currently have ${Math.max(0, Math.round(Number(payload.matchedGrantsCount ?? 0)))} eligible grants available in My Matches.\n\nView matches: ${appUrl}/grants/eligible`;
+      return `Today's GrantsCopilot scan is complete. You currently have ${Math.max(0, Math.round(Number(payload.matchedGrantsCount ?? 0)))} 85%+ suggested grants available in My Matches. Check My Matches for within-reach opportunities too.\n\nView matches: ${appUrl}/grants/eligible`;
 
     case "deadline_daily_update":
       return `Today's deadline check is complete. There are no urgent eligible grant deadline reminders due this morning.\n\nView matches: ${appUrl}/grants/eligible`;

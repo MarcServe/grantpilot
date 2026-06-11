@@ -330,6 +330,7 @@ export async function runEligibilityRefreshJob(options?: {
         const minScore = notificationMinScore((prefs as { min_score?: number } | null)?.min_score);
         const maxScore = (prefs as { max_score?: number } | null)?.max_score ?? 100;
         const eligibleThreshold = notificationMinScore((prefs as { eligible_threshold?: number } | null)?.eligible_threshold);
+        const suggestedThreshold = Math.max(DIGEST_SCORE_THRESHOLD, eligibleThreshold);
         const sendWhatsApp = (prefs as { notify_whatsapp?: boolean } | null)?.notify_whatsapp ?? true;
         const sendNotifyEmail = (prefs as { notify_email?: boolean } | null)?.notify_email !== false;
         const canReceiveProactiveNotifications = await organisationAllowsCapability(orgId, "proactive_notifications");
@@ -612,7 +613,7 @@ export async function runEligibilityRefreshJob(options?: {
             .eq("profile_id", profileId)
             .eq("decision", "likely_eligible")
             .eq("scoring_source", "openai")
-            .gte("score", minScore)
+            .gte("score", suggestedThreshold)
             .lte("score", maxScore)
             .order("updated_at", { ascending: false })
             .limit(30);
@@ -624,7 +625,7 @@ export async function runEligibilityRefreshJob(options?: {
 
           const items: DigestGrantItem[] = [];
           for (const row of (currentRows ?? []) as CachedEligibilityRow[]) {
-            const item = await buildDigestItem(row, { minScore, maxScore });
+            const item = await buildDigestItem(row, { minScore: suggestedThreshold, maxScore });
             if (item) items.push(item);
           }
 
@@ -637,6 +638,9 @@ export async function runEligibilityRefreshJob(options?: {
         };
 
         const buildCurrentWithinReachDigest = async (limit = 4): Promise<DigestGrantItem[]> => {
+          const withinReachMax = Math.min(maxScore, suggestedThreshold - 1);
+          if (withinReachMax < 50) return [];
+
           const { data: currentRows, error: currentErr } = await supabase
             .from("EligibilityAssessment")
             .select("grant_id, updated_at, score, decision, summary, notified_at, missing_criteria, improvement_plan, scoring_source")
@@ -644,7 +648,7 @@ export async function runEligibilityRefreshJob(options?: {
             .eq("profile_id", profileId)
             .eq("scoring_source", "openai")
             .gte("score", 50)
-            .lte("score", maxScore)
+            .lte("score", withinReachMax)
             .order("updated_at", { ascending: false })
             .limit(40);
 
@@ -655,7 +659,7 @@ export async function runEligibilityRefreshJob(options?: {
 
           const items: DigestGrantItem[] = [];
           for (const row of (currentRows ?? []) as CachedEligibilityRow[]) {
-            const item = await buildDigestItem(row, { minScore: 50, maxScore: 79 });
+            const item = await buildDigestItem(row, { minScore: 50, maxScore: withinReachMax });
             if (item) items.push(item);
           }
 
@@ -705,7 +709,7 @@ export async function runEligibilityRefreshJob(options?: {
           const score = Number(cached.score ?? 0);
           if (
             !Number.isFinite(score) ||
-            score < minScore ||
+            score < suggestedThreshold ||
             score > maxScore ||
             !shouldNotifyForEligibility(score, cached.decision, cached.scoring_source) ||
             !isOutsideNotificationCooldown(cached.notified_at, cooldown)
@@ -713,7 +717,7 @@ export async function runEligibilityRefreshJob(options?: {
             continue;
           }
 
-          const digestItem = await buildDigestItem(cached, { minScore, maxScore });
+          const digestItem = await buildDigestItem(cached, { minScore: suggestedThreshold, maxScore });
           if (digestItem) digestGrants.push(digestItem);
         }
 
@@ -785,7 +789,7 @@ export async function runEligibilityRefreshJob(options?: {
             }
 
             const inRange =
-              score >= minScore &&
+              score >= suggestedThreshold &&
               score <= maxScore &&
               shouldNotifyForEligibility(score, adjustedResult.decision, "openai");
 
@@ -814,7 +818,7 @@ export async function runEligibilityRefreshJob(options?: {
                     improvement_plan: adjustedResult.improvementPlan ?? null,
                     scoring_source: "openai",
                   },
-                  { minScore, maxScore }
+                  { minScore: suggestedThreshold, maxScore }
                 );
                 if (digestItem) digestGrants.push(digestItem);
               }
@@ -886,7 +890,7 @@ export async function runEligibilityRefreshJob(options?: {
             sendWhatsApp: false,
           });
           for (const item of digestGrants) {
-            if (item.score >= eligibleThreshold && sendWhatsApp) {
+            if (item.score >= suggestedThreshold && sendWhatsApp) {
               await notifyOrgMembers(orgId, "grant_match_high", {
                 grantId: item.grantId,
                 grantName: item.grantName,
@@ -925,7 +929,7 @@ export async function runEligibilityRefreshJob(options?: {
               sendEmail: true,
               sendWhatsApp: false,
             });
-            const topWhatsAppMatch = currentStrongDigest.find((item) => item.score >= eligibleThreshold);
+            const topWhatsAppMatch = currentStrongDigest.find((item) => item.score >= suggestedThreshold);
             if (topWhatsAppMatch && sendWhatsApp) {
               await notifyOrgMembers(orgId, "grant_match_high", {
                 grantId: topWhatsAppMatch.grantId,
