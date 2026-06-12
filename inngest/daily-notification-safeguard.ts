@@ -3,8 +3,9 @@ import { runWithCronLog } from "@/lib/cron-run-log";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { isNineAmLocal } from "@/lib/timezone";
 import { isGrantActionableNow } from "@/lib/grant-actionability";
-import { notifyOrgMembers, orgHasNotificationSince, type NotificationType } from "@/lib/notify";
+import { notifyOrgMembers, orgHasNotificationSince, type DigestGrantItem, type NotificationType } from "@/lib/notify";
 import { organisationAllowsCapability } from "@/lib/plan-check";
+import { createStartApplicationToken } from "@/lib/start-application-token";
 
 const NOTIFY_COOLDOWN_HOURS = 20;
 const DEFAULT_DIGEST_SCORE_THRESHOLD = 85;
@@ -40,7 +41,27 @@ type OrgRow = {
 type PreferenceRow = {
   organisation_id?: string | null;
   min_score?: number | null;
+  max_score?: number | null;
+  eligible_threshold?: number | null;
   notify_email?: boolean | null;
+};
+
+type AssessmentDigestRow = {
+  grant_id?: string | null;
+  score?: number | null;
+  summary?: string | null;
+  missing_criteria?: unknown;
+  improvement_plan?: unknown;
+};
+
+type GrantDigestRow = {
+  id: string;
+  name: string;
+  url_status?: string | null;
+  deadline?: string | null;
+  eligibility?: string | null;
+  description?: string | null;
+  objectives?: string | null;
 };
 
 function profileOrgId(profile: ProfileRow): string | null {
@@ -74,6 +95,22 @@ function notificationMinScore(preferenceScore: number | undefined): number {
   return Math.max(preferenceScore ?? DEFAULT_DIGEST_SCORE_THRESHOLD, MIN_NOTIFICATION_SCORE_FLOOR);
 }
 
+function suggestedScoreThreshold(preferenceScore: number | null | undefined): number {
+  return Math.max(DEFAULT_DIGEST_SCORE_THRESHOLD, notificationMinScore(preferenceScore ?? undefined));
+}
+
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : [];
+}
+
+function asImprovementPlan(value: unknown): DigestGrantItem["improvementPlan"] {
+  if (!value || typeof value !== "object") return null;
+  const plan = value as { gaps?: unknown; actions?: unknown };
+  const gaps = asStringArray(plan.gaps);
+  const actions = asStringArray(plan.actions);
+  return gaps.length > 0 || actions.length > 0 ? { gaps, actions } : null;
+}
+
 async function countUsableGrants(supabase: ReturnType<typeof getSupabaseAdmin>): Promise<number> {
   let count = 0;
 
@@ -96,15 +133,19 @@ async function countUsableGrants(supabase: ReturnType<typeof getSupabaseAdmin>):
 async function countStrongEligibleForOrg(
   supabase: ReturnType<typeof getSupabaseAdmin>,
   orgId: string,
-  minScore: number
+  profileId: string,
+  minScore: number,
+  maxScore: number
 ): Promise<number> {
   const { data } = await supabase
     .from("EligibilityAssessment")
     .select("grant_id")
     .eq("organisation_id", orgId)
+    .eq("profile_id", profileId)
     .eq("decision", "likely_eligible")
     .eq("scoring_source", "openai")
     .gte("score", minScore)
+    .lte("score", maxScore)
     .limit(200);
 
   const grantIds = [...new Set(((data ?? []) as { grant_id?: string | null }[])
@@ -118,6 +159,64 @@ async function countStrongEligibleForOrg(
     .in("id", grantIds);
 
   return ((grants ?? []) as Record<string, unknown>[]).filter((grant) => isGrantActionableNow(grant)).length;
+}
+
+async function buildCurrentDigestForProfile(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  orgId: string,
+  profileId: string,
+  minStrongScore: number,
+  maxScore: number
+): Promise<{ strong: DigestGrantItem[]; withinReach: DigestGrantItem[] }> {
+  const withinReachMax = Math.min(maxScore, minStrongScore - 1);
+  const { data: rows = [] } = await supabase
+    .from("EligibilityAssessment")
+    .select("grant_id, score, summary, missing_criteria, improvement_plan")
+    .eq("organisation_id", orgId)
+    .eq("profile_id", profileId)
+    .eq("scoring_source", "openai")
+    .gte("score", 50)
+    .lte("score", maxScore)
+    .order("updated_at", { ascending: false })
+    .limit(80);
+
+  const assessments = (rows ?? []) as AssessmentDigestRow[];
+  const grantIds = [...new Set(assessments.map((row) => row.grant_id).filter((id): id is string => Boolean(id)))];
+  if (grantIds.length === 0) return { strong: [], withinReach: [] };
+
+  const { data: grants = [] } = await supabase
+    .from("Grant")
+    .select("id, name, url_status, deadline, eligibility, description, objectives")
+    .in("id", grantIds);
+  const grantById = new Map(((grants ?? []) as GrantDigestRow[]).map((grant) => [grant.id, grant]));
+
+  const items: DigestGrantItem[] = [];
+  for (const row of assessments) {
+    const grantId = row.grant_id;
+    if (!grantId) continue;
+    const grant = grantById.get(grantId);
+    if (!grant || !isGrantActionableNow(grant)) continue;
+    const score = Math.round(Number(row.score ?? 0));
+    if (!Number.isFinite(score) || score < 50 || score > maxScore) continue;
+
+    items.push({
+      grantId,
+      grantName: grant.name,
+      score,
+      summary: row.summary ?? undefined,
+      startApplicationToken: createStartApplicationToken({ grantId, profileId, organisationId: orgId }),
+      missingCriteria: asStringArray(row.missing_criteria),
+      improvementPlan: asImprovementPlan(row.improvement_plan),
+    });
+  }
+
+  const byScore = (a: DigestGrantItem, b: DigestGrantItem) => b.score - a.score;
+  return {
+    strong: items.filter((item) => item.score >= minStrongScore).sort(byScore).slice(0, 5),
+    withinReach: withinReachMax >= 50
+      ? items.filter((item) => item.score >= 50 && item.score <= withinReachMax).sort(byScore).slice(0, 4)
+      : [],
+  };
 }
 
 export async function runDailyNotificationSafeguardJob(options?: {
@@ -176,7 +275,7 @@ export async function runDailyNotificationSafeguardJob(options?: {
 
   const { data: prefRows = [] } = await supabase
     .from("EligibilityNotificationPreference")
-    .select("organisation_id, min_score, notify_email")
+    .select("organisation_id, min_score, max_score, eligible_threshold, notify_email")
     .in("organisation_id", orgIds);
   const prefs = new Map(
     ((prefRows ?? []) as PreferenceRow[])
@@ -212,8 +311,11 @@ export async function runDailyNotificationSafeguardJob(options?: {
       if (completionDelta !== 0) return completionDelta;
       return profileUpdatedAt(b) - profileUpdatedAt(a);
     })[0];
-    const minScore = notificationMinScore(pref?.min_score ?? undefined);
-    const matchedGrantsCount = await countStrongEligibleForOrg(supabase, orgId, minScore);
+    const maxScore = pref?.max_score ?? 100;
+    const minScore = suggestedScoreThreshold(pref?.eligible_threshold);
+    const matchedGrantsCount = primaryProfile?.id
+      ? await countStrongEligibleForOrg(supabase, orgId, primaryProfile.id, minScore, maxScore)
+      : 0;
     const canReceiveProactiveNotifications = await organisationAllowsCapability(orgId, "proactive_notifications");
 
     if (!canReceiveProactiveNotifications && matchedGrantsCount > 0) {
@@ -228,6 +330,24 @@ export async function runDailyNotificationSafeguardJob(options?: {
       );
       diagnostics.upgradePrompts++;
       continue;
+    }
+
+    if (primaryProfile?.id && canReceiveProactiveNotifications) {
+      const digest = await buildCurrentDigestForProfile(supabase, orgId, primaryProfile.id, minScore, maxScore);
+      if (digest.strong.length > 0 || digest.withinReach.length > 0) {
+        await notifyOrgMembers(
+          orgId,
+          "grant_scan_digest",
+          {
+            profileName: profileName(primaryProfile),
+            grants: digest.strong,
+            withinReachGrants: digest.withinReach,
+          },
+          { sendEmail: true, sendWhatsApp: false }
+        );
+        diagnostics.dailyUpdates++;
+        continue;
+      }
     }
 
     await notifyOrgMembers(
