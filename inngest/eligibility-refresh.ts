@@ -23,6 +23,12 @@ import {
 } from "@/lib/outcome-learning";
 import { finalEligibilityScore, finaliseEligibilityAssessment } from "@/lib/eligibility-final-score";
 import { getMatchHealthReport } from "@/lib/match-health";
+import {
+  DEEP_SCORE_BATCH_SIZE,
+  enqueueDeepScoreCandidates,
+  enqueueExistingHeuristicAssessments,
+  processEligibilityDeepScoreQueue,
+} from "@/lib/eligibility-deep-score-queue";
 
 /**
  * 3-Layer Eligibility Pipeline
@@ -260,6 +266,7 @@ export async function runEligibilityRefreshJob(options?: {
   cacheHits: number;
   dailyUpdates: number;
   upgradePrompts: number;
+  deepScoreQueued: number;
 }> {
     const orgIdsFilter = options?.orgIdsFilter;
     const bypassCache = options?.bypassCache === true;
@@ -277,6 +284,7 @@ export async function runEligibilityRefreshJob(options?: {
       cacheHits: 0,
       dailyUpdates: 0,
       upgradePrompts: 0,
+      deepScoreQueued: 0,
     };
     if (allGrants.length === 0) {
       console.info("[eligibility-refresh] No grants in DB", diagnostics);
@@ -855,6 +863,38 @@ export async function runEligibilityRefreshJob(options?: {
           );
           if (batchErr) console.error("[eligibility-refresh] heuristic upsert", h.grantId, batchErr);
         }
+        const queuedCandidates = unscoredHeuristic
+          .map((h) => {
+            const grant = grantsByIdForDigest.get(h.grantId);
+            if (!grant) return null;
+            return {
+              grant,
+              heuristicScore: h.score,
+              reason: h.reasons.join(", "),
+              source: options?.refreshReason ?? "eligibility_refresh",
+            };
+          })
+          .filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate));
+        const queueResult = await enqueueDeepScoreCandidates({
+          supabase,
+          organisationId: orgId,
+          profileId,
+          profile: profile as Record<string, unknown> & { id?: string },
+          candidates: queuedCandidates,
+          source: options?.refreshReason ?? "eligibility_refresh",
+        });
+        diagnostics.deepScoreQueued += queueResult.enqueued;
+        if (queueResult.enqueued > 0) {
+          await inngest.send({
+            name: "eligibility/deep-score.process",
+            data: {
+              source: options?.refreshReason ?? "eligibility_refresh",
+              limit: DEEP_SCORE_BATCH_SIZE,
+            },
+          }).catch((error) =>
+            console.warn("[eligibility-refresh] deep-score process enqueue failed:", error instanceof Error ? error.message : String(error))
+          );
+        }
 
         // ── Notification ──
         console.info(`[eligibility-refresh]   Digest candidates: ${digestGrants.length} grants, completion=${completionScore}%, threshold=${minCompletionForNotifications}%, email=${sendNotifyEmail}, whatsapp=${sendWhatsApp}`);
@@ -1018,4 +1058,34 @@ export const eligibilityRefreshEnqueueRequested = inngest.createFunction(
       () => enqueueEligibilityRefreshes({ source, dueOnly })
     );
   }
+);
+
+export const eligibilityDeepScoreProcessRequested = inngest.createFunction(
+  { id: "eligibility-deep-score-process-requested", name: "Eligibility deep-score process request" },
+  { event: "eligibility/deep-score.process" },
+  async ({ event }) => {
+    const limit = Number(event.data?.limit);
+    const source = typeof event.data?.source === "string" ? event.data.source : "manual";
+    return runWithCronLog(
+      { jobName: "Eligibility Deep Score Queue", route: "inngest/eligibility-deep-score.process", trigger: "inngest" },
+      () => processEligibilityDeepScoreQueue({
+        limit: Number.isFinite(limit) && limit > 0 ? Math.min(100, Math.floor(limit)) : DEEP_SCORE_BATCH_SIZE,
+        organisationId: typeof event.data?.organisationId === "string" ? event.data.organisationId : undefined,
+        profileId: typeof event.data?.profileId === "string" ? event.data.profileId : undefined,
+      }).then((processed) => ({ source, processed }))
+    );
+  }
+);
+
+export const eligibilityDeepScoreScheduled = inngest.createFunction(
+  { id: "eligibility-deep-score-scheduled", name: "Eligibility deep-score queue hourly" },
+  { cron: "15 * * * *" },
+  async () => runWithCronLog(
+    { jobName: "Eligibility Deep Score Queue", route: "inngest/eligibility-deep-score.hourly", trigger: "inngest" },
+    async () => {
+      const enqueued = await enqueueExistingHeuristicAssessments({ limit: 500, minScore: 40 });
+      const processed = await processEligibilityDeepScoreQueue({ limit: DEEP_SCORE_BATCH_SIZE });
+      return { enqueued, processed };
+    }
+  )
 );

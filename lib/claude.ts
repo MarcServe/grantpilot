@@ -1,6 +1,11 @@
 import { getApplicantTypeGate } from "@/lib/eligibility-hard-gates";
 import { cleanJsonResponse, completeJson } from "@/lib/openai-client";
 import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
+import {
+  getCachedEligibilityDecision,
+  storeCachedEligibilityDecision,
+  touchEligibilityAiCaches,
+} from "@/lib/eligibility-ai-cache";
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))];
@@ -93,6 +98,10 @@ export async function getEligibilityDecision(
   grant: GrantForMatching
 ): Promise<EligibilityResult> {
   const companyAge = profile.yearEstablished ? Math.max(0, new Date().getFullYear() - profile.yearEstablished) : null;
+  const cached = await getCachedEligibilityDecision(profile as unknown as Record<string, unknown>, grant);
+  if (cached) return cached;
+  await touchEligibilityAiCaches(profile as unknown as Record<string, unknown>, grant);
+
   const rawText = await completeJson(
     `You are a UK grant eligibility expert. Given this business and this grant, give an eligibility assessment.
 
@@ -156,7 +165,7 @@ Rules:
     }
     const applicantGate = getApplicantTypeGate(profile.businessType, grant);
     if (applicantGate && !applicantGate.profileMatches) {
-      return {
+      const gatedResult: EligibilityResult = {
         ...parsed,
         decision: "unlikely",
         score: Math.min(parsed.score ?? 25, 25),
@@ -173,8 +182,12 @@ Rules:
         winProbability: Math.min(parsed.winProbability ?? 25, 25),
         evidenceStrength: "weak",
       };
+      await storeCachedEligibilityDecision(profile as unknown as Record<string, unknown>, grant, gatedResult);
+      return gatedResult;
     }
-    return applyEligibilityScoreGuards(profile, grant, parsed);
+    const finalResult = applyEligibilityScoreGuards(profile, grant, parsed);
+    await storeCachedEligibilityDecision(profile as unknown as Record<string, unknown>, grant, finalResult);
+    return finalResult;
   } catch {
     return {
       decision: "review",

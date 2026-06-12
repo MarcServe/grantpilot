@@ -9,7 +9,9 @@ import { Button } from "@/components/ui/button";
 import {
   AlertTriangle,
   Bell,
+  Brain,
   CalendarClock,
+  ClipboardCheck,
   Database,
   EyeOff,
   Mail,
@@ -24,6 +26,8 @@ import { TestNotificationButton } from "@/components/admin/test-notification-but
 import { ScoutModeSettings } from "@/components/admin/scout-mode-settings";
 import { GrantComposer } from "@/components/admin/grant-composer";
 import { GrantSourceManager } from "@/components/admin/grant-source-manager";
+import { DeepScoreQueueActions } from "@/components/admin/deep-score-queue-actions";
+import { ReviewQueueActions } from "@/components/admin/review-queue-actions";
 import { getAdminEligibilityWhatsAppTraces, type EligibilityWhatsAppReason } from "@/lib/eligibility-notification-diagnostics";
 import { getServerCache } from "@/lib/server-cache";
 
@@ -51,7 +55,8 @@ type AdminPageKey =
   | "deadlinesPage"
   | "cronRunsPage"
   | "suppressedPage"
-  | "deliveriesPage";
+  | "deliveriesPage"
+  | "reviewQueuePage";
 
 type OpsNotificationType = (typeof OPS_NOTIFICATION_TYPES)[number];
 
@@ -203,6 +208,36 @@ type AiDiscoveryActivity = {
   updated: number;
   rejected: number;
   runs: number;
+};
+
+type SourceReviewQueueRow = {
+  id: string;
+  kind: string | null;
+  source_name: string | null;
+  endpoint: string | null;
+  country: string | null;
+  source_type: string | null;
+  crawl_frequency: string | null;
+  status: string | null;
+  reason: string | null;
+  grant_id: string | null;
+  grant_link_id: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+type DeepScoreQueueRow = {
+  id: string;
+  organisation_id: string | null;
+  profile_id: string | null;
+  grant_id: string | null;
+  status: string | null;
+  heuristic_score: number | null;
+  full_score: number | null;
+  full_decision: string | null;
+  attempts: number | null;
+  last_error: string | null;
+  updated_at: string | null;
 };
 
 const NOTIFICATION_LABELS: Record<OpsNotificationType, string> = {
@@ -640,6 +675,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
   const cronRunsPage = normalizePage(params.cronRunsPage);
   const suppressedPage = normalizePage(params.suppressedPage);
   const deliveriesPage = normalizePage(params.deliveriesPage);
+  const reviewQueuePage = normalizePage(params.reviewQueuePage);
   const showWhatsAppDiagnostics =
     firstParam(params.diagnostics) === "whatsapp" ||
     firstParam(params.whatsappDiagnostics) === "1";
@@ -648,6 +684,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
   const cronRunsRange = pageRange(cronRunsPage);
   const suppressedRange = pageRange(suppressedPage);
   const deliveriesRange = pageRange(deliveriesPage);
+  const reviewQueueRange = pageRange(reviewQueuePage);
   const now = new Date();
   const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const last7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -659,6 +696,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
     `cron:${cronRunsPage}`,
     `suppressed:${suppressedPage}`,
     `deliveries:${deliveriesPage}`,
+    `review:${reviewQueuePage}`,
     `wa:${showWhatsAppDiagnostics ? 1 : 0}`,
   ].join(":");
 
@@ -682,6 +720,16 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
     linksFoundResult,
     linksManualReviewResult,
     linksFailedResult,
+    reviewQueuePendingResult,
+    reviewQueueSourcePendingResult,
+    reviewQueueLinkPendingResult,
+    reviewQueueResult,
+    deepScorePendingResult,
+    deepScoreRunningResult,
+    deepScoreCompleted24hResult,
+    deepScoreFailedResult,
+    deepScoreRowsResult,
+    aiScoreCacheResult,
     latestCronRunResult,
     failedCronRunsLast24hResult,
     failedCronRunsLast7dResult,
@@ -755,6 +803,29 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
       supabase.from("grant_links").select("id", { count: "exact", head: true }).eq("status", "found"),
       supabase.from("grant_links").select("id", { count: "exact", head: true }).eq("status", "manual_review_needed"),
       supabase.from("grant_links").select("id", { count: "exact", head: true }).eq("status", "failed"),
+      supabase.from("grant_source_review_queue").select("id", { count: "exact", head: true }).eq("status", "pending"),
+      supabase.from("grant_source_review_queue").select("id", { count: "exact", head: true }).eq("status", "pending").eq("kind", "source_candidate"),
+      supabase.from("grant_source_review_queue").select("id", { count: "exact", head: true }).eq("status", "pending").eq("kind", "application_link"),
+      supabase
+        .from("grant_source_review_queue")
+        .select("id, kind, source_name, endpoint, country, source_type, crawl_frequency, status, reason, grant_id, grant_link_id, created_at, updated_at", { count: "exact" })
+        .eq("status", "pending")
+        .order("updated_at", { ascending: false })
+        .range(reviewQueueRange.from, reviewQueueRange.to),
+      supabase.from("eligibility_deep_score_queue").select("id", { count: "exact", head: true }).eq("status", "pending"),
+      supabase.from("eligibility_deep_score_queue").select("id", { count: "exact", head: true }).eq("status", "running"),
+      supabase
+        .from("eligibility_deep_score_queue")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "completed")
+        .gte("completed_at", last24h.toISOString()),
+      supabase.from("eligibility_deep_score_queue").select("id", { count: "exact", head: true }).eq("status", "failed"),
+      supabase
+        .from("eligibility_deep_score_queue")
+        .select("id, organisation_id, profile_id, grant_id, status, heuristic_score, full_score, full_decision, attempts, last_error, updated_at")
+        .order("updated_at", { ascending: false })
+        .limit(8),
+      supabase.from("eligibility_ai_score_cache").select("id", { count: "exact", head: true }),
       supabase
         .from("CronRunLog")
         .select("job_name, route, trigger, status, result, error, started_at, finished_at, duration_ms")
@@ -834,6 +905,8 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
   const upcomingDeadlines = (upcomingDeadlineResult.data ?? []) as GrantRow[];
   const grantSources = (grantSourcesResult.data ?? []) as GrantSourceRow[];
   const sourceImportRuns = (sourceImportRunsResult.data ?? []) as GrantSourceImportRunRow[];
+  const reviewQueueRows = (reviewQueueResult.data ?? []) as SourceReviewQueueRow[];
+  const deepScoreRows = (deepScoreRowsResult.data ?? []) as DeepScoreQueueRow[];
   const grantSourceAttributionRows = (grantSourceAttributionResult.data ?? []) as GrantSourceAttributionRow[];
   const grantSourceCounts = (grantSourceCountRows ?? []) as GrantSourceCountRow[];
   const suppressedGrantRows = (suppressedGrantsResult.data ?? []) as SavedGrantSuppressionRow[];
@@ -848,6 +921,12 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
   }
   if (cronRunsResult.error) {
     console.warn("[admin] CronRunLog query failed:", cronRunsResult.error.message);
+  }
+  if (reviewQueueResult.error) {
+    console.warn("[admin] Grant source review queue query failed:", reviewQueueResult.error.message);
+  }
+  if (deepScoreRowsResult.error) {
+    console.warn("[admin] Deep score queue query failed:", deepScoreRowsResult.error.message);
   }
 
   let suppressedGrantDetails: SuppressedGrantDetail[] = [];
@@ -976,6 +1055,18 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
     found: linksFoundResult.count ?? 0,
     manualReview: linksManualReviewResult.count ?? 0,
     failed: linksFailedResult.count ?? 0,
+  };
+  const reviewQueue = {
+    pending: reviewQueuePendingResult.count ?? reviewQueueRows.length,
+    sourceCandidates: reviewQueueSourcePendingResult.count ?? 0,
+    applicationLinks: reviewQueueLinkPendingResult.count ?? 0,
+  };
+  const deepScoreQueue = {
+    pending: deepScorePendingResult.count ?? 0,
+    running: deepScoreRunningResult.count ?? 0,
+    completed24h: deepScoreCompleted24hResult.count ?? 0,
+    failed: deepScoreFailedResult.count ?? 0,
+    cacheRows: aiScoreCacheResult.count ?? 0,
   };
 
   const notificationErrors = notificationRows
@@ -1484,6 +1575,131 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                   <p className="text-muted-foreground">
                     No automated grant source import runs recorded yet.
                   </p>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="min-w-0 overflow-hidden">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <ClipboardCheck className="h-4 w-4 text-blue-600" />
+                  Source review queue
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="max-h-[32rem] space-y-3 overflow-y-auto pr-2 text-sm">
+                <p className="text-sm text-muted-foreground">
+                  Manual-review source candidates and application links that did not auto-insert.
+                </p>
+                <div className="grid grid-cols-3 gap-2 text-xs">
+                  <div className="rounded border bg-muted/30 p-2">
+                    <div className="text-muted-foreground">Pending</div>
+                    <div className="text-lg font-semibold">{reviewQueue.pending}</div>
+                  </div>
+                  <div className="rounded border bg-muted/30 p-2">
+                    <div className="text-muted-foreground">Sources</div>
+                    <div className="text-lg font-semibold">{reviewQueue.sourceCandidates}</div>
+                  </div>
+                  <div className="rounded border bg-muted/30 p-2">
+                    <div className="text-muted-foreground">Grant links</div>
+                    <div className="text-lg font-semibold">{reviewQueue.applicationLinks}</div>
+                  </div>
+                </div>
+                <PaginationControls
+                  params={params}
+                  pageKey="reviewQueuePage"
+                  page={reviewQueuePage}
+                  totalCount={reviewQueueResult.count ?? reviewQueueRows.length}
+                  label="Review queue"
+                />
+                {reviewQueueRows.length > 0 ? (
+                  <div className="space-y-2">
+                    {reviewQueueRows.map((row) => (
+                      <div key={row.id} className="rounded-md border p-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="font-medium">
+                              {row.source_name ?? row.endpoint ?? row.grant_id ?? "Review candidate"}
+                            </div>
+                            <div className="break-words text-xs text-muted-foreground">
+                              {row.kind?.replaceAll("_", " ") ?? "candidate"} · {row.country ?? "Unknown region"} · {row.source_type ?? "source"}
+                            </div>
+                          </div>
+                          <div className="shrink-0 text-xs text-muted-foreground">{formatRelative(row.updated_at ?? row.created_at)}</div>
+                        </div>
+                        {row.reason && (
+                          <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                            {row.reason}
+                          </div>
+                        )}
+                        <ReviewQueueActions id={row.id} kind={row.kind ?? "source_candidate"} endpoint={row.endpoint} />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground">No pending review candidates.</p>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="min-w-0 overflow-hidden">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Brain className="h-4 w-4 text-blue-600" />
+                  Deep eligibility scoring
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="max-h-[32rem] space-y-3 overflow-y-auto pr-2 text-sm">
+                <p className="text-sm text-muted-foreground">
+                  Batch converts preliminary heuristic rows into trusted company-DNA AI scores.
+                </p>
+                <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
+                  <div className="rounded border bg-muted/30 p-2">
+                    <div className="text-muted-foreground">Pending</div>
+                    <div className="text-lg font-semibold">{deepScoreQueue.pending}</div>
+                  </div>
+                  <div className="rounded border bg-muted/30 p-2">
+                    <div className="text-muted-foreground">Running</div>
+                    <div className="text-lg font-semibold">{deepScoreQueue.running}</div>
+                  </div>
+                  <div className="rounded border bg-muted/30 p-2">
+                    <div className="text-muted-foreground">24h done</div>
+                    <div className="text-lg font-semibold text-emerald-700">{deepScoreQueue.completed24h}</div>
+                  </div>
+                  <div className="rounded border bg-muted/30 p-2">
+                    <div className="text-muted-foreground">Failed</div>
+                    <div className="text-lg font-semibold text-red-700">{deepScoreQueue.failed}</div>
+                  </div>
+                  <div className="rounded border bg-muted/30 p-2">
+                    <div className="text-muted-foreground">AI cache</div>
+                    <div className="text-lg font-semibold">{deepScoreQueue.cacheRows}</div>
+                  </div>
+                </div>
+                <DeepScoreQueueActions />
+                {deepScoreRows.length > 0 ? (
+                  <div className="space-y-2">
+                    {deepScoreRows.map((row) => (
+                      <div key={row.id} className="rounded-md border p-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="font-medium">
+                              {row.status ?? "pending"} · heuristic {row.heuristic_score ?? 0}%{row.full_score != null ? ` → ${row.full_score}%` : ""}
+                            </div>
+                            <div className="break-words text-xs text-muted-foreground">
+                              org {row.organisation_id?.slice(0, 8) ?? "unknown"} · profile {row.profile_id?.slice(0, 8) ?? "unknown"} · grant {row.grant_id?.slice(0, 8) ?? "unknown"}
+                            </div>
+                          </div>
+                          <div className="shrink-0 text-xs text-muted-foreground">{formatRelative(row.updated_at)}</div>
+                        </div>
+                        {row.last_error && (
+                          <div className="mt-2 break-words rounded border border-red-200 bg-red-50 p-2 text-xs text-red-900">
+                            {row.last_error}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground">No deep-score queue rows yet.</p>
                 )}
               </CardContent>
             </Card>
