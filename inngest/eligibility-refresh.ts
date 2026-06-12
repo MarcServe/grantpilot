@@ -53,6 +53,9 @@ const DIGEST_SCORE_THRESHOLD = 85;
 const MIN_NOTIFICATION_SCORE_FLOOR = 75;
 const NOTIFY_COOLDOWN_HOURS = 20;
 const CACHE_DAYS = 1;
+const REFRESH_ENQUEUE_CHUNK_SIZE = positiveIntFromEnv("ELIGIBILITY_REFRESH_ENQUEUE_CHUNK_SIZE", 100);
+const REFRESH_WORKER_CONCURRENCY = positiveIntFromEnv("ELIGIBILITY_REFRESH_WORKER_CONCURRENCY", 8);
+const DEEP_SCORE_WORKER_CONCURRENCY = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_WORKER_CONCURRENCY", 3);
 
 function recentNotificationWindow(): Date {
   const since = new Date();
@@ -167,33 +170,40 @@ type EligibilityRefreshEnqueueResult = {
   failed: number;
   source: string;
   dueOnly: boolean;
+  notificationsEnabled: boolean;
   errors: string[];
 };
 
 async function enqueueEligibilityRefreshForOrgIds(
   orgIds: string[],
-  source: string
+  source: string,
+  sendNotifications = true
 ): Promise<Omit<EligibilityRefreshEnqueueResult, "orgsChecked" | "orgsEligible" | "dueOnly">> {
   const uniqueOrgIds = uniqueGrantIds(orgIds);
   let enqueued = 0;
   let failed = 0;
   const errors: string[] = [];
 
-  for (const orgId of uniqueOrgIds) {
+  for (let offset = 0; offset < uniqueOrgIds.length; offset += REFRESH_ENQUEUE_CHUNK_SIZE) {
+    const chunk = uniqueOrgIds.slice(offset, offset + REFRESH_ENQUEUE_CHUNK_SIZE);
+    const dateKey = new Date().toISOString().slice(0, 10);
+    const useDailyIdempotency = /overnight_precompute|scheduled\.local_830|vercel\.cron/i.test(source);
     try {
-      await inngest.send({
+      await inngest.send(chunk.map((orgId) => ({
+        id: useDailyIdempotency ? `eligibility-refresh:${orgId}:${dateKey}` : undefined,
         name: "eligibility/refresh.requested",
-        data: { orgId, source },
-      });
-      enqueued++;
+        data: { orgId, source, sendNotifications },
+      })));
+      enqueued += chunk.length;
     } catch (error) {
-      failed++;
-      errors.push(`${orgId}: ${error instanceof Error ? error.message : String(error)}`);
+      failed += chunk.length;
+      errors.push(`orgs ${offset + 1}-${offset + chunk.length}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
   return {
     source,
+    notificationsEnabled: sendNotifications,
     enqueued,
     failed,
     errors: errors.slice(0, 10),
@@ -203,6 +213,7 @@ async function enqueueEligibilityRefreshForOrgIds(
 export async function enqueueEligibilityRefreshes(options: {
   source: string;
   dueOnly?: boolean;
+  sendNotifications?: boolean;
 }): Promise<EligibilityRefreshEnqueueResult> {
   const supabase = getSupabaseAdmin();
   const { data: orgsData, error } = await supabase
@@ -213,12 +224,14 @@ export async function enqueueEligibilityRefreshes(options: {
 
   const allOrgs = (orgsData ?? []) as { id: string; preferredTimezone?: string | null }[];
   const dueOnly = options.dueOnly !== false;
+  const sendNotifications = options.sendNotifications !== false;
   const eligible = dueOnly
     ? allOrgs.filter((org) => isEligibilityNotificationTime(org.preferredTimezone ?? "UTC"))
     : allOrgs;
   const enqueue = await enqueueEligibilityRefreshForOrgIds(
     eligible.map((org) => org.id),
-    options.source
+    options.source,
+    sendNotifications
   );
 
   return {
@@ -254,6 +267,7 @@ export async function runEligibilityRefreshJob(options?: {
   orgIdsFilter?: Set<string>;
   bypassCache?: boolean;
   refreshReason?: string;
+  sendNotifications?: boolean;
 }): Promise<{
   totalGrants: number;
   orgsWithProfile: number;
@@ -270,6 +284,7 @@ export async function runEligibilityRefreshJob(options?: {
 }> {
     const orgIdsFilter = options?.orgIdsFilter;
     const bypassCache = options?.bypassCache === true;
+    const sendNotifications = options?.sendNotifications !== false;
     const supabase = getSupabaseAdmin();
     const allGrants = await fetchCurrentGrants(supabase);
     const diagnostics = {
@@ -346,6 +361,7 @@ export async function runEligibilityRefreshJob(options?: {
         let sendCurrentDigestIfAvailable: (() => Promise<boolean>) | null = null;
 
         const sendEligibilityStatusEmail = async (checkedGrantsCount: number, digestCandidateCount = 0) => {
+          if (!sendNotifications) return;
           if (!sendNotifyEmail) return;
           const strongEligibleCount = Math.max(0, Math.round(digestCandidateCount));
 
@@ -390,6 +406,7 @@ export async function runEligibilityRefreshJob(options?: {
         };
 
         const sendMatchHealthPrompt = async () => {
+          if (!sendNotifications) return false;
           if (!sendNotifyEmail) return false;
           if (!canReceiveProactiveNotifications) return false;
           if (completionScore < minCompletionForNotifications) return false;
@@ -897,6 +914,11 @@ export async function runEligibilityRefreshJob(options?: {
         }
 
         // ── Notification ──
+        if (!sendNotifications) {
+          console.info(`[eligibility-refresh]   Notifications disabled for org=${orgId}; saved scores and queued deep scoring only`);
+          continue;
+        }
+
         console.info(`[eligibility-refresh]   Digest candidates: ${digestGrants.length} grants, completion=${completionScore}%, threshold=${minCompletionForNotifications}%, email=${sendNotifyEmail}, whatsapp=${sendWhatsApp}`);
 
         const strongEligibleCount =
@@ -1010,39 +1032,47 @@ export async function runEligibilityRefreshJob(options?: {
 }
 
 export const eligibilityRefresh = inngest.createFunction(
-  { id: "eligibility-refresh", name: "Eligibility 8:30 AM local (hourly check)" },
-  { cron: "30 * * * *" },
-  async () => runWithCronLog({ jobName: "Eligibility 8:30 AM local", route: "inngest/eligibility-refresh", trigger: "inngest" }, async () => {
+  { id: "eligibility-refresh", name: "Eligibility overnight precompute" },
+  { cron: "0 1 * * *" },
+  async () => runWithCronLog({ jobName: "Eligibility Overnight Precompute", route: "inngest/eligibility-refresh", trigger: "inngest" }, async () => {
     const result = await enqueueEligibilityRefreshes({
-      source: "scheduled.local_830",
-      dueOnly: true,
+      source: "scheduled.overnight_precompute",
+      dueOnly: false,
+      sendNotifications: false,
     });
     if (result.orgsEligible === 0) {
-      console.info(`[eligibility-refresh] No orgs at 8:30 AM local this hour (checked ${result.orgsChecked} orgs)`);
+      console.info(`[eligibility-refresh] No orgs eligible for overnight precompute (checked ${result.orgsChecked} orgs)`);
       return { skipped: true, ...result };
     }
-    console.info(`[eligibility-refresh] Enqueued ${result.enqueued}/${result.orgsEligible} scoped org refreshes`);
+    console.info(`[eligibility-refresh] Enqueued ${result.enqueued}/${result.orgsEligible} scoped overnight org refreshes`);
     return result;
   })
 );
 
 export const eligibilityRefreshRequested = inngest.createFunction(
-  { id: "eligibility-refresh-requested", name: "Eligibility refresh on demand" },
+  {
+    id: "eligibility-refresh-requested",
+    name: "Eligibility refresh scoped worker",
+    concurrency: REFRESH_WORKER_CONCURRENCY,
+  },
   { event: "eligibility/refresh.requested" },
   async ({ event }) => {
     const orgId = typeof event.data?.orgId === "string" ? event.data.orgId.trim() : "";
     const source = typeof event.data?.source === "string" ? event.data.source : "manual";
+    const sendNotifications = event.data?.sendNotifications !== false;
     const bypassCache = /^(application\.outcome|profile\.)/.test(source);
     if (!orgId) {
       return enqueueEligibilityRefreshes({
         source: `${source}.fallback_enqueue`,
         dueOnly: false,
+        sendNotifications,
       });
     }
     return runEligibilityRefreshJob({
       orgIdsFilter: new Set([orgId]),
       bypassCache,
       refreshReason: source,
+      sendNotifications,
     });
   }
 );
@@ -1053,15 +1083,20 @@ export const eligibilityRefreshEnqueueRequested = inngest.createFunction(
   async ({ event }) => {
     const source = typeof event.data?.source === "string" ? event.data.source : "manual.enqueue";
     const dueOnly = event.data?.dueOnly !== false;
+    const sendNotifications = event.data?.sendNotifications !== false;
     return runWithCronLog(
       { jobName: "Eligibility Refresh Enqueue", route: "inngest/eligibility-refresh.enqueue", trigger: "inngest" },
-      () => enqueueEligibilityRefreshes({ source, dueOnly })
+      () => enqueueEligibilityRefreshes({ source, dueOnly, sendNotifications })
     );
   }
 );
 
 export const eligibilityDeepScoreProcessRequested = inngest.createFunction(
-  { id: "eligibility-deep-score-process-requested", name: "Eligibility deep-score process request" },
+  {
+    id: "eligibility-deep-score-process-requested",
+    name: "Eligibility deep-score process request",
+    concurrency: DEEP_SCORE_WORKER_CONCURRENCY,
+  },
   { event: "eligibility/deep-score.process" },
   async ({ event }) => {
     const limit = Number(event.data?.limit);
@@ -1078,7 +1113,11 @@ export const eligibilityDeepScoreProcessRequested = inngest.createFunction(
 );
 
 export const eligibilityDeepScoreScheduled = inngest.createFunction(
-  { id: "eligibility-deep-score-scheduled", name: "Eligibility deep-score queue hourly" },
+  {
+    id: "eligibility-deep-score-scheduled",
+    name: "Eligibility deep-score queue hourly",
+    concurrency: 1,
+  },
   { cron: "15 * * * *" },
   async () => runWithCronLog(
     { jobName: "Eligibility Deep Score Queue", route: "inngest/eligibility-deep-score.hourly", trigger: "inngest" },

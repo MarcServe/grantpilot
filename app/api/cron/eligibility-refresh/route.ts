@@ -7,7 +7,8 @@ export const maxDuration = 300;
 
 /**
  * GET /api/cron/eligibility-refresh
- * Enqueues scoped OpenAI eligibility checks after new grants are discovered.
+ * Enqueues scoped overnight eligibility precompute jobs.
+ * Heavy scoring runs per organisation in Inngest; morning notifications read cached results.
  */
 export async function GET(req: Request) {
   const authHeader = req.headers.get("authorization");
@@ -18,8 +19,12 @@ export async function GET(req: Request) {
 
   try {
     const result = await runWithCronLog(
-      { jobName: "Eligibility Refresh Enqueue", route: "/api/cron/eligibility-refresh", trigger: "vercel" },
-      () => enqueueEligibilityRefreshes({ source: "vercel.cron.eligibility_refresh", dueOnly: true })
+      { jobName: "Eligibility Overnight Precompute Enqueue", route: "/api/cron/eligibility-refresh", trigger: "vercel" },
+      () => enqueueEligibilityRefreshes({
+        source: "vercel.cron.overnight_precompute",
+        dueOnly: false,
+        sendNotifications: false,
+      })
     );
     return NextResponse.json({ ok: true, result });
   } catch (error) {

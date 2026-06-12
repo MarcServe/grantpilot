@@ -1,7 +1,7 @@
 import { inngest } from "./client";
 import { runWithCronLog } from "@/lib/cron-run-log";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { isNineAmLocal } from "@/lib/timezone";
+import { isEligibilityNotificationTime } from "@/lib/timezone";
 import { isGrantActionableNow } from "@/lib/grant-actionability";
 import { notifyOrgMembers, orgHasNotificationSince, type DigestGrantItem, type NotificationType } from "@/lib/notify";
 import { organisationAllowsCapability } from "@/lib/plan-check";
@@ -12,6 +12,8 @@ const DEFAULT_DIGEST_SCORE_THRESHOLD = 85;
 const MIN_NOTIFICATION_SCORE_FLOOR = 75;
 const GRANT_COUNT_BATCH_SIZE = 1000;
 const MAX_GRANTS_TO_COUNT = 10000;
+const DIGEST_ENQUEUE_CHUNK_SIZE = positiveIntFromEnv("ELIGIBILITY_DIGEST_ENQUEUE_CHUNK_SIZE", 100);
+const DIGEST_WORKER_CONCURRENCY = positiveIntFromEnv("ELIGIBILITY_DIGEST_WORKER_CONCURRENCY", 25);
 const DAILY_ELIGIBILITY_NOTIFICATION_TYPES: NotificationType[] = [
   "daily_grant_update",
   "grant_scan_digest",
@@ -19,6 +21,11 @@ const DAILY_ELIGIBILITY_NOTIFICATION_TYPES: NotificationType[] = [
   "eligibility_upgrade_prompt",
   "business_dna_match_health",
 ];
+
+function positiveIntFromEnv(name: string, fallback: number): number {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+}
 
 type ProfileRow = {
   id?: string | null;
@@ -63,6 +70,27 @@ type GrantDigestRow = {
   description?: string | null;
   objectives?: string | null;
 };
+
+type DailyDigestEnqueueResult = {
+  orgsWithProfile: number;
+  orgsAtLocalTime: number;
+  enqueued: number;
+  failed: number;
+  checkedGrantsCount: number;
+  source: string;
+  errors: string[];
+};
+
+function uniqueIds(ids: string[]): string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const id of ids) {
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    unique.push(id);
+  }
+  return unique;
+}
 
 function profileOrgId(profile: ProfileRow): string | null {
   return profile.organisationId ?? profile.organisation_id ?? null;
@@ -222,6 +250,7 @@ async function buildCurrentDigestForProfile(
 export async function runDailyNotificationSafeguardJob(options?: {
   orgIdsFilter?: Set<string>;
   respectLocalTime?: boolean;
+  checkedGrantsCountOverride?: number;
 }): Promise<{
   orgsWithProfile: number;
   orgsAtLocalTime: number;
@@ -235,7 +264,9 @@ export async function runDailyNotificationSafeguardJob(options?: {
   const recentWindow = recentNotificationWindow();
   const respectLocalTime = options?.respectLocalTime !== false;
 
-  const checkedGrantsCount = await countUsableGrants(supabase);
+  const checkedGrantsCount = Number.isFinite(options?.checkedGrantsCountOverride)
+    ? Math.max(0, Math.round(Number(options?.checkedGrantsCountOverride)))
+    : await countUsableGrants(supabase);
 
   const { data: profiles = [] } = await supabase
     .from("BusinessProfile")
@@ -286,7 +317,7 @@ export async function runDailyNotificationSafeguardJob(options?: {
   for (const orgId of orgIds) {
     const org = orgs.get(orgId);
     const timezone = org?.preferredTimezone ?? org?.preferred_timezone ?? "UTC";
-    if (respectLocalTime && !isNineAmLocal(timezone)) continue;
+    if (respectLocalTime && !isEligibilityNotificationTime(timezone)) continue;
     diagnostics.orgsAtLocalTime++;
 
     const pref = prefs.get(orgId);
@@ -367,11 +398,102 @@ export async function runDailyNotificationSafeguardJob(options?: {
   return diagnostics;
 }
 
+export async function enqueueDailyEligibilityDigests(options: {
+  source: string;
+  respectLocalTime?: boolean;
+}): Promise<DailyDigestEnqueueResult> {
+  const supabase = getSupabaseAdmin();
+  const respectLocalTime = options.respectLocalTime !== false;
+
+  const { data: profiles = [] } = await supabase
+    .from("BusinessProfile")
+    .select("organisationId");
+
+  const orgIds = uniqueIds(
+    ((profiles ?? []) as ProfileRow[])
+      .map((profile) => profileOrgId(profile))
+      .filter((id): id is string => Boolean(id))
+  );
+
+  const diagnostics: DailyDigestEnqueueResult = {
+    orgsWithProfile: orgIds.length,
+    orgsAtLocalTime: 0,
+    enqueued: 0,
+    failed: 0,
+    checkedGrantsCount: 0,
+    source: options.source,
+    errors: [],
+  };
+
+  if (orgIds.length === 0) return diagnostics;
+
+  const { data: orgRows = [], error: orgError } = await supabase
+    .from("Organisation")
+    .select("id, preferredTimezone")
+    .in("id", orgIds);
+  if (orgError) throw orgError;
+
+  const dueOrgIds = ((orgRows ?? []) as OrgRow[])
+    .filter((org) => !respectLocalTime || isEligibilityNotificationTime(org.preferredTimezone ?? org.preferred_timezone ?? "UTC"))
+    .map((org) => org.id);
+  diagnostics.orgsAtLocalTime = dueOrgIds.length;
+
+  if (dueOrgIds.length === 0) return diagnostics;
+
+  const checkedGrantsCount = await countUsableGrants(supabase);
+  diagnostics.checkedGrantsCount = checkedGrantsCount;
+  const dateKey = new Date().toISOString().slice(0, 10);
+
+  for (let offset = 0; offset < dueOrgIds.length; offset += DIGEST_ENQUEUE_CHUNK_SIZE) {
+    const chunk = dueOrgIds.slice(offset, offset + DIGEST_ENQUEUE_CHUNK_SIZE);
+    try {
+      await inngest.send(chunk.map((orgId) => ({
+        id: `eligibility-digest:${orgId}:${dateKey}`,
+        name: "eligibility/digest.requested",
+        data: {
+          orgId,
+          source: options.source,
+          checkedGrantsCount,
+        },
+      })));
+      diagnostics.enqueued += chunk.length;
+    } catch (error) {
+      diagnostics.failed += chunk.length;
+      diagnostics.errors.push(`orgs ${offset + 1}-${offset + chunk.length}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  diagnostics.errors = diagnostics.errors.slice(0, 10);
+  return diagnostics;
+}
+
+export const dailyNotificationDigestRequested = inngest.createFunction(
+  {
+    id: "daily-notification-digest-requested",
+    name: "Daily eligibility digest per organisation",
+    concurrency: DIGEST_WORKER_CONCURRENCY,
+  },
+  { event: "eligibility/digest.requested" },
+  async ({ event }) => {
+    const orgId = typeof event.data?.orgId === "string" ? event.data.orgId.trim() : "";
+    if (!orgId) return { skipped: true, reason: "missing_org_id" };
+    const checkedGrantsCount = Number(event.data?.checkedGrantsCount);
+    return runWithCronLog(
+      { jobName: "Daily Eligibility Digest", route: "inngest/daily-notification-digest.requested", trigger: "inngest" },
+      () => runDailyNotificationSafeguardJob({
+        orgIdsFilter: new Set([orgId]),
+        respectLocalTime: false,
+        checkedGrantsCountOverride: Number.isFinite(checkedGrantsCount) ? checkedGrantsCount : undefined,
+      })
+    );
+  }
+);
+
 export const dailyNotificationSafeguard = inngest.createFunction(
-  { id: "daily-notification-safeguard", name: "Daily Notification Safeguard" },
-  { cron: "15 * * * *" },
+  { id: "daily-notification-safeguard", name: "Daily Eligibility Digest Sender" },
+  { cron: "30 * * * *" },
   async () => runWithCronLog(
     { jobName: "Daily Notification Safeguard", route: "inngest/daily-notification-safeguard", trigger: "inngest" },
-    () => runDailyNotificationSafeguardJob({ respectLocalTime: true })
+    () => enqueueDailyEligibilityDigests({ source: "scheduled.daily_digest", respectLocalTime: true })
   )
 );

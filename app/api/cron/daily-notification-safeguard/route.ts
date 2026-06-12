@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { runDailyNotificationSafeguardJob } from "@/inngest/daily-notification-safeguard";
+import { enqueueDailyEligibilityDigests } from "@/inngest/daily-notification-safeguard";
 import { runWithCronLog } from "@/lib/cron-run-log";
 
 export const dynamic = "force-dynamic";
@@ -7,8 +7,8 @@ export const maxDuration = 300;
 
 /**
  * GET /api/cron/daily-notification-safeguard
- * Lightweight safety net: if the heavier scoring/reminder jobs did not deliver an
- * eligibility-facing email this morning, send a daily update or upgrade prompt.
+ * Lightweight safety net: enqueue one morning digest sender per organisation.
+ * Each worker reads cached eligibility rows instead of running AI scoring.
  */
 export async function GET(req: Request) {
   const authHeader = req.headers.get("authorization");
@@ -20,11 +20,14 @@ export async function GET(req: Request) {
   try {
     const result = await runWithCronLog(
       {
-        jobName: "Daily Notification Safeguard",
+        jobName: "Daily Eligibility Digest Enqueue",
         route: "/api/cron/daily-notification-safeguard",
         trigger: "vercel",
       },
-      () => runDailyNotificationSafeguardJob({ respectLocalTime: true })
+      () => enqueueDailyEligibilityDigests({
+        source: "vercel.cron.daily_digest",
+        respectLocalTime: true,
+      })
     );
     return NextResponse.json({ ok: true, result });
   } catch (error) {

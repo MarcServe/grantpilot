@@ -23,7 +23,7 @@
     },
     {
       "path": "/api/cron/eligibility-refresh",
-      "schedule": "0 8 * * *"
+      "schedule": "0 1 * * *"
     },
     {
       "path": "/api/cron/deadline-reminder",
@@ -31,7 +31,7 @@
     },
     {
       "path": "/api/cron/daily-notification-safeguard",
-      "schedule": "15 * * * *"
+      "schedule": "30 * * * *"
     }
   ]
 }
