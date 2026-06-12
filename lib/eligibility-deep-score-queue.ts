@@ -159,8 +159,8 @@ export async function enqueueExistingHeuristicAssessments(options?: {
     const minScore = Math.max(0, Math.min(100, options?.minScore ?? 40));
     const { data, error } = await supabase
       .from("EligibilityAssessment")
-      .select("organisation_id, profile_id, grant_id, score, summary, updated_at")
-      .eq("scoring_source", "heuristic")
+      .select("organisation_id, profile_id, grant_id, score, summary, scoring_source, updated_at")
+      .in("scoring_source", ["heuristic", "embedding"])
       .gte("score", minScore)
       .order("score", { ascending: false })
       .order("updated_at", { ascending: false })
@@ -172,6 +172,7 @@ export async function enqueueExistingHeuristicAssessments(options?: {
       profile_id: string | null;
       grant_id: string | null;
       score: number | null;
+      scoring_source?: string | null;
     }>;
 
     const profileIds = Array.from(new Set(assessments.map((row) => row.profile_id).filter(Boolean))) as string[];
@@ -192,7 +193,12 @@ export async function enqueueExistingHeuristicAssessments(options?: {
 
     const profilesById = new Map(((profilesResult.data ?? []) as ProfileRow[]).map((profile) => [String(profile.id), profile]));
     const grantsById = new Map(((grantsResult.data ?? []) as GrantRow[]).map((grant) => [grant.id, grant]));
-    let enqueued = 0;
+    const grouped = new Map<string, {
+      organisationId: string;
+      profileId: string;
+      profile: ProfileRow;
+      candidates: DeepScoreCandidate[];
+    }>();
 
     for (const assessment of assessments) {
       if (!assessment.organisation_id || !assessment.profile_id || !assessment.grant_id) continue;
@@ -201,22 +207,37 @@ export async function enqueueExistingHeuristicAssessments(options?: {
       if (!profile || !grant) continue;
       const orgId = assessment.organisation_id || orgIdFromProfile(profile);
       if (!orgId) continue;
-      const result = await enqueueDeepScoreCandidates({
-        supabase,
+      const key = `${orgId}:${assessment.profile_id}`;
+      const group = grouped.get(key) ?? {
         organisationId: orgId,
         profileId: assessment.profile_id,
         profile,
-        source: "heuristic_backlog",
-        candidates: [{
-          grant,
-          heuristicScore: Number(assessment.score ?? 0),
-          source: "heuristic_backlog",
-        }],
+        candidates: [],
+      };
+      group.candidates.push({
+        grant,
+        heuristicScore: Number(assessment.score ?? 0),
+        source: assessment.scoring_source ? `${assessment.scoring_source}_backlog` : "preliminary_backlog",
       });
-      enqueued += result.enqueued;
+      grouped.set(key, group);
     }
 
-    return { scanned: assessments.length, enqueued };
+    let enqueued = 0;
+    const errors: string[] = [];
+    for (const group of grouped.values()) {
+      const result = await enqueueDeepScoreCandidates({
+        supabase,
+        organisationId: group.organisationId,
+        profileId: group.profileId,
+        profile: group.profile,
+        source: "heuristic_backlog",
+        candidates: group.candidates,
+      });
+      enqueued += result.enqueued;
+      if (result.error) errors.push(result.error);
+    }
+
+    return { scanned: assessments.length, enqueued, error: errors[0] };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.warn("[eligibility-deep-score-queue] heuristic enqueue failed:", message);

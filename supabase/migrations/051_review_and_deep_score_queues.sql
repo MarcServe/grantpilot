@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS eligibility_deep_score_queue (
   organisation_id text NOT NULL,
   profile_id text NOT NULL REFERENCES "BusinessProfile"(id) ON DELETE CASCADE,
   grant_id text NOT NULL REFERENCES "Grant"(id) ON DELETE CASCADE,
+  source text,
   profile_hash text,
   grant_content_hash text,
   priority integer NOT NULL DEFAULT 0,

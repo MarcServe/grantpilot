@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { ExternalLink, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,12 +43,22 @@ export function ReviewQueueActions({ id, kind, endpoint }: Props) {
 
   return (
     <div className="mt-3 space-y-2">
-      <Input
-        value={url}
-        onChange={(event) => setUrl(event.target.value)}
-        placeholder={approvingLink ? "Application form URL" : "Source URL"}
-        className="h-8 text-xs"
-      />
+      <div className="flex gap-2">
+        <Input
+          value={url}
+          onChange={(event) => setUrl(event.target.value)}
+          placeholder={approvingLink ? "Application form URL" : "Source URL"}
+          className="h-8 min-w-0 text-xs"
+        />
+        {url.trim() ? (
+          <Button asChild size="sm" variant="outline" className="shrink-0">
+            <a href={url.trim()} target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="mr-1 h-3 w-3" />
+              Open
+            </a>
+          </Button>
+        ) : null}
+      </div>
       <div className="flex flex-wrap gap-2">
         {approvingSource && (
           <Button size="sm" disabled={isPending} onClick={() => void run("approve_source")}>

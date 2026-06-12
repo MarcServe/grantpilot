@@ -49,6 +49,9 @@ export async function POST(request: Request) {
         limit: parsed.limit ?? 500,
         minScore: parsed.minScore ?? 40,
       });
+      if (result.error) {
+        return NextResponse.json({ error: result.error, result }, { status: 500 });
+      }
       return NextResponse.json({ ok: true, result });
     }
 
