@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server";
-import { enqueueDailyEligibilityDigests } from "@/inngest/daily-notification-safeguard";
+import { enqueueDailyEligibilityDigests, runDailyNotificationSafeguardJob } from "@/inngest/daily-notification-safeguard";
 import { runWithCronLog } from "@/lib/cron-run-log";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
+
+const INLINE_FALLBACK_MAX_ORGS = positiveIntFromEnv("DAILY_DIGEST_INLINE_FALLBACK_MAX_ORGS", 25);
+
+function positiveIntFromEnv(name: string, fallback: number): number {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+}
 
 /**
  * GET /api/cron/daily-notification-safeguard
@@ -29,7 +36,23 @@ export async function GET(req: Request) {
         respectLocalTime: true,
       })
     );
-    return NextResponse.json({ ok: true, result });
+
+    let inlineFallback = null;
+    if (result.enqueued > 0 && result.enqueued <= INLINE_FALLBACK_MAX_ORGS) {
+      inlineFallback = await runWithCronLog(
+        {
+          jobName: "Daily Eligibility Digest Inline Fallback",
+          route: "/api/cron/daily-notification-safeguard:inline",
+          trigger: "vercel",
+        },
+        () => runDailyNotificationSafeguardJob({
+          respectLocalTime: true,
+          checkedGrantsCountOverride: result.checkedGrantsCount,
+        })
+      );
+    }
+
+    return NextResponse.json({ ok: true, result, inlineFallback });
   } catch (error) {
     console.error("[cron/daily-notification-safeguard]", error);
     return NextResponse.json(
