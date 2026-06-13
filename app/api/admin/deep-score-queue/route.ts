@@ -59,6 +59,7 @@ export async function POST(request: Request) {
       limit: parsed.limit ?? DEEP_SCORE_BATCH_SIZE,
       organisationId: parsed.organisationId,
       profileId: parsed.profileId,
+      respectUsageLimits: false,
     });
     return NextResponse.json({ ok: true, result });
   } catch (error) {

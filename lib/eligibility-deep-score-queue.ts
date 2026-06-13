@@ -7,7 +7,6 @@ import {
 import { finalEligibilityScore, finaliseEligibilityAssessment } from "@/lib/eligibility-final-score";
 import { verifyGrantActionable } from "@/lib/grant-actionability";
 import { buildFundingOutcomeSignals, deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
-import { checkUsageLimit, recordUsage } from "@/lib/plan-check";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 type SupabaseAdmin = ReturnType<typeof getSupabaseAdmin>;
@@ -262,6 +261,7 @@ export async function processEligibilityDeepScoreQueue(options?: {
   limit?: number;
   organisationId?: string;
   profileId?: string;
+  respectUsageLimits?: boolean;
 }): Promise<{
   requested: number;
   completed: number;
@@ -272,6 +272,7 @@ export async function processEligibilityDeepScoreQueue(options?: {
 }> {
   const supabase = options?.supabase ?? getSupabaseAdmin();
   const limit = Math.max(1, Math.min(100, options?.limit ?? DEEP_SCORE_BATCH_SIZE));
+  const respectUsageLimits = options?.respectUsageLimits === true;
   let query = supabase
     .from("eligibility_deep_score_queue")
     .select("id, organisation_id, profile_id, grant_id, attempts")
@@ -336,14 +337,17 @@ export async function processEligibilityDeepScoreQueue(options?: {
         continue;
       }
 
-      const usage = await checkUsageLimit(row.organisation_id, "match");
-      if (!usage.allowed) {
-        skipped++;
-        await markQueueRow(supabase, row.id, {
-          status: "skipped",
-          last_error: "Monthly match quota reached for this organisation.",
-        });
-        continue;
+      if (respectUsageLimits) {
+        const { checkUsageLimit } = await import("@/lib/plan-check");
+        const usage = await checkUsageLimit(row.organisation_id, "match");
+        if (!usage.allowed) {
+          skipped++;
+          await markQueueRow(supabase, row.id, {
+            status: "skipped",
+            last_error: "Monthly match quota reached for this organisation.",
+          });
+          continue;
+        }
       }
 
       await touchEligibilityAiCaches(profile, grant);
@@ -394,9 +398,15 @@ export async function processEligibilityDeepScoreQueue(options?: {
       );
       if (upsertError) throw upsertError;
 
-      await recordUsage(row.organisation_id, "match").catch((error) =>
-        console.warn("[eligibility-deep-score-queue] usage record failed:", error instanceof Error ? error.message : String(error))
-      );
+      if (respectUsageLimits) {
+        // Kept as an opt-in escape hatch for any future user-triggered queue runner.
+        // Admin and scheduled deep scoring are platform maintenance, so they do not
+        // consume a customer's monthly match allowance.
+        const { recordUsage } = await import("@/lib/plan-check");
+        await recordUsage(row.organisation_id, "match").catch((error) =>
+          console.warn("[eligibility-deep-score-queue] usage record failed:", error instanceof Error ? error.message : String(error))
+        );
+      }
       completed++;
       highestScore = Math.max(highestScore, score);
       if (score >= 85 && adjustedResult.decision === "likely_eligible") eligible85Plus++;
