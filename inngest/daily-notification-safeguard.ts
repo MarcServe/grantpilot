@@ -59,6 +59,7 @@ type AssessmentDigestRow = {
   summary?: string | null;
   missing_criteria?: unknown;
   improvement_plan?: unknown;
+  updated_at?: string | null;
 };
 
 type GrantDigestRow = {
@@ -197,18 +198,33 @@ async function buildCurrentDigestForProfile(
   maxScore: number
 ): Promise<{ strong: DigestGrantItem[]; withinReach: DigestGrantItem[] }> {
   const withinReachMax = Math.min(maxScore, minStrongScore - 1);
-  const { data: rows = [] } = await supabase
-    .from("EligibilityAssessment")
-    .select("grant_id, score, summary, missing_criteria, improvement_plan")
-    .eq("organisation_id", orgId)
-    .eq("profile_id", profileId)
-    .eq("scoring_source", "openai")
-    .gte("score", 50)
-    .lte("score", maxScore)
-    .order("updated_at", { ascending: false })
-    .limit(80);
 
-  const assessments = (rows ?? []) as AssessmentDigestRow[];
+  const fetchRows = async (minScore: number, upperScore: number, limit: number) => {
+    if (upperScore < minScore) return [] as AssessmentDigestRow[];
+    const { data, error } = await supabase
+      .from("EligibilityAssessment")
+      .select("grant_id, score, summary, missing_criteria, improvement_plan, updated_at")
+      .eq("organisation_id", orgId)
+      .eq("profile_id", profileId)
+      .eq("scoring_source", "openai")
+      .gte("score", minScore)
+      .lte("score", upperScore)
+      .order("score", { ascending: false })
+      .order("updated_at", { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      console.error("[daily-notification-safeguard] digest assessment query", error);
+      return [] as AssessmentDigestRow[];
+    }
+    return (data ?? []) as AssessmentDigestRow[];
+  };
+
+  // Fetch strong and within-reach buckets separately. A large batch of freshly
+  // updated low-score AI rows should not push useful older matches out of the digest.
+  const strongRows = await fetchRows(minStrongScore, maxScore, 40);
+  const withinReachRows = withinReachMax >= 50 ? await fetchRows(50, withinReachMax, 80) : [];
+  const assessments = [...strongRows, ...withinReachRows];
   const grantIds = [...new Set(assessments.map((row) => row.grant_id).filter((id): id is string => Boolean(id)))];
   if (grantIds.length === 0) return { strong: [], withinReach: [] };
 
