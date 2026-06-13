@@ -250,10 +250,11 @@ async function markQueueRow(
   id: string,
   values: Record<string, unknown>
 ): Promise<void> {
-  await supabase
+  const { error } = await supabase
     .from("eligibility_deep_score_queue")
     .update({ ...values, updated_at: new Date().toISOString() })
     .eq("id", id);
+  if (error) throw error;
 }
 
 export async function processEligibilityDeepScoreQueue(options?: {
@@ -273,7 +274,7 @@ export async function processEligibilityDeepScoreQueue(options?: {
   const limit = Math.max(1, Math.min(100, options?.limit ?? DEEP_SCORE_BATCH_SIZE));
   let query = supabase
     .from("eligibility_deep_score_queue")
-    .select("id, organisation_id, profile_id, grant_id, heuristic_score, attempts")
+    .select("id, organisation_id, profile_id, grant_id, attempts")
     .eq("status", "pending")
     .order("priority", { ascending: false })
     .order("created_at", { ascending: true })
