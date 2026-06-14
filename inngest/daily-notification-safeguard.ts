@@ -120,6 +120,57 @@ function recentNotificationWindow(): Date {
   return since;
 }
 
+function zonedParts(timezone: string, date: Date) {
+  const formatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone: timezone || "UTC",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  });
+  const parts = Object.fromEntries(formatter.formatToParts(date).map((part) => [part.type, part.value]));
+  return {
+    year: Number(parts.year),
+    month: Number(parts.month),
+    day: Number(parts.day),
+    hour: Number(parts.hour),
+    minute: Number(parts.minute),
+    second: Number(parts.second),
+  };
+}
+
+function timezoneOffsetMs(timezone: string, date: Date): number {
+  const parts = zonedParts(timezone, date);
+  return Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second) - date.getTime();
+}
+
+function startOfLocalDayUtc(timezone: string, now = new Date()): Date {
+  try {
+    const parts = zonedParts(timezone, now);
+    const localMidnightAsUtc = Date.UTC(parts.year, parts.month - 1, parts.day, 0, 0, 0);
+    let offset = timezoneOffsetMs(timezone, new Date(localMidnightAsUtc));
+    let result = new Date(localMidnightAsUtc - offset);
+    const correctedOffset = timezoneOffsetMs(timezone, result);
+    if (correctedOffset !== offset) {
+      result = new Date(localMidnightAsUtc - correctedOffset);
+    }
+    return result;
+  } catch {
+    const fallback = new Date(now);
+    fallback.setUTCHours(0, 0, 0, 0);
+    return fallback;
+  }
+}
+
+function notificationCooldownStart(timezone: string): Date {
+  const rollingWindow = recentNotificationWindow();
+  const localDayStart = startOfLocalDayUtc(timezone);
+  return new Date(Math.max(rollingWindow.getTime(), localDayStart.getTime()));
+}
+
 function notificationMinScore(preferenceScore: number | undefined): number {
   return Math.max(preferenceScore ?? DEFAULT_DIGEST_SCORE_THRESHOLD, MIN_NOTIFICATION_SCORE_FLOOR);
 }
@@ -277,7 +328,6 @@ export async function runDailyNotificationSafeguardJob(options?: {
   checkedGrantsCount: number;
 }> {
   const supabase = getSupabaseAdmin();
-  const recentWindow = recentNotificationWindow();
   const respectLocalTime = options?.respectLocalTime !== false;
 
   const checkedGrantsCount = Number.isFinite(options?.checkedGrantsCountOverride)
@@ -335,6 +385,7 @@ export async function runDailyNotificationSafeguardJob(options?: {
     const timezone = org?.preferredTimezone ?? org?.preferred_timezone ?? "UTC";
     if (respectLocalTime && !isEligibilityNotificationTime(timezone)) continue;
     diagnostics.orgsAtLocalTime++;
+    const recentWindow = notificationCooldownStart(timezone);
 
     const pref = prefs.get(orgId);
     if (pref?.notify_email === false) {
