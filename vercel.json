@@ -26,6 +26,10 @@
       "schedule": "0 1 * * *"
     },
     {
+      "path": "/api/cron/deep-score-queue",
+      "schedule": "15 * * * *"
+    },
+    {
       "path": "/api/cron/deadline-reminder",
       "schedule": "30 8 * * *"
     },
