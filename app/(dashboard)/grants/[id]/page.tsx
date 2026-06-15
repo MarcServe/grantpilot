@@ -151,7 +151,7 @@ export default async function GrantDetailPage({
     confidenceBand?: "high" | "medium" | "low";
     winProbability?: number;
     evidenceStrength?: "strong" | "medium" | "weak";
-    scoringSource?: "openai" | "heuristic" | "embedding" | "manual";
+    scoringSource?: "openai" | "heuristic" | "embedding" | "intelligence" | "manual";
     outcomeWarnings?: string[];
     outcomeStrengths?: string[];
   } | null = null;
@@ -175,7 +175,7 @@ export default async function GrantDetailPage({
     const assessmentRow = assessment as {
       score?: number;
       decision?: "likely_eligible" | "review" | "unlikely";
-      scoring_source?: "openai" | "heuristic" | "embedding" | "manual" | null;
+      scoring_source?: "openai" | "heuristic" | "embedding" | "intelligence" | "manual" | null;
       summary?: string | null;
       reasons?: string[] | null;
       alignment?: string[] | null;

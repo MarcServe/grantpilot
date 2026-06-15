@@ -29,6 +29,8 @@ import {
   enqueueExistingHeuristicAssessments,
   processEligibilityDeepScoreQueue,
 } from "@/lib/eligibility-deep-score-queue";
+import { fetchGrantIntelligenceForGrantIds } from "@/lib/grant-intelligence-extract";
+import { matchProfileToGrantIntelligence } from "@/lib/grant-intelligence-match";
 
 /**
  * 3-Layer Eligibility Pipeline
@@ -105,7 +107,11 @@ function notificationMinScore(preferenceScore: number | undefined): number {
 }
 
 function shouldNotifyForEligibility(score: number, decision?: string | null, scoringSource?: string | null): boolean {
-  return isOpenAIChecked(scoringSource) && decision === "likely_eligible" && score >= MIN_NOTIFICATION_SCORE_FLOOR;
+  return isTrustedEligibilitySource(scoringSource) && decision === "likely_eligible" && score >= MIN_NOTIFICATION_SCORE_FLOOR;
+}
+
+function isTrustedEligibilitySource(scoringSource?: string | null): boolean {
+  return scoringSource === "intelligence" || isOpenAIChecked(scoringSource);
 }
 
 function isOutsideNotificationCooldown(notifiedAt: string | null | undefined, cooldown: Date): boolean {
@@ -555,7 +561,15 @@ export async function runEligibilityRefreshJob(options?: {
 
         // ── LAYER 3: OpenAI deep scoring (EXPENSIVE — only top N) ──
         const layer3Ids = layer2Candidates.slice(0, LAYER3_TOP_N);
+        const layer3IdSet = new Set(layer3Ids);
         const scoredByOpenAIIds = new Set<string>();
+        const intelligenceScoredIds = new Set<string>();
+        const intelligenceReviewCandidates: Array<{
+          grant: GrantRow;
+          heuristicScore: number;
+          reason: string;
+          source: string;
+        }> = [];
         console.info(`[eligibility-refresh]   LAYER 3 (OpenAI): scoring ${layer3Ids.length} grants`);
 
         const cooldown = new Date();
@@ -581,6 +595,84 @@ export async function runEligibilityRefreshJob(options?: {
         const fundingOutcomeSignals = buildFundingOutcomeSignals(outcomeRows ?? []);
         const outcomeAdvisory = deriveOutcomeLearningAdvisory(outcomeRows ?? []);
         const grantsByIdForDigest = new Map(locationFiltered.map((grant) => [grant.id, grant]));
+
+        // ── CENTRAL INTELLIGENCE: reusable grant facts scored against this profile ──
+        // Full OpenAI profile/grant assessments remain authoritative; this fills the
+        // middle ground between cheap heuristics and expensive per-profile scoring.
+        try {
+          const existingTrustedOpenAi = layer2Candidates.length === 0
+            ? { data: [] }
+            : await supabase
+              .from("EligibilityAssessment")
+              .select("grant_id")
+              .eq("organisation_id", orgId)
+              .eq("profile_id", profileId)
+              .eq("scoring_source", "openai")
+              .in("grant_id", layer2Candidates);
+          const existingOpenAiIds = new Set(
+            ((existingTrustedOpenAi.data ?? []) as Array<{ grant_id?: string | null }>)
+              .map((row) => row.grant_id)
+              .filter((id): id is string => Boolean(id))
+          );
+          const intelligenceByGrant = await fetchGrantIntelligenceForGrantIds(supabase, layer2Candidates);
+
+          for (const grantId of layer2Candidates) {
+            if (cachedGrantIds.has(grantId) || existingOpenAiIds.has(grantId)) continue;
+            const intelligence = intelligenceByGrant.get(grantId);
+            const grant = grantsByIdForDigest.get(grantId);
+            if (!intelligence || !grant) continue;
+
+            const intelligenceResult = matchProfileToGrantIntelligence(profile as Record<string, unknown>, grant, intelligence);
+            const adjustedResult = finaliseEligibilityAssessment(
+              profile as Record<string, unknown>,
+              grant,
+              intelligenceResult,
+              outcomeAdvisory
+            );
+            const score = finalEligibilityScore(adjustedResult);
+            const { error: intelligenceUpsertErr } = await supabase.from("EligibilityAssessment").upsert(
+              {
+                organisation_id: orgId,
+                profile_id: profileId,
+                grant_id: grant.id,
+                score,
+                decision: adjustedResult.decision,
+                summary: adjustedResult.summary ?? adjustedResult.reason ?? intelligenceResult.summary,
+                reasons: adjustedResult.reasons ?? intelligenceResult.reasons ?? [],
+                alignment: adjustedResult.alignment ?? intelligenceResult.alignment ?? null,
+                improvement_plan: adjustedResult.improvementPlan ?? intelligenceResult.improvementPlan ?? null,
+                met_criteria: adjustedResult.met ?? intelligenceResult.met ?? [],
+                missing_criteria: adjustedResult.missing ?? intelligenceResult.missing ?? [],
+                scoring_source: "intelligence",
+                updated_at: new Date().toISOString(),
+              },
+              { onConflict: "organisation_id,profile_id,grant_id" }
+            );
+            if (intelligenceUpsertErr) {
+              console.error("[eligibility-refresh] intelligence upsert", grant.id, intelligenceUpsertErr);
+              continue;
+            }
+
+            intelligenceScoredIds.add(grant.id);
+            if (intelligenceResult.requiresOpenAiReview && score >= 70 && !layer3IdSet.has(grant.id)) {
+              intelligenceReviewCandidates.push({
+                grant,
+                heuristicScore: score,
+                reason: adjustedResult.summary ?? intelligenceResult.summary ?? intelligenceResult.reason ?? "Grant intelligence match",
+                source: "grant_intelligence",
+              });
+            }
+          }
+
+          if (intelligenceScoredIds.size > 0) {
+            console.info(`[eligibility-refresh]   GRANT INTELLIGENCE: scored ${intelligenceScoredIds.size} reusable grant-fact matches`);
+          }
+        } catch (error) {
+          console.warn(
+            "[eligibility-refresh]   grant intelligence scoring skipped:",
+            error instanceof Error ? error.message : String(error)
+          );
+        }
 
         const buildDigestItem = async (
           assessment: CachedEligibilityRow,
@@ -637,7 +729,7 @@ export async function runEligibilityRefreshJob(options?: {
             .eq("organisation_id", orgId)
             .eq("profile_id", profileId)
             .eq("decision", "likely_eligible")
-            .eq("scoring_source", "openai")
+            .in("scoring_source", ["openai", "intelligence"])
             .gte("score", suggestedThreshold)
             .lte("score", maxScore)
             .order("updated_at", { ascending: false })
@@ -671,7 +763,7 @@ export async function runEligibilityRefreshJob(options?: {
             .select("grant_id, updated_at, score, decision, summary, notified_at, missing_criteria, improvement_plan, scoring_source")
             .eq("organisation_id", orgId)
             .eq("profile_id", profileId)
-            .eq("scoring_source", "openai")
+            .in("scoring_source", ["openai", "intelligence"])
             .gte("score", 50)
             .lte("score", withinReachMax)
             .order("updated_at", { ascending: false })
@@ -861,7 +953,7 @@ export async function runEligibilityRefreshJob(options?: {
         // Persist low-confidence heuristic scores for grants not sent to OpenAI.
         // These keep the list ordered without pretending a full AI eligibility assessment has run.
         const unscoredHeuristic = heuristicResults.filter(
-          (r) => !scoredByOpenAIIds.has(r.grantId) && !cachedGrantIds.has(r.grantId)
+          (r) => !scoredByOpenAIIds.has(r.grantId) && !cachedGrantIds.has(r.grantId) && !intelligenceScoredIds.has(r.grantId)
         );
         for (const h of unscoredHeuristic) {
           const { error: batchErr } = await supabase.from("EligibilityAssessment").upsert(
@@ -880,7 +972,9 @@ export async function runEligibilityRefreshJob(options?: {
           );
           if (batchErr) console.error("[eligibility-refresh] heuristic upsert", h.grantId, batchErr);
         }
-        const queuedCandidates = unscoredHeuristic
+        const queuedCandidates = [
+          ...intelligenceReviewCandidates,
+          ...unscoredHeuristic
           .map((h) => {
             const grant = grantsByIdForDigest.get(h.grantId);
             if (!grant) return null;
@@ -891,7 +985,8 @@ export async function runEligibilityRefreshJob(options?: {
               source: options?.refreshReason ?? "eligibility_refresh",
             };
           })
-          .filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate));
+          .filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate)),
+        ];
         const queueResult = await enqueueDeepScoreCandidates({
           supabase,
           organisationId: orgId,

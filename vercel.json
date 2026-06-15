@@ -30,6 +30,10 @@
       "schedule": "15 * * * *"
     },
     {
+      "path": "/api/cron/grant-intelligence",
+      "schedule": "5 * * * *"
+    },
+    {
       "path": "/api/cron/deadline-reminder",
       "schedule": "30 8 * * *"
     },

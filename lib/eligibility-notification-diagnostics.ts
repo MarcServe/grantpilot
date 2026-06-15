@@ -427,7 +427,7 @@ async function getAssessmentCounts(
       .select("grant_id, score, decision, summary, notified_at, updated_at, missing_criteria, improvement_plan, scoring_source")
       .eq("organisation_id", orgId)
       .eq("profile_id", profileId)
-      .eq("scoring_source", "openai")
+      .in("scoring_source", ["openai", "intelligence"])
       .gte("score", 50)
       .lte("score", thresholds.maxScore)
       .order("updated_at", { ascending: false })
@@ -449,7 +449,7 @@ async function getAssessmentCounts(
     .eq("organisation_id", orgId)
     .eq("profile_id", profileId)
     .eq("decision", "likely_eligible")
-    .eq("scoring_source", "openai")
+    .in("scoring_source", ["openai", "intelligence"])
     .gte("score", thresholds.eligibleThreshold)
     .lte("score", thresholds.maxScore);
 

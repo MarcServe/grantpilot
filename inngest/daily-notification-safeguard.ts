@@ -223,7 +223,7 @@ async function countStrongEligibleForOrg(
     .eq("organisation_id", orgId)
     .eq("profile_id", profileId)
     .eq("decision", "likely_eligible")
-    .eq("scoring_source", "openai")
+    .in("scoring_source", ["openai", "intelligence"])
     .gte("score", minScore)
     .lte("score", maxScore)
     .limit(200);
@@ -257,7 +257,7 @@ async function buildCurrentDigestForProfile(
       .select("grant_id, score, summary, missing_criteria, improvement_plan, updated_at")
       .eq("organisation_id", orgId)
       .eq("profile_id", profileId)
-      .eq("scoring_source", "openai")
+      .in("scoring_source", ["openai", "intelligence"])
       .gte("score", minScore)
       .lte("score", upperScore)
       .order("score", { ascending: false })

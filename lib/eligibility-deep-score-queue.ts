@@ -103,6 +103,31 @@ function priorityForCandidate(candidate: DeepScoreCandidate): number {
   return Math.round(score * 10 + deadlineBonus);
 }
 
+function selectFairRows<T extends { organisation_id: string | null; profile_id: string | null }>(
+  rows: T[],
+  limit: number
+): T[] {
+  const groups = new Map<string, T[]>();
+  for (const row of rows) {
+    const key = `${row.organisation_id ?? "unknown"}:${row.profile_id ?? "unknown"}`;
+    const group = groups.get(key) ?? [];
+    group.push(row);
+    groups.set(key, group);
+  }
+
+  const selected: T[] = [];
+  const queues = Array.from(groups.values());
+  while (selected.length < limit && queues.some((group) => group.length > 0)) {
+    for (const group of queues) {
+      const next = group.shift();
+      if (!next) continue;
+      selected.push(next);
+      if (selected.length >= limit) break;
+    }
+  }
+  return selected;
+}
+
 export async function enqueueDeepScoreCandidates(options: {
   supabase?: SupabaseAdmin;
   organisationId: string;
@@ -156,28 +181,30 @@ export async function enqueueExistingHeuristicAssessments(options?: {
     const supabase = options?.supabase ?? getSupabaseAdmin();
     const limit = Math.max(1, Math.min(1000, options?.limit ?? 500));
     const minScore = Math.max(0, Math.min(100, options?.minScore ?? 40));
+    const scanLimit = Math.max(limit, Math.min(5000, limit * 8));
     const { data, error } = await supabase
       .from("EligibilityAssessment")
       .select("organisation_id, profile_id, grant_id, score, summary, scoring_source, updated_at")
-      .in("scoring_source", ["heuristic", "embedding"])
+      .in("scoring_source", ["heuristic", "embedding", "intelligence"])
       .gte("score", minScore)
       .order("score", { ascending: false })
       .order("updated_at", { ascending: false })
-      .limit(limit);
+      .limit(scanLimit);
 
     if (error) throw error;
-    const assessments = (data ?? []) as Array<{
+    const scannedAssessments = (data ?? []) as Array<{
       organisation_id: string | null;
       profile_id: string | null;
       grant_id: string | null;
       score: number | null;
       scoring_source?: string | null;
     }>;
+    const assessments = selectFairRows(scannedAssessments, limit);
 
     const profileIds = Array.from(new Set(assessments.map((row) => row.profile_id).filter(Boolean))) as string[];
     const grantIds = Array.from(new Set(assessments.map((row) => row.grant_id).filter(Boolean))) as string[];
     if (profileIds.length === 0 || grantIds.length === 0) {
-      return { scanned: assessments.length, enqueued: 0 };
+      return { scanned: scannedAssessments.length, enqueued: 0 };
     }
 
     const [profilesResult, grantsResult] = await Promise.all([
@@ -236,7 +263,7 @@ export async function enqueueExistingHeuristicAssessments(options?: {
       if (result.error) errors.push(result.error);
     }
 
-    return { scanned: assessments.length, enqueued, error: errors[0] };
+    return { scanned: scannedAssessments.length, enqueued, error: errors[0] };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.warn("[eligibility-deep-score-queue] heuristic enqueue failed:", message);
@@ -273,19 +300,20 @@ export async function processEligibilityDeepScoreQueue(options?: {
   const supabase = options?.supabase ?? getSupabaseAdmin();
   const limit = Math.max(1, Math.min(100, options?.limit ?? DEEP_SCORE_BATCH_SIZE));
   const respectUsageLimits = options?.respectUsageLimits === true;
+  const scanLimit = options?.organisationId || options?.profileId ? limit : Math.max(limit, Math.min(1000, limit * 8));
   let query = supabase
     .from("eligibility_deep_score_queue")
     .select("id, organisation_id, profile_id, grant_id, attempts")
     .eq("status", "pending")
     .order("priority", { ascending: false })
     .order("created_at", { ascending: true })
-    .limit(limit);
+    .limit(scanLimit);
   if (options?.organisationId) query = query.eq("organisation_id", options.organisationId);
   if (options?.profileId) query = query.eq("profile_id", options.profileId);
 
   const { data, error } = await query;
   if (error) throw error;
-  const rows = (data ?? []) as DeepQueueRow[];
+  const rows = selectFairRows((data ?? []) as DeepQueueRow[], limit);
   if (rows.length === 0) {
     return { requested: 0, completed: 0, failed: 0, skipped: 0, highestScore: 0, eligible85Plus: 0 };
   }

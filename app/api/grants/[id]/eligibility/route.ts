@@ -34,7 +34,7 @@ function profileToMatching(profile: Record<string, unknown>) {
   };
 }
 
-function closedEligibilityPayload(message: string, scoringSource: "openai" | "heuristic" | "embedding" | "manual" = "manual") {
+function closedEligibilityPayload(message: string, scoringSource: "openai" | "heuristic" | "embedding" | "intelligence" | "manual" = "manual") {
   return {
     decision: "unlikely" as const,
     reason: message,

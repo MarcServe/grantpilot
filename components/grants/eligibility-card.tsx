@@ -37,7 +37,7 @@ interface EligibilityResult {
   confidenceBand?: "high" | "medium" | "low";
   winProbability?: number;
   evidenceStrength?: "strong" | "medium" | "weak";
-  scoringSource?: "openai" | "heuristic" | "embedding" | "manual";
+  scoringSource?: "openai" | "heuristic" | "embedding" | "intelligence" | "manual";
   outcomeWarnings?: string[];
   outcomeStrengths?: string[];
 }

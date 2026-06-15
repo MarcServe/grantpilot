@@ -27,6 +27,7 @@ import { ScoutModeSettings } from "@/components/admin/scout-mode-settings";
 import { GrantComposer } from "@/components/admin/grant-composer";
 import { GrantSourceManager } from "@/components/admin/grant-source-manager";
 import { DeepScoreQueueActions } from "@/components/admin/deep-score-queue-actions";
+import { GrantIntelligenceActions } from "@/components/admin/grant-intelligence-actions";
 import { ReviewQueueActions } from "@/components/admin/review-queue-actions";
 import { getAdminEligibilityWhatsAppTraces, type EligibilityWhatsAppReason } from "@/lib/eligibility-notification-diagnostics";
 import { getServerCache } from "@/lib/server-cache";
@@ -730,6 +731,13 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
     deepScoreFailedResult,
     deepScoreRowsResult,
     aiScoreCacheResult,
+    grantIntelligenceReadyResult,
+    grantIntelligencePendingResult,
+    grantIntelligenceFailedResult,
+    grantIntelligenceQueuePendingResult,
+    grantIntelligenceQueueRunningResult,
+    grantIntelligenceQueueCompleted24hResult,
+    grantIntelligenceQueueFailedResult,
     latestCronRunResult,
     failedCronRunsLast24hResult,
     failedCronRunsLast7dResult,
@@ -826,6 +834,17 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
         .order("updated_at", { ascending: false })
         .limit(8),
       supabase.from("eligibility_ai_score_cache").select("id", { count: "exact", head: true }),
+      supabase.from("grant_ai_intelligence").select("grant_id", { count: "exact", head: true }).eq("status", "ready"),
+      supabase.from("grant_ai_intelligence").select("grant_id", { count: "exact", head: true }).eq("status", "pending"),
+      supabase.from("grant_ai_intelligence").select("grant_id", { count: "exact", head: true }).eq("status", "failed"),
+      supabase.from("grant_intelligence_queue").select("id", { count: "exact", head: true }).eq("status", "pending"),
+      supabase.from("grant_intelligence_queue").select("id", { count: "exact", head: true }).eq("status", "running"),
+      supabase
+        .from("grant_intelligence_queue")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "completed")
+        .gte("completed_at", last24h.toISOString()),
+      supabase.from("grant_intelligence_queue").select("id", { count: "exact", head: true }).eq("status", "failed"),
       supabase
         .from("CronRunLog")
         .select("job_name, route, trigger, status, result, error, started_at, finished_at, duration_ms")
@@ -927,6 +946,12 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
   }
   if (deepScoreRowsResult.error) {
     console.warn("[admin] Deep score queue query failed:", deepScoreRowsResult.error.message);
+  }
+  if (grantIntelligenceReadyResult.error) {
+    console.warn("[admin] Grant intelligence query failed:", grantIntelligenceReadyResult.error.message);
+  }
+  if (grantIntelligenceQueuePendingResult.error) {
+    console.warn("[admin] Grant intelligence queue query failed:", grantIntelligenceQueuePendingResult.error.message);
   }
 
   let suppressedGrantDetails: SuppressedGrantDetail[] = [];
@@ -1067,6 +1092,15 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
     completed24h: deepScoreCompleted24hResult.count ?? 0,
     failed: deepScoreFailedResult.count ?? 0,
     cacheRows: aiScoreCacheResult.count ?? 0,
+  };
+  const grantIntelligence = {
+    ready: grantIntelligenceReadyResult.count ?? 0,
+    pending: grantIntelligencePendingResult.count ?? 0,
+    failed: grantIntelligenceFailedResult.count ?? 0,
+    queuePending: grantIntelligenceQueuePendingResult.count ?? 0,
+    queueRunning: grantIntelligenceQueueRunningResult.count ?? 0,
+    queueCompleted24h: grantIntelligenceQueueCompleted24hResult.count ?? 0,
+    queueFailed: grantIntelligenceQueueFailedResult.count ?? 0,
   };
 
   const notificationErrors = notificationRows
@@ -1415,6 +1449,49 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                     <p className="text-muted-foreground">No organisations found for WhatsApp diagnostics.</p>
                   )}
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card className="min-w-0 overflow-hidden">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Brain className="h-4 w-4 text-blue-600" />
+                  Grant intelligence
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="max-h-[32rem] space-y-3 overflow-y-auto pr-2 text-sm">
+                <p className="text-sm text-muted-foreground">
+                  Reusable AI extraction for grant criteria, hard gates, regions, applicant types, and semantic tags.
+                </p>
+                <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                  <div className="rounded border bg-muted/30 p-2">
+                    <div className="text-muted-foreground">Ready</div>
+                    <div className="text-lg font-semibold text-emerald-700">{grantIntelligence.ready}</div>
+                  </div>
+                  <div className="rounded border bg-muted/30 p-2">
+                    <div className="text-muted-foreground">Queue</div>
+                    <div className="text-lg font-semibold">{grantIntelligence.queuePending}</div>
+                  </div>
+                  <div className="rounded border bg-muted/30 p-2">
+                    <div className="text-muted-foreground">Running</div>
+                    <div className="text-lg font-semibold">{grantIntelligence.queueRunning}</div>
+                  </div>
+                  <div className="rounded border bg-muted/30 p-2">
+                    <div className="text-muted-foreground">24h done</div>
+                    <div className="text-lg font-semibold text-emerald-700">{grantIntelligence.queueCompleted24h}</div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="rounded border bg-muted/30 p-2">
+                    <div className="text-muted-foreground">Pending cache</div>
+                    <div className="text-lg font-semibold">{grantIntelligence.pending}</div>
+                  </div>
+                  <div className="rounded border bg-muted/30 p-2">
+                    <div className="text-muted-foreground">Failed</div>
+                    <div className="text-lg font-semibold text-red-700">{grantIntelligence.failed + grantIntelligence.queueFailed}</div>
+                  </div>
+                </div>
+                <GrantIntelligenceActions />
               </CardContent>
             </Card>
 
