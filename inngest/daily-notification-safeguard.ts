@@ -416,7 +416,7 @@ export async function runDailyNotificationSafeguardJob(options?: {
       : 0;
     const canReceiveProactiveNotifications = await organisationAllowsCapability(orgId, "proactive_notifications");
 
-    if (!canReceiveProactiveNotifications && matchedGrantsCount > 0) {
+    if (!canReceiveProactiveNotifications) {
       await notifyOrgMembers(
         orgId,
         "eligibility_upgrade_prompt",

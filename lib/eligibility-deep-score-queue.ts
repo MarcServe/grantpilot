@@ -7,6 +7,8 @@ import {
 import { finalEligibilityScore, finaliseEligibilityAssessment } from "@/lib/eligibility-final-score";
 import { verifyGrantActionable } from "@/lib/grant-actionability";
 import { buildFundingOutcomeSignals, deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
+import { isFreeTrialActive, resolvePlanKey, type PlanAccessSource } from "@/lib/plan-features";
+import { PLAN_RANK } from "@/lib/plans";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 type SupabaseAdmin = ReturnType<typeof getSupabaseAdmin>;
@@ -40,6 +42,13 @@ type DeepQueueRow = {
   grant_id: string;
   heuristic_score: number | null;
   attempts: number | null;
+  priority?: number | null;
+  created_at?: string | null;
+};
+
+type OrganisationPlanRow = PlanAccessSource & {
+  id?: string;
+  name?: string | null;
 };
 
 export type DeepScoreCandidate = {
@@ -55,6 +64,60 @@ function positiveIntFromEnv(name: string, fallback: number): number {
 }
 
 export const DEEP_SCORE_BATCH_SIZE = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_QUEUE_BATCH_SIZE", 50);
+const MIN_DEEP_SCORE_PROFILE_COMPLETION = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_MIN_PROFILE_COMPLETION", 50);
+const MAX_QUEUE_SCAN_LIMIT = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_QUEUE_SCAN_LIMIT", 10000);
+
+function valueAsString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function profileValue(profile: Record<string, unknown>, key: string): unknown {
+  return profile[key] ?? profile[key.replace(/([A-Z])/g, "_$1").toLowerCase()];
+}
+
+function getProfileCompletionScore(profile: Record<string, unknown> | null | undefined): number {
+  if (!profile) return 0;
+  const raw = profile.completionScore ?? profile.completion_score;
+  const n = typeof raw === "number" ? raw : Number(raw);
+  return Number.isFinite(n) ? Math.min(100, Math.max(0, Math.round(n))) : 0;
+}
+
+function hasUsefulProfileIdentity(profile: Record<string, unknown> | null | undefined): boolean {
+  if (!profile) return false;
+  const businessName = valueAsString(profileValue(profile, "businessName"));
+  const sector = valueAsString(profileValue(profile, "sector"));
+  const mission = valueAsString(profileValue(profile, "missionStatement"));
+  const description = valueAsString(profileValue(profile, "description"));
+  const location = valueAsString(profileValue(profile, "location"));
+  return businessName.length > 1 && [sector, mission, description, location].some((value) => value.length > 1);
+}
+
+function orgPlanPriority(org: OrganisationPlanRow | null | undefined): number | null {
+  if (!org) return null;
+  const plan = resolvePlanKey(org.plan);
+  if (plan === "FREE_TRIAL") return isFreeTrialActive(org) ? 1000 : null;
+  return 2000 + PLAN_RANK[plan] * 1000;
+}
+
+export function deepScoreProfilePriority(
+  profile: Record<string, unknown> | null | undefined,
+  org: OrganisationPlanRow | null | undefined
+): number | null {
+  const completionScore = getProfileCompletionScore(profile);
+  if (completionScore < MIN_DEEP_SCORE_PROFILE_COMPLETION) return null;
+  if (!hasUsefulProfileIdentity(profile)) return null;
+
+  const planPriority = orgPlanPriority(org);
+  if (planPriority == null) return null;
+  return planPriority + completionScore;
+}
+
+export function profileQualifiesForDeepScoring(
+  profile: Record<string, unknown> | null | undefined,
+  org: OrganisationPlanRow | null | undefined
+): boolean {
+  return deepScoreProfilePriority(profile, org) != null;
+}
 
 function orgIdFromProfile(profile: ProfileRow): string | null {
   const orgId = profile.organisationId ?? profile.organisation_id;
@@ -181,7 +244,7 @@ export async function enqueueExistingHeuristicAssessments(options?: {
     const supabase = options?.supabase ?? getSupabaseAdmin();
     const limit = Math.max(1, Math.min(1000, options?.limit ?? 500));
     const minScore = Math.max(0, Math.min(100, options?.minScore ?? 40));
-    const scanLimit = Math.max(limit, Math.min(5000, limit * 8));
+    const scanLimit = Math.max(limit, Math.min(MAX_QUEUE_SCAN_LIMIT, limit * 20));
     const { data, error } = await supabase
       .from("EligibilityAssessment")
       .select("organisation_id, profile_id, grant_id, score, summary, scoring_source, updated_at")
@@ -198,26 +261,63 @@ export async function enqueueExistingHeuristicAssessments(options?: {
       grant_id: string | null;
       score: number | null;
       scoring_source?: string | null;
+      updated_at?: string | null;
+      _selectionPriority?: number;
     }>;
-    const assessments = selectFairRows(scannedAssessments, limit);
 
-    const profileIds = Array.from(new Set(assessments.map((row) => row.profile_id).filter(Boolean))) as string[];
-    const grantIds = Array.from(new Set(assessments.map((row) => row.grant_id).filter(Boolean))) as string[];
-    if (profileIds.length === 0 || grantIds.length === 0) {
+    const profileIds = Array.from(new Set(scannedAssessments.map((row) => row.profile_id).filter(Boolean))) as string[];
+    if (profileIds.length === 0) {
       return { scanned: scannedAssessments.length, enqueued: 0 };
     }
 
-    const [profilesResult, grantsResult] = await Promise.all([
-      supabase.from("BusinessProfile").select("*").in("id", profileIds),
-      supabase
-        .from("Grant")
-        .select("id, name, funder, amount, deadline, applicationUrl, eligibility, description, objectives, applicantTypes, sectors, regions, url_status")
-        .in("id", grantIds),
-    ]);
+    const profilesResult = await supabase.from("BusinessProfile").select("*").in("id", profileIds);
     if (profilesResult.error) throw profilesResult.error;
-    if (grantsResult.error) throw grantsResult.error;
 
     const profilesById = new Map(((profilesResult.data ?? []) as ProfileRow[]).map((profile) => [String(profile.id), profile]));
+    const orgIds = Array.from(new Set([
+      ...scannedAssessments.map((row) => row.organisation_id),
+      ...((profilesResult.data ?? []) as ProfileRow[]).map((profile) => orgIdFromProfile(profile)),
+    ].filter(Boolean))) as string[];
+    const orgsResult = orgIds.length > 0
+      ? await supabase.from("Organisation").select("id, plan, createdAt").in("id", orgIds)
+      : { data: [], error: null };
+    if (orgsResult.error) throw orgsResult.error;
+    const orgsById = new Map(((orgsResult.data ?? []) as OrganisationPlanRow[]).map((org) => [String(org.id), org]));
+
+    const eligibleAssessments = scannedAssessments
+      .map((assessment) => {
+        if (!assessment.profile_id || !assessment.grant_id) return null;
+        const profile = profilesById.get(assessment.profile_id);
+        const orgId = assessment.organisation_id || (profile ? orgIdFromProfile(profile) : null);
+        const org = orgId ? orgsById.get(orgId) : null;
+        const selectionPriority = deepScoreProfilePriority(profile, org);
+        if (selectionPriority == null || !orgId) return null;
+        return {
+          ...assessment,
+          organisation_id: orgId,
+          _selectionPriority: selectionPriority,
+        };
+      })
+      .filter((assessment): assessment is NonNullable<typeof assessment> => assessment != null)
+      .sort((a, b) => {
+        if ((b._selectionPriority ?? 0) !== (a._selectionPriority ?? 0)) {
+          return (b._selectionPriority ?? 0) - (a._selectionPriority ?? 0);
+        }
+        if ((b.score ?? 0) !== (a.score ?? 0)) return (b.score ?? 0) - (a.score ?? 0);
+        return new Date(b.updated_at ?? 0).getTime() - new Date(a.updated_at ?? 0).getTime();
+      });
+    const assessments = selectFairRows(eligibleAssessments, limit);
+    const grantIds = Array.from(new Set(assessments.map((row) => row.grant_id).filter(Boolean))) as string[];
+    if (grantIds.length === 0) {
+      return { scanned: scannedAssessments.length, enqueued: 0 };
+    }
+
+    const grantsResult = await supabase
+      .from("Grant")
+      .select("id, name, funder, amount, deadline, applicationUrl, eligibility, description, objectives, applicantTypes, sectors, regions, url_status")
+      .in("id", grantIds);
+    if (grantsResult.error) throw grantsResult.error;
+
     const grantsById = new Map(((grantsResult.data ?? []) as GrantRow[]).map((grant) => [grant.id, grant]));
     const grouped = new Map<string, {
       organisationId: string;
@@ -303,7 +403,7 @@ export async function processEligibilityDeepScoreQueue(options?: {
   const scanLimit = options?.organisationId || options?.profileId ? limit : Math.max(limit, Math.min(1000, limit * 8));
   let query = supabase
     .from("eligibility_deep_score_queue")
-    .select("id, organisation_id, profile_id, grant_id, attempts")
+    .select("id, organisation_id, profile_id, grant_id, attempts, priority, heuristic_score, created_at")
     .eq("status", "pending")
     .order("priority", { ascending: false })
     .order("created_at", { ascending: true })
@@ -313,9 +413,70 @@ export async function processEligibilityDeepScoreQueue(options?: {
 
   const { data, error } = await query;
   if (error) throw error;
-  const rows = selectFairRows((data ?? []) as DeepQueueRow[], limit);
-  if (rows.length === 0) {
+  const rawRows = (data ?? []) as DeepQueueRow[];
+  if (rawRows.length === 0) {
     return { requested: 0, completed: 0, failed: 0, skipped: 0, highestScore: 0, eligible85Plus: 0 };
+  }
+
+  const rawProfileIds = Array.from(new Set(rawRows.map((row) => row.profile_id).filter(Boolean)));
+  const profilesResult = rawProfileIds.length > 0
+    ? await supabase.from("BusinessProfile").select("*").in("id", rawProfileIds)
+    : { data: [], error: null };
+  if (profilesResult.error) throw profilesResult.error;
+  const profilesById = new Map(((profilesResult.data ?? []) as ProfileRow[]).map((profile) => [String(profile.id), profile]));
+  const rawOrgIds = Array.from(new Set([
+    ...rawRows.map((row) => row.organisation_id),
+    ...((profilesResult.data ?? []) as ProfileRow[]).map((profile) => orgIdFromProfile(profile)),
+  ].filter(Boolean))) as string[];
+  const orgsResult = rawOrgIds.length > 0
+    ? await supabase.from("Organisation").select("id, plan, createdAt").in("id", rawOrgIds)
+    : { data: [], error: null };
+  if (orgsResult.error) throw orgsResult.error;
+  const orgsById = new Map(((orgsResult.data ?? []) as OrganisationPlanRow[]).map((org) => [String(org.id), org]));
+
+  const eligibleRows: Array<DeepQueueRow & { _selectionPriority: number }> = [];
+  const ineligibleRows: DeepQueueRow[] = [];
+  for (const row of rawRows) {
+    const profile = profilesById.get(row.profile_id);
+    const orgId = row.organisation_id || (profile ? orgIdFromProfile(profile) : null);
+    const org = orgId ? orgsById.get(orgId) : null;
+    const selectionPriority = deepScoreProfilePriority(profile, org);
+    if (selectionPriority == null || !orgId) {
+      ineligibleRows.push(row);
+      continue;
+    }
+    eligibleRows.push({ ...row, organisation_id: orgId, _selectionPriority: selectionPriority });
+  }
+
+  if (ineligibleRows.length > 0) {
+    await supabase
+      .from("eligibility_deep_score_queue")
+      .update({
+        status: "skipped",
+        last_error: "Profile is incomplete or organisation trial is inactive for platform deep scoring.",
+        updated_at: new Date().toISOString(),
+      })
+      .in("id", ineligibleRows.map((row) => row.id));
+  }
+
+  const rows = selectFairRows(
+    eligibleRows.sort((a, b) => {
+      if (b._selectionPriority !== a._selectionPriority) return b._selectionPriority - a._selectionPriority;
+      if ((b.priority ?? 0) !== (a.priority ?? 0)) return (b.priority ?? 0) - (a.priority ?? 0);
+      if ((b.heuristic_score ?? 0) !== (a.heuristic_score ?? 0)) return (b.heuristic_score ?? 0) - (a.heuristic_score ?? 0);
+      return new Date(a.created_at ?? 0).getTime() - new Date(b.created_at ?? 0).getTime();
+    }),
+    limit
+  );
+  if (rows.length === 0) {
+    return {
+      requested: 0,
+      completed: 0,
+      failed: 0,
+      skipped: ineligibleRows.length,
+      highestScore: 0,
+      eligible85Plus: 0,
+    };
   }
 
   const ids = rows.map((row) => row.id);
@@ -326,28 +487,28 @@ export async function processEligibilityDeepScoreQueue(options?: {
 
   const profileIds = Array.from(new Set(rows.map((row) => row.profile_id)));
   const grantIds = Array.from(new Set(rows.map((row) => row.grant_id)));
-  const [profilesResult, grantsResult] = await Promise.all([
+  const [selectedProfilesResult, grantsResult] = await Promise.all([
     supabase.from("BusinessProfile").select("*").in("id", profileIds),
     supabase
       .from("Grant")
       .select("id, name, funder, amount, deadline, applicationUrl, eligibility, description, objectives, applicantTypes, sectors, regions, url_status")
       .in("id", grantIds),
   ]);
-  if (profilesResult.error) throw profilesResult.error;
+  if (selectedProfilesResult.error) throw selectedProfilesResult.error;
   if (grantsResult.error) throw grantsResult.error;
 
-  const profilesById = new Map(((profilesResult.data ?? []) as ProfileRow[]).map((profile) => [String(profile.id), profile]));
+  const selectedProfilesById = new Map(((selectedProfilesResult.data ?? []) as ProfileRow[]).map((profile) => [String(profile.id), profile]));
   const grantsById = new Map(((grantsResult.data ?? []) as GrantRow[]).map((grant) => [grant.id, grant]));
   const outcomeCache = new Map<string, ReturnType<typeof deriveOutcomeLearningAdvisory>>();
   let completed = 0;
   let failed = 0;
-  let skipped = 0;
+  let skipped = ineligibleRows.length;
   let highestScore = 0;
   let eligible85Plus = 0;
 
   for (const row of rows) {
     try {
-      const profile = profilesById.get(row.profile_id);
+      const profile = selectedProfilesById.get(row.profile_id);
       const grant = grantsById.get(row.grant_id);
       if (!profile || !grant) {
         skipped++;

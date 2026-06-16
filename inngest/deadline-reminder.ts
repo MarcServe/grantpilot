@@ -6,6 +6,7 @@ import { isNineAmLocal } from "@/lib/timezone";
 import { isGrantActionableNow } from "@/lib/grant-actionability";
 import { isOpenAIChecked } from "@/lib/grant-source-policy";
 import { getSuppressedGrantIds } from "@/lib/grant-user-state";
+import { organisationAllowsCapability } from "@/lib/plan-check";
 import { runWithCronLog } from "@/lib/cron-run-log";
 
 const DEFAULT_DEADLINE_REMINDER_SCORE = 85;
@@ -83,15 +84,38 @@ export async function runDeadlineReminderJob(): Promise<{
       isNineAmLocal(org.preferredTimezone ?? "UTC")
     );
     diagnostics.orgsAt9amLocal = orgsToNotify.length;
-    const notifyOrgIds = new Set(orgsToNotify.map((o: { id: string }) => o.id));
-
-    if (notifyOrgIds.size === 0) {
+    if (orgsToNotify.length === 0) {
       console.info("[deadline-reminder] No orgs at 9am local this hour", diagnostics);
       return { ...diagnostics };
     }
 
     const recentWindow = new Date(now);
     recentWindow.setHours(recentWindow.getHours() - 20);
+    const notifyOrgIds = new Set<string>();
+    for (const org of orgsToNotify as { id: string }[]) {
+      if (await organisationAllowsCapability(org.id, "proactive_notifications")) {
+        notifyOrgIds.add(org.id);
+        continue;
+      }
+
+      const alreadyPrompted = await orgHasNotificationSince(
+        org.id,
+        ["eligibility_upgrade_prompt"],
+        recentWindow
+      );
+      if (!alreadyPrompted) {
+        await notifyOrgMembers(org.id, "eligibility_upgrade_prompt", {}, {
+          sendEmail: true,
+          sendWhatsApp: false,
+        });
+      }
+    }
+
+    if (notifyOrgIds.size === 0) {
+      console.info("[deadline-reminder] No paid or active-trial orgs at 9am local this hour", diagnostics);
+      return { ...diagnostics };
+    }
+
     const orgsWithRecentDeadlineReminder = new Set<string>();
     for (const org of orgsToNotify as { id: string }[]) {
       if (await orgHasNotificationSince(org.id, ["deadline_reminder"], recentWindow)) {

@@ -371,7 +371,7 @@ export async function runEligibilityRefreshJob(options?: {
           if (!sendNotifyEmail) return;
           const strongEligibleCount = Math.max(0, Math.round(digestCandidateCount));
 
-          if (!canReceiveProactiveNotifications && strongEligibleCount > 0) {
+          if (!canReceiveProactiveNotifications) {
             const alreadyPrompted = await orgHasNotificationSince(
               orgId,
               ["eligibility_upgrade_prompt"],
@@ -520,7 +520,11 @@ export async function runEligibilityRefreshJob(options?: {
             .in("grant_id", candidateIds)
             .gte("updated_at", cacheThreshold.toISOString());
 
-        const cachedGrantIds = new Set((cachedRows ?? []).map((r: { grant_id: string }) => r.grant_id));
+        const cachedGrantIds = new Set(
+          (cachedRows ?? [])
+            .filter((r: { grant_id: string; scoring_source?: string | null }) => isTrustedEligibilitySource(r.scoring_source))
+            .map((r: { grant_id: string }) => r.grant_id)
+        );
         const uncachedIds = candidateIds.filter((id) => !cachedGrantIds.has(id));
         diagnostics.cacheHits += cachedGrantIds.size;
         console.info(`[eligibility-refresh]   CACHE: ${cachedGrantIds.size} already scored (within ${CACHE_DAYS}d), ${uncachedIds.length} need scoring`);
@@ -1019,7 +1023,7 @@ export async function runEligibilityRefreshJob(options?: {
         const strongEligibleCount =
           digestGrants.length > 0 ? digestGrants.length : (await getCurrentStrongDigest()).length;
 
-        if (!canReceiveProactiveNotifications && strongEligibleCount > 0 && sendNotifyEmail) {
+        if (!canReceiveProactiveNotifications && sendNotifyEmail) {
           const alreadyPrompted = await orgHasNotificationSince(
             orgId,
             ["eligibility_upgrade_prompt"],
