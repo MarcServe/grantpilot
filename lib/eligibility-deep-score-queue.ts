@@ -383,11 +383,48 @@ async function markQueueRow(
   if (error) throw error;
 }
 
+function isMissingClaimFunction(error: unknown): boolean {
+  const message = error instanceof Error
+    ? error.message
+    : (typeof error === "object" && error !== null && "message" in error
+      ? String((error as { message?: unknown }).message)
+      : String(error));
+  const code = typeof error === "object" && error !== null && "code" in error
+    ? String((error as { code?: unknown }).code)
+    : "";
+  return code === "PGRST202" || /claim_eligibility_deep_score_queue|function .* does not exist/i.test(message);
+}
+
+async function fetchPendingQueueRows(
+  supabase: SupabaseAdmin,
+  options: {
+    scanLimit: number;
+    organisationId?: string;
+    profileId?: string;
+  }
+): Promise<DeepQueueRow[]> {
+  let query = supabase
+    .from("eligibility_deep_score_queue")
+    .select("id, organisation_id, profile_id, grant_id, attempts, priority, heuristic_score, created_at")
+    .eq("status", "pending")
+    .order("priority", { ascending: false })
+    .order("created_at", { ascending: true })
+    .limit(options.scanLimit);
+  if (options.organisationId) query = query.eq("organisation_id", options.organisationId);
+  if (options.profileId) query = query.eq("profile_id", options.profileId);
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as DeepQueueRow[];
+}
+
 export async function processEligibilityDeepScoreQueue(options?: {
   supabase?: SupabaseAdmin;
   limit?: number;
   organisationId?: string;
   profileId?: string;
+  shardCount?: number;
+  shardIndex?: number;
   respectUsageLimits?: boolean;
 }): Promise<{
   requested: number;
@@ -401,19 +438,40 @@ export async function processEligibilityDeepScoreQueue(options?: {
   const limit = Math.max(1, Math.min(100, options?.limit ?? DEEP_SCORE_BATCH_SIZE));
   const respectUsageLimits = options?.respectUsageLimits === true;
   const scanLimit = options?.organisationId || options?.profileId ? limit : Math.max(limit, Math.min(1000, limit * 8));
-  let query = supabase
-    .from("eligibility_deep_score_queue")
-    .select("id, organisation_id, profile_id, grant_id, attempts, priority, heuristic_score, created_at")
-    .eq("status", "pending")
-    .order("priority", { ascending: false })
-    .order("created_at", { ascending: true })
-    .limit(scanLimit);
-  if (options?.organisationId) query = query.eq("organisation_id", options.organisationId);
-  if (options?.profileId) query = query.eq("profile_id", options.profileId);
+  const shardCount = Number.isFinite(options?.shardCount) && Number(options?.shardCount) > 1
+    ? Math.min(20, Math.floor(Number(options?.shardCount)))
+    : undefined;
+  const shardIndex = shardCount && Number.isFinite(options?.shardIndex)
+    ? Math.max(0, Math.min(shardCount - 1, Math.floor(Number(options?.shardIndex))))
+    : undefined;
+  const canUseAtomicClaim = !options?.organisationId && !options?.profileId;
+  let rowsAreClaimed = false;
+  let rawRows: DeepQueueRow[] = [];
 
-  const { data, error } = await query;
-  if (error) throw error;
-  const rawRows = (data ?? []) as DeepQueueRow[];
+  if (canUseAtomicClaim) {
+    const { data, error } = await supabase.rpc("claim_eligibility_deep_score_queue", {
+      p_limit: scanLimit,
+      p_shard_count: shardCount ?? null,
+      p_shard_index: shardIndex ?? null,
+    });
+    if (error) {
+      if (!isMissingClaimFunction(error)) throw error;
+      console.warn("[eligibility-deep-score-queue] atomic claim function missing; falling back to non-atomic claim");
+      rawRows = shardCount && shardIndex != null && shardIndex > 0
+        ? []
+        : await fetchPendingQueueRows(supabase, { scanLimit });
+    } else {
+      rawRows = (data ?? []) as DeepQueueRow[];
+      rowsAreClaimed = true;
+    }
+  } else {
+    rawRows = await fetchPendingQueueRows(supabase, {
+      scanLimit,
+      organisationId: options?.organisationId,
+      profileId: options?.profileId,
+    });
+  }
+
   if (rawRows.length === 0) {
     return { requested: 0, completed: 0, failed: 0, skipped: 0, highestScore: 0, eligible85Plus: 0 };
   }
@@ -468,6 +526,20 @@ export async function processEligibilityDeepScoreQueue(options?: {
     }),
     limit
   );
+  const selectedIds = new Set(rows.map((row) => row.id));
+  const unselectedClaimedRows = rowsAreClaimed
+    ? eligibleRows.filter((row) => !selectedIds.has(row.id))
+    : [];
+  if (unselectedClaimedRows.length > 0) {
+    await supabase
+      .from("eligibility_deep_score_queue")
+      .update({
+        status: "pending",
+        locked_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .in("id", unselectedClaimedRows.map((row) => row.id));
+  }
   if (rows.length === 0) {
     return {
       requested: 0,
@@ -480,10 +552,12 @@ export async function processEligibilityDeepScoreQueue(options?: {
   }
 
   const ids = rows.map((row) => row.id);
-  await supabase
-    .from("eligibility_deep_score_queue")
-    .update({ status: "running", locked_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-    .in("id", ids);
+  if (!rowsAreClaimed) {
+    await supabase
+      .from("eligibility_deep_score_queue")
+      .update({ status: "running", locked_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .in("id", ids);
+  }
 
   const profileIds = Array.from(new Set(rows.map((row) => row.profile_id)));
   const grantIds = Array.from(new Set(rows.map((row) => row.grant_id)));

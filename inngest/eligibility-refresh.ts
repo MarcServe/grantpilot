@@ -26,7 +26,6 @@ import { getMatchHealthReport } from "@/lib/match-health";
 import {
   DEEP_SCORE_BATCH_SIZE,
   enqueueDeepScoreCandidates,
-  enqueueExistingHeuristicAssessments,
   processEligibilityDeepScoreQueue,
 } from "@/lib/eligibility-deep-score-queue";
 import { fetchGrantIntelligenceForGrantIds } from "@/lib/grant-intelligence-extract";
@@ -1219,11 +1218,10 @@ export const eligibilityDeepScoreScheduled = inngest.createFunction(
   },
   { cron: "15 * * * *" },
   async () => runWithCronLog(
-    { jobName: "Eligibility Deep Score Queue", route: "inngest/eligibility-deep-score.hourly", trigger: "inngest" },
-    async () => {
-      const enqueued = await enqueueExistingHeuristicAssessments({ limit: 500, minScore: 40 });
-      const processed = await processEligibilityDeepScoreQueue({ limit: DEEP_SCORE_BATCH_SIZE });
-      return { enqueued, processed };
-    }
+    { jobName: "Eligibility Deep Score Queue Legacy Scheduler", route: "inngest/eligibility-deep-score.hourly", trigger: "inngest" },
+    async () => ({
+      skipped: true,
+      reason: "Vercel /api/cron/deep-score-queue is the authoritative hourly scheduler.",
+    })
   )
 );

@@ -21,11 +21,61 @@ function minScoreFromEnv(): number {
   return Math.max(0, Math.min(100, Math.floor(value)));
 }
 
+async function callWorker(
+  req: Request,
+  secret: string,
+  shardIndex: number,
+  shardCount: number,
+  limit: number
+) {
+  const workerUrl = new URL("/api/cron/deep-score-queue/worker", req.url);
+  const response = await fetch(workerUrl, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${secret}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ shardIndex, shardCount, limit }),
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message =
+      body && typeof body === "object" && "error" in body
+        ? String((body as { error?: unknown }).error)
+        : `Worker ${shardIndex} failed with HTTP ${response.status}`;
+    throw new Error(message);
+  }
+  return body;
+}
+
+function workerProcessedTotals(results: Array<PromiseSettledResult<unknown>>) {
+  let requested = 0;
+  let completed = 0;
+  let failed = 0;
+  let skipped = 0;
+  let highestScore = 0;
+  let eligible85Plus = 0;
+
+  for (const result of results) {
+    if (result.status !== "fulfilled") continue;
+    const processed = (result.value as { processed?: Record<string, unknown> } | null)?.processed;
+    requested += Number(processed?.requested ?? 0);
+    completed += Number(processed?.completed ?? 0);
+    failed += Number(processed?.failed ?? 0);
+    skipped += Number(processed?.skipped ?? 0);
+    highestScore = Math.max(highestScore, Number(processed?.highestScore ?? 0));
+    eligible85Plus += Number(processed?.eligible85Plus ?? 0);
+  }
+
+  return { requested, completed, failed, skipped, highestScore, eligible85Plus };
+}
+
 /**
  * GET /api/cron/deep-score-queue
- * Vercel Cron worker for converting preliminary eligibility rows into trusted
- * company-DNA AI scores. This is intentionally separate from the all-org
- * eligibility refresh so one hourly request only processes a bounded batch.
+ * Vercel Cron orchestrator for converting preliminary eligibility rows into
+ * trusted company-DNA AI scores. It fans out to protected shard workers so the
+ * hourly job can process more rows without one long-running function doing all
+ * work serially.
  */
 export async function GET(req: Request) {
   const authHeader = req.headers.get("authorization");
@@ -39,15 +89,48 @@ export async function GET(req: Request) {
       { jobName: "Eligibility Deep Score Queue", route: "/api/cron/deep-score-queue", trigger: "vercel" },
       async () => {
         const enqueueLimit = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_QUEUE_ENQUEUE_LIMIT", 500, 1000);
+        const workerCount = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_PARALLEL_WORKERS", 4, 10);
+        const workerLimit = positiveIntFromEnv(
+          "ELIGIBILITY_DEEP_SCORE_WORKER_BATCH_SIZE",
+          DEEP_SCORE_BATCH_SIZE,
+          100
+        );
         const enqueued = await enqueueExistingHeuristicAssessments({
           limit: enqueueLimit,
           minScore: minScoreFromEnv(),
         });
-        const processed = await processEligibilityDeepScoreQueue({
-          limit: DEEP_SCORE_BATCH_SIZE,
-          respectUsageLimits: false,
-        });
-        return { enqueued, processed };
+
+        if (workerCount <= 1) {
+          const processed = await processEligibilityDeepScoreQueue({
+            limit: workerLimit,
+            respectUsageLimits: false,
+          });
+          return { enqueued, mode: "single-worker", workerCount, workerLimit, processed };
+        }
+
+        const workerResults = await Promise.allSettled(
+          Array.from({ length: workerCount }, (_, shardIndex) =>
+            callWorker(req, secret, shardIndex, workerCount, workerLimit)
+          )
+        );
+        const failedWorkers = workerResults.filter((worker) => worker.status === "rejected");
+        if (failedWorkers.length === workerResults.length) {
+          const firstFailure = failedWorkers[0] as PromiseRejectedResult | undefined;
+          throw new Error(firstFailure?.reason instanceof Error ? firstFailure.reason.message : "All deep-score workers failed");
+        }
+
+        return {
+          enqueued,
+          mode: "parallel-workers",
+          workerCount,
+          workerLimit,
+          processed: workerProcessedTotals(workerResults),
+          workers: workerResults.map((worker, shardIndex) => (
+            worker.status === "fulfilled"
+              ? { shardIndex, status: "fulfilled", result: worker.value }
+              : { shardIndex, status: "rejected", error: worker.reason instanceof Error ? worker.reason.message : String(worker.reason) }
+          )),
+        };
       }
     );
 
