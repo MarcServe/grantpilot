@@ -268,37 +268,59 @@ export function buildEmailHtml(
       const profileName = payload.profileName ?? "Your business";
       const grants = payload.grants ?? [];
       const withinReachGrants = payload.withinReachGrants ?? [];
-      const renderRows = (items: DigestGrantItem[]) =>
-        items.map((g: DigestGrantItem) => {
-          const viewUrl = `${appUrl}/grants/${g.grantId}`;
-          const summaryText = g.summary ? ` — ${g.summary.slice(0, 120)}${g.summary.length > 120 ? "…" : ""}` : "";
-          const missingNote =
-            (g.missingDocuments?.length ?? 0) > 0
-              ? `<br><span style="color:#b45309;font-size:13px">May require: ${escapeHtml((g.missingDocuments ?? []).join(", "))}. <a href="${appUrl}/profile" style="color:#1B3A6B">Add in Profile → Documents</a></span>`
-              : "";
-          const hasWorkNeeded =
-            g.score < 80 &&
-            ((g.improvementPlan?.actions?.length ?? 0) > 0 ||
-              (g.improvementPlan?.gaps?.length ?? 0) > 0 ||
-              (g.missingCriteria?.length ?? 0) > 0);
-          const workNeededParts: string[] = [];
-          if (g.improvementPlan?.actions?.length) workNeededParts.push(...g.improvementPlan.actions.slice(0, 3));
-          if (g.improvementPlan?.gaps?.length) workNeededParts.push(...g.improvementPlan.gaps.slice(0, 2));
-          if (g.missingCriteria?.length) workNeededParts.push(...g.missingCriteria.slice(0, 3));
-          const workNeededNote =
-            hasWorkNeeded && workNeededParts.length > 0
-              ? `<br><span style="color:#0369a1;font-size:13px">Work needed to improve fit: ${escapeHtml([...new Set(workNeededParts)].slice(0, 3).join("; "))}. <a href="${viewUrl}" style="color:#1B3A6B">View grant for full details</a></span>`
-              : "";
-          return `<tr><td style="padding:12px 0;border-bottom:1px solid #e2e8f0"><strong>${escapeHtml(g.grantName)}</strong> (${g.score}% match)${escapeHtml(summaryText)}<br><a href="${viewUrl}" style="color:#1B3A6B">View grant and prepare</a>${missingNote}${workNeededNote}</td></tr>`;
-        })
-        .join("");
-      const strongRows = renderRows(grants);
-      const withinReachRows = renderRows(withinReachGrants);
+      const renderRows = (items: DigestGrantItem[], tone: "strong" | "withinReach") => {
+        const palette =
+          tone === "strong"
+            ? {
+                background: "#f0f7ff",
+                border: "#bfdbfe",
+                accent: "#2563eb",
+                title: "#1e3a8a",
+                badgeBackground: "#dbeafe",
+                badgeText: "#1e40af",
+                workText: "#0369a1",
+              }
+            : {
+                background: "#fffbeb",
+                border: "#fde68a",
+                accent: "#d97706",
+                title: "#92400e",
+                badgeBackground: "#fef3c7",
+                badgeText: "#92400e",
+                workText: "#b45309",
+              };
+        return items
+          .map((g: DigestGrantItem) => {
+            const viewUrl = `${appUrl}/grants/${g.grantId}`;
+            const summaryText = g.summary ? ` — ${g.summary.slice(0, 120)}${g.summary.length > 120 ? "…" : ""}` : "";
+            const missingNote =
+              (g.missingDocuments?.length ?? 0) > 0
+                ? `<br><span style="color:#b45309;font-size:13px">May require: ${escapeHtml((g.missingDocuments ?? []).join(", "))}. <a href="${appUrl}/profile" style="color:#1B3A6B">Add in Profile → Documents</a></span>`
+                : "";
+            const hasWorkNeeded =
+              g.score < 80 &&
+              ((g.improvementPlan?.actions?.length ?? 0) > 0 ||
+                (g.improvementPlan?.gaps?.length ?? 0) > 0 ||
+                (g.missingCriteria?.length ?? 0) > 0);
+            const workNeededParts: string[] = [];
+            if (g.improvementPlan?.actions?.length) workNeededParts.push(...g.improvementPlan.actions.slice(0, 3));
+            if (g.improvementPlan?.gaps?.length) workNeededParts.push(...g.improvementPlan.gaps.slice(0, 2));
+            if (g.missingCriteria?.length) workNeededParts.push(...g.missingCriteria.slice(0, 3));
+            const workNeededNote =
+              hasWorkNeeded && workNeededParts.length > 0
+                ? `<br><span style="color:${palette.workText};font-size:13px">Work needed to improve fit: ${escapeHtml([...new Set(workNeededParts)].slice(0, 3).join("; "))}. <a href="${viewUrl}" style="color:#1B3A6B">View grant for full details</a></span>`
+                : "";
+            return `<tr><td style="padding:14px 16px;border:1px solid ${palette.border};border-left:4px solid ${palette.accent};border-radius:10px;background:${palette.background}"><strong style="color:${palette.title};font-weight:700">${escapeHtml(g.grantName)}</strong> <span style="display:inline-block;margin-left:6px;padding:2px 8px;border-radius:999px;background:${palette.badgeBackground};color:${palette.badgeText};font-size:12px;font-weight:700">${g.score}% match</span>${escapeHtml(summaryText)}<br><a href="${viewUrl}" style="color:#1B3A6B;font-weight:600">View grant and prepare</a>${missingNote}${workNeededNote}</td></tr>`;
+          })
+          .join("");
+      };
+      const strongRows = renderRows(grants, "strong");
+      const withinReachRows = renderRows(withinReachGrants, "withinReach");
       const strongSection = strongRows
-        ? `<h2 style="font-size:16px;color:#1a1a1a;margin:20px 0 4px">Strong matches</h2><table style="width:100%;border-collapse:collapse">${strongRows}</table>`
+        ? `<h2 style="font-size:16px;color:#1e3a8a;margin:20px 0 4px;font-weight:700">Strong matches</h2><table style="width:100%;border-collapse:separate;border-spacing:0 10px">${strongRows}</table>`
         : "";
       const withinReachSection = withinReachRows
-        ? `<h2 style="font-size:16px;color:#1a1a1a;margin:20px 0 4px">Within reach</h2><p style="margin:0 0 8px;color:#64748b;font-size:13px">These may be worth reviewing, but check the listed gaps before applying.</p><table style="width:100%;border-collapse:collapse">${withinReachRows}</table>`
+        ? `<h2 style="font-size:16px;color:#92400e;margin:20px 0 4px;font-weight:700">Within reach</h2><p style="margin:0 0 8px;color:#64748b;font-size:13px">These may be worth reviewing, but check the listed gaps before applying.</p><table style="width:100%;border-collapse:separate;border-spacing:0 10px">${withinReachRows}</table>`
         : "";
       const hasAnyMissing = [...grants, ...withinReachGrants].some((g: DigestGrantItem) => ((g.missingDocuments?.length) ?? 0) > 0);
       const missingReminder = hasAnyMissing
