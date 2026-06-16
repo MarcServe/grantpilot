@@ -70,6 +70,18 @@ function workerProcessedTotals(results: Array<PromiseSettledResult<unknown>>) {
   return { requested, completed, failed, skipped, highestScore, eligible85Plus };
 }
 
+function workerResultSummaries(results: Array<PromiseSettledResult<unknown>>) {
+  return results.map((worker, shardIndex) => (
+    worker.status === "fulfilled"
+      ? { shardIndex, status: "fulfilled", result: worker.value }
+      : {
+          shardIndex,
+          status: "rejected",
+          error: worker.reason instanceof Error ? worker.reason.message : String(worker.reason),
+        }
+  ));
+}
+
 /**
  * GET /api/cron/deep-score-queue
  * Vercel Cron orchestrator for converting preliminary eligibility rows into
@@ -116,7 +128,21 @@ export async function GET(req: Request) {
         const failedWorkers = workerResults.filter((worker) => worker.status === "rejected");
         if (failedWorkers.length === workerResults.length) {
           const firstFailure = failedWorkers[0] as PromiseRejectedResult | undefined;
-          throw new Error(firstFailure?.reason instanceof Error ? firstFailure.reason.message : "All deep-score workers failed");
+          const fallbackReason =
+            firstFailure?.reason instanceof Error ? firstFailure.reason.message : "All deep-score workers failed";
+          const processed = await processEligibilityDeepScoreQueue({
+            limit: workerLimit,
+            respectUsageLimits: false,
+          });
+          return {
+            enqueued,
+            mode: "single-worker-fallback",
+            fallbackReason,
+            workerCount,
+            workerLimit,
+            processed,
+            workers: workerResultSummaries(workerResults),
+          };
         }
 
         return {
@@ -125,11 +151,7 @@ export async function GET(req: Request) {
           workerCount,
           workerLimit,
           processed: workerProcessedTotals(workerResults),
-          workers: workerResults.map((worker, shardIndex) => (
-            worker.status === "fulfilled"
-              ? { shardIndex, status: "fulfilled", result: worker.value }
-              : { shardIndex, status: "rejected", error: worker.reason instanceof Error ? worker.reason.message : String(worker.reason) }
-          )),
+          workers: workerResultSummaries(workerResults),
         };
       }
     );

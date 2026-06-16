@@ -162,6 +162,19 @@ type GrantSourceImportRunRow = {
   created_at: string | null;
 };
 
+type SourceImportSummaryRow = {
+  key: string;
+  label: string;
+  runs: number;
+  requested: number;
+  added: number;
+  duplicates: number;
+  rejected: number;
+  manualReview: number;
+  latestAt: string | null;
+  latestCreatedBy: string | null;
+};
+
 type GrantSourceAttributionRow = {
   source: string | null;
   createdAt: string | null;
@@ -327,6 +340,21 @@ const GRANT_SOURCE_COUNT_BUCKETS: Array<{
   { label: "Admin import", detail: "Manual/admin-created grants", sources: ["admin"] },
 ];
 
+const ALWAYS_VISIBLE_SOURCE_LABELS = new Set([
+  "Database links / RSS",
+  "OpenAI search",
+  "Perplexity search",
+  "Claude search",
+  "Gemini search",
+  "Grants.gov",
+]);
+
+const EXPECTED_SOURCE_IMPORT_RUNS: Array<{ key: string; label: string }> = [
+  { key: "apify", label: "Apify cron" },
+  { key: "codex_automation", label: "Codex automation" },
+  { key: "app_default_seed", label: "Default source seed/crawler" },
+];
+
 async function countGrantSourceBucket(
   supabase: ReturnType<typeof getSupabaseAdmin>,
   sources: Array<string | null>,
@@ -373,11 +401,69 @@ async function getGrantSourceCountRows(
   );
 
   return rows
-    .filter((row) => row.total > 0 || row.last7d > 0)
+    .filter((row) => row.total > 0 || row.last7d > 0 || ALWAYS_VISIBLE_SOURCE_LABELS.has(row.label))
     .sort((a, b) => {
       if (b.last7d !== a.last7d) return b.last7d - a.last7d;
       return b.total - a.total;
     });
+}
+
+function sourceImportRunLabel(key: string): string {
+  if (key === "apify") return "Apify cron";
+  if (key === "codex_automation") return "Codex automation";
+  if (key === "app_default_seed") return "Default source seed/crawler";
+  if (key === "codex_automation_recovery") return "Codex recovery";
+  if (key === "manual_recovery") return "Manual recovery";
+  return key.replace(/_/g, " ");
+}
+
+function emptySourceImportSummary(key: string, label = sourceImportRunLabel(key)): SourceImportSummaryRow {
+  return {
+    key,
+    label,
+    runs: 0,
+    requested: 0,
+    added: 0,
+    duplicates: 0,
+    rejected: 0,
+    manualReview: 0,
+    latestAt: null,
+    latestCreatedBy: null,
+  };
+}
+
+function summarizeSourceImportRuns(rows: GrantSourceImportRunRow[]): SourceImportSummaryRow[] {
+  const summaries = new Map<string, SourceImportSummaryRow>();
+  EXPECTED_SOURCE_IMPORT_RUNS.forEach((source) => {
+    summaries.set(source.key, emptySourceImportSummary(source.key, source.label));
+  });
+
+  for (const row of rows) {
+    const key = row.run_source?.trim() || "unknown";
+    const current = summaries.get(key) ?? emptySourceImportSummary(key);
+    current.runs += 1;
+    current.requested += readNumber(row.requested_count);
+    current.added += readNumber(row.added_count);
+    current.duplicates += readNumber(row.skipped_duplicate_count);
+    current.rejected += readNumber(row.rejected_count);
+    current.manualReview += readNumber(row.manual_review_count);
+    if (row.created_at && (!current.latestAt || new Date(row.created_at).getTime() > new Date(current.latestAt).getTime())) {
+      current.latestAt = row.created_at;
+      current.latestCreatedBy = row.created_by;
+    }
+    summaries.set(key, current);
+  }
+
+  return Array.from(summaries.values()).sort((a, b) => {
+    const aExpected = EXPECTED_SOURCE_IMPORT_RUNS.findIndex((source) => source.key === a.key);
+    const bExpected = EXPECTED_SOURCE_IMPORT_RUNS.findIndex((source) => source.key === b.key);
+    if (aExpected !== -1 || bExpected !== -1) {
+      if (aExpected === -1) return 1;
+      if (bExpected === -1) return -1;
+      return aExpected - bExpected;
+    }
+    return new Date(b.latestAt ?? 0).getTime() - new Date(a.latestAt ?? 0).getTime();
+  });
 }
 
 function hasEnv(...names: string[]): boolean {
@@ -713,6 +799,8 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
     grantSourcesResult,
     enabledGrantSourcesResult,
     sourceImportRunsResult,
+    sourceImportRuns7dResult,
+    grantDiscoveryRunsResult,
     grantSourceAttributionResult,
     grantSourceCountRows,
     discoveryPendingResult,
@@ -799,6 +887,19 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
         .select("run_source, created_by, requested_count, added_count, skipped_duplicate_count, rejected_count, manual_review_count, created_at")
         .order("created_at", { ascending: false })
         .limit(6),
+      supabase
+        .from("grant_source_import_runs")
+        .select("run_source, created_by, requested_count, added_count, skipped_duplicate_count, rejected_count, manual_review_count, created_at")
+        .gte("created_at", last7d.toISOString())
+        .order("created_at", { ascending: false })
+        .limit(200),
+      supabase
+        .from("CronRunLog")
+        .select("job_name, route, trigger, status, result, error, started_at, finished_at, duration_ms")
+        .in("route", ["/api/cron/grant-discovery", "inngest/grant-discovery"])
+        .gte("started_at", last7d.toISOString())
+        .order("started_at", { ascending: false })
+        .limit(60),
       supabase
         .from("Grant")
         .select("source, createdAt")
@@ -924,6 +1025,8 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
   const upcomingDeadlines = (upcomingDeadlineResult.data ?? []) as GrantRow[];
   const grantSources = (grantSourcesResult.data ?? []) as GrantSourceRow[];
   const sourceImportRuns = (sourceImportRunsResult.data ?? []) as GrantSourceImportRunRow[];
+  const sourceImportRuns7d = (sourceImportRuns7dResult.data ?? []) as GrantSourceImportRunRow[];
+  const grantDiscoveryRuns = (grantDiscoveryRunsResult.data ?? []) as CronRunLogRow[];
   const reviewQueueRows = (reviewQueueResult.data ?? []) as SourceReviewQueueRow[];
   const deepScoreRows = (deepScoreRowsResult.data ?? []) as DeepScoreQueueRow[];
   const grantSourceAttributionRows = (grantSourceAttributionResult.data ?? []) as GrantSourceAttributionRow[];
@@ -931,6 +1034,12 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
   const suppressedGrantRows = (suppressedGrantsResult.data ?? []) as SavedGrantSuppressionRow[];
   if (sourceImportRunsResult.error) {
     console.warn("[admin] Grant source import run query failed:", sourceImportRunsResult.error.message);
+  }
+  if (sourceImportRuns7dResult.error) {
+    console.warn("[admin] Grant source import summary query failed:", sourceImportRuns7dResult.error.message);
+  }
+  if (grantDiscoveryRunsResult.error) {
+    console.warn("[admin] Grant discovery provider activity query failed:", grantDiscoveryRunsResult.error.message);
   }
   if (grantSourceAttributionResult.error) {
     console.warn("[admin] Grant source attribution query failed:", grantSourceAttributionResult.error.message);
@@ -1043,7 +1152,8 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
   }
 
   const cronRuns = (cronRunsResult.data ?? []) as CronRunLogRow[];
-  const aiDiscoveryActivity = discoveryActivityFromCronRuns(cronRuns);
+  const aiDiscoveryActivity = discoveryActivityFromCronRuns(grantDiscoveryRuns);
+  const sourceImportSummaryRows = summarizeSourceImportRuns(sourceImportRuns7d);
   const latestCronRun = ((latestCronRunResult.data ?? []) as CronRunLogRow[])[0] ?? null;
   const failedCronRunsLast24hCount = failedCronRunsLast24hResult.count ?? 0;
   const failedCronRunsLast7dCount = failedCronRunsLast7dResult.count ?? 0;
@@ -1812,7 +1922,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                       ))}
                     </div>
                     <div className="mt-2 text-xs text-blue-900/80">
-                      Accepted this page: {aiDiscoveryActivity.created} created, {aiDiscoveryActivity.updated} updated, {aiDiscoveryActivity.rejected} rejected across {aiDiscoveryActivity.runs} run{aiDiscoveryActivity.runs === 1 ? "" : "s"}.
+                      Accepted last 7 days: {aiDiscoveryActivity.created} created, {aiDiscoveryActivity.updated} updated, {aiDiscoveryActivity.rejected} rejected across {aiDiscoveryActivity.runs} run{aiDiscoveryActivity.runs === 1 ? "" : "s"}.
                     </div>
                   </div>
                 ) : (
@@ -1820,6 +1930,56 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                     AI provider activity will appear after the next successful grant-discovery cron run logs provider counts.
                   </div>
                 )}
+                <div className="rounded-md border bg-muted/20 p-3">
+                  <div className="font-medium">Source registry imports</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    Last 7 days of source-feed imports. High duplicate counts mean the automation ran but found sources already in the registry.
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    {sourceImportSummaryRows.map((source) => (
+                      <div key={source.key} className="rounded-md border bg-white/70 p-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="font-medium">{source.label}</div>
+                            <div className="truncate text-xs text-muted-foreground">
+                              {source.latestCreatedBy ?? "No run in the last 7 days"}
+                            </div>
+                          </div>
+                          <div className="shrink-0 text-xs text-muted-foreground">
+                            {source.latestAt ? formatRelative(source.latestAt) : "No recent run"}
+                          </div>
+                        </div>
+                        <div className="mt-2 grid grid-cols-5 gap-1 text-center text-xs">
+                          <div className="rounded border bg-muted/30 p-1">
+                            <div className="text-muted-foreground">Runs</div>
+                            <div className="font-semibold">{source.runs}</div>
+                          </div>
+                          <div className="rounded border bg-muted/30 p-1">
+                            <div className="text-muted-foreground">Req</div>
+                            <div className="font-semibold">{source.requested}</div>
+                          </div>
+                          <div className="rounded border bg-muted/30 p-1">
+                            <div className="text-muted-foreground">Added</div>
+                            <div className="font-semibold text-emerald-700">{source.added}</div>
+                          </div>
+                          <div className="rounded border bg-muted/30 p-1">
+                            <div className="text-muted-foreground">Dup</div>
+                            <div className="font-semibold">{source.duplicates}</div>
+                          </div>
+                          <div className="rounded border bg-muted/30 p-1">
+                            <div className="text-muted-foreground">Review</div>
+                            <div className="font-semibold text-amber-700">{source.manualReview}</div>
+                          </div>
+                        </div>
+                        {source.rejected > 0 && (
+                          <div className="mt-2 rounded border border-red-200 bg-red-50 p-1 text-xs text-red-800">
+                            {source.rejected} rejected
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
                 {sourceAttributionCounts.length > 0 ? (
                   <div className="space-y-2">
                     {sourceAttributionCounts.map((source) => (
