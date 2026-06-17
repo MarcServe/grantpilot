@@ -395,9 +395,9 @@ async function buildCurrentDigestForProfile(
   profile: ProfileRow,
   minStrongScore: number,
   maxScore: number
-): Promise<{ strong: DigestGrantItem[]; withinReach: DigestGrantItem[] }> {
+): Promise<{ strong: DigestGrantItem[]; withinReach: DigestGrantItem[]; previous: DigestGrantItem[] }> {
   const profileId = profile.id;
-  if (!profileId) return { strong: [], withinReach: [] };
+  if (!profileId) return { strong: [], withinReach: [], previous: [] };
   const withinReachMax = Math.min(maxScore, minStrongScore - 1);
 
   const { data, error } = await supabase
@@ -414,12 +414,12 @@ async function buildCurrentDigestForProfile(
 
   if (error) {
     console.error("[daily-notification-safeguard] digest assessment query", error);
-    return { strong: [], withinReach: [] };
+    return { strong: [], withinReach: [], previous: [] };
   }
 
   const assessments = (data ?? []) as AssessmentDigestRow[];
   const grantIds = [...new Set(assessments.map((row) => row.grant_id).filter((id): id is string => Boolean(id)))];
-  if (grantIds.length === 0) return { strong: [], withinReach: [] };
+  if (grantIds.length === 0) return { strong: [], withinReach: [], previous: [] };
 
   const [appliedGrantIds, hiddenGrantIds, outcomeAdvisory, grantsResult] = await Promise.all([
     getAppliedGrantIds(supabase, orgId, profileId),
@@ -434,15 +434,18 @@ async function buildCurrentDigestForProfile(
   const userFunderLocations = profileFunderLocations(profile);
   const grantById = new Map(((grantsResult.data ?? []) as GrantDigestRow[]).map((grant) => [grant.id, grant]));
   const items: DigestGrantItem[] = [];
+  const previousItems: DigestGrantItem[] = [];
   for (const row of assessments) {
     const grantId = row.grant_id;
     if (!grantId || appliedGrantIds.has(grantId) || hiddenGrantIds.has(grantId)) continue;
-    if (!isOutsideDigestGrantRepeatCooldown(row.notified_at)) continue;
+    const recentlySent = !isOutsideDigestGrantRepeatCooldown(row.notified_at);
     const grant = grantById.get(grantId);
     if (!grant || !isGrantActionableNow(grant)) continue;
     if (!grantMatchesFunderLocations(grant.funderLocations ?? undefined, userFunderLocations)) continue;
     const item = buildDigestGrantItem({ row, grant, profile, orgId, profileId, maxScore, outcomeAdvisory });
-    if (item) items.push(item);
+    if (!item) continue;
+    if (recentlySent) previousItems.push(item);
+    else items.push(item);
   }
 
   const byScore = (a: DigestGrantItem, b: DigestGrantItem) => b.score - a.score;
@@ -451,6 +454,7 @@ async function buildCurrentDigestForProfile(
     withinReach: withinReachMax >= 50
       ? items.filter((item) => item.score >= 50 && item.score <= withinReachMax).sort(byScore).slice(0, 4)
       : [],
+    previous: previousItems.sort(byScore).slice(0, 3),
   };
 }
 
@@ -572,7 +576,7 @@ export async function runDailyNotificationSafeguardJob(options?: {
 
     if (primaryProfile?.id && canReceiveProactiveNotifications) {
       const digest = await buildCurrentDigestForProfile(supabase, orgId, primaryProfile, minScore, maxScore);
-      if (digest.strong.length > 0 || digest.withinReach.length > 0) {
+      if (digest.strong.length > 0 || digest.withinReach.length > 0 || digest.previous.length > 0) {
         await notifyOrgMembers(
           orgId,
           "grant_scan_digest",
@@ -580,6 +584,7 @@ export async function runDailyNotificationSafeguardJob(options?: {
             profileName: profileName(primaryProfile),
             grants: digest.strong,
             withinReachGrants: digest.withinReach,
+            previousScanGrants: digest.previous,
           },
           { sendEmail: true, sendWhatsApp: false }
         );

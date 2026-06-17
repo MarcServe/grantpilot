@@ -736,10 +736,11 @@ export async function runEligibilityRefreshJob(options?: {
 
         const buildDigestItem = async (
           assessment: CachedEligibilityRow,
-          range?: { minScore?: number; maxScore?: number }
+          range?: { minScore?: number; maxScore?: number },
+          options?: { includeRecentlyNotified?: boolean }
         ): Promise<DigestGrantItem | null> => {
           if (appliedGrantIds.has(assessment.grant_id) || hiddenGrantIds.has(assessment.grant_id)) return null;
-          if (!isOutsideDigestGrantRepeatCooldown(assessment.notified_at)) return null;
+          if (!options?.includeRecentlyNotified && !isOutsideDigestGrantRepeatCooldown(assessment.notified_at)) return null;
           const grant = grantsByIdForDigest.get(assessment.grant_id);
           if (!grant) return null;
           const actionability = await verifyGrantActionable(grant, { supabase });
@@ -849,6 +850,38 @@ export async function runEligibilityRefreshJob(options?: {
             })
             .slice(0, limit);
         };
+        const buildPreviousScanDigest = async (limit = 3): Promise<DigestGrantItem[]> => {
+          const { data: recentRows, error: recentErr } = await supabase
+            .from("EligibilityAssessment")
+            .select("grant_id, updated_at, score, decision, summary, notified_at, missing_criteria, improvement_plan, scoring_source")
+            .eq("organisation_id", orgId)
+            .eq("profile_id", profileId)
+            .in("scoring_source", ["openai", "intelligence"])
+            .gte("score", 50)
+            .lte("score", maxScore)
+            .not("notified_at", "is", null)
+            .order("notified_at", { ascending: false })
+            .limit(60);
+
+          if (recentErr) {
+            console.error("[eligibility-refresh] previous scan digest query", recentErr);
+            return [];
+          }
+
+          const items: DigestGrantItem[] = [];
+          for (const row of (recentRows ?? []) as CachedEligibilityRow[]) {
+            if (isOutsideDigestGrantRepeatCooldown(row.notified_at)) continue;
+            const item = await buildDigestItem(row, { minScore: 50, maxScore }, { includeRecentlyNotified: true });
+            if (item) items.push(item);
+          }
+
+          return items
+            .sort((a, b) => {
+              if (b.score !== a.score) return b.score - a.score;
+              return grantCreatedTime(grantsByIdForDigest.get(b.grantId)) - grantCreatedTime(grantsByIdForDigest.get(a.grantId));
+            })
+            .slice(0, limit);
+        };
         let currentStrongDigestCache: DigestGrantItem[] | null = null;
         const getCurrentStrongDigest = async () => {
           if (!currentStrongDigestCache) currentStrongDigestCache = await buildCurrentStrongDigest();
@@ -857,14 +890,16 @@ export async function runEligibilityRefreshJob(options?: {
         sendCurrentDigestIfAvailable = async () => {
           const currentStrongDigest = await getCurrentStrongDigest();
           const currentWithinReachDigest = await buildCurrentWithinReachDigest();
-          if (currentStrongDigest.length === 0 && currentWithinReachDigest.length === 0) return false;
+          const previousScanGrants = await buildPreviousScanDigest();
+          if (currentStrongDigest.length === 0 && currentWithinReachDigest.length === 0 && previousScanGrants.length === 0) return false;
 
           console.info(
-            `[eligibility-refresh]   SENDING fallback current-match digest for ${currentStrongDigest.length} strong and ${currentWithinReachDigest.length} within-reach grants to org ${orgId}`
+            `[eligibility-refresh]   SENDING fallback current-match digest for ${currentStrongDigest.length} strong, ${currentWithinReachDigest.length} within-reach, and ${previousScanGrants.length} previous grants to org ${orgId}`
           );
           await notifyOrgMembers(orgId, "grant_scan_digest", {
             grants: currentStrongDigest,
             withinReachGrants: currentWithinReachDigest,
+            previousScanGrants,
             profileName,
           }, {
             sendEmail: true,
@@ -1095,9 +1130,11 @@ export async function runEligibilityRefreshJob(options?: {
         } else if (digestGrants.length > 0 && completionScore >= minCompletionForNotifications) {
           console.info(`[eligibility-refresh]   SENDING digest notification for ${digestGrants.length} grants to org ${orgId}`);
           const withinReachGrants = await buildCurrentWithinReachDigest();
+          const previousScanGrants = await buildPreviousScanDigest();
           await notifyOrgMembers(orgId, "grant_scan_digest", {
             grants: digestGrants,
             withinReachGrants,
+            previousScanGrants,
             profileName,
           }, {
             sendEmail: sendNotifyEmail,
@@ -1129,13 +1166,15 @@ export async function runEligibilityRefreshJob(options?: {
           );
           const currentStrongDigest = alreadyUpdated ? [] : await getCurrentStrongDigest();
           const currentWithinReachDigest = alreadyUpdated ? [] : await buildCurrentWithinReachDigest();
-          if (currentStrongDigest.length > 0 || currentWithinReachDigest.length > 0) {
+          const previousScanGrants = alreadyUpdated ? [] : await buildPreviousScanDigest();
+          if (currentStrongDigest.length > 0 || currentWithinReachDigest.length > 0 || previousScanGrants.length > 0) {
             console.info(
-              `[eligibility-refresh]   SENDING current-match digest for ${currentStrongDigest.length} strong and ${currentWithinReachDigest.length} within-reach grants to org ${orgId}`
+              `[eligibility-refresh]   SENDING current-match digest for ${currentStrongDigest.length} strong, ${currentWithinReachDigest.length} within-reach, and ${previousScanGrants.length} previous grants to org ${orgId}`
             );
             await notifyOrgMembers(orgId, "grant_scan_digest", {
               grants: currentStrongDigest,
               withinReachGrants: currentWithinReachDigest,
+              previousScanGrants,
               profileName,
             }, {
               sendEmail: true,

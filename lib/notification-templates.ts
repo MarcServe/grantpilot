@@ -268,7 +268,8 @@ export function buildEmailHtml(
       const profileName = payload.profileName ?? "Your business";
       const grants = payload.grants ?? [];
       const withinReachGrants = payload.withinReachGrants ?? [];
-      const renderRows = (items: DigestGrantItem[], tone: "strong" | "withinReach") => {
+      const previousScanGrants = payload.previousScanGrants ?? [];
+      const renderRows = (items: DigestGrantItem[], tone: "strong" | "withinReach" | "previous") => {
         const palette =
           tone === "strong"
             ? {
@@ -280,15 +281,25 @@ export function buildEmailHtml(
                 badgeText: "#1e40af",
                 workText: "#0369a1",
               }
-            : {
-                background: "#fffbeb",
-                border: "#fde68a",
-                accent: "#d97706",
-                title: "#92400e",
-                badgeBackground: "#fef3c7",
-                badgeText: "#92400e",
-                workText: "#b45309",
-              };
+            : tone === "withinReach"
+              ? {
+                  background: "#fffbeb",
+                  border: "#fde68a",
+                  accent: "#d97706",
+                  title: "#92400e",
+                  badgeBackground: "#fef3c7",
+                  badgeText: "#92400e",
+                  workText: "#b45309",
+                }
+              : {
+                  background: "#f8fafc",
+                  border: "#cbd5e1",
+                  accent: "#64748b",
+                  title: "#334155",
+                  badgeBackground: "#e2e8f0",
+                  badgeText: "#334155",
+                  workText: "#475569",
+                };
         return items
           .map((g: DigestGrantItem) => {
             const viewUrl = `${appUrl}/grants/${g.grantId}`;
@@ -316,17 +327,21 @@ export function buildEmailHtml(
       };
       const strongRows = renderRows(grants, "strong");
       const withinReachRows = renderRows(withinReachGrants, "withinReach");
+      const previousRows = renderRows(previousScanGrants.slice(0, 3), "previous");
       const strongSection = strongRows
         ? `<h2 style="font-size:16px;color:#1e3a8a;margin:20px 0 4px;font-weight:700">Strong matches</h2><table style="width:100%;border-collapse:separate;border-spacing:0 10px">${strongRows}</table>`
         : "";
       const withinReachSection = withinReachRows
         ? `<h2 style="font-size:16px;color:#92400e;margin:20px 0 4px;font-weight:700">Within reach</h2><p style="margin:0 0 8px;color:#64748b;font-size:13px">These may be worth reviewing, but check the listed gaps before applying.</p><table style="width:100%;border-collapse:separate;border-spacing:0 10px">${withinReachRows}</table>`
         : "";
-      const hasAnyMissing = [...grants, ...withinReachGrants].some((g: DigestGrantItem) => ((g.missingDocuments?.length) ?? 0) > 0);
+      const previousSection = previousRows
+        ? `<h2 style="font-size:15px;color:#334155;margin:20px 0 4px;font-weight:700">Still available from previous scans</h2><p style="margin:0 0 8px;color:#64748b;font-size:13px">You may have seen these recently. They are still current if you missed them.</p><table style="width:100%;border-collapse:separate;border-spacing:0 8px">${previousRows}</table>`
+        : "";
+      const hasAnyMissing = [...grants, ...withinReachGrants, ...previousScanGrants].some((g: DigestGrantItem) => ((g.missingDocuments?.length) ?? 0) > 0);
       const missingReminder = hasAnyMissing
         ? `<p style="margin-top:16px;padding:12px;background:#fef3c7;border-radius:8px;color:#92400e">Some grants may require documents you haven&apos;t uploaded yet. Add them in <a href="${appUrl}/profile" style="color:#1B3A6B;font-weight:600">Profile → Documents</a> before you apply.</p>`
         : "";
-      const body = `<p>Today&apos;s grant opportunities for <strong>${escapeHtml(profileName)}</strong> — review the fit, prepare your documents, and apply on the official funder site.</p>${strongSection}${withinReachSection}${missingReminder}<p style="margin-top:16px">You can also browse all your matches from the app.</p>`;
+      const body = `<p>Today&apos;s grant opportunities for <strong>${escapeHtml(profileName)}</strong> — review the fit, prepare your documents, and apply on the official funder site.</p>${strongSection}${withinReachSection}${previousSection}${missingReminder}<p style="margin-top:16px">You can also browse all your matches from the app.</p>`;
       return {
         subject: `[Grants-Copilot] Today's grant opportunities for ${profileName}`,
         html: baseLayout(
@@ -488,6 +503,7 @@ export function buildWhatsAppMessage(
       const profileName = payload.profileName ?? "Your business";
       const grants = payload.grants ?? [];
       const withinReachGrants = payload.withinReachGrants ?? [];
+      const previousScanGrants = payload.previousScanGrants ?? [];
       let msg = `Today's grant opportunities for ${profileName}\n\n`;
       let anyMissing = false;
       if (grants.length > 0) msg += "Strong matches:\n";
@@ -506,6 +522,12 @@ export function buildWhatsAppMessage(
         if ((g.missingDocuments?.length ?? 0) > 0) anyMissing = true;
         const workParts = [...(g.improvementPlan?.actions ?? []), ...(g.missingCriteria ?? [])].slice(0, 2);
         if (workParts.length > 0) msg += `  Check: ${workParts.join("; ")}\n`;
+      }
+      if (previousScanGrants.length > 0) msg += `${grants.length > 0 || withinReachGrants.length > 0 ? "\n" : ""}Still available from previous scans:\n`;
+      for (const g of (previousScanGrants as DigestGrantItem[]).slice(0, 3)) {
+        const viewUrl = `${appUrl}/grants/${g.grantId}`;
+        msg += `• ${g.grantName} (${g.score}% match)\n  View: ${viewUrl}\n`;
+        if ((g.missingDocuments?.length ?? 0) > 0) anyMissing = true;
       }
       msg += `\nView all: ${appUrl}/grants`;
       if (anyMissing) msg += `\n\nSome grants may require documents you haven't uploaded. Add them in Profile → Documents: ${appUrl}/profile`;

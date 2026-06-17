@@ -62,6 +62,8 @@ export interface NotificationPayload {
   grants?: DigestGrantItem[];
   /** For grant_scan_digest: partial-fit grants worth reviewing, shown separately from strong matches. */
   withinReachGrants?: DigestGrantItem[];
+  /** For grant_scan_digest: recently emailed grants still worth a second look, shown as a small reminder section. */
+  previousScanGrants?: DigestGrantItem[];
   /** Business/profile name for digest subject and body */
   profileName?: string;
   /** Subscription plan name for billing notifications */
