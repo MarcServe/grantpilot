@@ -3,6 +3,11 @@ import { runWithCronLog } from "@/lib/cron-run-log";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { isEligibilityNotificationTime } from "@/lib/timezone";
 import { isGrantActionableNow } from "@/lib/grant-actionability";
+import { getAppliedGrantIds } from "@/lib/applied-grants";
+import { getSuppressedGrantIds } from "@/lib/grant-user-state";
+import { grantMatchesFunderLocations, inferFunderLocationsFromProfile } from "@/lib/constants";
+import { deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
+import { finalEligibilityScore, finaliseEligibilityAssessment, type EligibilityAssessmentLike } from "@/lib/eligibility-final-score";
 import { notifyOrgMembers, orgHasNotificationSince, type DigestGrantItem, type NotificationType } from "@/lib/notify";
 import { organisationAllowsCapability } from "@/lib/plan-check";
 import { createStartApplicationToken } from "@/lib/start-application-token";
@@ -37,6 +42,11 @@ type ProfileRow = {
   completion_score?: number | null;
   updatedAt?: string | null;
   updated_at?: string | null;
+  funderLocations?: string[] | null;
+  funder_locations?: string[] | null;
+  location?: string | null;
+  country?: string | null;
+  region?: string | null;
 };
 
 type OrgRow = {
@@ -53,23 +63,24 @@ type PreferenceRow = {
   notify_email?: boolean | null;
 };
 
-type AssessmentDigestRow = {
+type AssessmentDigestRow = EligibilityAssessmentLike & {
   grant_id?: string | null;
-  score?: number | null;
-  summary?: string | null;
-  missing_criteria?: unknown;
-  improvement_plan?: unknown;
   updated_at?: string | null;
 };
 
 type GrantDigestRow = {
   id: string;
   name: string;
+  funder?: string | null;
   url_status?: string | null;
   deadline?: string | null;
   eligibility?: string | null;
   description?: string | null;
   objectives?: string | null;
+  funderLocations?: string[] | null;
+  applicantTypes?: string[] | null;
+  sectors?: string[] | null;
+  regions?: string[] | null;
 };
 
 type DailyDigestEnqueueResult = {
@@ -191,6 +202,96 @@ function asImprovementPlan(value: unknown): DigestGrantItem["improvementPlan"] {
   return gaps.length > 0 || actions.length > 0 ? { gaps, actions } : null;
 }
 
+async function getOutcomeAdvisoryForProfile(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  orgId: string,
+  profileId: string
+) {
+  const { data } = await supabase
+    .from("ApplicationOutcome")
+    .select("outcome, awardedAmount, funderFeedback, learningNotes, Grant(name, funder)")
+    .eq("organisationId", orgId)
+    .eq("profileId", profileId)
+    .order("reportedAt", { ascending: false })
+    .limit(8);
+  return deriveOutcomeLearningAdvisory(data ?? []);
+}
+
+function profileFunderLocations(profile: ProfileRow): string[] {
+  return inferFunderLocationsFromProfile({
+    funderLocations: profile.funderLocations ?? profile.funder_locations ?? null,
+    location: profile.location ?? null,
+    country: profile.country ?? null,
+    region: profile.region ?? null,
+  });
+}
+
+async function getDigestHiddenGrantIds(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  orgId: string,
+  profileId: string,
+  candidateGrantIds: string[]
+): Promise<Set<string>> {
+  const hidden = await getSuppressedGrantIds(supabase, orgId, profileId);
+  if (candidateGrantIds.length === 0) return hidden;
+
+  const { data, error } = await supabase
+    .from("SavedGrant")
+    .select("grant_id, status")
+    .eq("organisation_id", orgId)
+    .eq("profile_id", profileId)
+    .in("grant_id", candidateGrantIds);
+
+  if (error) {
+    console.warn("[daily-notification-safeguard] saved grant state lookup failed", error.message);
+    return hidden;
+  }
+
+  for (const row of (data ?? []) as Array<{ grant_id?: string | null; status?: string | null }>) {
+    if (!row.grant_id) continue;
+    if (row.status === "deferred" || row.status === "applied" || row.status === "dismissed") {
+      hidden.add(row.grant_id);
+    }
+  }
+
+  return hidden;
+}
+
+function buildDigestGrantItem(params: {
+  row: AssessmentDigestRow;
+  grant: GrantDigestRow;
+  profile: ProfileRow;
+  orgId: string;
+  profileId: string;
+  maxScore: number;
+  outcomeAdvisory: Awaited<ReturnType<typeof getOutcomeAdvisoryForProfile>>;
+}): DigestGrantItem | null {
+  const { row, grant, profile, orgId, profileId, maxScore, outcomeAdvisory } = params;
+  const finalResult = finaliseEligibilityAssessment(
+    profile as unknown as Record<string, unknown>,
+    {
+      ...grant,
+      applicantTypes: grant.applicantTypes ?? undefined,
+      sectors: grant.sectors ?? [],
+      regions: grant.regions ?? [],
+    },
+    row,
+    outcomeAdvisory
+  );
+  const score = finalEligibilityScore(finalResult);
+  if (!Number.isFinite(score) || score < 50 || score > maxScore) return null;
+
+  return {
+    grantId: grant.id,
+    grantName: grant.name,
+    score,
+    summary: finalResult.summary ?? finalResult.reason ?? row.summary ?? undefined,
+    startApplicationToken: createStartApplicationToken({ grantId: grant.id, profileId, organisationId: orgId }),
+    missingCriteria: finalResult.missing ?? asStringArray(row.missing_criteria),
+    improvementPlan: finalResult.improvementPlan ?? asImprovementPlan(row.improvement_plan),
+  };
+}
+
 async function countUsableGrants(supabase: ReturnType<typeof getSupabaseAdmin>): Promise<number> {
   let count = 0;
 
@@ -213,13 +314,16 @@ async function countUsableGrants(supabase: ReturnType<typeof getSupabaseAdmin>):
 async function countStrongEligibleForOrg(
   supabase: ReturnType<typeof getSupabaseAdmin>,
   orgId: string,
-  profileId: string,
+  profile: ProfileRow,
   minScore: number,
   maxScore: number
 ): Promise<number> {
+  const profileId = profile.id;
+  if (!profileId) return 0;
+
   const { data } = await supabase
     .from("EligibilityAssessment")
-    .select("grant_id")
+    .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, scoring_source, updated_at")
     .eq("organisation_id", orgId)
     .eq("profile_id", profileId)
     .eq("decision", "likely_eligible")
@@ -228,81 +332,92 @@ async function countStrongEligibleForOrg(
     .lte("score", maxScore)
     .limit(200);
 
-  const grantIds = [...new Set(((data ?? []) as { grant_id?: string | null }[])
+  const rows = (data ?? []) as AssessmentDigestRow[];
+  const grantIds = [...new Set(rows
     .map((row) => row.grant_id)
     .filter((id): id is string => Boolean(id)))];
   if (grantIds.length === 0) return 0;
 
-  const { data: grants } = await supabase
-    .from("Grant")
-    .select("id, url_status, deadline, eligibility, description, objectives")
-    .in("id", grantIds);
+  const [appliedGrantIds, hiddenGrantIds, outcomeAdvisory, grantsResult] = await Promise.all([
+    getAppliedGrantIds(supabase, orgId, profileId),
+    getDigestHiddenGrantIds(supabase, orgId, profileId, grantIds),
+    getOutcomeAdvisoryForProfile(supabase, orgId, profileId),
+    supabase
+      .from("Grant")
+      .select("id, name, funder, url_status, deadline, eligibility, description, objectives, funderLocations, applicantTypes, sectors, regions")
+      .in("id", grantIds),
+  ]);
 
-  return ((grants ?? []) as Record<string, unknown>[]).filter((grant) => isGrantActionableNow(grant)).length;
+  const userFunderLocations = profileFunderLocations(profile);
+  const grants = grantsResult.data ?? [];
+  const grantById = new Map((grants as GrantDigestRow[]).map((grant) => [grant.id, grant]));
+  let count = 0;
+  for (const row of rows) {
+    const grantId = row.grant_id;
+    if (!grantId || appliedGrantIds.has(grantId) || hiddenGrantIds.has(grantId)) continue;
+    const grant = grantById.get(grantId);
+    if (!grant || !isGrantActionableNow(grant)) continue;
+    if (!grantMatchesFunderLocations(grant.funderLocations ?? undefined, userFunderLocations)) continue;
+    const item = buildDigestGrantItem({ row, grant, profile, orgId, profileId, maxScore, outcomeAdvisory });
+    if (item && item.score >= minScore && item.score <= maxScore) count++;
+  }
+
+  return count;
 }
 
 async function buildCurrentDigestForProfile(
   supabase: ReturnType<typeof getSupabaseAdmin>,
   orgId: string,
-  profileId: string,
+  profile: ProfileRow,
   minStrongScore: number,
   maxScore: number
 ): Promise<{ strong: DigestGrantItem[]; withinReach: DigestGrantItem[] }> {
+  const profileId = profile.id;
+  if (!profileId) return { strong: [], withinReach: [] };
   const withinReachMax = Math.min(maxScore, minStrongScore - 1);
 
-  const fetchRows = async (minScore: number, upperScore: number, limit: number) => {
-    if (upperScore < minScore) return [] as AssessmentDigestRow[];
-    const { data, error } = await supabase
-      .from("EligibilityAssessment")
-      .select("grant_id, score, summary, missing_criteria, improvement_plan, updated_at")
-      .eq("organisation_id", orgId)
-      .eq("profile_id", profileId)
-      .in("scoring_source", ["openai", "intelligence"])
-      .gte("score", minScore)
-      .lte("score", upperScore)
-      .order("score", { ascending: false })
-      .order("updated_at", { ascending: false })
-      .limit(limit);
+  const { data, error } = await supabase
+    .from("EligibilityAssessment")
+    .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, scoring_source, updated_at")
+    .eq("organisation_id", orgId)
+    .eq("profile_id", profileId)
+    .in("scoring_source", ["openai", "intelligence"])
+    .gte("score", 50)
+    .lte("score", maxScore)
+    .order("score", { ascending: false })
+    .order("updated_at", { ascending: false })
+    .limit(200);
 
-    if (error) {
-      console.error("[daily-notification-safeguard] digest assessment query", error);
-      return [] as AssessmentDigestRow[];
-    }
-    return (data ?? []) as AssessmentDigestRow[];
-  };
+  if (error) {
+    console.error("[daily-notification-safeguard] digest assessment query", error);
+    return { strong: [], withinReach: [] };
+  }
 
-  // Fetch strong and within-reach buckets separately. A large batch of freshly
-  // updated low-score AI rows should not push useful older matches out of the digest.
-  const strongRows = await fetchRows(minStrongScore, maxScore, 40);
-  const withinReachRows = withinReachMax >= 50 ? await fetchRows(50, withinReachMax, 80) : [];
-  const assessments = [...strongRows, ...withinReachRows];
+  const assessments = (data ?? []) as AssessmentDigestRow[];
   const grantIds = [...new Set(assessments.map((row) => row.grant_id).filter((id): id is string => Boolean(id)))];
   if (grantIds.length === 0) return { strong: [], withinReach: [] };
 
-  const { data: grants = [] } = await supabase
-    .from("Grant")
-    .select("id, name, url_status, deadline, eligibility, description, objectives")
-    .in("id", grantIds);
-  const grantById = new Map(((grants ?? []) as GrantDigestRow[]).map((grant) => [grant.id, grant]));
+  const [appliedGrantIds, hiddenGrantIds, outcomeAdvisory, grantsResult] = await Promise.all([
+    getAppliedGrantIds(supabase, orgId, profileId),
+    getDigestHiddenGrantIds(supabase, orgId, profileId, grantIds),
+    getOutcomeAdvisoryForProfile(supabase, orgId, profileId),
+    supabase
+      .from("Grant")
+      .select("id, name, funder, url_status, deadline, eligibility, description, objectives, funderLocations, applicantTypes, sectors, regions")
+      .in("id", grantIds),
+  ]);
 
+  const userFunderLocations = profileFunderLocations(profile);
+  const grantById = new Map(((grantsResult.data ?? []) as GrantDigestRow[]).map((grant) => [grant.id, grant]));
   const items: DigestGrantItem[] = [];
   for (const row of assessments) {
     const grantId = row.grant_id;
-    if (!grantId) continue;
+    if (!grantId || appliedGrantIds.has(grantId) || hiddenGrantIds.has(grantId)) continue;
     const grant = grantById.get(grantId);
     if (!grant || !isGrantActionableNow(grant)) continue;
-    const score = Math.round(Number(row.score ?? 0));
-    if (!Number.isFinite(score) || score < 50 || score > maxScore) continue;
-
-    items.push({
-      grantId,
-      grantName: grant.name,
-      score,
-      summary: row.summary ?? undefined,
-      startApplicationToken: createStartApplicationToken({ grantId, profileId, organisationId: orgId }),
-      missingCriteria: asStringArray(row.missing_criteria),
-      improvementPlan: asImprovementPlan(row.improvement_plan),
-    });
+    if (!grantMatchesFunderLocations(grant.funderLocations ?? undefined, userFunderLocations)) continue;
+    const item = buildDigestGrantItem({ row, grant, profile, orgId, profileId, maxScore, outcomeAdvisory });
+    if (item) items.push(item);
   }
 
   const byScore = (a: DigestGrantItem, b: DigestGrantItem) => b.score - a.score;
@@ -336,7 +451,7 @@ export async function runDailyNotificationSafeguardJob(options?: {
 
   const { data: profiles = [] } = await supabase
     .from("BusinessProfile")
-    .select("id, organisationId, businessName, completionScore, updatedAt");
+    .select("id, organisationId, businessName, completionScore, updatedAt, funderLocations, location, country, region");
 
   const byOrg = new Map<string, ProfileRow[]>();
   for (const profile of (profiles ?? []) as ProfileRow[]) {
@@ -412,7 +527,7 @@ export async function runDailyNotificationSafeguardJob(options?: {
     const maxScore = pref?.max_score ?? 100;
     const minScore = suggestedScoreThreshold(pref?.eligible_threshold);
     const matchedGrantsCount = primaryProfile?.id
-      ? await countStrongEligibleForOrg(supabase, orgId, primaryProfile.id, minScore, maxScore)
+      ? await countStrongEligibleForOrg(supabase, orgId, primaryProfile, minScore, maxScore)
       : 0;
     const canReceiveProactiveNotifications = await organisationAllowsCapability(orgId, "proactive_notifications");
 
@@ -431,7 +546,7 @@ export async function runDailyNotificationSafeguardJob(options?: {
     }
 
     if (primaryProfile?.id && canReceiveProactiveNotifications) {
-      const digest = await buildCurrentDigestForProfile(supabase, orgId, primaryProfile.id, minScore, maxScore);
+      const digest = await buildCurrentDigestForProfile(supabase, orgId, primaryProfile, minScore, maxScore);
       if (digest.strong.length > 0 || digest.withinReach.length > 0) {
         await notifyOrgMembers(
           orgId,
