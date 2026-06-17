@@ -14,15 +14,26 @@ function boundedInt(value: unknown, fallback: number, min: number, max: number):
   return Math.max(min, Math.min(max, Math.floor(parsed)));
 }
 
+function isAuthorizedWorkerRequest(req: Request): boolean {
+  const cronSecret = process.env.CRON_SECRET;
+  const internalSecret = process.env.INTERNAL_API_SECRET;
+  const authHeader = req.headers.get("authorization");
+  const cronHeader = req.headers.get("x-cron-secret");
+  const internalHeader = req.headers.get("x-internal-secret");
+
+  return Boolean(
+    (cronSecret && (authHeader === `Bearer ${cronSecret}` || cronHeader === cronSecret)) ||
+      (internalSecret && internalHeader === internalSecret)
+  );
+}
+
 /**
  * POST /api/cron/deep-score-queue/worker
  * Protected shard worker called by /api/cron/deep-score-queue. Each worker
  * claims rows atomically from eligibility_deep_score_queue, scoped by shard.
  */
 export async function POST(req: Request) {
-  const authHeader = req.headers.get("authorization");
-  const secret = process.env.CRON_SECRET;
-  if (!secret || authHeader !== `Bearer ${secret}`) {
+  if (!isAuthorizedWorkerRequest(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

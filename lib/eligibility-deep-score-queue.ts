@@ -204,6 +204,17 @@ export async function enqueueDeepScoreCandidates(options: {
 
   try {
     const supabase = options.supabase ?? getSupabaseAdmin();
+    const orgResult = await supabase
+      .from("Organisation")
+      .select("id, plan, createdAt")
+      .eq("id", options.organisationId)
+      .maybeSingle();
+    if (orgResult.error) throw orgResult.error;
+
+    if (deepScoreProfilePriority(options.profile, orgResult.data as OrganisationPlanRow | null) == null) {
+      return { requested, enqueued: 0 };
+    }
+
     const now = new Date().toISOString();
     const rows = options.candidates.map((candidate) => {
       const profileHash = profileHashForEligibility(options.profile);

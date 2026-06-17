@@ -29,12 +29,18 @@ async function callWorker(
   limit: number
 ) {
   const workerUrl = new URL("/api/cron/deep-score-queue/worker", req.url);
+  const headers: Record<string, string> = {
+    authorization: `Bearer ${secret}`,
+    "x-cron-secret": secret,
+    "content-type": "application/json",
+  };
+  if (process.env.INTERNAL_API_SECRET) {
+    headers["x-internal-secret"] = process.env.INTERNAL_API_SECRET;
+  }
+
   const response = await fetch(workerUrl, {
     method: "POST",
-    headers: {
-      authorization: `Bearer ${secret}`,
-      "content-type": "application/json",
-    },
+    headers,
     body: JSON.stringify({ shardIndex, shardCount, limit }),
   });
   const body = await response.json().catch(() => null);

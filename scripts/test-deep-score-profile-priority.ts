@@ -3,9 +3,11 @@ import assert from "node:assert/strict";
 process.env.ELIGIBILITY_DEEP_SCORE_MIN_PROFILE_COMPLETION = "50";
 
 async function main() {
-  const { deepScoreProfilePriority, profileQualifiesForDeepScoring } = await import(
-    "../lib/eligibility-deep-score-queue"
-  );
+  const {
+    deepScoreProfilePriority,
+    enqueueDeepScoreCandidates,
+    profileQualifiesForDeepScoring,
+  } = await import("../lib/eligibility-deep-score-queue");
 
   const completeProfile = {
     id: "profile-complete",
@@ -73,6 +75,55 @@ async function main() {
     false,
     "low-completion profiles should not consume platform deep-scoring"
   );
+
+  let queueUpsertCalled = false;
+  const fakeSupabase = {
+    from(table: string) {
+      if (table === "Organisation") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "org-test", plan: "BUSINESS", createdAt: now }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "eligibility_deep_score_queue") {
+        return {
+          upsert: async () => {
+            queueUpsertCalled = true;
+            return { error: null };
+          },
+        };
+      }
+      throw new Error(`Unexpected table ${table}`);
+    },
+  };
+
+  const enqueueResult = await enqueueDeepScoreCandidates({
+    supabase: fakeSupabase as never,
+    organisationId: "org-test",
+    profileId: "profile-blank",
+    profile: blankProfile,
+    candidates: [
+      {
+        heuristicScore: 69,
+        grant: {
+          id: "grant-test",
+          name: "Test Grant",
+          funder: "Test Funder",
+          eligibility: "UK businesses",
+        },
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    enqueueResult,
+    { requested: 1, enqueued: 0 },
+    "direct queue insertion should quietly skip incomplete profiles"
+  );
+  assert.equal(queueUpsertCalled, false, "incomplete profiles should not write queue rows");
 
   console.log("deep-score profile priority tests passed");
 }
