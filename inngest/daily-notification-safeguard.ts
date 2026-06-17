@@ -8,6 +8,7 @@ import { getSuppressedGrantIds } from "@/lib/grant-user-state";
 import { grantMatchesFunderLocations, inferFunderLocationsFromProfile } from "@/lib/constants";
 import { deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
 import { finalEligibilityScore, finaliseEligibilityAssessment, type EligibilityAssessmentLike } from "@/lib/eligibility-final-score";
+import { isOutsideDigestGrantRepeatCooldown } from "@/lib/eligibility-digest-cooldown";
 import { notifyOrgMembers, orgHasNotificationSince, type DigestGrantItem, type NotificationType } from "@/lib/notify";
 import { organisationAllowsCapability } from "@/lib/plan-check";
 import { createStartApplicationToken } from "@/lib/start-application-token";
@@ -66,6 +67,7 @@ type PreferenceRow = {
 type AssessmentDigestRow = EligibilityAssessmentLike & {
   grant_id?: string | null;
   updated_at?: string | null;
+  notified_at?: string | null;
 };
 
 type GrantDigestRow = {
@@ -188,6 +190,27 @@ function notificationMinScore(preferenceScore: number | undefined): number {
 
 function suggestedScoreThreshold(preferenceScore: number | null | undefined): number {
   return Math.max(DEFAULT_DIGEST_SCORE_THRESHOLD, notificationMinScore(preferenceScore ?? undefined));
+}
+
+async function markDigestItemsNotified(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  orgId: string,
+  profileId: string,
+  items: DigestGrantItem[]
+): Promise<void> {
+  const grantIds = Array.from(new Set(items.map((item) => item.grantId).filter(Boolean)));
+  if (grantIds.length === 0) return;
+
+  const { error } = await supabase
+    .from("EligibilityAssessment")
+    .update({ notified_at: new Date().toISOString() })
+    .eq("organisation_id", orgId)
+    .eq("profile_id", profileId)
+    .in("grant_id", grantIds);
+
+  if (error) {
+    console.warn("[daily-notification-safeguard] failed to mark digest grants notified", error.message);
+  }
 }
 
 function asStringArray(value: unknown): string[] {
@@ -323,7 +346,7 @@ async function countStrongEligibleForOrg(
 
   const { data } = await supabase
     .from("EligibilityAssessment")
-    .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, scoring_source, updated_at")
+    .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, scoring_source, updated_at, notified_at")
     .eq("organisation_id", orgId)
     .eq("profile_id", profileId)
     .eq("decision", "likely_eligible")
@@ -355,6 +378,7 @@ async function countStrongEligibleForOrg(
   for (const row of rows) {
     const grantId = row.grant_id;
     if (!grantId || appliedGrantIds.has(grantId) || hiddenGrantIds.has(grantId)) continue;
+    if (!isOutsideDigestGrantRepeatCooldown(row.notified_at)) continue;
     const grant = grantById.get(grantId);
     if (!grant || !isGrantActionableNow(grant)) continue;
     if (!grantMatchesFunderLocations(grant.funderLocations ?? undefined, userFunderLocations)) continue;
@@ -378,7 +402,7 @@ async function buildCurrentDigestForProfile(
 
   const { data, error } = await supabase
     .from("EligibilityAssessment")
-    .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, scoring_source, updated_at")
+    .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, scoring_source, updated_at, notified_at")
     .eq("organisation_id", orgId)
     .eq("profile_id", profileId)
     .in("scoring_source", ["openai", "intelligence"])
@@ -413,6 +437,7 @@ async function buildCurrentDigestForProfile(
   for (const row of assessments) {
     const grantId = row.grant_id;
     if (!grantId || appliedGrantIds.has(grantId) || hiddenGrantIds.has(grantId)) continue;
+    if (!isOutsideDigestGrantRepeatCooldown(row.notified_at)) continue;
     const grant = grantById.get(grantId);
     if (!grant || !isGrantActionableNow(grant)) continue;
     if (!grantMatchesFunderLocations(grant.funderLocations ?? undefined, userFunderLocations)) continue;
@@ -558,6 +583,10 @@ export async function runDailyNotificationSafeguardJob(options?: {
           },
           { sendEmail: true, sendWhatsApp: false }
         );
+        await markDigestItemsNotified(supabase, orgId, primaryProfile.id, [
+          ...digest.strong,
+          ...digest.withinReach,
+        ]);
         diagnostics.dailyUpdates++;
         continue;
       }

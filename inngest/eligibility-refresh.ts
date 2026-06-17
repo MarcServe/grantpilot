@@ -22,6 +22,7 @@ import {
   deriveOutcomeLearningAdvisory,
 } from "@/lib/outcome-learning";
 import { finalEligibilityScore, finaliseEligibilityAssessment } from "@/lib/eligibility-final-score";
+import { isOutsideDigestGrantRepeatCooldown } from "@/lib/eligibility-digest-cooldown";
 import { getMatchHealthReport } from "@/lib/match-health";
 import {
   DEEP_SCORE_BATCH_SIZE,
@@ -117,6 +118,62 @@ function isOutsideNotificationCooldown(notifiedAt: string | null | undefined, co
   if (!notifiedAt) return true;
   const notifiedAtTime = new Date(notifiedAt).getTime();
   return !Number.isFinite(notifiedAtTime) || notifiedAtTime < cooldown.getTime();
+}
+
+const DIGEST_HIDDEN_SAVED_GRANT_STATES = new Set(["deferred", "applied", "dismissed"]);
+
+async function getDigestHiddenGrantIds(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  orgId: string,
+  profileId: string,
+  candidateGrantIds?: string[]
+): Promise<Set<string>> {
+  const hidden = await getSuppressedGrantIds(supabase, orgId, profileId);
+
+  let query = supabase
+    .from("SavedGrant")
+    .select("grant_id, status")
+    .eq("organisation_id", orgId)
+    .eq("profile_id", profileId);
+
+  if (candidateGrantIds?.length) {
+    query = query.in("grant_id", uniqueGrantIds(candidateGrantIds));
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    console.warn("[eligibility-refresh] saved grant state lookup failed", error.message);
+    return hidden;
+  }
+
+  for (const row of (data ?? []) as Array<{ grant_id?: string | null; status?: string | null }>) {
+    if (row.grant_id && row.status && DIGEST_HIDDEN_SAVED_GRANT_STATES.has(row.status)) {
+      hidden.add(row.grant_id);
+    }
+  }
+
+  return hidden;
+}
+
+async function markDigestItemsNotified(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  orgId: string,
+  profileId: string,
+  items: DigestGrantItem[]
+): Promise<void> {
+  const grantIds = Array.from(new Set(items.map((item) => item.grantId).filter(Boolean)));
+  if (grantIds.length === 0) return;
+
+  const { error } = await supabase
+    .from("EligibilityAssessment")
+    .update({ notified_at: new Date().toISOString() })
+    .eq("organisation_id", orgId)
+    .eq("profile_id", profileId)
+    .in("grant_id", grantIds);
+
+  if (error) {
+    console.warn("[eligibility-refresh] failed to mark digest grants notified", error.message);
+  }
 }
 
 type CachedEligibilityRow = {
@@ -447,12 +504,12 @@ export async function runEligibilityRefreshJob(options?: {
         };
 
         const appliedGrantIds = await getAppliedGrantIds(supabase, orgId, profileId);
-        const suppressedGrantIds = await getSuppressedGrantIds(supabase, orgId, profileId);
+        const hiddenGrantIds = await getDigestHiddenGrantIds(supabase, orgId, profileId);
         const actionableGrants = grantsList.filter(
-          (g) => !appliedGrantIds.has(g.id) && !suppressedGrantIds.has(g.id)
+          (g) => !appliedGrantIds.has(g.id) && !hiddenGrantIds.has(g.id)
         );
         console.info(
-          `[eligibility-refresh]   Excluding ${appliedGrantIds.size} grants with existing applications and ${suppressedGrantIds.size} deferred/applied/dismissed grants`
+          `[eligibility-refresh]   Excluding ${appliedGrantIds.size} grants with existing applications and ${hiddenGrantIds.size} hidden/deferred/applied/dismissed grants`
         );
 
         // ── Funder location pre-filter (existing) ──
@@ -681,6 +738,8 @@ export async function runEligibilityRefreshJob(options?: {
           assessment: CachedEligibilityRow,
           range?: { minScore?: number; maxScore?: number }
         ): Promise<DigestGrantItem | null> => {
+          if (appliedGrantIds.has(assessment.grant_id) || hiddenGrantIds.has(assessment.grant_id)) return null;
+          if (!isOutsideDigestGrantRepeatCooldown(assessment.notified_at)) return null;
           const grant = grantsByIdForDigest.get(assessment.grant_id);
           if (!grant) return null;
           const actionability = await verifyGrantActionable(grant, { supabase });
@@ -813,15 +872,10 @@ export async function runEligibilityRefreshJob(options?: {
           });
           diagnostics.dailyUpdates++;
           notifiedCount += currentStrongDigest.length;
-          const notifiedAt = new Date().toISOString();
-          for (const item of currentStrongDigest) {
-            await supabase
-              .from("EligibilityAssessment")
-              .update({ notified_at: notifiedAt })
-              .eq("organisation_id", orgId)
-              .eq("profile_id", profileId)
-              .eq("grant_id", item.grantId);
-          }
+          await markDigestItemsNotified(supabase, orgId, profileId, [
+            ...currentStrongDigest,
+            ...currentWithinReachDigest,
+          ]);
           return true;
         };
 
@@ -1058,13 +1112,11 @@ export async function runEligibilityRefreshJob(options?: {
                 startApplicationToken: item.startApplicationToken,
               }, { sendEmail: sendNotifyEmail, sendWhatsApp: true });
             }
-            await supabase
-              .from("EligibilityAssessment")
-              .update({ notified_at: new Date().toISOString() })
-              .eq("organisation_id", orgId)
-              .eq("profile_id", profileId)
-              .eq("grant_id", item.grantId);
           }
+          await markDigestItemsNotified(supabase, orgId, profileId, [
+            ...digestGrants,
+            ...withinReachGrants,
+          ]);
           notifiedCount += digestGrants.length;
         } else if (digestGrants.length > 0 && completionScore < minCompletionForNotifications) {
           console.info(`[eligibility-refresh] Skipping digest: completion ${completionScore}% < ${minCompletionForNotifications}%`);
@@ -1103,15 +1155,10 @@ export async function runEligibilityRefreshJob(options?: {
             }
             diagnostics.dailyUpdates++;
             notifiedCount += currentStrongDigest.length;
-            const notifiedAt = new Date().toISOString();
-            for (const item of currentStrongDigest) {
-              await supabase
-                .from("EligibilityAssessment")
-                .update({ notified_at: notifiedAt })
-                .eq("organisation_id", orgId)
-                .eq("profile_id", profileId)
-                .eq("grant_id", item.grantId);
-            }
+            await markDigestItemsNotified(supabase, orgId, profileId, [
+              ...currentStrongDigest,
+              ...currentWithinReachDigest,
+            ]);
           } else {
             if (!(await sendMatchHealthPrompt())) await sendEligibilityStatusEmail(locationFiltered.length, strongEligibleCount);
           }
