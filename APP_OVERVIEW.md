@@ -182,10 +182,12 @@ Cron endpoints: e.g. `/api/cron/grant-sync`, `/api/cron/grant-discovery`. Innges
 
 ## 12. Billing and plans
 
-- **Plans:** FREE_TRIAL, PRO, BUSINESS (see `lib/stripe.ts`).
+- **Plans:** FREE_TRIAL, STARTER, GROWTH, PRO, BUSINESS (see `lib/stripe.ts` and `lib/plans.ts`).
 - **Limits (summary):**  
   - **FREE_TRIAL:** 1 profile, 5 matches/month, 1 auto-fill/month, 7-day trial.  
-  - **PRO:** 1 profile, unlimited matches, 10 auto-fills/month.  
+  - **STARTER:** 1 profile, 50 full company-DNA eligibility checks/month, 3 application prep runs/month. Includes daily email grant scans and deadline reminders; excludes website intelligence refresh, grant auto-improve, Founder Funding Pack, outcome learning, and WhatsApp opportunity alerts.
+  - **GROWTH:** 1 profile, unlimited matches, 10 application prep runs/month, website intelligence, auto-improve, Founder Pack, outcome learning, and notifications.
+  - **PRO:** 2 profiles, unlimited matches, 25 application prep runs/month.
   - **BUSINESS:** 5 profiles, unlimited matches, unlimited auto-fills.
 - **Usage:** `checkUsageLimit(orgId, "autofill" | "match")` and `recordUsage(orgId, type)` in `lib/plan-check.ts`; Usage table stores monthly usage.
 - **Stripe:** Checkout for subscribe/upgrade, webhook for subscription events, sync of plan to `Organisation.plan` via `billing/sync` and `webhooks/stripe`.

@@ -5,6 +5,12 @@ export const PLAN_LIMITS = {
     autoFillsPerMonth: 1,
     trialDays: 7,
   },
+  STARTER: {
+    profiles: 1,
+    matchesPerMonth: 50,
+    autoFillsPerMonth: 3,
+    trialDays: 0,
+  },
   GROWTH: {
     profiles: 1,
     matchesPerMonth: Infinity,
@@ -29,9 +35,10 @@ export type PlanKey = keyof typeof PLAN_LIMITS;
 
 export const PLAN_RANK: Record<PlanKey, number> = {
   FREE_TRIAL: 0,
-  GROWTH: 1,
-  PRO: 2,
-  BUSINESS: 3,
+  STARTER: 1,
+  GROWTH: 2,
+  PRO: 3,
+  BUSINESS: 4,
 };
 
 export function comparePlans(left: PlanKey, right: PlanKey): number {
@@ -39,6 +46,7 @@ export function comparePlans(left: PlanKey, right: PlanKey): number {
 }
 
 export type StripePriceIdEnv =
+  | "NEXT_PUBLIC_STRIPE_STARTER_PRICE_ID"
   | "NEXT_PUBLIC_STRIPE_GROWTH_PRICE_ID"
   | "NEXT_PUBLIC_STRIPE_PRO_PRICE_ID"
   | "NEXT_PUBLIC_STRIPE_BUSINESS_PRICE_ID";
@@ -69,7 +77,7 @@ export const PLAN_CATALOG: PlanCatalogRow[] = [
   {
     name: "Free Trial",
     value: "FREE_TRIAL",
-    marketingName: "Starter",
+    marketingName: "Free Trial",
     price: "Free",
     detail: "For founders validating funding fit",
     features: [
@@ -101,6 +109,45 @@ export const PLAN_CATALOG: PlanCatalogRow[] = [
     ],
     homepageFeatures: ["7-day full-access trial", "Browse grants with preliminary fit", "5 full DNA scores during trial"],
     cta: "Start Free",
+    href: "/sign-up",
+  },
+  {
+    name: "Starter",
+    value: "STARTER",
+    marketingName: "Starter",
+    price: "£9.99/mo",
+    detail: "Essential grant matching for early founders",
+    stripePriceIdEnv: "NEXT_PUBLIC_STRIPE_STARTER_PRICE_ID",
+    features: [
+      {
+        heading: "Workspace",
+        bullets: ["1 business profile"],
+      },
+      {
+        heading: "Discovery & scoring",
+        bullets: [
+          "50 full company-DNA eligibility checks per month",
+          "Daily email grant scan and deadline reminders",
+          "Preliminary fit signals while browsing grants",
+        ],
+      },
+      {
+        heading: "Applications",
+        bullets: ["3 grant-specific application prep runs per month"],
+      },
+      {
+        heading: "Not included",
+        bullets: [
+          "Website intelligence refresh",
+          "Grant auto-improve",
+          "Founder Funding Pack",
+          "AI outcome learning insights",
+          "WhatsApp opportunity alerts",
+        ],
+      },
+    ],
+    homepageFeatures: ["50 full DNA scores/month", "Daily email scans", "3 prep runs/month"],
+    cta: "Get Starter",
     href: "/sign-up",
   },
   {
@@ -241,5 +288,5 @@ export function planNotifyDisplayName(plan: PlanKey): string {
 export function getPublicStripePriceId(plan: PlanKey): string {
   const item = PLAN_CATALOG.find((p) => p.value === plan);
   if (!item?.stripePriceIdEnv) return "";
-  return item.stripePriceId ?? process.env[item.stripePriceIdEnv] ?? "";
+  return process.env[item.stripePriceIdEnv] ?? item.stripePriceId ?? "";
 }

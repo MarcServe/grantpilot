@@ -52,6 +52,18 @@ async function main() {
     "higher paid plans should receive higher queue priority"
   );
 
+  assert.ok(
+    (deepScoreProfilePriority(completeProfile, { plan: "GROWTH", createdAt: now }) ?? 0) >
+      (deepScoreProfilePriority(completeProfile, { plan: "STARTER", createdAt: now }) ?? 0),
+    "Growth should receive higher queue priority than Starter"
+  );
+
+  assert.ok(
+    (deepScoreProfilePriority(completeProfile, { plan: "STARTER", createdAt: now }) ?? 0) >
+      (deepScoreProfilePriority(completeProfile, { plan: "FREE_TRIAL", createdAt: activeTrialCreatedAt }) ?? 0),
+    "Starter should receive higher queue priority than active free trial"
+  );
+
   assert.equal(
     profileQualifiesForDeepScoring(completeProfile, { plan: "FREE_TRIAL", createdAt: activeTrialCreatedAt }),
     true,

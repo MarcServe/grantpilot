@@ -19,6 +19,14 @@ export const PLAN_CAPABILITIES: Record<PlanKey, Record<PlanCapability, boolean>>
     founder_pack: false,
     proactive_notifications: false,
   },
+  STARTER: {
+    company_dna_ai: true,
+    website_intelligence_refresh: false,
+    grant_auto_improve: false,
+    outcome_learning_ai: false,
+    founder_pack: false,
+    proactive_notifications: true,
+  },
   PRO: {
     company_dna_ai: true,
     website_intelligence_refresh: true,
@@ -46,7 +54,7 @@ export const PLAN_CAPABILITIES: Record<PlanKey, Record<PlanCapability, boolean>>
 };
 
 export const PLAN_CAPABILITY_MESSAGES: Record<PlanCapability, string> = {
-  company_dna_ai: "Company DNA autofill is available during an active free trial or on Growth, Pro, and Business.",
+  company_dna_ai: "Company DNA scoring is available during an active free trial or on Starter, Growth, Pro, and Business.",
   website_intelligence_refresh:
     "Refreshing website intelligence from your URL is available during an active free trial or on Growth, Pro, and Business.",
   grant_auto_improve: "Grant auto-improve is available during an active free trial or on Growth, Pro, and Business.",
@@ -54,14 +62,15 @@ export const PLAN_CAPABILITY_MESSAGES: Record<PlanCapability, string> = {
     "AI outcome learning insights are available during an active free trial or on Growth, Pro, and Business. Your outcome was still saved.",
   founder_pack: "Founder Funding Pack is available during an active free trial or on Growth, Pro, and Business.",
   proactive_notifications:
-    "Grant match, deadline, and outcome reminder notifications are available during an active free trial or on Growth, Pro, and Business.",
+    "Grant match, deadline, and outcome reminder notifications are available during an active free trial or on Starter, Growth, Pro, and Business.",
 };
 
 export function resolvePlanKey(plan: unknown): PlanKey {
   if (typeof plan === "string") {
     const normalized = plan.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_");
     if (normalized in PLAN_LIMITS) return normalized as PlanKey;
-    if (normalized === "FREE" || normalized === "STARTER" || normalized === "TRIAL") return "FREE_TRIAL";
+    if (normalized === "FREE" || normalized === "TRIAL") return "FREE_TRIAL";
+    if (normalized.includes("STARTER")) return "STARTER";
     if (normalized.includes("BUSINESS")) return "BUSINESS";
     if (normalized.includes("GROWTH")) return "GROWTH";
     if (normalized.includes("PRO")) return "PRO";

@@ -16,16 +16,15 @@ export function getPlanFromPriceId(priceId: string): PlanKey | null {
   if (!priceId) return null;
   for (const plan of PLAN_CATALOG) {
     const envPriceId = plan.stripePriceIdEnv ? process.env[plan.stripePriceIdEnv] : "";
-    const configuredPriceId = plan.stripePriceId ?? envPriceId;
-    if (priceId === configuredPriceId) return plan.value;
+    if (priceId === plan.stripePriceId || priceId === envPriceId) return plan.value;
   }
   return null;
 }
 
 export function getAllowedCheckoutPriceIds(): Set<string> {
-  const ids = PLAN_CATALOG.map((plan) => {
+  const ids = PLAN_CATALOG.flatMap((plan) => {
     const envPriceId = plan.stripePriceIdEnv ? process.env[plan.stripePriceIdEnv] : "";
-    return plan.stripePriceId ?? envPriceId;
+    return [plan.stripePriceId, envPriceId];
   });
   return new Set(ids.filter((value): value is string => Boolean(value?.trim())));
 }

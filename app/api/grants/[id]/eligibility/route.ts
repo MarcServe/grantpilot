@@ -198,9 +198,9 @@ export async function GET(
         !isFreeTrialActive(org as { plan?: string; createdAt?: string | Date | null });
       const message =
         trialExpired
-          ? "Your 7-day Starter trial has expired. Upgrade to continue full company-DNA eligibility checks."
+          ? "Your 7-day free trial has expired. Upgrade to continue full company-DNA eligibility checks."
           : plan === "FREE_TRIAL"
-          ? "You've used all Starter full eligibility checks this month. Cached scores still appear for grants you've already assessed. Upgrade for unlimited company-DNA scoring."
+          ? "You've used all free-trial full eligibility checks. Cached scores still appear for grants you've already assessed. Upgrade to continue company-DNA scoring."
           : "Monthly eligibility check quota reached.";
       return NextResponse.json({ error: message, code: "MATCH_LIMIT", remaining }, { status: 402 });
     }

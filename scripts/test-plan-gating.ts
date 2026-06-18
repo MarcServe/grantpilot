@@ -21,6 +21,18 @@ assert.equal(
 );
 
 assert.equal(
+  planAllowsForOrg({ plan: "STARTER", createdAt: expiredTrialCreatedAt }, "proactive_notifications"),
+  true,
+  "paid Starter organisations should receive proactive notifications"
+);
+
+assert.equal(
+  planAllowsForOrg({ plan: "STARTER", createdAt: expiredTrialCreatedAt }, "website_intelligence_refresh"),
+  false,
+  "Starter should not include website intelligence refresh"
+);
+
+assert.equal(
   planAllowsForOrg({ plan: "BUSINESS", createdAt: expiredTrialCreatedAt }, "proactive_notifications"),
   true,
   "paid organisations should keep proactive notifications"

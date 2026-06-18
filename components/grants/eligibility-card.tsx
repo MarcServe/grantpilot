@@ -257,7 +257,7 @@ export function EligibilityCard({
       if (!res.ok) {
         if (res.status === 402) {
           toast.error(data.error ?? "Limit reached", {
-            description: "Upgrade or wait until next month for more Starter checks.",
+            description: "Upgrade or wait until next month for more full eligibility checks.",
             action: {
               label: "Billing",
               onClick: () => router.push("/billing"),
