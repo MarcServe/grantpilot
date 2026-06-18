@@ -218,11 +218,32 @@ type AiDiscoveryActivity = {
   perplexity: number;
   claude: number;
   gemini: number;
+  providerStats: Record<AiDiscoveryProviderKey, AiDiscoveryProviderStats>;
   created: number;
   updated: number;
   rejected: number;
   runs: number;
 };
+
+type AiDiscoveryProviderKey = "openai" | "perplexity" | "claude" | "gemini";
+
+type AiDiscoveryProviderStats = {
+  raw: number;
+  accepted: number;
+  created: number;
+  updated: number;
+  duplicate: number;
+  rejected: number;
+  errors: number;
+  errorSamples: string[];
+};
+
+const AI_DISCOVERY_PROVIDER_KEYS: Array<{ key: AiDiscoveryProviderKey; label: string }> = [
+  { key: "openai", label: "OpenAI" },
+  { key: "perplexity", label: "Perplexity" },
+  { key: "claude", label: "Claude" },
+  { key: "gemini", label: "Gemini" },
+];
 
 type SourceReviewQueueRow = {
   id: string;
@@ -504,12 +525,53 @@ function readNumber(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+function emptyAiDiscoveryProviderStats(): AiDiscoveryProviderStats {
+  return {
+    raw: 0,
+    accepted: 0,
+    created: 0,
+    updated: 0,
+    duplicate: 0,
+    rejected: 0,
+    errors: 0,
+    errorSamples: [],
+  };
+}
+
+function emptyAiDiscoveryProviderStatsMap(): Record<AiDiscoveryProviderKey, AiDiscoveryProviderStats> {
+  return {
+    openai: emptyAiDiscoveryProviderStats(),
+    perplexity: emptyAiDiscoveryProviderStats(),
+    claude: emptyAiDiscoveryProviderStats(),
+    gemini: emptyAiDiscoveryProviderStats(),
+  };
+}
+
+function addProviderStats(
+  target: AiDiscoveryProviderStats,
+  source: Record<string, unknown>
+): void {
+  target.raw += readNumber(source.raw);
+  target.accepted += readNumber(source.accepted);
+  target.created += readNumber(source.created);
+  target.updated += readNumber(source.updated);
+  target.duplicate += readNumber(source.duplicate);
+  target.rejected += readNumber(source.rejected);
+  target.errors += readNumber(source.errors);
+  const samples = Array.isArray(source.errorSamples) ? source.errorSamples : [];
+  target.errorSamples.push(
+    ...samples.filter((sample): sample is string => typeof sample === "string").slice(0, 3)
+  );
+  target.errorSamples = target.errorSamples.slice(0, 5);
+}
+
 function discoveryActivityFromCronRuns(rows: CronRunLogRow[]): AiDiscoveryActivity {
   const activity: AiDiscoveryActivity = {
     openai: 0,
     perplexity: 0,
     claude: 0,
     gemini: 0,
+    providerStats: emptyAiDiscoveryProviderStatsMap(),
     created: 0,
     updated: 0,
     rejected: 0,
@@ -524,10 +586,28 @@ function discoveryActivityFromCronRuns(rows: CronRunLogRow[]): AiDiscoveryActivi
     const providers = result.providers && typeof result.providers === "object"
       ? result.providers as Record<string, unknown>
       : null;
-    activity.openai += readNumber(providers?.openai);
-    activity.perplexity += readNumber(providers?.perplexity);
-    activity.claude += readNumber(providers?.claude);
-    activity.gemini += readNumber(providers?.gemini);
+    const providerStats = result.providerStats && typeof result.providerStats === "object"
+      ? result.providerStats as Record<string, unknown>
+      : null;
+    let usedStructuredStats = false;
+
+    for (const provider of AI_DISCOVERY_PROVIDER_KEYS) {
+      const structured = providerStats?.[provider.key];
+      if (structured && typeof structured === "object") {
+        const beforeRaw = activity.providerStats[provider.key].raw;
+        addProviderStats(activity.providerStats[provider.key], structured as Record<string, unknown>);
+        activity[provider.key] += activity.providerStats[provider.key].raw - beforeRaw;
+        usedStructuredStats = true;
+      }
+    }
+
+    if (!usedStructuredStats) {
+      for (const provider of AI_DISCOVERY_PROVIDER_KEYS) {
+        const raw = readNumber(providers?.[provider.key]);
+        activity[provider.key] += raw;
+        activity.providerStats[provider.key].raw += raw;
+      }
+    }
     activity.created += readNumber(result.created);
     activity.updated += readNumber(result.updated);
     activity.rejected += readNumber(result.rejected);
@@ -1908,18 +1988,41 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                     <div className="mt-1 text-xs text-blue-900/80">
                       Raw candidates from recent grant-discovery cron runs before dedupe, URL health checks, and final source attribution.
                     </div>
-                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                      {[
-                        ["OpenAI", aiDiscoveryActivity.openai],
-                        ["Perplexity", aiDiscoveryActivity.perplexity],
-                        ["Claude", aiDiscoveryActivity.claude],
-                        ["Gemini", aiDiscoveryActivity.gemini],
-                      ].map(([label, count]) => (
-                        <div key={String(label)} className="rounded border border-blue-100 bg-white/70 p-2">
-                          <div className="text-muted-foreground">{label}</div>
-                          <div className="text-lg font-semibold">{count}</div>
+                    <div className="mt-3 grid gap-2 text-xs">
+                      {AI_DISCOVERY_PROVIDER_KEYS.map((provider) => {
+                        const stats = aiDiscoveryActivity.providerStats[provider.key];
+                        return (
+                        <div key={provider.key} className="rounded border border-blue-100 bg-white/70 p-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="font-medium">{provider.label}</div>
+                            <div className="text-lg font-semibold">{stats.raw}</div>
+                          </div>
+                          <div className="mt-2 grid grid-cols-4 gap-1 text-center">
+                            <div className="rounded border bg-emerald-50 p-1">
+                              <div className="text-muted-foreground">Accepted</div>
+                              <div className="font-semibold text-emerald-700">{stats.accepted}</div>
+                            </div>
+                            <div className="rounded border bg-muted/30 p-1">
+                              <div className="text-muted-foreground">Dup</div>
+                              <div className="font-semibold">{stats.duplicate}</div>
+                            </div>
+                            <div className="rounded border bg-amber-50 p-1">
+                              <div className="text-muted-foreground">Rejected</div>
+                              <div className="font-semibold text-amber-700">{stats.rejected}</div>
+                            </div>
+                            <div className="rounded border bg-red-50 p-1">
+                              <div className="text-muted-foreground">Errors</div>
+                              <div className="font-semibold text-red-700">{stats.errors}</div>
+                            </div>
+                          </div>
+                          {stats.errorSamples.length > 0 && (
+                            <div className="mt-2 rounded border border-red-200 bg-red-50 p-2 text-red-900">
+                              {stats.errorSamples[0]}
+                            </div>
+                          )}
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                     <div className="mt-2 text-xs text-blue-900/80">
                       Accepted last 7 days: {aiDiscoveryActivity.created} created, {aiDiscoveryActivity.updated} updated, {aiDiscoveryActivity.rejected} rejected across {aiDiscoveryActivity.runs} run{aiDiscoveryActivity.runs === 1 ? "" : "s"}.

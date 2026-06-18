@@ -65,8 +65,12 @@ export async function discoverGrantsWithGemini(
 
   const ai = new GoogleGenAI({ apiKey });
   const response = await ai.models.generateContent({
-    model: DISCOVERY_MODEL,
+    model: process.env.GEMINI_DISCOVERY_MODEL?.trim() || DISCOVERY_MODEL,
     contents: buildPrompt(profile),
+    config: {
+      temperature: 0.1,
+      tools: [{ googleSearch: {} }],
+    },
   });
 
   const text = typeof (response as { text?: string }).text === "string"

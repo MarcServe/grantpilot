@@ -13,6 +13,68 @@ import { upsertGrant, type GrantInput } from "./grants-ingest";
 import { checkUrlHealth } from "./url-health-check";
 import { inferFunderLocationsFromProfile } from "@/lib/constants";
 
+export const DISCOVERY_PROVIDER_NAMES = ["openai", "perplexity", "claude", "gemini"] as const;
+export type DiscoveryProviderName = (typeof DISCOVERY_PROVIDER_NAMES)[number];
+
+export type DiscoveryProviderStats = {
+  raw: number;
+  accepted: number;
+  created: number;
+  updated: number;
+  duplicate: number;
+  rejected: number;
+  errors: number;
+  errorSamples: string[];
+};
+
+export type DiscoveryProviderStatsMap = Record<DiscoveryProviderName, DiscoveryProviderStats>;
+
+function emptyDiscoveryProviderStats(): DiscoveryProviderStats {
+  return {
+    raw: 0,
+    accepted: 0,
+    created: 0,
+    updated: 0,
+    duplicate: 0,
+    rejected: 0,
+    errors: 0,
+    errorSamples: [],
+  };
+}
+
+export function createDiscoveryProviderStatsMap(): DiscoveryProviderStatsMap {
+  return {
+    openai: emptyDiscoveryProviderStats(),
+    perplexity: emptyDiscoveryProviderStats(),
+    claude: emptyDiscoveryProviderStats(),
+    gemini: emptyDiscoveryProviderStats(),
+  };
+}
+
+export function mergeDiscoveryProviderStats(
+  target: DiscoveryProviderStatsMap,
+  incoming?: Partial<Record<DiscoveryProviderName, Partial<DiscoveryProviderStats>>> | null
+): DiscoveryProviderStatsMap {
+  if (!incoming) return target;
+
+  for (const provider of DISCOVERY_PROVIDER_NAMES) {
+    const source = incoming[provider];
+    if (!source) continue;
+    target[provider].raw += Number(source.raw ?? 0);
+    target[provider].accepted += Number(source.accepted ?? 0);
+    target[provider].created += Number(source.created ?? 0);
+    target[provider].updated += Number(source.updated ?? 0);
+    target[provider].duplicate += Number(source.duplicate ?? 0);
+    target[provider].rejected += Number(source.rejected ?? 0);
+    target[provider].errors += Number(source.errors ?? 0);
+    const samples = Array.isArray(source.errorSamples) ? source.errorSamples : [];
+    target[provider].errorSamples.push(...samples.slice(0, 3));
+    target[provider].errorSamples = target[provider].errorSamples.slice(0, 5);
+  }
+
+  return target;
+}
+
 function normaliseKey(g: GrantInput): string {
   return `${(g.name ?? "").toLowerCase().trim()}|${(g.funder ?? "").toLowerCase().trim()}`;
 }
@@ -60,6 +122,16 @@ async function isLoginWalled(url: string): Promise<boolean> {
   }
 }
 
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message.slice(0, 280);
+  if (typeof error === "string") return error.slice(0, 280);
+  try {
+    return JSON.stringify(error).slice(0, 280);
+  } catch {
+    return "Unknown provider error";
+  }
+}
+
 /**
  * Run OpenAI (web search), Perplexity, Claude, and Gemini in parallel.
  * Merge, dedupe, validate URLs, then upsert only verified grants.
@@ -72,12 +144,22 @@ export async function runDiscoveryAndUpsert(profile: DiscoveryProfile): Promise<
   created: number;
   updated: number;
   rejected: number;
+  providerStats: DiscoveryProviderStatsMap;
 }> {
-  const safe = <T>(fn: () => Promise<T[]>, label: string): Promise<T[]> =>
-    fn().catch((err) => {
+  const providerStats = createDiscoveryProviderStatsMap();
+  const safe = async (fn: () => Promise<GrantInput[]>, label: DiscoveryProviderName): Promise<GrantInput[]> => {
+    try {
+      const rows = await fn();
+      providerStats[label].raw = rows.length;
+      return rows;
+    } catch (err) {
+      const message = errorMessage(err);
+      providerStats[label].errors += 1;
+      providerStats[label].errorSamples.push(message);
       console.warn(`[grants-discovery] ${label} failed:`, err);
-      return [] as T[];
-    });
+      return [];
+    }
+  };
 
   const [openaiGrants, perplexityGrants, claudeGrants, geminiGrants] = await Promise.all([
     safe(() => discoverGrantsWithOpenAI(profile), "openai"),
@@ -93,40 +175,40 @@ export async function runDiscoveryAndUpsert(profile: DiscoveryProfile): Promise<
   // Prefer OpenAI > Perplexity > Claude > Gemini when sources find the same grant.
   // All source rows later flow through OpenAI eligibility scoring before becoming trusted matches.
   const byKey = new Map<string, GrantInput>();
-  for (const g of openaiGrants) {
+  const addCandidate = (g: GrantInput, source: DiscoveryProviderName) => {
     const key = normaliseKey(g);
-    byKey.set(key, { ...g, externalId: discoveryExternalId(key), source: "openai" });
-  }
-  for (const g of perplexityGrants) {
-    const key = normaliseKey(g);
-    if (!byKey.has(key))
-      byKey.set(key, { ...g, externalId: discoveryExternalId(key), source: "perplexity" });
-  }
-  for (const g of claudeGrants) {
-    const key = normaliseKey(g);
-    if (!byKey.has(key))
-      byKey.set(key, { ...g, externalId: discoveryExternalId(key), source: "claude" });
-  }
-  for (const g of geminiGrants) {
-    const key = normaliseKey(g);
-    if (!byKey.has(key))
-      byKey.set(key, { ...g, externalId: discoveryExternalId(key), source: "gemini" });
-  }
+    if (byKey.has(key)) {
+      providerStats[source].duplicate += 1;
+      return;
+    }
+    byKey.set(key, { ...g, externalId: discoveryExternalId(key), source });
+  };
+
+  for (const g of openaiGrants) addCandidate(g, "openai");
+  for (const g of perplexityGrants) addCandidate(g, "perplexity");
+  for (const g of claudeGrants) addCandidate(g, "claude");
+  for (const g of geminiGrants) addCandidate(g, "gemini");
 
   let created = 0;
   let updated = 0;
   let rejected = 0;
 
   for (const g of byKey.values()) {
+    const source = DISCOVERY_PROVIDER_NAMES.includes(g.source as DiscoveryProviderName)
+      ? (g.source as DiscoveryProviderName)
+      : "openai";
+
     try {
       const health = await checkUrlHealth(g.applicationUrl, g);
       if (health.status === "dead") {
         console.warn(`[grants-discovery] REJECTED (dead URL): ${g.name} — ${g.applicationUrl} (${health.reason})`);
+        providerStats[source].rejected += 1;
         rejected++;
         continue;
       }
       if (health.status === "expired") {
         console.warn(`[grants-discovery] REJECTED (expired): ${g.name} — ${g.applicationUrl}`);
+        providerStats[source].rejected += 1;
         rejected++;
         continue;
       }
@@ -137,10 +219,19 @@ export async function runDiscoveryAndUpsert(profile: DiscoveryProfile): Promise<
       }
 
       const { created: c } = await upsertGrant(g);
-      if (c) created++;
-      else updated++;
+      providerStats[source].accepted += 1;
+      if (c) {
+        created++;
+        providerStats[source].created += 1;
+      } else {
+        updated++;
+        providerStats[source].updated += 1;
+      }
       console.log(`[grants-discovery] ${c ? "CREATED" : "UPDATED"}: ${g.name} (${g.source}) — ${g.applicationUrl}`);
     } catch (e) {
+      providerStats[source].errors += 1;
+      providerStats[source].errorSamples.push(errorMessage(e));
+      providerStats[source].errorSamples = providerStats[source].errorSamples.slice(0, 5);
       console.warn("[grants-discovery] upsert skip", g.externalId, e);
     }
   }
@@ -155,6 +246,7 @@ export async function runDiscoveryAndUpsert(profile: DiscoveryProfile): Promise<
     created,
     updated,
     rejected,
+    providerStats,
   };
 }
 

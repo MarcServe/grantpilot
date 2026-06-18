@@ -7,6 +7,8 @@
 import { inngest } from "./client";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
+  createDiscoveryProviderStatsMap,
+  mergeDiscoveryProviderStats,
   runDiscoveryAndUpsert,
   profileToDiscoveryProfile,
 } from "@/lib/grants-discovery";
@@ -37,6 +39,7 @@ export const grantDiscovery = inngest.createFunction(
       claude: 0,
       gemini: 0,
     };
+    const providerStats = createDiscoveryProviderStatsMap();
     let rejected = 0;
 
     for (const [, profile] of byOrg) {
@@ -51,14 +54,15 @@ export const grantDiscovery = inngest.createFunction(
           fundingPurposes: profile.fundingPurposes,
           funderLocations: (profile as { funderLocations?: string[] }).funderLocations,
         });
-        const result = await runDiscoveryAndUpsert(discoveryProfile);
-        providers.openai += result.openai;
-        providers.perplexity += result.perplexity;
-        providers.claude += result.claude;
-        providers.gemini += result.gemini;
-        totalCreated += result.created;
-        totalUpdated += result.updated;
-        rejected += result.rejected;
+        const discoveryResult = await runDiscoveryAndUpsert(discoveryProfile);
+        providers.openai += discoveryResult.openai;
+        providers.perplexity += discoveryResult.perplexity;
+        providers.claude += discoveryResult.claude;
+        providers.gemini += discoveryResult.gemini;
+        mergeDiscoveryProviderStats(providerStats, discoveryResult.providerStats);
+        totalCreated += discoveryResult.created;
+        totalUpdated += discoveryResult.updated;
+        rejected += discoveryResult.rejected;
       } catch (err) {
         console.error("[grant-discovery] org error:", err);
       }
@@ -67,6 +71,7 @@ export const grantDiscovery = inngest.createFunction(
     return {
       orgs: byOrg.size,
       providers,
+      providerStats,
       created: totalCreated,
       updated: totalUpdated,
       rejected,
