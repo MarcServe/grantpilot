@@ -54,6 +54,18 @@ function extractText(content: unknown): string {
     .join("\n");
 }
 
+function parseDiscoveryRows(text: string): DiscoveryGrantRow[] {
+  const jsonMatch = text.match(/\[[\s\S]*\]/);
+  const jsonStr = jsonMatch ? jsonMatch[0] : text;
+  const parsed = JSON.parse(jsonStr) as unknown;
+  if (Array.isArray(parsed)) return parsed as DiscoveryGrantRow[];
+  if (parsed && typeof parsed === "object") {
+    const grants = (parsed as { grants?: unknown }).grants;
+    if (Array.isArray(grants)) return grants as DiscoveryGrantRow[];
+  }
+  return [];
+}
+
 export async function discoverGrantsWithClaude(
   profile: DiscoveryProfile
 ): Promise<GrantInput[]> {
@@ -83,25 +95,24 @@ export async function discoverGrantsWithClaude(
 
   const payload = (await response.json()) as { content?: unknown };
   const text = extractText(payload.content);
-  if (!text) return [];
+  if (!text) throw new Error("Claude discovery returned an empty response.");
 
   const funderLocations = profile.funderLocations ?? [];
+  let rows: DiscoveryGrantRow[] = [];
 
   try {
-    const jsonMatch = text.match(/\[[\s\S]*\]/);
-    const jsonStr = jsonMatch ? jsonMatch[0] : text;
-    const parsed = JSON.parse(jsonStr) as unknown;
-    const arr = Array.isArray(parsed)
-      ? parsed
-      : Array.isArray((parsed as { grants?: unknown }).grants)
-        ? (parsed as { grants: unknown[] }).grants
-        : [];
-    return (arr as DiscoveryGrantRow[])
-      .map((row) => toGrantInput(row, "claude", funderLocations))
-      .filter((grant): grant is GrantInput => grant != null);
+    rows = parseDiscoveryRows(text);
   } catch {
-    return parseJsonArray<DiscoveryGrantRow>(text)
-      .map((row) => toGrantInput(row, "claude", funderLocations))
-      .filter((grant): grant is GrantInput => grant != null);
+    rows = parseJsonArray<DiscoveryGrantRow>(text);
   }
+
+  const grants = rows
+    .map((row) => toGrantInput(row, "claude", funderLocations))
+    .filter((grant): grant is GrantInput => grant != null);
+
+  if (grants.length === 0) {
+    throw new Error(`Claude discovery returned no usable grant rows. Preview: ${text.slice(0, 220)}`);
+  }
+
+  return grants;
 }

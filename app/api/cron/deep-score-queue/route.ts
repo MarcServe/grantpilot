@@ -28,9 +28,10 @@ async function callWorker(
   shardCount: number,
   limit: number
 ) {
+  const workerBaseUrl = process.env.DEEP_SCORE_WORKER_BASE_URL?.trim() || new URL(req.url).origin;
   const workerUrl = new URL(
     "/api/cron/deep-score-queue/worker",
-    process.env.NEXT_PUBLIC_APP_URL || req.url
+    workerBaseUrl
   );
   const headers: Record<string, string> = {
     authorization: `Bearer ${secret}`,

@@ -57,6 +57,41 @@ Return a JSON array. Each object must have:
 Limit to ${MAX_GRANTS} grants. Return ONLY the JSON array.`;
 }
 
+function extractGeminiText(response: unknown): string {
+  const maybeText = (response as { text?: unknown })?.text;
+  if (typeof maybeText === "string") return maybeText;
+  if (typeof maybeText === "function") {
+    const value = maybeText.call(response);
+    return typeof value === "string" ? value : "";
+  }
+
+  const candidates = (response as { candidates?: unknown })?.candidates;
+  if (!Array.isArray(candidates)) return "";
+  return candidates
+    .flatMap((candidate) => {
+      const parts = (candidate as { content?: { parts?: unknown } })?.content?.parts;
+      return Array.isArray(parts) ? parts : [];
+    })
+    .map((part) => {
+      const textPart = part as { text?: unknown };
+      return typeof textPart.text === "string" ? textPart.text : "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+function parseDiscoveryRows(text: string): DiscoveryGrantRow[] {
+  const match = text.match(/\[[\s\S]*\]/);
+  const jsonStr = match ? match[0] : text;
+  const parsed = JSON.parse(jsonStr) as unknown;
+  if (Array.isArray(parsed)) return parsed as DiscoveryGrantRow[];
+  if (parsed && typeof parsed === "object") {
+    const grants = (parsed as { grants?: unknown }).grants;
+    if (Array.isArray(grants)) return grants as DiscoveryGrantRow[];
+  }
+  return [];
+}
+
 export async function discoverGrantsWithGemini(
   profile: DiscoveryProfile
 ): Promise<GrantInput[]> {
@@ -73,31 +108,25 @@ export async function discoverGrantsWithGemini(
     },
   });
 
-  const text = typeof (response as { text?: string }).text === "string"
-    ? (response as { text: string }).text
-    : "";
-  if (!text) return [];
+  const text = extractGeminiText(response);
+  if (!text) throw new Error("Gemini discovery returned an empty response.");
+
+  const funderLocations = profile.funderLocations ?? [];
+  let rows: DiscoveryGrantRow[] = [];
 
   try {
-    const parsed = JSON.parse(text) as unknown;
-    const arr = Array.isArray(parsed)
-      ? parsed
-      : Array.isArray((parsed as { grants?: unknown }).grants)
-        ? (parsed as { grants: unknown[] }).grants
-        : [];
-    const rows = arr as DiscoveryGrantRow[];
-    const funderLocations = profile.funderLocations ?? [];
-    const out: GrantInput[] = [];
-    for (const row of rows) {
-      const grant = toGrantInput(row, "gemini", funderLocations);
-      if (grant) out.push(grant);
-    }
-    return out;
+    rows = parseDiscoveryRows(text);
   } catch {
-    const fallback = parseJsonArray<DiscoveryGrantRow>(text);
-    const funderLocations = profile.funderLocations ?? [];
-    return fallback
-      .map((row) => toGrantInput(row, "gemini", funderLocations))
-      .filter((g): g is GrantInput => g != null);
+    rows = parseJsonArray<DiscoveryGrantRow>(text);
   }
+
+  const grants = rows
+    .map((row) => toGrantInput(row, "gemini", funderLocations))
+    .filter((g): g is GrantInput => g != null);
+
+  if (grants.length === 0) {
+    throw new Error(`Gemini discovery returned no usable grant rows. Preview: ${text.slice(0, 220)}`);
+  }
+
+  return grants;
 }

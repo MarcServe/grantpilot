@@ -21,6 +21,9 @@ type SearchResultItem = {
   link?: unknown;
   description?: unknown;
   snippet?: unknown;
+  organicResults?: unknown;
+  paidResults?: unknown;
+  results?: unknown;
 };
 
 export type ApifyGrantSource = {
@@ -67,10 +70,53 @@ function inferType(url = "", title = "", snippet = ""): ApifyGrantSource["type"]
 function isWeakOrWrongRegion(url = "", title = "", snippet = ""): boolean {
   const content = `${url} ${title} ${snippet}`.toLowerCase();
   if (!/^https?:\/\//i.test(url)) return true;
+  if (isSearchEngineResultPage(url)) return true;
   if (content.includes("expired") || content.includes("archive") || content.includes("closed grants")) return true;
   if (content.includes("us-only") || content.includes("canada-only") || content.includes("australia-only")) return true;
   if (content.includes("scholarship") && !content.includes("business")) return true;
   return false;
+}
+
+function isSearchEngineResultPage(url = ""): boolean {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    const path = parsed.pathname.toLowerCase();
+    return (
+      (host.includes("google.") && path.startsWith("/search")) ||
+      (host.includes("bing.") && path.startsWith("/search")) ||
+      (host.includes("duckduckgo.") && path.includes("html"))
+    );
+  } catch {
+    return true;
+  }
+}
+
+function readResultArray(value: unknown): SearchResultItem[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is SearchResultItem => item != null && typeof item === "object")
+    : [];
+}
+
+function flattenSearchResultItems(items: SearchResultItem[]): SearchResultItem[] {
+  const flattened: SearchResultItem[] = [];
+
+  for (const item of items) {
+    const nested = [
+      ...readResultArray(item.organicResults),
+      ...readResultArray(item.paidResults),
+      ...readResultArray(item.results),
+    ];
+
+    if (nested.length > 0) {
+      flattened.push(...nested);
+      continue;
+    }
+
+    flattened.push(item);
+  }
+
+  return flattened;
 }
 
 function dedupeByEndpoint(sources: ApifyGrantSource[]): ApifyGrantSource[] {
@@ -161,8 +207,9 @@ export async function discoverGrantSourcesWithApify(options: {
 
   const itemsPayload = await apifyFetch(`datasets/${completedRun.defaultDatasetId}/items?clean=true`, options.apifyToken);
   const items = Array.isArray(itemsPayload) ? (itemsPayload as SearchResultItem[]) : [];
+  const resultItems = flattenSearchResultItems(items);
   const sources = dedupeByEndpoint(
-    items
+    resultItems
       .map((item) => {
         const endpoint = text(item.url) || text(item.link);
         const sourceName = (text(item.title) || endpoint || "Untitled source").slice(0, 160);
