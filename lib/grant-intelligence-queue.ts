@@ -28,6 +28,13 @@ function positiveIntFromEnv(name: string, fallback: number): number {
 
 export const GRANT_INTELLIGENCE_BATCH_SIZE = positiveIntFromEnv("GRANT_INTELLIGENCE_BATCH_SIZE", 25);
 
+type IntelligenceCacheRow = {
+  grant_id: string;
+  content_hash?: string | null;
+  status?: string | null;
+  updated_at?: string | null;
+};
+
 function priorityForGrant(grant: GrantForIntelligence): number {
   const deadline = grant.deadline ? new Date(grant.deadline).getTime() : 0;
   const deadlineBonus = Number.isFinite(deadline) && deadline > Date.now() ? 100 : 0;
@@ -53,14 +60,44 @@ export async function enqueueGrantsForIntelligence(options?: {
   const source = options?.source ?? "grant_intelligence_cron";
 
   try {
-    const { data, error } = await supabase
-      .from("Grant")
-      .select("id, name, funder, amount, deadline, applicationUrl, eligibility, description, objectives, applicantTypes, sectors, regions, url_status, createdAt")
-      .order("createdAt", { ascending: false })
+    const { data: pendingIntelligence, error: pendingIntelligenceError } = await supabase
+      .from("grant_ai_intelligence")
+      .select("grant_id, content_hash, status, updated_at")
+      .in("status", ["pending", "failed", "stale"])
+      .order("updated_at", { ascending: true })
       .limit(limit);
-    if (error) throw error;
+    if (pendingIntelligenceError) throw pendingIntelligenceError;
 
-    const grants = ((data ?? []) as GrantForIntelligence[]).filter((grant) => grant.id && isGrantActionableNow(grant));
+    const pendingGrantIds = Array.from(
+      new Set(((pendingIntelligence ?? []) as IntelligenceCacheRow[]).map((row) => row.grant_id).filter(Boolean))
+    );
+
+    const latestLimit = Math.max(0, limit - pendingGrantIds.length);
+    const latestGrantsResult = latestLimit > 0
+      ? await supabase
+          .from("Grant")
+          .select("id, name, funder, amount, deadline, applicationUrl, eligibility, description, objectives, applicantTypes, sectors, regions, url_status, createdAt")
+          .order("createdAt", { ascending: false })
+          .limit(latestLimit)
+      : { data: [], error: null };
+    if (latestGrantsResult.error) throw latestGrantsResult.error;
+
+    const pendingGrantsResult = pendingGrantIds.length > 0
+      ? await supabase
+          .from("Grant")
+          .select("id, name, funder, amount, deadline, applicationUrl, eligibility, description, objectives, applicantTypes, sectors, regions, url_status, createdAt")
+          .in("id", pendingGrantIds)
+      : { data: [], error: null };
+    if (pendingGrantsResult.error) throw pendingGrantsResult.error;
+
+    const grantsById = new Map<string, GrantForIntelligence>();
+    for (const grant of [
+      ...((pendingGrantsResult.data ?? []) as GrantForIntelligence[]),
+      ...((latestGrantsResult.data ?? []) as GrantForIntelligence[]),
+    ]) {
+      if (grant.id && isGrantActionableNow(grant)) grantsById.set(grant.id, grant);
+    }
+    const grants = Array.from(grantsById.values());
     if (grants.length === 0) return { requested: 0, enqueued: 0 };
 
     const grantIds = grants.map((grant) => grant.id);

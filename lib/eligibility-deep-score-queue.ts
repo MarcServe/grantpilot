@@ -58,6 +58,15 @@ export type DeepScoreCandidate = {
   source?: string | null;
 };
 
+type PreliminaryAssessmentRow = {
+  organisation_id: string | null;
+  profile_id: string | null;
+  grant_id: string | null;
+  score: number | null;
+  scoring_source?: string | null;
+  updated_at?: string | null;
+};
+
 function positiveIntFromEnv(name: string, fallback: number): number {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
@@ -256,25 +265,25 @@ export async function enqueueExistingHeuristicAssessments(options?: {
     const limit = Math.max(1, Math.min(1000, options?.limit ?? 500));
     const minScore = Math.max(0, Math.min(100, options?.minScore ?? 40));
     const scanLimit = Math.max(limit, Math.min(MAX_QUEUE_SCAN_LIMIT, limit * 20));
-    const { data, error } = await supabase
-      .from("EligibilityAssessment")
-      .select("organisation_id, profile_id, grant_id, score, summary, scoring_source, updated_at")
-      .in("scoring_source", ["heuristic", "embedding", "intelligence"])
-      .gte("score", minScore)
-      .order("score", { ascending: false })
-      .order("updated_at", { ascending: false })
-      .limit(scanLimit);
+    const scannedAssessments: PreliminaryAssessmentRow[] = [];
+    const pageSize = Math.min(1000, scanLimit);
 
-    if (error) throw error;
-    const scannedAssessments = (data ?? []) as Array<{
-      organisation_id: string | null;
-      profile_id: string | null;
-      grant_id: string | null;
-      score: number | null;
-      scoring_source?: string | null;
-      updated_at?: string | null;
-      _selectionPriority?: number;
-    }>;
+    for (let from = 0; from < scanLimit; from += pageSize) {
+      const to = Math.min(scanLimit - 1, from + pageSize - 1);
+      const { data, error } = await supabase
+        .from("EligibilityAssessment")
+        .select("organisation_id, profile_id, grant_id, score, scoring_source, updated_at")
+        .in("scoring_source", ["heuristic", "embedding", "intelligence"])
+        .gte("score", minScore)
+        .order("score", { ascending: false })
+        .order("updated_at", { ascending: false })
+        .range(from, to);
+
+      if (error) throw error;
+      const page = (data ?? []) as PreliminaryAssessmentRow[];
+      scannedAssessments.push(...page);
+      if (page.length < pageSize) break;
+    }
 
     const profileIds = Array.from(new Set(scannedAssessments.map((row) => row.profile_id).filter(Boolean))) as string[];
     if (profileIds.length === 0) {
