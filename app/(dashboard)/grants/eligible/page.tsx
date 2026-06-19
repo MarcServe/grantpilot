@@ -320,6 +320,7 @@ async function EligibleGrantsPageContent({
       funder: grant.funder,
       deadline: grant.deadline,
       addedAt: grant.createdAt ?? null,
+      scoredAt: a.updated_at ?? null,
       score,
       decision: guarded.decision,
       summary: guarded.summary ?? a.summary,
@@ -335,6 +336,9 @@ async function EligibleGrantsPageContent({
 
   allGrants.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
+    const bScoredTime = b.scoredAt ? new Date(b.scoredAt).getTime() : 0;
+    const aScoredTime = a.scoredAt ? new Date(a.scoredAt).getTime() : 0;
+    if (bScoredTime !== aScoredTime) return bScoredTime - aScoredTime;
     const bTime = b.addedAt ? new Date(b.addedAt).getTime() : 0;
     const aTime = a.addedAt ? new Date(a.addedAt).getTime() : 0;
     return bTime - aTime;

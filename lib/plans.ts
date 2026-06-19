@@ -142,7 +142,7 @@ export const PLAN_CATALOG: PlanCatalogRow[] = [
           "Grant auto-improve",
           "Founder Funding Pack",
           "AI outcome learning insights",
-          "WhatsApp opportunity alerts",
+          "No WhatsApp opportunity alerts",
         ],
       },
     ],

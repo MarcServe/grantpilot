@@ -308,11 +308,25 @@ function buildDigestGrantItem(params: {
     grantId: grant.id,
     grantName: grant.name,
     score,
+    scoredAt: row.updated_at ?? null,
     summary: finalResult.summary ?? finalResult.reason ?? row.summary ?? undefined,
     startApplicationToken: createStartApplicationToken({ grantId: grant.id, profileId, organisationId: orgId }),
     missingCriteria: finalResult.missing ?? asStringArray(row.missing_criteria),
     improvementPlan: finalResult.improvementPlan ?? asImprovementPlan(row.improvement_plan),
   };
+}
+
+function digestScoredTime(item: DigestGrantItem): number {
+  if (!item.scoredAt) return 0;
+  const time = new Date(item.scoredAt).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function sortDigestByFreshScore(a: DigestGrantItem, b: DigestGrantItem): number {
+  const scoredDelta = digestScoredTime(b) - digestScoredTime(a);
+  if (scoredDelta !== 0) return scoredDelta;
+  if (b.score !== a.score) return b.score - a.score;
+  return a.grantName.localeCompare(b.grantName);
 }
 
 async function countUsableGrants(supabase: ReturnType<typeof getSupabaseAdmin>): Promise<number> {
@@ -408,9 +422,9 @@ async function buildCurrentDigestForProfile(
     .in("scoring_source", ["openai", "intelligence"])
     .gte("score", 50)
     .lte("score", maxScore)
-    .order("score", { ascending: false })
     .order("updated_at", { ascending: false })
-    .limit(200);
+    .order("score", { ascending: false })
+    .limit(300);
 
   if (error) {
     console.error("[daily-notification-safeguard] digest assessment query", error);
@@ -448,13 +462,12 @@ async function buildCurrentDigestForProfile(
     else items.push(item);
   }
 
-  const byScore = (a: DigestGrantItem, b: DigestGrantItem) => b.score - a.score;
   return {
-    strong: items.filter((item) => item.score >= minStrongScore).sort(byScore).slice(0, 5),
+    strong: items.filter((item) => item.score >= minStrongScore).sort(sortDigestByFreshScore).slice(0, 5),
     withinReach: withinReachMax >= 50
-      ? items.filter((item) => item.score >= 50 && item.score <= withinReachMax).sort(byScore).slice(0, 4)
+      ? items.filter((item) => item.score >= 50 && item.score <= withinReachMax).sort(sortDigestByFreshScore).slice(0, 4)
       : [],
-    previous: previousItems.sort(byScore).slice(0, 3),
+    previous: previousItems.sort(sortDigestByFreshScore).slice(0, 3),
   };
 }
 

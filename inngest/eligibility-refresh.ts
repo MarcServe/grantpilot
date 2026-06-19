@@ -213,6 +213,23 @@ function grantCreatedTime(grant: GrantRow | undefined): number {
   return Number.isFinite(time) ? time : 0;
 }
 
+function digestScoredTime(item: DigestGrantItem): number {
+  if (!item.scoredAt) return 0;
+  const time = new Date(item.scoredAt).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function sortDigestByFreshScore(
+  grantsById: Map<string, GrantRow>,
+  a: DigestGrantItem,
+  b: DigestGrantItem
+): number {
+  const scoredDelta = digestScoredTime(b) - digestScoredTime(a);
+  if (scoredDelta !== 0) return scoredDelta;
+  if (b.score !== a.score) return b.score - a.score;
+  return grantCreatedTime(grantsById.get(b.grantId)) - grantCreatedTime(grantsById.get(a.grantId));
+}
+
 function uniqueGrantIds(ids: string[]): string[] {
   const seen = new Set<string>();
   const unique: string[] = [];
@@ -773,6 +790,7 @@ export async function runEligibilityRefreshJob(options?: {
             grantId: grant.id,
             grantName: grant.name,
             score,
+            scoredAt: assessment.updated_at ?? null,
             summary:
               finalResult.summary ??
               finalResult.reason ??
@@ -810,10 +828,7 @@ export async function runEligibilityRefreshJob(options?: {
           }
 
           return items
-            .sort((a, b) => {
-              if (b.score !== a.score) return b.score - a.score;
-              return grantCreatedTime(grantsByIdForDigest.get(b.grantId)) - grantCreatedTime(grantsByIdForDigest.get(a.grantId));
-            })
+            .sort((a, b) => sortDigestByFreshScore(grantsByIdForDigest, a, b))
             .slice(0, limit);
         };
 
@@ -844,10 +859,7 @@ export async function runEligibilityRefreshJob(options?: {
           }
 
           return items
-            .sort((a, b) => {
-              if (b.score !== a.score) return b.score - a.score;
-              return grantCreatedTime(grantsByIdForDigest.get(b.grantId)) - grantCreatedTime(grantsByIdForDigest.get(a.grantId));
-            })
+            .sort((a, b) => sortDigestByFreshScore(grantsByIdForDigest, a, b))
             .slice(0, limit);
         };
         const buildPreviousScanDigest = async (limit = 3): Promise<DigestGrantItem[]> => {
@@ -876,10 +888,7 @@ export async function runEligibilityRefreshJob(options?: {
           }
 
           return items
-            .sort((a, b) => {
-              if (b.score !== a.score) return b.score - a.score;
-              return grantCreatedTime(grantsByIdForDigest.get(b.grantId)) - grantCreatedTime(grantsByIdForDigest.get(a.grantId));
-            })
+            .sort((a, b) => sortDigestByFreshScore(grantsByIdForDigest, a, b))
             .slice(0, limit);
         };
         let currentStrongDigestCache: DigestGrantItem[] | null = null;

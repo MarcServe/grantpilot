@@ -145,6 +145,7 @@ export type EligibilityWhatsAppTrace = {
   plan: string;
   preferredTimezone: string | null;
   proactiveNotificationsAllowed: boolean;
+  whatsappOpportunityAlertsAllowed: boolean;
   profile: {
     id: string;
     businessName: string;
@@ -502,6 +503,7 @@ function decideFinalReason(params: {
   profileCompletion: number;
   notifyMinCompletion: number;
   proactiveNotificationsAllowed: boolean;
+  whatsappOpportunityAlertsAllowed: boolean;
   notifyEmail: boolean;
   notifyWhatsApp: boolean;
   users: NotifyUserRow[];
@@ -515,6 +517,7 @@ function decideFinalReason(params: {
   if (!params.profile) return "no_profile";
   if (params.profileCompletion < params.notifyMinCompletion) return "profile_completion_below_threshold";
   if (!params.proactiveNotificationsAllowed) return "plan_blocked";
+  if (!params.whatsappOpportunityAlertsAllowed) return "plan_blocked";
   if (!params.notifyEmail) return "email_disabled";
   if (!params.notifyWhatsApp) return "whatsapp_disabled";
   if (!params.users.some((user) => user.phoneNumber)) return "no_phone";
@@ -536,7 +539,13 @@ function buildBlockers(trace: Omit<EligibilityWhatsAppTrace, "blockers" | "final
       `Profile completion is ${trace.profile.completionScore}%; eligibility notifications require ${getEligibilityNotifyMinCompletion()}% or higher.`
     );
   }
-  if (reason === "plan_blocked") blockers.push("The organisation plan does not allow proactive notifications.");
+  if (reason === "plan_blocked") {
+    blockers.push(
+      trace.proactiveNotificationsAllowed
+        ? "The organisation plan does not include WhatsApp opportunity alerts."
+        : "The organisation plan does not allow proactive notifications."
+    );
+  }
   if (reason === "email_disabled") blockers.push("Eligibility email notifications are disabled.");
   if (reason === "whatsapp_disabled") blockers.push("Eligibility WhatsApp notifications are disabled.");
   if (reason === "no_phone") blockers.push("No non-viewer organisation member has a phone number.");
@@ -586,6 +595,10 @@ export async function getEligibilityWhatsAppTraceForOrg(
   const proactiveNotificationsAllowed = planAllowsForOrg(
     { plan, createdAt: org.createdAt ?? org.created_at ?? null },
     "proactive_notifications"
+  );
+  const whatsappOpportunityAlertsAllowed = planAllowsForOrg(
+    { plan, createdAt: org.createdAt ?? org.created_at ?? null },
+    "whatsapp_opportunity_alerts"
   );
   const minScore = Math.max(Number(prefs?.min_score ?? DEFAULT_MIN_SCORE), 75);
   const maxScore = Number(prefs?.max_score ?? DEFAULT_MAX_SCORE);
@@ -642,6 +655,7 @@ export async function getEligibilityWhatsAppTraceForOrg(
     plan,
     preferredTimezone: org.preferredTimezone ?? null,
     proactiveNotificationsAllowed,
+    whatsappOpportunityAlertsAllowed,
     profile: profile
       ? {
           id: profile.id,
@@ -692,6 +706,7 @@ export async function getEligibilityWhatsAppTraceForOrg(
     profileCompletion,
     notifyMinCompletion,
     proactiveNotificationsAllowed,
+    whatsappOpportunityAlertsAllowed,
     notifyEmail,
     notifyWhatsApp,
     users,

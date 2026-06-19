@@ -23,7 +23,19 @@ assert.equal(
 assert.equal(
   planAllowsForOrg({ plan: "STARTER", createdAt: expiredTrialCreatedAt }, "proactive_notifications"),
   true,
-  "paid Starter organisations should receive proactive notifications"
+  "paid Starter organisations should receive proactive email notifications"
+);
+
+assert.equal(
+  planAllowsForOrg({ plan: "STARTER", createdAt: expiredTrialCreatedAt }, "whatsapp_opportunity_alerts"),
+  false,
+  "Starter should not include WhatsApp opportunity alerts"
+);
+
+assert.equal(
+  planAllowsForOrg({ plan: "GROWTH", createdAt: expiredTrialCreatedAt }, "whatsapp_opportunity_alerts"),
+  true,
+  "Growth should include WhatsApp opportunity alerts"
 );
 
 assert.equal(

@@ -13,6 +13,7 @@ export interface EligibleGrant {
   funder: string;
   deadline: string | null;
   addedAt?: string | null;
+  scoredAt?: string | null;
   score: number;
   decision: string | null;
   summary: string | null;

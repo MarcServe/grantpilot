@@ -185,7 +185,7 @@ Cron endpoints: e.g. `/api/cron/grant-sync`, `/api/cron/grant-discovery`. Innges
 - **Plans:** FREE_TRIAL, STARTER, GROWTH, PRO, BUSINESS (see `lib/stripe.ts` and `lib/plans.ts`).
 - **Limits (summary):**  
   - **FREE_TRIAL:** 1 profile, 5 matches/month, 1 auto-fill/month, 7-day trial.  
-  - **STARTER:** 1 profile, 50 full company-DNA eligibility checks/month, 3 application prep runs/month. Includes daily email grant scans and deadline reminders; excludes website intelligence refresh, grant auto-improve, Founder Funding Pack, outcome learning, and WhatsApp opportunity alerts.
+  - **STARTER:** 1 profile, 50 full company-DNA eligibility checks/month, 3 application prep runs/month. Includes daily email grant scans and deadline reminders; excludes website intelligence refresh, grant auto-improve, Founder Funding Pack, outcome learning, and has no WhatsApp opportunity alerts.
   - **GROWTH:** 1 profile, unlimited matches, 10 application prep runs/month, website intelligence, auto-improve, Founder Pack, outcome learning, and notifications.
   - **PRO:** 2 profiles, unlimited matches, 25 application prep runs/month.
   - **BUSINESS:** 5 profiles, unlimited matches, unlimited auto-fills.

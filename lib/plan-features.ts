@@ -8,7 +8,8 @@ export type PlanCapability =
   | "grant_auto_improve"
   | "outcome_learning_ai"
   | "founder_pack"
-  | "proactive_notifications";
+  | "proactive_notifications"
+  | "whatsapp_opportunity_alerts";
 
 export const PLAN_CAPABILITIES: Record<PlanKey, Record<PlanCapability, boolean>> = {
   FREE_TRIAL: {
@@ -18,6 +19,7 @@ export const PLAN_CAPABILITIES: Record<PlanKey, Record<PlanCapability, boolean>>
     outcome_learning_ai: false,
     founder_pack: false,
     proactive_notifications: false,
+    whatsapp_opportunity_alerts: false,
   },
   STARTER: {
     company_dna_ai: true,
@@ -26,6 +28,7 @@ export const PLAN_CAPABILITIES: Record<PlanKey, Record<PlanCapability, boolean>>
     outcome_learning_ai: false,
     founder_pack: false,
     proactive_notifications: true,
+    whatsapp_opportunity_alerts: false,
   },
   PRO: {
     company_dna_ai: true,
@@ -34,6 +37,7 @@ export const PLAN_CAPABILITIES: Record<PlanKey, Record<PlanCapability, boolean>>
     outcome_learning_ai: true,
     founder_pack: true,
     proactive_notifications: true,
+    whatsapp_opportunity_alerts: true,
   },
   GROWTH: {
     company_dna_ai: true,
@@ -42,6 +46,7 @@ export const PLAN_CAPABILITIES: Record<PlanKey, Record<PlanCapability, boolean>>
     outcome_learning_ai: true,
     founder_pack: true,
     proactive_notifications: true,
+    whatsapp_opportunity_alerts: true,
   },
   BUSINESS: {
     company_dna_ai: true,
@@ -50,6 +55,7 @@ export const PLAN_CAPABILITIES: Record<PlanKey, Record<PlanCapability, boolean>>
     outcome_learning_ai: true,
     founder_pack: true,
     proactive_notifications: true,
+    whatsapp_opportunity_alerts: true,
   },
 };
 
@@ -63,6 +69,8 @@ export const PLAN_CAPABILITY_MESSAGES: Record<PlanCapability, string> = {
   founder_pack: "Founder Funding Pack is available during an active free trial or on Growth, Pro, and Business.",
   proactive_notifications:
     "Grant match, deadline, and outcome reminder notifications are available during an active free trial or on Starter, Growth, Pro, and Business.",
+  whatsapp_opportunity_alerts:
+    "WhatsApp opportunity alerts are available during an active free trial or on Growth, Pro, and Business.",
 };
 
 export function resolvePlanKey(plan: unknown): PlanKey {

@@ -68,7 +68,7 @@ function workerProcessedTotals(results: Array<PromiseSettledResult<unknown>>) {
 
   for (const result of results) {
     if (result.status !== "fulfilled") continue;
-    const processed = (result.value as { processed?: Record<string, unknown> } | null)?.processed;
+    const processed = processedRecordFromWorkerValue(result.value);
     requested += Number(processed?.requested ?? 0);
     completed += Number(processed?.completed ?? 0);
     failed += Number(processed?.failed ?? 0);
@@ -78,6 +78,24 @@ function workerProcessedTotals(results: Array<PromiseSettledResult<unknown>>) {
   }
 
   return { requested, completed, failed, skipped, highestScore, eligible85Plus };
+}
+
+function processedRecordFromWorkerValue(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const nested = record.processed;
+  if (nested && typeof nested === "object") return nested as Record<string, unknown>;
+  return record;
+}
+
+async function processShardInProcess(shardIndex: number, shardCount: number, limit: number) {
+  const processed = await processEligibilityDeepScoreQueue({
+    limit,
+    shardCount,
+    shardIndex,
+    respectUsageLimits: false,
+  });
+  return { processed };
 }
 
 function workerResultSummaries(results: Array<PromiseSettledResult<unknown>>) {
@@ -112,11 +130,12 @@ export async function GET(req: Request) {
       async () => {
         const enqueueLimit = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_QUEUE_ENQUEUE_LIMIT", 500, 1000);
         const workerCount = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_PARALLEL_WORKERS", 4, 10);
-        const workerLimit = positiveIntFromEnv(
-          "ELIGIBILITY_DEEP_SCORE_WORKER_BATCH_SIZE",
-          DEEP_SCORE_BATCH_SIZE,
-          100
-        );
+        const totalLimit = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_TOTAL_BATCH_SIZE", DEEP_SCORE_BATCH_SIZE, 200);
+        const configuredWorkerLimit = Number(process.env.ELIGIBILITY_DEEP_SCORE_WORKER_BATCH_SIZE);
+        const workerLimit = Number.isFinite(configuredWorkerLimit) && configuredWorkerLimit > 0
+          ? Math.min(100, Math.floor(configuredWorkerLimit))
+          : Math.max(1, Math.ceil(totalLimit / workerCount));
+        const useHttpWorkers = Boolean(process.env.DEEP_SCORE_WORKER_BASE_URL?.trim());
         const enqueued = await enqueueExistingHeuristicAssessments({
           limit: enqueueLimit,
           minScore: minScoreFromEnv(),
@@ -132,7 +151,9 @@ export async function GET(req: Request) {
 
         const workerResults = await Promise.allSettled(
           Array.from({ length: workerCount }, (_, shardIndex) =>
-            callWorker(req, secret, shardIndex, workerCount, workerLimit)
+            useHttpWorkers
+              ? callWorker(req, secret, shardIndex, workerCount, workerLimit)
+              : processShardInProcess(shardIndex, workerCount, workerLimit)
           )
         );
         const failedWorkers = workerResults.filter((worker) => worker.status === "rejected");
@@ -150,6 +171,7 @@ export async function GET(req: Request) {
             fallbackReason,
             workerCount,
             workerLimit,
+            useHttpWorkers,
             processed,
             workers: workerResultSummaries(workerResults),
           };
@@ -157,9 +179,10 @@ export async function GET(req: Request) {
 
         return {
           enqueued,
-          mode: "parallel-workers",
+          mode: useHttpWorkers ? "parallel-http-workers" : "parallel-in-process-workers",
           workerCount,
           workerLimit,
+          useHttpWorkers,
           processed: workerProcessedTotals(workerResults),
           workers: workerResultSummaries(workerResults),
         };

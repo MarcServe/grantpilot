@@ -37,6 +37,8 @@ export interface DigestGrantItem {
   grantName: string;
   score: number;
   summary?: string;
+  /** Timestamp of the latest trusted eligibility score; used to keep daily digests fresh. */
+  scoredAt?: string | null;
   startApplicationToken?: string;
   /** Labels of required documents the user has not uploaded (for reminder in digest). */
   missingDocuments?: string[];
@@ -110,6 +112,17 @@ const PLAN_GATED_NOTIFICATION_TYPES = new Set<NotificationType>([
 
 function notificationRequiresPaidPlan(type: NotificationType): boolean {
   return PLAN_GATED_NOTIFICATION_TYPES.has(type);
+}
+
+const WHATSAPP_OPPORTUNITY_NOTIFICATION_TYPES = new Set<NotificationType>([
+  "daily_grant_update",
+  "grant_match",
+  "grant_match_high",
+  "grant_scan_digest",
+]);
+
+function notificationCanUseWhatsAppOpportunityAlerts(type: NotificationType): boolean {
+  return WHATSAPP_OPPORTUNITY_NOTIFICATION_TYPES.has(type);
 }
 
 async function logPlanSkippedNotification(
@@ -388,7 +401,16 @@ export async function notifyOrgMembers(
     }
   }
 
+  const effectiveOptions = { ...options };
+  if (
+    effectiveOptions.sendWhatsApp !== false &&
+    notificationCanUseWhatsAppOpportunityAlerts(type) &&
+    !(await organisationAllowsCapability(organisationId, "whatsapp_opportunity_alerts"))
+  ) {
+    effectiveOptions.sendWhatsApp = false;
+  }
+
   await Promise.allSettled(
-    withUser.map((u) => notifyUser(u, type, payload, options))
+    withUser.map((u) => notifyUser(u, type, payload, effectiveOptions))
   );
 }
