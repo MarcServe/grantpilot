@@ -6,6 +6,7 @@
 import { GoogleGenAI } from "@google/genai";
 import type { DiscoveryProfile, DiscoveryGrantRow } from "./grants-discovery-types";
 import { parseJsonArray, toGrantInput } from "./grants-discovery-types";
+import { isGeminiGrantDiscoveryEnabled } from "./grants-discovery-provider-config";
 import type { GrantInput } from "./grants-ingest";
 
 const DISCOVERY_MODEL = "gemini-2.0-flash";
@@ -96,7 +97,7 @@ export async function discoverGrantsWithGemini(
   profile: DiscoveryProfile
 ): Promise<GrantInput[]> {
   const apiKey = (process.env.GEMINI_API_KEY ?? process.env.GOOGLE_AI_API_KEY)?.trim();
-  if (!apiKey) return [];
+  if (!apiKey || !isGeminiGrantDiscoveryEnabled()) return [];
 
   const ai = new GoogleGenAI({ apiKey });
   const response = await ai.models.generateContent({

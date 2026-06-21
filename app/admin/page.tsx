@@ -31,6 +31,17 @@ import { GrantIntelligenceActions } from "@/components/admin/grant-intelligence-
 import { ReviewQueueActions } from "@/components/admin/review-queue-actions";
 import { WhatsAppDiagnosticsPanel } from "@/components/admin/whatsapp-diagnostics-panel";
 import { getServerCache } from "@/lib/server-cache";
+import {
+  CLAUDE_DISCOVERY_ENABLE_ENV,
+  CLAUDE_DISCOVERY_KEY_ENV,
+  GEMINI_DISCOVERY_ENABLE_ENV,
+  GEMINI_DISCOVERY_KEY_ENV,
+  envNamesList,
+  hasAnyEnv,
+  isClaudeGrantDiscoveryEnabled,
+  isGeminiGrantDiscoveryEnabled,
+  isOptionalProviderQuotaOrBillingError,
+} from "@/lib/grants-discovery-provider-config";
 
 export const dynamic = "force-dynamic";
 
@@ -190,6 +201,7 @@ type GrantSourceCountRow = {
 type DiscoveryProviderStatus = {
   label: string;
   configured: boolean;
+  statusLabel: string;
   detail: string;
 };
 
@@ -512,30 +524,51 @@ function hasEnv(...names: string[]): boolean {
 }
 
 function discoveryProviderStatuses(): DiscoveryProviderStatus[] {
+  const openaiConfigured = hasEnv("OPENAI_API_KEY");
+  const perplexityConfigured = hasEnv("PERPLEXITY_API_KEY");
+  const apifyConfigured = hasEnv("APIFY_TOKEN");
+  const claudeKeyPresent = hasAnyEnv(CLAUDE_DISCOVERY_KEY_ENV);
+  const geminiKeyPresent = hasAnyEnv(GEMINI_DISCOVERY_KEY_ENV);
+  const claudeEnabled = isClaudeGrantDiscoveryEnabled();
+  const geminiEnabled = isGeminiGrantDiscoveryEnabled();
+
   return [
     {
       label: "OpenAI",
-      configured: hasEnv("OPENAI_API_KEY"),
+      configured: openaiConfigured,
+      statusLabel: openaiConfigured ? "Configured" : "Missing",
       detail: "Trusted eligibility scoring and web discovery",
     },
     {
       label: "Perplexity",
-      configured: hasEnv("PERPLEXITY_API_KEY"),
+      configured: perplexityConfigured,
+      statusLabel: perplexityConfigured ? "Configured" : "Missing",
       detail: "Web-grounded grant discovery",
     },
     {
       label: "Claude",
-      configured: hasEnv("ANTHROPIC_API_KEY", "CLAUDE_API_KEY"),
-      detail: "Web-search grant discovery",
+      configured: claudeEnabled,
+      statusLabel: claudeEnabled ? "Enabled" : claudeKeyPresent ? "Disabled" : "Missing",
+      detail: claudeEnabled
+        ? "Web-search grant discovery"
+        : claudeKeyPresent
+          ? `Key present; set ${envNamesList(CLAUDE_DISCOVERY_ENABLE_ENV)} after billing/quota is healthy.`
+          : `Optional; requires ${envNamesList(CLAUDE_DISCOVERY_KEY_ENV)} plus ${envNamesList(CLAUDE_DISCOVERY_ENABLE_ENV)}.`,
     },
     {
       label: "Gemini",
-      configured: hasEnv("GEMINI_API_KEY", "GOOGLE_AI_API_KEY"),
-      detail: "Grant discovery enrichment",
+      configured: geminiEnabled,
+      statusLabel: geminiEnabled ? "Enabled" : geminiKeyPresent ? "Disabled" : "Missing",
+      detail: geminiEnabled
+        ? "Grant discovery enrichment"
+        : geminiKeyPresent
+          ? `Key present; set ${envNamesList(GEMINI_DISCOVERY_ENABLE_ENV)} after billing/quota is healthy.`
+          : `Optional; requires ${envNamesList(GEMINI_DISCOVERY_KEY_ENV)} plus ${envNamesList(GEMINI_DISCOVERY_ENABLE_ENV)}.`,
     },
     {
       label: "Apify",
-      configured: hasEnv("APIFY_TOKEN"),
+      configured: apifyConfigured,
+      statusLabel: apifyConfigured ? "Configured" : "Missing",
       detail: "Daily source-discovery cron",
     },
   ];
@@ -568,20 +601,25 @@ function emptyAiDiscoveryProviderStatsMap(): Record<AiDiscoveryProviderKey, AiDi
 }
 
 function addProviderStats(
+  provider: AiDiscoveryProviderKey,
   target: AiDiscoveryProviderStats,
   source: Record<string, unknown>
 ): void {
+  const samples = Array.isArray(source.errorSamples)
+    ? source.errorSamples.filter((sample): sample is string => typeof sample === "string")
+    : [];
+  const visibleErrorSamples = samples.filter((sample) => !isOptionalProviderQuotaOrBillingError(provider, sample));
+
   target.raw += readNumber(source.raw);
   target.accepted += readNumber(source.accepted);
   target.created += readNumber(source.created);
   target.updated += readNumber(source.updated);
   target.duplicate += readNumber(source.duplicate);
   target.rejected += readNumber(source.rejected);
-  target.errors += readNumber(source.errors);
-  const samples = Array.isArray(source.errorSamples) ? source.errorSamples : [];
-  target.errorSamples.push(
-    ...samples.filter((sample): sample is string => typeof sample === "string").slice(0, 3)
-  );
+  target.errors += visibleErrorSamples.length === 0 && samples.length > 0
+    ? 0
+    : readNumber(source.errors);
+  target.errorSamples.push(...visibleErrorSamples.slice(0, 3));
   target.errorSamples = target.errorSamples.slice(0, 5);
 }
 
@@ -615,7 +653,7 @@ function discoveryActivityFromCronRuns(rows: CronRunLogRow[]): AiDiscoveryActivi
       const structured = providerStats?.[provider.key];
       if (structured && typeof structured === "object") {
         const beforeRaw = activity.providerStats[provider.key].raw;
-        addProviderStats(activity.providerStats[provider.key], structured as Record<string, unknown>);
+        addProviderStats(provider.key, activity.providerStats[provider.key], structured as Record<string, unknown>);
         activity[provider.key] += activity.providerStats[provider.key].raw - beforeRaw;
         usedStructuredStats = true;
       }
@@ -1622,13 +1660,13 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                             : "border-amber-200 bg-amber-50 text-amber-700"
                         }`}
                       >
-                        {provider.configured ? "Configured" : "Missing"}
+                        {provider.statusLabel}
                       </span>
                     </div>
                   ))}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  OpenAI remains required for trusted eligibility scoring; the other providers enrich source discovery when configured.
+                  OpenAI remains required for trusted eligibility scoring; optional providers enrich source discovery when enabled.
                 </p>
               </CardContent>
             </Card>

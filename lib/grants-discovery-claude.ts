@@ -4,6 +4,7 @@
 
 import type { DiscoveryProfile, DiscoveryGrantRow } from "./grants-discovery-types";
 import { parseJsonArray, toGrantInput } from "./grants-discovery-types";
+import { isClaudeGrantDiscoveryEnabled } from "./grants-discovery-provider-config";
 import type { GrantInput } from "./grants-ingest";
 
 const ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages";
@@ -70,7 +71,7 @@ export async function discoverGrantsWithClaude(
   profile: DiscoveryProfile
 ): Promise<GrantInput[]> {
   const apiKey = (process.env.ANTHROPIC_API_KEY ?? process.env.CLAUDE_API_KEY)?.trim();
-  if (!apiKey) return [];
+  if (!apiKey || !isClaudeGrantDiscoveryEnabled()) return [];
 
   const response = await fetch(ANTHROPIC_MESSAGES_URL, {
     method: "POST",

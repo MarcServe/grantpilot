@@ -1,5 +1,5 @@
 /**
- * Multi-source grant discovery: OpenAI, Perplexity, and Gemini can find grants per org profile.
+ * Multi-source grant discovery: OpenAI, Perplexity, and explicitly enabled optional providers can find grants per org profile.
  * Customer-facing eligibility and notifications are handled by the OpenAI checker funnel.
  * Runs daily; also triggerable via POST /api/grants/discover.
  */

@@ -1,7 +1,8 @@
 /**
- * Multi-source grant discovery: OpenAI web search first, Perplexity, Claude, and Gemini as additional finders;
- * validate every URL before upserting. Regardless of finder source, customer-facing
- * matching and notifications flow through the OpenAI eligibility checker.
+ * Multi-source grant discovery: OpenAI web search first, Perplexity, then optional
+ * Claude and Gemini finders when explicitly enabled; validate every URL before upserting.
+ * Regardless of finder source, customer-facing matching and notifications flow through
+ * the OpenAI eligibility checker.
  */
 
 import type { DiscoveryProfile } from "./grants-discovery-types";
@@ -133,7 +134,7 @@ function errorMessage(error: unknown): string {
 }
 
 /**
- * Run OpenAI (web search), Perplexity, Claude, and Gemini in parallel.
+ * Run OpenAI (web search), Perplexity, and explicitly enabled optional providers in parallel.
  * Merge, dedupe, validate URLs, then upsert only verified grants.
  */
 export async function runDiscoveryAndUpsert(profile: DiscoveryProfile): Promise<{

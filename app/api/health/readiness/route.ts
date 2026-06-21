@@ -1,4 +1,13 @@
 import { NextResponse } from "next/server";
+import {
+  CLAUDE_DISCOVERY_ENABLE_ENV,
+  CLAUDE_DISCOVERY_KEY_ENV,
+  GEMINI_DISCOVERY_ENABLE_ENV,
+  GEMINI_DISCOVERY_KEY_ENV,
+  envNamesList,
+  isClaudeGrantDiscoveryEnabled,
+  isGeminiGrantDiscoveryEnabled,
+} from "@/lib/grants-discovery-provider-config";
 
 type Check = {
   name: string;
@@ -66,20 +75,20 @@ export async function GET(req: Request): Promise<NextResponse> {
     {
       name: "GRANT_DISCOVERY_AI_PROVIDERS",
       required: false,
-      ok: anyEnv(["OPENAI_API_KEY", "PERPLEXITY_API_KEY", "ANTHROPIC_API_KEY", "CLAUDE_API_KEY", "GEMINI_API_KEY", "GOOGLE_AI_API_KEY"]),
-      detail: "Grant discovery uses any configured provider among OpenAI, Perplexity, Claude/Anthropic, and Gemini/Google AI.",
+      ok: anyEnv(["OPENAI_API_KEY", "PERPLEXITY_API_KEY"]) || isClaudeGrantDiscoveryEnabled() || isGeminiGrantDiscoveryEnabled(),
+      detail: "Grant discovery uses OpenAI, Perplexity, and optional Claude/Gemini providers when explicitly enabled.",
     },
     {
       name: "CLAUDE_DISCOVERY",
       required: false,
-      ok: anyEnv(["ANTHROPIC_API_KEY", "CLAUDE_API_KEY"]),
-      detail: "Claude discovery accepts ANTHROPIC_API_KEY or CLAUDE_API_KEY.",
+      ok: isClaudeGrantDiscoveryEnabled(),
+      detail: `Optional; requires ${envNamesList(CLAUDE_DISCOVERY_KEY_ENV)} plus ${envNamesList(CLAUDE_DISCOVERY_ENABLE_ENV)}.`,
     },
     {
       name: "GEMINI_DISCOVERY",
       required: false,
-      ok: anyEnv(["GEMINI_API_KEY", "GOOGLE_AI_API_KEY"]),
-      detail: "Gemini discovery accepts GEMINI_API_KEY or GOOGLE_AI_API_KEY.",
+      ok: isGeminiGrantDiscoveryEnabled(),
+      detail: `Optional; requires ${envNamesList(GEMINI_DISCOVERY_KEY_ENV)} plus ${envNamesList(GEMINI_DISCOVERY_ENABLE_ENV)}.`,
     },
     {
       name: "APIFY_SOURCE_DISCOVERY",
