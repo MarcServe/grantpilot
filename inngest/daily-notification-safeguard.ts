@@ -62,6 +62,7 @@ type PreferenceRow = {
   max_score?: number | null;
   eligible_threshold?: number | null;
   notify_email?: boolean | null;
+  notify_whatsapp?: boolean | null;
 };
 
 type AssessmentDigestRow = EligibilityAssessmentLike & {
@@ -164,7 +165,7 @@ function startOfLocalDayUtc(timezone: string, now = new Date()): Date {
   try {
     const parts = zonedParts(timezone, now);
     const localMidnightAsUtc = Date.UTC(parts.year, parts.month - 1, parts.day, 0, 0, 0);
-    let offset = timezoneOffsetMs(timezone, new Date(localMidnightAsUtc));
+    const offset = timezoneOffsetMs(timezone, new Date(localMidnightAsUtc));
     let result = new Date(localMidnightAsUtc - offset);
     const correctedOffset = timezoneOffsetMs(timezone, result);
     if (correctedOffset !== offset) {
@@ -529,7 +530,7 @@ export async function runDailyNotificationSafeguardJob(options?: {
 
   const { data: prefRows = [] } = await supabase
     .from("EligibilityNotificationPreference")
-    .select("organisation_id, min_score, max_score, eligible_threshold, notify_email")
+    .select("organisation_id, min_score, max_score, eligible_threshold, notify_email, notify_whatsapp")
     .in("organisation_id", orgIds);
   const prefs = new Map(
     ((prefRows ?? []) as PreferenceRow[])
@@ -549,6 +550,7 @@ export async function runDailyNotificationSafeguardJob(options?: {
       diagnostics.skippedEmailPreference++;
       continue;
     }
+    const sendWhatsApp = pref?.notify_whatsapp === true;
 
     const alreadyDelivered = await orgHasNotificationSince(
       orgId,
@@ -601,6 +603,20 @@ export async function runDailyNotificationSafeguardJob(options?: {
           },
           { sendEmail: true, sendWhatsApp: false }
         );
+        const topWhatsAppMatch = digest.strong.find((item) => item.score >= minScore);
+        if (topWhatsAppMatch && sendWhatsApp) {
+          await notifyOrgMembers(
+            orgId,
+            "grant_match_high",
+            {
+              grantId: topWhatsAppMatch.grantId,
+              grantName: topWhatsAppMatch.grantName,
+              score: topWhatsAppMatch.score,
+              startApplicationToken: topWhatsAppMatch.startApplicationToken,
+            },
+            { sendEmail: false, sendWhatsApp: true }
+          );
+        }
         await markDigestItemsNotified(supabase, orgId, primaryProfile.id, [
           ...digest.strong,
           ...digest.withinReach,

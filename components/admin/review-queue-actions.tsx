@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { ExternalLink, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -14,11 +13,13 @@ type Props = {
 };
 
 export function ReviewQueueActions({ id, kind, endpoint }: Props) {
-  const router = useRouter();
-  const [isPending, startTransition] = useTransition();
+  const [isPending, setIsPending] = useState(false);
   const [url, setUrl] = useState(endpoint ?? "");
+  const [completedMessage, setCompletedMessage] = useState<string | null>(null);
 
   async function run(action: "approve_source" | "approve_application_link" | "reject") {
+    setIsPending(true);
+    setCompletedMessage(null);
     try {
       const res = await fetch("/api/admin/review-queue", {
         method: "POST",
@@ -31,10 +32,13 @@ export function ReviewQueueActions({ id, kind, endpoint }: Props) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((data as { error?: string }).error ?? "Review action failed");
-      toast.success((data as { message?: string }).message ?? "Review action completed");
-      startTransition(() => router.refresh());
+      const message = (data as { message?: string }).message ?? "Review action completed";
+      setCompletedMessage(message);
+      toast.success(message);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Review action failed");
+    } finally {
+      setIsPending(false);
     }
   }
 
@@ -60,22 +64,29 @@ export function ReviewQueueActions({ id, kind, endpoint }: Props) {
         ) : null}
       </div>
       <div className="flex flex-wrap gap-2">
-        {approvingSource && (
+        {approvingSource && !completedMessage && (
           <Button size="sm" disabled={isPending} onClick={() => void run("approve_source")}>
             {isPending ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
             Approve source
           </Button>
         )}
-        {approvingLink && (
+        {approvingLink && !completedMessage && (
           <Button size="sm" disabled={isPending} onClick={() => void run("approve_application_link")}>
             {isPending ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
             Approve link
           </Button>
         )}
-        <Button size="sm" variant="outline" disabled={isPending} onClick={() => void run("reject")}>
-          Reject
-        </Button>
+        {!completedMessage && (
+          <Button size="sm" variant="outline" disabled={isPending} onClick={() => void run("reject")}>
+            Reject
+          </Button>
+        )}
       </div>
+      {completedMessage ? (
+        <div className="rounded border bg-muted/30 p-2 text-xs text-muted-foreground">
+          {completedMessage}
+        </div>
+      ) : null}
     </div>
   );
 }

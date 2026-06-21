@@ -29,7 +29,7 @@ import { GrantSourceManager } from "@/components/admin/grant-source-manager";
 import { DeepScoreQueueActions } from "@/components/admin/deep-score-queue-actions";
 import { GrantIntelligenceActions } from "@/components/admin/grant-intelligence-actions";
 import { ReviewQueueActions } from "@/components/admin/review-queue-actions";
-import { getAdminEligibilityWhatsAppTraces, type EligibilityWhatsAppReason } from "@/lib/eligibility-notification-diagnostics";
+import { WhatsAppDiagnosticsPanel } from "@/components/admin/whatsapp-diagnostics-panel";
 import { getServerCache } from "@/lib/server-cache";
 
 export const dynamic = "force-dynamic";
@@ -184,7 +184,7 @@ type GrantSourceCountRow = {
   label: string;
   detail: string;
   total: number;
-  last7d: number;
+  today: number;
 };
 
 type DiscoveryProviderStatus = {
@@ -285,34 +285,54 @@ const NOTIFICATION_LABELS: Record<OpsNotificationType, string> = {
   deadline_daily_update: "Deadline scan email",
 };
 
-const WHATSAPP_REASON_LABELS: Record<EligibilityWhatsAppReason, string> = {
-  whatsapp_sent: "WhatsApp sent",
-  no_profile: "No profile",
-  profile_completion_below_threshold: "Profile below threshold",
-  plan_blocked: "Plan blocked",
-  email_disabled: "Email disabled",
-  whatsapp_disabled: "WhatsApp disabled",
-  no_phone: "No phone",
-  not_opted_in: "Not opted in",
-  template_missing: "Template missing",
-  no_85_plus_candidates: "No 85%+ candidates",
-  already_notified: "Already notified",
-  whatsapp_failed: "WhatsApp failed",
-  missed_latest_run: "Missed latest run",
-  ready_to_send_next_run: "Ready next run",
-};
-
-function whatsappReasonClass(reason: EligibilityWhatsAppReason): string {
-  if (reason === "whatsapp_sent" || reason === "ready_to_send_next_run") return "text-emerald-700";
-  if (reason === "no_85_plus_candidates" || reason === "already_notified") return "text-amber-700";
-  return "text-red-700";
-}
-
 const LONDON_DATE = new Intl.DateTimeFormat("en-GB", {
   dateStyle: "medium",
   timeStyle: "short",
   timeZone: "Europe/London",
 });
+
+const LONDON_DAY = new Intl.DateTimeFormat("en-GB", {
+  dateStyle: "medium",
+  timeZone: "Europe/London",
+});
+
+const ADMIN_REPORT_TIME_ZONE = "Europe/London";
+
+function zonedParts(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+
+  const part = (type: string) => Number(parts.find((item) => item.type === type)?.value ?? 0);
+  return {
+    year: part("year"),
+    month: part("month"),
+    day: part("day"),
+    hour: part("hour"),
+    minute: part("minute"),
+    second: part("second"),
+  };
+}
+
+function timeZoneOffsetMs(date: Date, timeZone: string): number {
+  const parts = zonedParts(date, timeZone);
+  const zonedUtc = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+  return zonedUtc - date.getTime();
+}
+
+function startOfDayInTimeZone(date: Date, timeZone: string): Date {
+  const parts = zonedParts(date, timeZone);
+  const localMidnightUtc = Date.UTC(parts.year, parts.month - 1, parts.day, 0, 0, 0);
+  const firstPass = localMidnightUtc - timeZoneOffsetMs(new Date(localMidnightUtc), timeZone);
+  return new Date(localMidnightUtc - timeZoneOffsetMs(new Date(firstPass), timeZone));
+}
 
 function formatDateTime(value?: string | null): string {
   if (!value) return "Not recorded";
@@ -404,27 +424,27 @@ async function countGrantSourceBucket(
 
 async function getGrantSourceCountRows(
   supabase: ReturnType<typeof getSupabaseAdmin>,
-  last7d: Date
+  since: Date
 ): Promise<GrantSourceCountRow[]> {
   const rows = await Promise.all(
     GRANT_SOURCE_COUNT_BUCKETS.map(async (bucket) => {
       const [total, recent] = await Promise.all([
         countGrantSourceBucket(supabase, bucket.sources),
-        countGrantSourceBucket(supabase, bucket.sources, last7d),
+        countGrantSourceBucket(supabase, bucket.sources, since),
       ]);
       return {
         label: bucket.label,
         detail: bucket.detail,
         total,
-        last7d: recent,
+        today: recent,
       };
     })
   );
 
   return rows
-    .filter((row) => row.total > 0 || row.last7d > 0 || ALWAYS_VISIBLE_SOURCE_LABELS.has(row.label))
+    .filter((row) => row.total > 0 || row.today > 0 || ALWAYS_VISIBLE_SOURCE_LABELS.has(row.label))
     .sort((a, b) => {
-      if (b.last7d !== a.last7d) return b.last7d - a.last7d;
+      if (b.today !== a.today) return b.today - a.today;
       return b.total - a.total;
     });
 }
@@ -783,6 +803,7 @@ function PaginationControls({
         <Button asChild variant="outline" size="sm" aria-disabled={safePage <= 1}>
           <Link
             href={buildAdminHref(params, pageKey, Math.max(1, safePage - 1))}
+            scroll={false}
             className={safePage <= 1 ? "pointer-events-none opacity-50" : undefined}
           >
             Previous
@@ -794,6 +815,7 @@ function PaginationControls({
         <Button asChild variant="outline" size="sm" aria-disabled={safePage >= totalPages}>
           <Link
             href={buildAdminHref(params, pageKey, Math.min(totalPages, safePage + 1))}
+            scroll={false}
             className={safePage >= totalPages ? "pointer-events-none opacity-50" : undefined}
           >
             Next
@@ -843,9 +865,6 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
   const suppressedPage = normalizePage(params.suppressedPage);
   const deliveriesPage = normalizePage(params.deliveriesPage);
   const reviewQueuePage = normalizePage(params.reviewQueuePage);
-  const showWhatsAppDiagnostics =
-    firstParam(params.diagnostics) === "whatsapp" ||
-    firstParam(params.whatsappDiagnostics) === "1";
   const latestGrantsRange = pageRange(latestGrantsPage);
   const deadlinesRange = pageRange(deadlinesPage);
   const cronRunsRange = pageRange(cronRunsPage);
@@ -853,33 +872,31 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
   const deliveriesRange = pageRange(deliveriesPage);
   const reviewQueueRange = pageRange(reviewQueuePage);
   const now = new Date();
-  const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  const last7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const todayStart = startOfDayInTimeZone(now, ADMIN_REPORT_TIME_ZONE);
+  const reportDateLabel = LONDON_DAY.format(todayStart);
   const next7d = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
   const adminOverviewCacheKey = [
-    "admin-overview:v2",
+    "admin-overview:v3",
+    `today:${todayStart.toISOString()}`,
     `latest:${latestGrantsPage}`,
     `deadlines:${deadlinesPage}`,
     `cron:${cronRunsPage}`,
     `suppressed:${suppressedPage}`,
     `deliveries:${deliveriesPage}`,
     `review:${reviewQueuePage}`,
-    `wa:${showWhatsAppDiagnostics ? 1 : 0}`,
   ].join(":");
 
   const [
-    grantsLast24hResult,
-    grantsLast7dResult,
+    grantsTodayResult,
     latestGrantsResult,
     notificationResult,
     notificationDeliveryResult,
-    assessmentLast24hResult,
-    assessmentLast7dResult,
+    assessmentTodayResult,
     upcomingDeadlineResult,
     grantSourcesResult,
     enabledGrantSourcesResult,
     sourceImportRunsResult,
-    sourceImportRuns7dResult,
+    sourceImportRunsTodayResult,
     grantDiscoveryRunsResult,
     grantSourceAttributionResult,
     grantSourceCountRows,
@@ -895,7 +912,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
     reviewQueueResult,
     deepScorePendingResult,
     deepScoreRunningResult,
-    deepScoreCompleted24hResult,
+    deepScoreCompletedTodayResult,
     deepScoreFailedResult,
     deepScoreRowsResult,
     aiScoreCacheResult,
@@ -904,21 +921,18 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
     grantIntelligenceFailedResult,
     grantIntelligenceQueuePendingResult,
     grantIntelligenceQueueRunningResult,
-    grantIntelligenceQueueCompleted24hResult,
+    grantIntelligenceQueueCompletedTodayResult,
     grantIntelligenceQueueFailedResult,
     latestCronRunResult,
-    failedCronRunsLast24hResult,
-    failedCronRunsLast7dResult,
+    failedCronRunsTodayResult,
     recentFailedCronRunsResult,
     cronRunsResult,
     suppressedGrantsResult,
-    eligibilityWhatsAppTraces,
   ] = await getServerCache(
     adminOverviewCacheKey,
     { ttlMs: ADMIN_OVERVIEW_CACHE_TTL_MS, maxEntries: 60 },
     () => Promise.all([
-      supabase.from("Grant").select("id", { count: "exact", head: true }).gte("createdAt", last24h.toISOString()),
-      supabase.from("Grant").select("id", { count: "exact", head: true }).gte("createdAt", last7d.toISOString()),
+      supabase.from("Grant").select("id", { count: "exact", head: true }).gte("createdAt", todayStart.toISOString()),
       supabase
         .from("Grant")
         .select("id, name, funder, source, deadline, createdAt", { count: "exact" })
@@ -928,24 +942,20 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
         .from("NotificationLog")
         .select("userId, channel, type, status, error, createdAt")
         .in("type", [...OPS_NOTIFICATION_TYPES])
-        .gte("createdAt", last7d.toISOString())
+        .gte("createdAt", todayStart.toISOString())
         .order("createdAt", { ascending: false })
         .limit(ADMIN_NOTIFICATION_SAMPLE_SIZE),
       supabase
         .from("NotificationLog")
         .select("userId, channel, type, status, error, createdAt", { count: "exact" })
         .in("type", [...OPS_NOTIFICATION_TYPES])
-        .gte("createdAt", last7d.toISOString())
+        .gte("createdAt", todayStart.toISOString())
         .order("createdAt", { ascending: false })
         .range(deliveriesRange.from, deliveriesRange.to),
       supabase
         .from("EligibilityAssessment")
         .select("id", { count: "exact", head: true })
-        .gte("updated_at", last24h.toISOString()),
-      supabase
-        .from("EligibilityAssessment")
-        .select("id", { count: "exact", head: true })
-        .gte("updated_at", last7d.toISOString()),
+        .gte("updated_at", todayStart.toISOString()),
       supabase
         .from("Grant")
         .select("id, name, funder, source, deadline, createdAt", { count: "exact" })
@@ -970,22 +980,22 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
       supabase
         .from("grant_source_import_runs")
         .select("run_source, created_by, requested_count, added_count, skipped_duplicate_count, rejected_count, manual_review_count, created_at")
-        .gte("created_at", last7d.toISOString())
+        .gte("created_at", todayStart.toISOString())
         .order("created_at", { ascending: false })
         .limit(200),
       supabase
         .from("CronRunLog")
         .select("job_name, route, trigger, status, result, error, started_at, finished_at, duration_ms")
         .in("route", ["/api/cron/grant-discovery", "inngest/grant-discovery"])
-        .gte("started_at", last7d.toISOString())
+        .gte("started_at", todayStart.toISOString())
         .order("started_at", { ascending: false })
         .limit(60),
       supabase
         .from("Grant")
         .select("source, createdAt")
-        .gte("createdAt", last7d.toISOString())
+        .gte("createdAt", todayStart.toISOString())
         .limit(ADMIN_SOURCE_ATTRIBUTION_SAMPLE_SIZE),
-      getGrantSourceCountRows(supabase, last7d),
+      getGrantSourceCountRows(supabase, todayStart),
       supabase.from("grant_discovery_queue").select("id", { count: "exact", head: true }).eq("status", "pending"),
       supabase.from("grant_discovery_queue").select("id", { count: "exact", head: true }).eq("status", "failed"),
       supabase.from("grant_links").select("id", { count: "exact", head: true }).eq("status", "pending"),
@@ -1007,7 +1017,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
         .from("eligibility_deep_score_queue")
         .select("id", { count: "exact", head: true })
         .eq("status", "completed")
-        .gte("completed_at", last24h.toISOString()),
+        .gte("completed_at", todayStart.toISOString()),
       supabase.from("eligibility_deep_score_queue").select("id", { count: "exact", head: true }).eq("status", "failed"),
       supabase
         .from("eligibility_deep_score_queue")
@@ -1024,7 +1034,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
         .from("grant_intelligence_queue")
         .select("id", { count: "exact", head: true })
         .eq("status", "completed")
-        .gte("completed_at", last24h.toISOString()),
+        .gte("completed_at", todayStart.toISOString()),
       supabase.from("grant_intelligence_queue").select("id", { count: "exact", head: true }).eq("status", "failed"),
       supabase
         .from("CronRunLog")
@@ -1035,23 +1045,18 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
         .from("CronRunLog")
         .select("id", { count: "exact", head: true })
         .eq("status", "failed")
-        .gte("started_at", last24h.toISOString()),
-      supabase
-        .from("CronRunLog")
-        .select("id", { count: "exact", head: true })
-        .eq("status", "failed")
-        .gte("started_at", last7d.toISOString()),
+        .gte("started_at", todayStart.toISOString()),
       supabase
         .from("CronRunLog")
         .select("job_name, route, trigger, status, result, error, started_at, finished_at, duration_ms")
         .eq("status", "failed")
-        .gte("started_at", last7d.toISOString())
+        .gte("started_at", todayStart.toISOString())
         .order("started_at", { ascending: false })
         .limit(6),
       supabase
         .from("CronRunLog")
         .select("job_name, route, trigger, status, result, error, started_at, finished_at, duration_ms", { count: "exact" })
-        .gte("started_at", last7d.toISOString())
+        .gte("started_at", todayStart.toISOString())
         .order("started_at", { ascending: false })
         .range(cronRunsRange.from, cronRunsRange.to),
       supabase
@@ -1063,16 +1068,12 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
         .eq("suppress_notifications", true)
         .order("updated_at", { ascending: false })
         .range(suppressedRange.from, suppressedRange.to),
-      showWhatsAppDiagnostics
-        ? getAdminEligibilityWhatsAppTraces({ days: 7, limit: 8 })
-        : Promise.resolve([]),
     ])
   );
 
   const notificationRows = (notificationResult.data ?? []) as NotificationLogRow[];
   const notificationDeliveryRows = (notificationDeliveryResult.data ?? []) as NotificationLogRow[];
-  const sentUsersLast24h = distinctSentUsers(notificationRows, last24h);
-  const sentUsersLast7d = distinctSentUsers(notificationRows, last7d);
+  const sentUsersToday = distinctSentUsers(notificationRows, todayStart);
   const notificationUserIds = Array.from(
     new Set([...notificationRows, ...notificationDeliveryRows].map((row) => row.userId).filter(Boolean))
   ) as string[];
@@ -1105,7 +1106,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
   const upcomingDeadlines = (upcomingDeadlineResult.data ?? []) as GrantRow[];
   const grantSources = (grantSourcesResult.data ?? []) as GrantSourceRow[];
   const sourceImportRuns = (sourceImportRunsResult.data ?? []) as GrantSourceImportRunRow[];
-  const sourceImportRuns7d = (sourceImportRuns7dResult.data ?? []) as GrantSourceImportRunRow[];
+  const sourceImportRunsToday = (sourceImportRunsTodayResult.data ?? []) as GrantSourceImportRunRow[];
   const grantDiscoveryRuns = (grantDiscoveryRunsResult.data ?? []) as CronRunLogRow[];
   const reviewQueueRows = (reviewQueueResult.data ?? []) as SourceReviewQueueRow[];
   const deepScoreRows = (deepScoreRowsResult.data ?? []) as DeepScoreQueueRow[];
@@ -1115,8 +1116,8 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
   if (sourceImportRunsResult.error) {
     console.warn("[admin] Grant source import run query failed:", sourceImportRunsResult.error.message);
   }
-  if (sourceImportRuns7dResult.error) {
-    console.warn("[admin] Grant source import summary query failed:", sourceImportRuns7dResult.error.message);
+  if (sourceImportRunsTodayResult.error) {
+    console.warn("[admin] Grant source import summary query failed:", sourceImportRunsTodayResult.error.message);
   }
   if (grantDiscoveryRunsResult.error) {
     console.warn("[admin] Grant discovery provider activity query failed:", grantDiscoveryRunsResult.error.message);
@@ -1233,10 +1234,9 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
 
   const cronRuns = (cronRunsResult.data ?? []) as CronRunLogRow[];
   const aiDiscoveryActivity = discoveryActivityFromCronRuns(grantDiscoveryRuns);
-  const sourceImportSummaryRows = summarizeSourceImportRuns(sourceImportRuns7d);
+  const sourceImportSummaryRows = summarizeSourceImportRuns(sourceImportRunsToday);
   const latestCronRun = ((latestCronRunResult.data ?? []) as CronRunLogRow[])[0] ?? null;
-  const failedCronRunsLast24hCount = failedCronRunsLast24hResult.count ?? 0;
-  const failedCronRunsLast7dCount = failedCronRunsLast7dResult.count ?? 0;
+  const failedCronRunsTodayCount = failedCronRunsTodayResult.count ?? 0;
   const recentFailedCronRuns = (recentFailedCronRunsResult.data ?? []) as CronRunLogRow[];
   const dueSources = grantSources.filter((source) => isSourceDue(source)).length;
   const enabledSources = enabledGrantSourcesResult.count ?? grantSources.filter((source) => source.enabled).length;
@@ -1254,11 +1254,11 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
         }, new Map<string, number>())
       )
         .sort((a, b) => b[1] - a[1])
-        .map(([label, last7d]) => ({
+        .map(([label, today]) => ({
           label,
           detail: label.includes("search") ? "AI discovery" : "Registry, feed, API, or admin import",
-          total: last7d,
-          last7d,
+          total: today,
+          today,
         }));
   const aiDiscoveryProviders = discoveryProviderStatuses();
   const discoveryQueue: QueueStatus = {
@@ -1279,7 +1279,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
   const deepScoreQueue = {
     pending: deepScorePendingResult.count ?? 0,
     running: deepScoreRunningResult.count ?? 0,
-    completed24h: deepScoreCompleted24hResult.count ?? 0,
+    completedToday: deepScoreCompletedTodayResult.count ?? 0,
     failed: deepScoreFailedResult.count ?? 0,
     cacheRows: aiScoreCacheResult.count ?? 0,
   };
@@ -1289,7 +1289,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
     failed: grantIntelligenceFailedResult.count ?? 0,
     queuePending: grantIntelligenceQueuePendingResult.count ?? 0,
     queueRunning: grantIntelligenceQueueRunningResult.count ?? 0,
-    queueCompleted24h: grantIntelligenceQueueCompleted24hResult.count ?? 0,
+    queueCompletedToday: grantIntelligenceQueueCompletedTodayResult.count ?? 0,
     queueFailed: grantIntelligenceQueueFailedResult.count ?? 0,
   };
 
@@ -1298,45 +1298,44 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
     .slice(0, 5);
   const notificationUserEmailById = new Map(notificationUsers.map((row) => [row.id, row.email ?? row.id]));
   const recentNotificationDeliveries = notificationDeliveryRows;
-  const totalSentLast24h = countNotifications(notificationRows, { since: last24h, status: "sent" });
-  const totalFailedLast24h = countNotifications(notificationRows, { since: last24h, status: "failed" });
-  const totalSkippedLast24h = countNotifications(notificationRows, { since: last24h, status: "skipped" });
-  const highMatchWhatsAppLast24h = countNotifications(notificationRows, {
-    since: last24h,
+  const totalSentToday = countNotifications(notificationRows, { since: todayStart, status: "sent" });
+  const totalFailedToday = countNotifications(notificationRows, { since: todayStart, status: "failed" });
+  const totalSkippedToday = countNotifications(notificationRows, { since: todayStart, status: "skipped" });
+  const highMatchWhatsAppToday = countNotifications(notificationRows, {
+    since: todayStart,
     type: "grant_match_high",
     channel: "whatsapp",
     status: "sent",
   });
-  const deadlineEmailsLast24h =
-    countNotifications(notificationRows, { since: last24h, type: "deadline_reminder", channel: "email", status: "sent" }) +
+  const deadlineEmailsToday =
+    countNotifications(notificationRows, { since: todayStart, type: "deadline_reminder", channel: "email", status: "sent" }) +
     countNotifications(notificationRows, {
-      since: last24h,
+      since: todayStart,
       type: "deadline_daily_update",
       channel: "email",
       status: "sent",
     });
-  const eligibilityEmailsLast24h =
-    countNotifications(notificationRows, { since: last24h, type: "grant_scan_digest", channel: "email", status: "sent" }) +
+  const eligibilityEmailsToday =
+    countNotifications(notificationRows, { since: todayStart, type: "grant_scan_digest", channel: "email", status: "sent" }) +
     countNotifications(notificationRows, {
-      since: last24h,
+      since: todayStart,
       type: "daily_grant_update",
       channel: "email",
       status: "sent",
     });
-  const upgradePromptsLast24h = countNotifications(notificationRows, {
-    since: last24h,
+  const upgradePromptsToday = countNotifications(notificationRows, {
+    since: todayStart,
     type: "eligibility_upgrade_prompt",
     channel: "email",
     status: "sent",
   });
-  const matchHealthPromptsLast24h = countNotifications(notificationRows, {
-    since: last24h,
+  const matchHealthPromptsToday = countNotifications(notificationRows, {
+    since: todayStart,
     type: "business_dna_match_health",
     channel: "email",
     status: "sent",
   });
-  const organisationCountLast24h = distinctOrgCount(sentUsersLast24h, memberships);
-  const organisationCountLast7d = distinctOrgCount(sentUsersLast7d, memberships);
+  const organisationCountToday = distinctOrgCount(sentUsersToday, memberships);
 
   return (
     <div className="min-h-screen bg-background">
@@ -1375,7 +1374,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
             <div>
               <h2 className="text-xl font-semibold">Operations pulse</h2>
               <p className="text-sm text-muted-foreground">
-                Last 24 hours and last 7 days across grants, scoring, notifications, deadlines, and crawlers.
+                Daily admin report for {reportDateLabel} across grants, scoring, notifications, deadlines, and crawlers.
               </p>
             </div>
             <p className="text-xs text-muted-foreground">
@@ -1392,8 +1391,8 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold">{grantsLast24hResult.count ?? 0}</div>
-                <p className="mt-1 text-sm text-muted-foreground">{grantsLast7dResult.count ?? 0} in the last 7 days</p>
+                <div className="text-3xl font-bold">{grantsTodayResult.count ?? 0}</div>
+                <p className="mt-1 text-sm text-muted-foreground">Added today</p>
               </CardContent>
             </Card>
             <Card>
@@ -1404,9 +1403,9 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold">{sentUsersLast24h.size}</div>
+                <div className="text-3xl font-bold">{sentUsersToday.size}</div>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {organisationCountLast24h} orgs today - {sentUsersLast7d.size} users / {organisationCountLast7d} orgs in 7 days
+                  {organisationCountToday} organisations reached today
                 </p>
               </CardContent>
             </Card>
@@ -1418,9 +1417,9 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold">{totalSentLast24h}</div>
+                <div className="text-3xl font-bold">{totalSentToday}</div>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {totalFailedLast24h} failed - {totalSkippedLast24h} skipped in the last 24h
+                  {totalFailedToday} failed - {totalSkippedToday} skipped today
                 </p>
               </CardContent>
             </Card>
@@ -1432,21 +1431,21 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold">{assessmentLast24hResult.count ?? 0}</div>
-                <p className="mt-1 text-sm text-muted-foreground">{assessmentLast7dResult.count ?? 0} score rows updated in 7 days</p>
+                <div className="text-3xl font-bold">{assessmentTodayResult.count ?? 0}</div>
+                <p className="mt-1 text-sm text-muted-foreground">Score rows updated today</p>
               </CardContent>
             </Card>
-            <Card className={failedCronRunsLast24hCount > 0 ? "border-red-200 bg-red-50/60" : ""}>
+            <Card className={failedCronRunsTodayCount > 0 ? "border-red-200 bg-red-50/60" : ""}>
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                  <ServerCrash className={`h-4 w-4 ${failedCronRunsLast24hCount > 0 ? "text-red-600" : "text-blue-600"}`} />
+                  <ServerCrash className={`h-4 w-4 ${failedCronRunsTodayCount > 0 ? "text-red-600" : "text-blue-600"}`} />
                   Cron failures
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold">{failedCronRunsLast24hCount}</div>
+                <div className="text-3xl font-bold">{failedCronRunsTodayCount}</div>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {failedCronRunsLast7dCount} in 7 days
+                  Failures logged today
                   {latestCronRun?.started_at && <> · latest {formatRelative(latestCronRun.started_at)}</>}
                 </p>
               </CardContent>
@@ -1465,26 +1464,26 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                   <div className="rounded-md border bg-muted/30 p-3">
                     <div className="text-xs text-muted-foreground">Eligibility emails</div>
-                    <div className="text-2xl font-semibold">{eligibilityEmailsLast24h}</div>
+                    <div className="text-2xl font-semibold">{eligibilityEmailsToday}</div>
                   </div>
                   <div className="rounded-md border bg-muted/30 p-3">
                     <div className="text-xs text-muted-foreground">Upgrade prompts</div>
-                    <div className="text-2xl font-semibold">{upgradePromptsLast24h}</div>
+                    <div className="text-2xl font-semibold">{upgradePromptsToday}</div>
                   </div>
                   <div className="rounded-md border bg-muted/30 p-3">
                     <div className="text-xs text-muted-foreground">Deadline emails</div>
-                    <div className="text-2xl font-semibold">{deadlineEmailsLast24h}</div>
+                    <div className="text-2xl font-semibold">{deadlineEmailsToday}</div>
                   </div>
                   <div className="rounded-md border bg-muted/30 p-3">
                     <div className="text-xs text-muted-foreground">Business DNA prompts</div>
-                    <div className="text-2xl font-semibold">{matchHealthPromptsLast24h}</div>
+                    <div className="text-2xl font-semibold">{matchHealthPromptsToday}</div>
                   </div>
                   <div className="rounded-md border bg-muted/30 p-3">
                     <div className="flex items-center gap-1 text-xs text-muted-foreground">
                       <MessageCircle className="h-3.5 w-3.5" />
                       WhatsApp alerts
                     </div>
-                    <div className="text-2xl font-semibold">{highMatchWhatsAppLast24h}</div>
+                    <div className="text-2xl font-semibold">{highMatchWhatsAppToday}</div>
                   </div>
                 </div>
                 {notificationErrors.length > 0 ? (
@@ -1515,130 +1514,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                 </CardTitle>
               </CardHeader>
               <CardContent className="max-h-[28rem] space-y-3 overflow-y-auto pr-2 text-sm">
-                <p className="text-sm text-muted-foreground">
-                  WhatsApp remains 85%+ only. This trace separates no high-match candidates from preference,
-                  plan, phone, template, cooldown, or send failures.
-                </p>
-                <div className="space-y-3">
-                  {!showWhatsAppDiagnostics ? (
-                    <div className="rounded-md border bg-muted/20 p-3">
-                      <p className="text-sm text-muted-foreground">
-                        Detailed WhatsApp diagnostics are loaded on demand so the admin page stays fast as data grows.
-                      </p>
-                      <Button asChild size="sm" variant="outline" className="mt-3">
-                        <Link href="/admin?diagnostics=whatsapp">Load WhatsApp diagnostics</Link>
-                      </Button>
-                    </div>
-                  ) : eligibilityWhatsAppTraces.length > 0 ? (
-                    eligibilityWhatsAppTraces.map((trace) => (
-                      <div key={trace.orgId} className="rounded-md border p-3">
-                        <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-start">
-                          <div className="min-w-0">
-                            <div className="truncate font-medium">{trace.profile?.businessName ?? trace.orgName}</div>
-                            <div className="text-xs text-muted-foreground">
-                              {trace.orgName} · {trace.plan} · profile {trace.profile?.completionScore ?? 0}%
-                            </div>
-                          </div>
-                          <span className={`shrink-0 text-xs font-medium ${whatsappReasonClass(trace.finalReason)}`}>
-                            {WHATSAPP_REASON_LABELS[trace.finalReason]}
-                          </span>
-                        </div>
-                        <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-                          <div className="rounded border bg-muted/30 p-2">
-                            <div className="text-muted-foreground">Current 85%+</div>
-                            <div className="text-lg font-semibold">{trace.highMatchCandidates}</div>
-                          </div>
-                          <div className="rounded border bg-muted/30 p-2">
-                            <div className="text-muted-foreground">Unnotified</div>
-                            <div className="text-lg font-semibold">{trace.highMatchUnnotified}</div>
-                          </div>
-                          <div className="rounded border bg-muted/30 p-2">
-                            <div className="text-muted-foreground">Within reach</div>
-                            <div className="text-lg font-semibold">{trace.withinReachCandidates}</div>
-                          </div>
-                          <div className="rounded border bg-muted/30 p-2">
-                            <div className="text-muted-foreground">WA latest run</div>
-                            <div className="text-lg font-semibold">{trace.latestRunWhatsApp.sent}</div>
-                          </div>
-                        </div>
-                        <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
-                          <div>
-                            Latest eligibility run:{" "}
-                            {trace.latestEligibilityRun?.startedAt
-                              ? `${formatRelative(trace.latestEligibilityRun.startedAt)} · ${trace.latestEligibilityRun.status}`
-                              : "Not recorded"}
-                          </div>
-                          <div>
-                            Email/WA prefs: {trace.preferences.notifyEmail ? "email on" : "email off"} /{" "}
-                            {trace.preferences.notifyWhatsApp ? "WhatsApp on" : "WhatsApp off"}
-                          </div>
-                          <div>
-                            Members: {trace.users.length}; phone+opt-in:{" "}
-                            {trace.users.filter((u) => u.hasPhone && u.whatsappOptIn).length}
-                          </div>
-                          <div>
-                            Twilio template: {trace.twilioGrantTemplateConfigured ? "configured" : "missing"}
-                          </div>
-                          <div>
-                            Stored 85%+ rows: {trace.storedHighMatchCandidates}; WA sent 7d: {trace.recentWhatsApp.sent}
-                          </div>
-                          {trace.grantScope && (
-                            <div>
-                              Latest grant sample: {trace.grantScope.locationMatched} location matched / {trace.grantScope.usableCurrent} usable
-                            </div>
-                          )}
-                        </div>
-                        {trace.blockers.length > 0 && (
-                          <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
-                            <ul className="space-y-1">
-                              {trace.blockers.slice(0, 2).map((blocker) => (
-                                <li key={blocker}>{blocker}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                        {trace.matchHealth && (
-                          <div className="mt-2 rounded-md border bg-muted/20 p-2 text-xs">
-                            <div className="flex flex-col justify-between gap-1 sm:flex-row sm:items-center">
-                              <span className="font-medium text-foreground">Match health</span>
-                              <span
-                                className={
-                                  trace.matchHealth.shouldPrompt
-                                    ? "font-medium text-amber-700"
-                                    : "text-muted-foreground"
-                                }
-                              >
-                                {trace.matchHealth.shouldPrompt ? "Business DNA prompt due" : trace.matchHealth.status.replaceAll("_", " ")}
-                              </span>
-                            </div>
-                            <div className="mt-2 grid grid-cols-2 gap-2 text-muted-foreground sm:grid-cols-4">
-                              <span>{trace.matchHealth.currentHighMatches} current 85%+</span>
-                              <span>{trace.matchHealth.currentWithinReach} within reach</span>
-                              <span>{trace.matchHealth.suppressedOrApplied} suppressed/applied</span>
-                              <span>{trace.matchHealth.profileGaps.length} profile gaps</span>
-                            </div>
-                            {trace.matchHealth.topBlockers.length > 0 && (
-                              <ul className="mt-2 list-disc space-y-1 pl-4 text-muted-foreground">
-                                {trace.matchHealth.topBlockers.slice(0, 3).map((blocker) => (
-                                  <li key={blocker.reason}>
-                                    {blocker.label} ({blocker.count})
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
-                          </div>
-                        )}
-                        {(trace.latestRunWhatsApp.latestError ?? trace.recentWhatsApp.latestError) && (
-                          <div className="mt-2 break-words rounded border border-red-200 bg-red-50 p-2 text-xs text-red-900">
-                            {trace.latestRunWhatsApp.latestError ?? trace.recentWhatsApp.latestError}
-                          </div>
-                        )}
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-muted-foreground">No organisations found for WhatsApp diagnostics.</p>
-                  )}
-                </div>
+                <WhatsAppDiagnosticsPanel />
               </CardContent>
             </Card>
 
@@ -1667,8 +1543,8 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                     <div className="text-lg font-semibold">{grantIntelligence.queueRunning}</div>
                   </div>
                   <div className="rounded border bg-muted/30 p-2">
-                    <div className="text-muted-foreground">24h done</div>
-                    <div className="text-lg font-semibold text-emerald-700">{grantIntelligence.queueCompleted24h}</div>
+                    <div className="text-muted-foreground">Done today</div>
+                    <div className="text-lg font-semibold text-emerald-700">{grantIntelligence.queueCompletedToday}</div>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs">
@@ -1929,8 +1805,8 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                     <div className="text-lg font-semibold">{deepScoreQueue.running}</div>
                   </div>
                   <div className="rounded border bg-muted/30 p-2">
-                    <div className="text-muted-foreground">24h done</div>
-                    <div className="text-lg font-semibold text-emerald-700">{deepScoreQueue.completed24h}</div>
+                    <div className="text-muted-foreground">Done today</div>
+                    <div className="text-lg font-semibold text-emerald-700">{deepScoreQueue.completedToday}</div>
                   </div>
                   <div className="rounded border bg-muted/30 p-2">
                     <div className="text-muted-foreground">Failed</div>
@@ -1980,7 +1856,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
               </CardHeader>
               <CardContent className="max-h-[28rem] space-y-3 overflow-y-auto pr-2 text-sm">
                 <p className="text-sm text-muted-foreground">
-                  New grants added in the last 7 days, grouped by the final discovery/import route stored on the grant record.
+                  New grants added today, grouped by the final discovery/import route stored on the grant record.
                 </p>
                 {aiDiscoveryActivity.runs > 0 ? (
                   <div className="rounded-md border bg-blue-50/60 p-3">
@@ -2025,7 +1901,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                       })}
                     </div>
                     <div className="mt-2 text-xs text-blue-900/80">
-                      Accepted last 7 days: {aiDiscoveryActivity.created} created, {aiDiscoveryActivity.updated} updated, {aiDiscoveryActivity.rejected} rejected across {aiDiscoveryActivity.runs} run{aiDiscoveryActivity.runs === 1 ? "" : "s"}.
+                      Accepted today: {aiDiscoveryActivity.created} created, {aiDiscoveryActivity.updated} updated, {aiDiscoveryActivity.rejected} rejected across {aiDiscoveryActivity.runs} run{aiDiscoveryActivity.runs === 1 ? "" : "s"}.
                     </div>
                   </div>
                 ) : (
@@ -2036,7 +1912,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                 <div className="rounded-md border bg-muted/20 p-3">
                   <div className="font-medium">Source registry imports</div>
                   <div className="mt-1 text-xs text-muted-foreground">
-                    Last 7 days of source-feed imports. High duplicate counts mean the automation ran but found sources already in the registry.
+                    Today&apos;s source-feed imports. High duplicate counts mean the automation ran but found sources already in the registry.
                   </div>
                   <div className="mt-3 space-y-2">
                     {sourceImportSummaryRows.map((source) => (
@@ -2045,7 +1921,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                           <div className="min-w-0">
                             <div className="font-medium">{source.label}</div>
                             <div className="truncate text-xs text-muted-foreground">
-                              {source.latestCreatedBy ?? "No run in the last 7 days"}
+                              {source.latestCreatedBy ?? "No run today"}
                             </div>
                           </div>
                           <div className="shrink-0 text-xs text-muted-foreground">
@@ -2094,14 +1970,14 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                           </div>
                         </div>
                         <div className="shrink-0 text-right">
-                          <div className="text-2xl font-semibold">{source.last7d}</div>
+                          <div className="text-2xl font-semibold">{source.today}</div>
                           <div className="text-xs text-muted-foreground">{source.total} total</div>
                         </div>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="text-muted-foreground">No grant source attribution rows in the last 7 days.</p>
+                  <p className="text-muted-foreground">No grant source attribution rows today.</p>
                 )}
               </CardContent>
             </Card>
@@ -2109,19 +1985,19 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
             <Card className="min-w-0 overflow-hidden">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
-                  <ServerCrash className={`h-4 w-4 ${failedCronRunsLast24hCount > 0 ? "text-red-600" : "text-blue-600"}`} />
+                  <ServerCrash className={`h-4 w-4 ${failedCronRunsTodayCount > 0 ? "text-red-600" : "text-blue-600"}`} />
                   Cron runs
                 </CardTitle>
               </CardHeader>
               <CardContent className="max-h-[28rem] space-y-3 overflow-y-auto pr-2 text-sm">
                 <div className="grid grid-cols-2 gap-3">
                   <div className="rounded-md border bg-muted/30 p-3">
-                    <div className="text-xs text-muted-foreground">Failed 24h</div>
-                    <div className="text-2xl font-semibold">{failedCronRunsLast24hCount}</div>
+                    <div className="text-xs text-muted-foreground">Failed today</div>
+                    <div className="text-2xl font-semibold">{failedCronRunsTodayCount}</div>
                   </div>
                   <div className="rounded-md border bg-muted/30 p-3">
-                    <div className="text-xs text-muted-foreground">Failed 7d</div>
-                    <div className="text-2xl font-semibold">{failedCronRunsLast7dCount}</div>
+                    <div className="text-xs text-muted-foreground">Runs today</div>
+                    <div className="text-2xl font-semibold">{cronRunsResult.count ?? cronRuns.length}</div>
                   </div>
                 </div>
                 {latestCronRun ? (
@@ -2157,7 +2033,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                     </ul>
                   </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground">No failed cron runs in the last 7 days.</p>
+                  <p className="text-sm text-muted-foreground">No failed cron runs today.</p>
                 )}
                 {cronRuns.length > 0 && (
                   <div className="space-y-2">
@@ -2190,28 +2066,26 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                   <thead className="border-b text-xs uppercase tracking-wide text-muted-foreground">
                     <tr>
                       <th className="py-2 pr-4 font-medium">Signal</th>
-                      <th className="py-2 pr-4 font-medium">24h sent</th>
-                      <th className="py-2 pr-4 font-medium">7d sent</th>
-                      <th className="py-2 pr-4 font-medium">Email 24h</th>
-                      <th className="py-2 pr-4 font-medium">WhatsApp 24h</th>
-                      <th className="py-2 pr-4 font-medium">Failed 24h</th>
-                      <th className="py-2 pr-4 font-medium">Skipped 24h</th>
+                      <th className="py-2 pr-4 font-medium">Sent today</th>
+                      <th className="py-2 pr-4 font-medium">Email today</th>
+                      <th className="py-2 pr-4 font-medium">WhatsApp today</th>
+                      <th className="py-2 pr-4 font-medium">Failed today</th>
+                      <th className="py-2 pr-4 font-medium">Skipped today</th>
                     </tr>
                   </thead>
                   <tbody>
                     {OPS_NOTIFICATION_TYPES.map((type) => (
                       <tr key={type} className="border-b last:border-0">
                         <td className="py-3 pr-4 font-medium">{NOTIFICATION_LABELS[type]}</td>
-                        <td className="py-3 pr-4">{getStatusCount(notificationRows, type, "sent", last24h)}</td>
-                        <td className="py-3 pr-4">{getStatusCount(notificationRows, type, "sent", last7d)}</td>
+                        <td className="py-3 pr-4">{getStatusCount(notificationRows, type, "sent", todayStart)}</td>
                         <td className="py-3 pr-4">
-                          {countNotifications(notificationRows, { since: last24h, type, channel: "email", status: "sent" })}
+                          {countNotifications(notificationRows, { since: todayStart, type, channel: "email", status: "sent" })}
                         </td>
                         <td className="py-3 pr-4">
-                          {countNotifications(notificationRows, { since: last24h, type, channel: "whatsapp", status: "sent" })}
+                          {countNotifications(notificationRows, { since: todayStart, type, channel: "whatsapp", status: "sent" })}
                         </td>
-                        <td className="py-3 pr-4">{getStatusCount(notificationRows, type, "failed", last24h)}</td>
-                        <td className="py-3 pr-4">{getStatusCount(notificationRows, type, "skipped", last24h)}</td>
+                        <td className="py-3 pr-4">{getStatusCount(notificationRows, type, "failed", todayStart)}</td>
+                        <td className="py-3 pr-4">{getStatusCount(notificationRows, type, "skipped", todayStart)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -2271,7 +2145,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                     ) : (
                       <tr>
                         <td colSpan={6} className="py-4 text-sm text-muted-foreground">
-                          No notification delivery rows found in the last 7 days.
+                          No notification delivery rows found today.
                         </td>
                       </tr>
                     )}

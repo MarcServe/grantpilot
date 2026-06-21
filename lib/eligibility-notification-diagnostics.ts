@@ -292,30 +292,25 @@ async function getLatestProfile(supabase: SupabaseAdmin, orgId: string): Promise
   return ((rows ?? []) as ProfileRow[])[0] ?? null;
 }
 
-async function getCurrentActionableGrantTrace(
+async function getActionableGrantTraceForGrantIds(
   supabase: SupabaseAdmin,
   orgId: string,
-  profile: ProfileRow
+  profile: ProfileRow,
+  grantIds: string[]
 ): Promise<ActionableGrantTrace> {
-  const rows: GrantTraceRow[] = [];
+  const uniqueGrantIds = Array.from(new Set(grantIds.filter(Boolean))).slice(0, MAX_GRANTS_FOR_TRACE);
+  const { data, error } = uniqueGrantIds.length > 0
+    ? await supabase
+        .from("Grant")
+        .select("id, name, deadline, applicationUrl, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, url_status, createdAt")
+        .in("id", uniqueGrantIds)
+    : { data: [], error: null };
 
-  for (let offset = 0; offset < MAX_GRANTS_FOR_TRACE; offset += TRACE_BATCH_SIZE) {
-    const { data, error } = await supabase
-      .from("Grant")
-      .select("id, name, deadline, applicationUrl, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, url_status, createdAt")
-      .order("createdAt", { ascending: false })
-      .range(offset, offset + TRACE_BATCH_SIZE - 1);
-
-    if (error) {
-      console.warn("[eligibility-diagnostics] grant trace lookup failed", error.message);
-      break;
-    }
-
-    const batch = (data ?? []) as GrantTraceRow[];
-    rows.push(...batch);
-    if (batch.length < TRACE_BATCH_SIZE) break;
+  if (error) {
+    console.warn("[eligibility-diagnostics] assessed grant trace lookup failed", error.message);
   }
 
+  const rows = (data ?? []) as GrantTraceRow[];
   const usable = rows.filter((grant) => isGrantActionableNow(grant));
   const [appliedGrantIds, suppressedGrantIds] = await Promise.all([
     getAppliedGrantIds(supabase, orgId, profile.id),
@@ -340,7 +335,7 @@ async function getCurrentActionableGrantTrace(
   return {
     ids: new Set(locationMatched.map((grant) => grant.id)),
     grantsById: new Map(locationMatched.map((grant) => [grant.id, grant])),
-    totalFetched: rows.length,
+    totalFetched: uniqueGrantIds.length,
     usableCurrent: usable.length,
     locationMatched: locationMatched.length,
     applied: appliedGrantIds.size,
@@ -418,8 +413,7 @@ async function getAssessmentCounts(
   profileId: string,
   thresholds: { minScore: number; maxScore: number; eligibleThreshold: number },
   profile: ProfileRow,
-  outcomeAdvisory: OutcomeLearningAdvisory,
-  actionables?: ActionableGrantTrace
+  outcomeAdvisory: OutcomeLearningAdvisory
 ) {
   const matchRows: EligibilityRow[] = [];
   for (let offset = 0; offset < MAX_ASSESSMENTS_FOR_TRACE; offset += TRACE_BATCH_SIZE) {
@@ -454,10 +448,12 @@ async function getAssessmentCounts(
     .gte("score", thresholds.eligibleThreshold)
     .lte("score", thresholds.maxScore);
 
-  const currentRows = actionables ? matchRows.filter((row) => actionables.ids.has(row.grant_id)) : matchRows;
+  const candidateGrantIds = Array.from(new Set(matchRows.map((row) => row.grant_id).filter(Boolean)));
+  const actionables = await getActionableGrantTraceForGrantIds(supabase, orgId, profile, candidateGrantIds);
+  const currentRows = matchRows.filter((row) => actionables.ids.has(row.grant_id));
   const finalRows = currentRows
     .map((row) => {
-      const grant = actionables?.grantsById.get(row.grant_id);
+      const grant = actionables.grantsById.get(row.grant_id);
       if (!grant) return null;
       const finalResult = finaliseEligibilityAssessment(profile as Record<string, unknown>, grant, row, outcomeAdvisory);
       return {
@@ -474,6 +470,7 @@ async function getAssessmentCounts(
     highMatchUnnotified: high.filter((item) => isOutsideCooldown(item.row.notified_at)).length,
     storedHighMatchCandidates: storedHighMatchCandidates ?? 0,
     withinReachCandidates: withinReach.length,
+    grantScope: actionables,
   };
 }
 
@@ -605,13 +602,12 @@ export async function getEligibilityWhatsAppTraceForOrg(
   const eligibleThreshold = Math.max(Number(prefs?.eligible_threshold ?? DEFAULT_ELIGIBLE_THRESHOLD), 75);
   const notifyEmail = prefs?.notify_email !== false;
   const notifyWhatsApp = prefs?.notify_whatsapp ?? true;
-  const [grantTrace, outcomeAdvisory, matchHealth]: [ActionableGrantTrace | null, OutcomeLearningAdvisory, MatchHealthReport | null] = profile
+  const [outcomeAdvisory, matchHealth]: [OutcomeLearningAdvisory, MatchHealthReport | null] = profile
     ? await Promise.all([
-        getCurrentActionableGrantTrace(supabase, orgId, profile),
         getOutcomeAdvisory(supabase, orgId, profile.id),
         getMatchHealthReport({ supabase, orgId, profile }),
       ])
-    : [null, deriveOutcomeLearningAdvisory([]), null];
+    : [deriveOutcomeLearningAdvisory([]), null];
   const counts = profile
     ? await getAssessmentCounts(
         supabase,
@@ -619,10 +615,9 @@ export async function getEligibilityWhatsAppTraceForOrg(
         profile.id,
         { minScore, maxScore, eligibleThreshold },
         profile,
-        outcomeAdvisory,
-        grantTrace ?? undefined
+        outcomeAdvisory
       )
-    : { highMatchCandidates: 0, highMatchUnnotified: 0, storedHighMatchCandidates: 0, withinReachCandidates: 0 };
+    : { highMatchCandidates: 0, highMatchUnnotified: 0, storedHighMatchCandidates: 0, withinReachCandidates: 0, grantScope: null };
   const logs = await getNotificationLogs(supabase, users.map((user) => user.id), since);
   const latestRunSince = latestRun?.started_at ? new Date(latestRun.started_at) : null;
   const logsSinceLatestRun = latestRunSince && Number.isFinite(latestRunSince.getTime())
@@ -686,13 +681,13 @@ export async function getEligibilityWhatsAppTraceForOrg(
         }
       : null,
     ...counts,
-    grantScope: grantTrace
+    grantScope: counts.grantScope
       ? {
-          fetched: grantTrace.totalFetched,
-          usableCurrent: grantTrace.usableCurrent,
-          locationMatched: grantTrace.locationMatched,
-          applied: grantTrace.applied,
-          suppressed: grantTrace.suppressed,
+          fetched: counts.grantScope.totalFetched,
+          usableCurrent: counts.grantScope.usableCurrent,
+          locationMatched: counts.grantScope.locationMatched,
+          applied: counts.grantScope.applied,
+          suppressed: counts.grantScope.suppressed,
         }
       : null,
     latestRunWhatsApp,
