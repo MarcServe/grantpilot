@@ -15,6 +15,15 @@ export function shouldSuppressGrantNotifications(status: GrantUserState): boolea
   return SUPPRESSING_STATES.has(status);
 }
 
+export function savedGrantSuppressesNotifications(
+  row: { status?: GrantUserState | null; suppress_notifications?: boolean | null },
+  options?: { includeViewed?: boolean }
+): boolean {
+  if (row.status && shouldSuppressGrantNotifications(row.status)) return true;
+  if (row.status === "viewed" && options?.includeViewed !== true) return false;
+  return row.suppress_notifications === true;
+}
+
 export async function getSuppressedGrantIds(
   supabase: SupabaseClient,
   organisationId: string,
@@ -23,18 +32,18 @@ export async function getSuppressedGrantIds(
 ): Promise<Set<string>> {
   const { data, error } = await supabase
     .from("SavedGrant")
-    .select("grant_id, status")
+    .select("grant_id, status, suppress_notifications")
     .eq("organisation_id", organisationId)
-    .eq("profile_id", profileId)
-    .eq("suppress_notifications", true);
+    .eq("profile_id", profileId);
   if (error) {
     console.warn("[grant-user-state] suppression lookup failed", error.message);
     return new Set();
   }
-  const includeViewed = options?.includeViewed === true;
   return new Set(
     (data ?? [])
-      .filter((row: { status?: GrantUserState | null }) => includeViewed || row.status !== "viewed")
+      .filter((row: { status?: GrantUserState | null; suppress_notifications?: boolean | null }) =>
+        savedGrantSuppressesNotifications(row, options)
+      )
       .map((row: { grant_id: string }) => row.grant_id)
   );
 }
