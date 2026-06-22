@@ -899,6 +899,8 @@ export async function runEligibilityRefreshJob(options?: {
           if (!currentStrongDigestCache) currentStrongDigestCache = await buildCurrentStrongDigest();
           return currentStrongDigestCache;
         };
+        const hasStrongWhatsAppMatches = (items: DigestGrantItem[]) =>
+          items.some((item) => item.score >= suggestedThreshold);
         sendCurrentDigestIfAvailable = async () => {
           const currentStrongDigest = await getCurrentStrongDigest();
           const currentWithinReachDigest = await buildCurrentWithinReachDigest();
@@ -915,7 +917,7 @@ export async function runEligibilityRefreshJob(options?: {
             profileName,
           }, {
             sendEmail: true,
-            sendWhatsApp,
+            sendWhatsApp: sendWhatsApp && hasStrongWhatsAppMatches([...currentStrongDigest, ...previousScanGrants]),
           });
           diagnostics.dailyUpdates++;
           notifiedCount += currentStrongDigest.length;
@@ -1150,7 +1152,7 @@ export async function runEligibilityRefreshJob(options?: {
             profileName,
           }, {
             sendEmail: sendNotifyEmail,
-            sendWhatsApp,
+            sendWhatsApp: sendWhatsApp && hasStrongWhatsAppMatches([...digestGrants, ...previousScanGrants]),
           });
           await markDigestItemsNotified(supabase, orgId, profileId, [
             ...digestGrants,
@@ -1180,7 +1182,7 @@ export async function runEligibilityRefreshJob(options?: {
               profileName,
             }, {
               sendEmail: sendNotifyEmail,
-              sendWhatsApp,
+              sendWhatsApp: sendWhatsApp && hasStrongWhatsAppMatches([...currentStrongDigest, ...previousScanGrants]),
             });
             diagnostics.dailyUpdates++;
             notifiedCount += currentStrongDigest.length;

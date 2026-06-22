@@ -530,7 +530,6 @@ export function buildWhatsAppMessage(
     case "grant_scan_digest": {
       const profileName = payload.profileName ?? "Your business";
       const grants = payload.grants ?? [];
-      const withinReachGrants = payload.withinReachGrants ?? [];
       const previousScanGrants = payload.previousScanGrants ?? [];
       const now = Date.now();
       const todayCutoff = now - ONE_DAY_MS;
@@ -557,7 +556,7 @@ export function buildWhatsAppMessage(
       };
 
       let msg = `Today's grant opportunities for ${profileName}\n\n`;
-      const anyMissing = [...grants, ...withinReachGrants, ...previousScanGrants]
+      const anyMissing = strongItems
         .some((g) => ((g as DigestGrantItem).missingDocuments?.length ?? 0) > 0);
       msg += renderSection("Fresh strong matches today:", todayStrong, 8);
       msg += renderSection("Last 7 days still available:", recentStrong, 8);
@@ -566,9 +565,7 @@ export function buildWhatsAppMessage(
       } else {
         msg += renderSection("Other strong matches still available:", olderStrong, 4);
       }
-      const withinReach = dedupeDigestItems(withinReachGrants as DigestGrantItem[]).sort(sortDigestItemsByFreshness);
-      msg += renderSection("Within reach:", withinReach, 4);
-      if (strongItems.length === 0 && withinReach.length === 0) {
+      if (strongItems.length === 0) {
         msg += "No new strong WhatsApp matches were ready, but your opportunity page is up to date.\n\n";
       }
       msg += `View all and start applications: ${appUrl}/grants/eligible`;

@@ -335,6 +335,10 @@ function sortDigestByFreshScore(a: DigestGrantItem, b: DigestGrantItem): number 
   return a.grantName.localeCompare(b.grantName);
 }
 
+function hasStrongWhatsAppMatches(items: DigestGrantItem[], minScore: number): boolean {
+  return items.some((item) => item.score >= minScore);
+}
+
 async function countUsableGrants(supabase: ReturnType<typeof getSupabaseAdmin>): Promise<number> {
   let count = 0;
 
@@ -607,7 +611,7 @@ export async function runDailyNotificationSafeguardJob(options?: {
             withinReachGrants: digest.withinReach,
             previousScanGrants: digest.previous,
           },
-          { sendEmail, sendWhatsApp }
+          { sendEmail, sendWhatsApp: sendWhatsApp && hasStrongWhatsAppMatches([...digest.strong, ...digest.previous], minScore) }
         );
         await markDigestItemsNotified(supabase, orgId, primaryProfile.id, [
           ...digest.strong,
