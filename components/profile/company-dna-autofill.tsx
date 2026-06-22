@@ -24,11 +24,11 @@ interface DnaSuggestion {
 export function CompanyDnaAutofill({
   hasWebsiteUrl,
   hasWebsiteIntelligence,
-  companyDnaAiEnabled,
+  companyDnaAutofillEnabled,
 }: {
   hasWebsiteUrl: boolean;
   hasWebsiteIntelligence: boolean;
-  companyDnaAiEnabled: boolean;
+  companyDnaAutofillEnabled: boolean;
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -75,7 +75,7 @@ export function CompanyDnaAutofill({
     }
   }, []);
 
-  if (!companyDnaAiEnabled) {
+  if (!companyDnaAutofillEnabled) {
     return (
       <Card className="overflow-hidden rounded-2xl border-muted bg-muted/20">
         <CardHeader className="px-4 pb-3 sm:px-6">

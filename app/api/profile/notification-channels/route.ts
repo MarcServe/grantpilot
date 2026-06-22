@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getActiveOrg, getCurrentUser } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { syncEligibilityWhatsAppPreference } from "@/lib/eligibility-preferences";
+import { organisationAllowsCapability } from "@/lib/plan-check";
+import { PLAN_CAPABILITY_MESSAGES } from "@/lib/plan-features";
 
 /**
  * GET /api/profile/notification-channels
@@ -39,6 +41,12 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
   const whatsappOptIn = Boolean(body.whatsappOptIn);
+  if (whatsappOptIn && !(await organisationAllowsCapability(orgId, "whatsapp_opportunity_alerts"))) {
+    return NextResponse.json(
+      { error: PLAN_CAPABILITY_MESSAGES.whatsapp_opportunity_alerts, code: "FEATURE_FORBIDDEN" },
+      { status: 402 }
+    );
+  }
   const userId = (user as { id?: string }).id;
   if (!userId) {
     return NextResponse.json({ error: "User not found" }, { status: 400 });

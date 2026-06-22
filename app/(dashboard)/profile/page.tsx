@@ -35,9 +35,13 @@ export default async function ProfilePage({
     Number.isFinite(stepParam) && stepParam >= 1 && stepParam <= 6 ? stepParam : null;
 
   const [profile, activeOrg] = await Promise.all([getProfile(), getActiveOrg()]);
-  const companyDnaAiEnabled = planAllowsForOrg(
+  const companyDnaAutofillEnabled = planAllowsForOrg(
     activeOrg.org as { plan?: string; createdAt?: string | Date | null },
-    "company_dna_ai"
+    "website_intelligence_refresh"
+  );
+  const whatsappAlertsEnabled = planAllowsForOrg(
+    activeOrg.org as { plan?: string; createdAt?: string | Date | null },
+    "whatsapp_opportunity_alerts"
   );
 
   const userRow = activeOrg.user as { phoneNumber?: string | null; whatsappOptIn?: boolean };
@@ -76,8 +80,9 @@ export default async function ProfilePage({
             phoneNumber,
             whatsappOptIn,
           }}
+          whatsappAlertsEnabled={whatsappAlertsEnabled}
         />
-        <ProfileForm profile={profile} initialStep={initialStep} companyDnaAiEnabled={companyDnaAiEnabled} />
+        <ProfileForm profile={profile} initialStep={initialStep} companyDnaAutofillEnabled={companyDnaAutofillEnabled} />
       </div>
     </div>
   );

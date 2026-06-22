@@ -28,22 +28,26 @@ interface NotificationPreferencesProps {
     phoneNumber?: string | null;
     whatsappOptIn: boolean;
   };
+  whatsappAlertsEnabled: boolean;
 }
 
-export function NotificationPreferences({ defaultValues }: NotificationPreferencesProps) {
+export function NotificationPreferences({ defaultValues, whatsappAlertsEnabled }: NotificationPreferencesProps) {
   const [isPending, startTransition] = useTransition();
 
   const form = useForm<NotificationPreferencesData>({
     resolver: zodResolver(notificationPreferencesSchema),
     defaultValues: {
       phoneNumber: defaultValues.phoneNumber ?? "",
-      whatsappOptIn: defaultValues.whatsappOptIn ?? false,
+      whatsappOptIn: whatsappAlertsEnabled ? (defaultValues.whatsappOptIn ?? false) : false,
     },
   });
 
   function onSubmit(data: NotificationPreferencesData) {
     startTransition(async () => {
-      const result = await updateNotificationPreferences(data);
+      const result = await updateNotificationPreferences({
+        ...data,
+        whatsappOptIn: whatsappAlertsEnabled && data.whatsappOptIn,
+      });
       if (result.error) {
         toast.error(result.error);
       } else {
@@ -90,6 +94,7 @@ export function NotificationPreferences({ defaultValues }: NotificationPreferenc
                     <Checkbox
                       checked={field.value}
                       onCheckedChange={field.onChange}
+                      disabled={!whatsappAlertsEnabled}
                     />
                   </FormControl>
                   <div className="space-y-1 leading-none">
@@ -97,13 +102,17 @@ export function NotificationPreferences({ defaultValues }: NotificationPreferenc
                       Receive notifications via WhatsApp
                     </FormLabel>
                     <p className="text-muted-foreground text-sm">
-                      We&apos;ll send grant reminders and application updates to this number.
+                      {whatsappAlertsEnabled
+                        ? "We'll send grant reminders and application updates to this number."
+                        : "WhatsApp opportunity alerts are available on Growth, Pro, and Business."}
                     </p>
-                    <p className="text-muted-foreground text-xs mt-1">
-                      Not receiving messages? If you use Twilio&apos;s WhatsApp Sandbox, send &quot;join
-                      &lt;your-code&gt;&quot; to the Sandbox number in WhatsApp first. Check Twilio Console →
-                      Messaging → Logs for delivery status.
-                    </p>
+                    {whatsappAlertsEnabled && (
+                      <p className="text-muted-foreground text-xs mt-1">
+                        Not receiving messages? If you use Twilio&apos;s WhatsApp Sandbox, send &quot;join
+                        &lt;your-code&gt;&quot; to the Sandbox number in WhatsApp first. Check Twilio Console →
+                        Messaging → Logs for delivery status.
+                      </p>
+                    )}
                   </div>
                   <FormMessage />
                 </FormItem>

@@ -21,6 +21,7 @@ import { requestEligibilityRefresh } from "@/lib/eligibility-refresh-trigger";
 import { analyseWebsite } from "@/lib/website-intelligence";
 import { generateAndStoreProfileEmbedding } from "@/lib/embeddings";
 import { PLAN_LIMITS } from "@/lib/plans";
+import { PLAN_CAPABILITY_MESSAGES } from "@/lib/plan-features";
 import { getOrganisationPlanKey, organisationAllowsCapability } from "@/lib/plan-check";
 import { syncEligibilityWhatsAppPreference } from "@/lib/eligibility-preferences";
 
@@ -511,6 +512,12 @@ export async function updateNotificationPreferences(data: NotificationPreference
   const { user, orgId } = await getActiveOrg();
   const userId = (user as { id?: string }).id;
   if (!userId) return { error: "User not found" };
+  if (
+    parsed.data.whatsappOptIn &&
+    !(await organisationAllowsCapability(orgId, "whatsapp_opportunity_alerts"))
+  ) {
+    return { error: PLAN_CAPABILITY_MESSAGES.whatsapp_opportunity_alerts };
+  }
 
   const supabase = getSupabaseAdmin();
   const update: Record<string, unknown> = {

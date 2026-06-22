@@ -32,6 +32,7 @@ import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
 import { applyOutcomeScoreAdjustment, deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
 import { getMatchHealthReport } from "@/lib/match-health";
 import { fetchCachedGrantRowsByIds } from "@/lib/grant-record-cache";
+import { planAllowsForOrg } from "@/lib/plan-features";
 import type { EligibilityResult } from "@/lib/claude";
 
 const DASHBOARD_MATCH_PREVIEW_LIMIT = 12;
@@ -215,6 +216,10 @@ export default async function DashboardPage() {
   const phoneNumber = (rawUser?.phoneNumber ?? rawUser?.phone_number) as string | null | undefined;
   const hasPhone = Boolean(phoneNumber && String(phoneNumber).trim().length >= 10);
   const whatsappOptIn = Boolean(rawUser?.whatsappOptIn ?? rawUser?.whatsapp_opt_in);
+  const whatsappAlertsEnabled = planAllowsForOrg(
+    org as { plan?: string; createdAt?: string | Date | null },
+    "whatsapp_opportunity_alerts"
+  );
 
   const supabase = getSupabaseAdmin();
 
@@ -479,6 +484,7 @@ export default async function DashboardPage() {
             <DashboardNotificationChannels
               initialWhatsappOptIn={whatsappOptIn}
               initialHasPhone={hasPhone}
+              whatsappAlertsEnabled={whatsappAlertsEnabled}
               preferredTimezone={(org as { preferredTimezone?: string | null }).preferredTimezone ?? null}
               lastEligibilityRun={lastEligibilityRun}
               eligibilityGrantCount={eligibilityGrantCount}

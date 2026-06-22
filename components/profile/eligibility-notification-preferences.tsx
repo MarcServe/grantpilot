@@ -16,6 +16,7 @@ export function EligibilityNotificationPreferences() {
   const [notifyEmail, setNotifyEmail] = useState(true);
   const [notifyInApp, setNotifyInApp] = useState(true);
   const [notifyWhatsApp, setNotifyWhatsApp] = useState(false);
+  const [whatsappAllowed, setWhatsappAllowed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -29,6 +30,7 @@ export function EligibilityNotificationPreferences() {
         if (data.notifyEmail != null) setNotifyEmail(data.notifyEmail);
         if (data.notifyInApp != null) setNotifyInApp(data.notifyInApp);
         if (data.notifyWhatsApp != null) setNotifyWhatsApp(data.notifyWhatsApp);
+        if (data.whatsappAllowed != null) setWhatsappAllowed(data.whatsappAllowed);
       })
       .catch(() => toast.error("Failed to load preferences"))
       .finally(() => setLoading(false));
@@ -50,7 +52,7 @@ export function EligibilityNotificationPreferences() {
           eligibleThreshold: Number(eligibleThreshold),
           notifyEmail,
           notifyInApp,
-          notifyWhatsApp,
+          notifyWhatsApp: whatsappAllowed && notifyWhatsApp,
         }),
       });
       const data = await res.json();
@@ -137,10 +139,20 @@ export function EligibilityNotificationPreferences() {
             <Label htmlFor="notifyInApp" className="text-sm font-normal cursor-pointer">In-app</Label>
           </div>
           <div className="flex items-center gap-2">
-            <Checkbox id="notifyWhatsApp" checked={notifyWhatsApp} onCheckedChange={(c) => setNotifyWhatsApp(c === true)} />
+            <Checkbox
+              id="notifyWhatsApp"
+              checked={whatsappAllowed && notifyWhatsApp}
+              onCheckedChange={(c) => setNotifyWhatsApp(c === true)}
+              disabled={!whatsappAllowed}
+            />
             <Label htmlFor="notifyWhatsApp" className="text-sm font-normal cursor-pointer">WhatsApp</Label>
           </div>
         </div>
+        {!whatsappAllowed && (
+          <p className="text-sm text-muted-foreground">
+            WhatsApp opportunity alerts are available on Growth, Pro, and Business.
+          </p>
+        )}
         <Button onClick={handleSave} disabled={saving} size="sm">
           {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
           Save

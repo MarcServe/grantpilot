@@ -15,6 +15,12 @@ assert.equal(
 );
 
 assert.equal(
+  planAllowsForOrg({ plan: "FREE_TRIAL", createdAt: activeTrialCreatedAt }, "website_intelligence_refresh"),
+  true,
+  "active free-trial organisations should get website intelligence refresh"
+);
+
+assert.equal(
   planAllowsForOrg({ plan: "FREE_TRIAL", createdAt: expiredTrialCreatedAt }, "proactive_notifications"),
   false,
   "expired free-trial organisations should be gated from proactive notifications"
@@ -24,6 +30,12 @@ assert.equal(
   planAllowsForOrg({ plan: "STARTER", createdAt: expiredTrialCreatedAt }, "proactive_notifications"),
   true,
   "paid Starter organisations should receive proactive email notifications"
+);
+
+assert.equal(
+  planAllowsForOrg({ plan: "STARTER", createdAt: expiredTrialCreatedAt }, "company_dna_ai"),
+  true,
+  "Starter should include full company-DNA eligibility scoring"
 );
 
 assert.equal(

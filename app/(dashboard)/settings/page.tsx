@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { NotificationPreferences } from "@/components/profile/notification-preferences";
 import { NotificationTimezone } from "@/components/billing/notification-timezone";
 import { PortalCredentialsManager } from "@/components/settings/portal-credentials";
+import { planAllowsForOrg } from "@/lib/plan-features";
 
 export default async function SettingsPage() {
   let active;
@@ -28,12 +29,18 @@ export default async function SettingsPage() {
   const orgRow = org as {
     name?: string | null;
     plan?: string | null;
+    createdAt?: string | Date | null;
+    created_at?: string | Date | null;
     preferredTimezone?: string | null;
     profiles?: { id?: string; completionScore?: number | null; businessName?: string | null }[];
   };
   const profile = orgRow.profiles?.[0];
   const phoneNumber = userRow.phoneNumber ?? userRow.phone_number ?? "";
   const whatsappOptIn = Boolean(userRow.whatsappOptIn ?? userRow.whatsapp_opt_in);
+  const whatsappAlertsEnabled = planAllowsForOrg(
+    orgRow as { plan?: string | null; createdAt?: string | Date | null },
+    "whatsapp_opportunity_alerts"
+  );
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-4 py-6 sm:p-6">
@@ -71,6 +78,7 @@ export default async function SettingsPage() {
           phoneNumber,
           whatsappOptIn,
         }}
+        whatsappAlertsEnabled={whatsappAlertsEnabled}
       />
 
       <NotificationTimezone preferredTimezone={orgRow.preferredTimezone ?? null} />

@@ -125,11 +125,11 @@ const STEP_LABELS = [
 export function ProfileForm({
   profile,
   initialStep = 1,
-  companyDnaAiEnabled,
+  companyDnaAutofillEnabled,
 }: {
   profile: ProfileData;
   initialStep?: number;
-  companyDnaAiEnabled: boolean;
+  companyDnaAutofillEnabled: boolean;
 }) {
   const router = useRouter();
   const [step, setStep] = useState(initialStep);
@@ -303,7 +303,7 @@ export function ProfileForm({
       <CompanyDnaAutofill
         hasWebsiteUrl={Boolean(profile.websiteUrl?.trim())}
         hasWebsiteIntelligence={Boolean(profile.websiteIntelligence?.trim())}
-        companyDnaAiEnabled={companyDnaAiEnabled}
+        companyDnaAutofillEnabled={companyDnaAutofillEnabled}
       />
 
       <Card className="overflow-hidden rounded-2xl">

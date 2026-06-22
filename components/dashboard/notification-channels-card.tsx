@@ -36,6 +36,7 @@ const TZ_LABELS: Record<string, string> = {
 interface DashboardNotificationChannelsProps {
   initialWhatsappOptIn: boolean;
   initialHasPhone: boolean;
+  whatsappAlertsEnabled: boolean;
   preferredTimezone: string | null;
   lastEligibilityRun: string | null;
   eligibilityGrantCount: number;
@@ -44,11 +45,12 @@ interface DashboardNotificationChannelsProps {
 export function DashboardNotificationChannels({
   initialWhatsappOptIn,
   initialHasPhone,
+  whatsappAlertsEnabled,
   preferredTimezone,
   lastEligibilityRun,
   eligibilityGrantCount,
 }: DashboardNotificationChannelsProps) {
-  const [whatsappOptIn, setWhatsappOptIn] = useState(initialWhatsappOptIn);
+  const [whatsappOptIn, setWhatsappOptIn] = useState(whatsappAlertsEnabled ? initialWhatsappOptIn : false);
   const [isPending, setIsPending] = useState(false);
   const [tz, setTz] = useState(preferredTimezone ?? "UTC");
   const [savingTz, setSavingTz] = useState(false);
@@ -57,6 +59,10 @@ export function DashboardNotificationChannels({
     const value = checked === true;
     if (!initialHasPhone) {
       toast.error("Add your WhatsApp number in Profile first.");
+      return;
+    }
+    if (value && !whatsappAlertsEnabled) {
+      toast.error("WhatsApp opportunity alerts are available on Growth, Pro, and Business.");
       return;
     }
     setIsPending(true);
@@ -155,10 +161,20 @@ export function DashboardNotificationChannels({
             <Checkbox
               checked={whatsappOptIn}
               onCheckedChange={onToggle}
-              disabled={!initialHasPhone}
+              disabled={!initialHasPhone || !whatsappAlertsEnabled}
             />
           )}
         </div>
+        {!whatsappAlertsEnabled && (
+          <p className="text-sm text-muted-foreground">
+            WhatsApp opportunity alerts are available on Growth, Pro, and Business.{" "}
+            <Link href="/billing">
+              <Button variant="link" className="h-auto p-0 text-sm">
+                View plans <ArrowRight className="ml-0.5 inline h-3 w-3" />
+              </Button>
+            </Link>
+          </p>
+        )}
         {!initialHasPhone && (
           <p className="text-sm text-muted-foreground">
             Add your WhatsApp number in{" "}

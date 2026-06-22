@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { eligibilityPreferencesSchema } from "@/lib/validations/eligibility-preferences";
+import { organisationAllowsCapability } from "@/lib/plan-check";
+import { PLAN_CAPABILITY_MESSAGES } from "@/lib/plan-features";
 
 /**
  * GET /api/profile/eligibility-preferences
@@ -10,6 +12,7 @@ import { eligibilityPreferencesSchema } from "@/lib/validations/eligibility-pref
 export async function GET(): Promise<NextResponse> {
   try {
     const { orgId } = await getActiveOrg();
+    const whatsappAllowed = await organisationAllowsCapability(orgId, "whatsapp_opportunity_alerts");
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase
       .from("EligibilityNotificationPreference")
@@ -29,7 +32,8 @@ export async function GET(): Promise<NextResponse> {
         eligibleThreshold: 85,
         notifyEmail: true,
         notifyInApp: true,
-        notifyWhatsApp: true,
+        notifyWhatsApp: whatsappAllowed,
+        whatsappAllowed,
       });
     }
 
@@ -40,7 +44,8 @@ export async function GET(): Promise<NextResponse> {
       eligibleThreshold: row.eligible_threshold ?? 70,
       notifyEmail: row.notify_email,
       notifyInApp: row.notify_in_app,
-      notifyWhatsApp: row.notify_whatsapp ?? false,
+      notifyWhatsApp: whatsappAllowed && (row.notify_whatsapp ?? false),
+      whatsappAllowed,
     });
   } catch (e) {
     console.error("[ELIGIBILITY_PREFS]", e);
@@ -59,6 +64,15 @@ export async function PUT(req: Request): Promise<NextResponse> {
     const parsed = eligibilityPreferencesSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json({ error: "Invalid input", details: parsed.error.flatten() }, { status: 400 });
+    }
+    if (
+      parsed.data.notifyWhatsApp === true &&
+      !(await organisationAllowsCapability(orgId, "whatsapp_opportunity_alerts"))
+    ) {
+      return NextResponse.json(
+        { error: PLAN_CAPABILITY_MESSAGES.whatsapp_opportunity_alerts, code: "FEATURE_FORBIDDEN" },
+        { status: 402 }
+      );
     }
 
     const supabase = getSupabaseAdmin();
