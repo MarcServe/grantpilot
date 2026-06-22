@@ -33,7 +33,7 @@ export default function DashboardLayout({
   return (
     <div className="min-h-screen bg-[#f4f8ff] text-[#071a3a]">
       <aside className="fixed inset-y-0 left-0 z-40 hidden h-screen max-h-screen w-[250px] flex-col overflow-hidden bg-[#041d38] px-5 py-7 text-white lg:flex">
-        <Link href="/dashboard" className="flex shrink-0 items-center gap-3" aria-label="GrantsCopilot dashboard">
+        <Link href="/" className="flex shrink-0 items-center gap-3" aria-label="GrantsCopilot home">
           <Image
             src="/logogc.png"
             alt=""
@@ -64,7 +64,7 @@ export default function DashboardLayout({
           <div className="mx-auto flex h-20 max-w-[1280px] items-center justify-between gap-2 px-3 sm:px-7 lg:px-8">
             <div className="flex min-w-0 items-center gap-2 sm:gap-3">
               <DashboardNav profileStrength={0} placement="header" />
-              <Link href="/dashboard" className="flex min-w-0 items-center gap-2 lg:hidden">
+              <Link href="/" className="flex min-w-0 items-center gap-2 lg:hidden" aria-label="GrantsCopilot home">
                 <Image
                   src="/logogc.png"
                   alt=""

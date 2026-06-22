@@ -26,6 +26,7 @@ import {
   Users,
 } from "lucide-react";
 import { PLAN_CATALOG } from "@/lib/plans";
+import { createClient } from "@/lib/supabase/server";
 import { HeroMotionVideo } from "@/components/marketing/hero-motion-video";
 
 const navItems = ["Features", "How It Works", "Pricing", "Resources", "About Us"];
@@ -116,7 +117,15 @@ const toneClasses: Record<string, string> = {
   mint: "bg-teal-100 text-teal-600",
 };
 
-export default function LandingPage() {
+export const dynamic = "force-dynamic";
+
+export default async function LandingPage() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const isSignedIn = Boolean(user);
+
   return (
     <div className="min-h-screen overflow-hidden bg-[#f7fbff] text-[#071a3a]">
       <header className="mx-auto flex max-w-[1480px] items-center justify-between gap-3 px-4 py-4 sm:px-6 sm:py-6 lg:px-10">
@@ -147,18 +156,28 @@ export default function LandingPage() {
           ))}
         </nav>
 
-        <div className="flex items-center gap-4">
-          <Link href="/sign-in" className="hidden text-[15px] font-bold text-[#071a3a] sm:inline-flex">
-            Log in
-          </Link>
+        {isSignedIn ? (
           <Link
-            href="/sign-up"
-            className="inline-flex h-10 shrink-0 items-center rounded-lg bg-[#2167e8] px-3 text-[13px] font-bold text-white shadow-[0_12px_24px_rgba(33,103,232,0.25)] transition hover:bg-[#1858cf] min-[430px]:h-11 min-[430px]:px-4 sm:h-12 sm:px-6 sm:text-[15px]"
+            href="/dashboard"
+            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg bg-[#2167e8] px-3 text-[13px] font-bold text-white shadow-[0_12px_24px_rgba(33,103,232,0.25)] transition hover:bg-[#1858cf] min-[430px]:h-11 min-[430px]:px-4 sm:h-12 sm:px-6 sm:text-[15px]"
           >
-            <span className="min-[360px]:hidden">Start</span>
-            <span className="hidden min-[360px]:inline">Get started</span>
+            <LayoutDashboard className="h-4 w-4" />
+            Dashboard
           </Link>
-        </div>
+        ) : (
+          <div className="flex items-center gap-4">
+            <Link href="/sign-in" className="hidden text-[15px] font-bold text-[#071a3a] sm:inline-flex">
+              Log in
+            </Link>
+            <Link
+              href="/sign-up"
+              className="inline-flex h-10 shrink-0 items-center rounded-lg bg-[#2167e8] px-3 text-[13px] font-bold text-white shadow-[0_12px_24px_rgba(33,103,232,0.25)] transition hover:bg-[#1858cf] min-[430px]:h-11 min-[430px]:px-4 sm:h-12 sm:px-6 sm:text-[15px]"
+            >
+              <span className="min-[360px]:hidden">Start</span>
+              <span className="hidden min-[360px]:inline">Get started</span>
+            </Link>
+          </div>
+        )}
       </header>
 
       <main>
@@ -185,11 +204,11 @@ export default function LandingPage() {
 
             <div className="mt-8 flex flex-col gap-3 sm:mt-9 sm:flex-row sm:gap-4">
               <Link
-                href="/sign-up"
+                href={isSignedIn ? "/dashboard" : "/sign-up"}
                 className="inline-flex h-[52px] min-h-[52px] items-center justify-center gap-3 rounded-lg bg-[#2167e8] px-5 text-[16px] font-extrabold text-white shadow-[0_14px_26px_rgba(33,103,232,0.24)] transition hover:bg-[#1858cf] sm:h-14 sm:px-7 sm:text-[17px]"
               >
-                Get Started Free
-                <ArrowRight className="h-5 w-5" />
+                {isSignedIn ? "Return to dashboard" : "Get Started Free"}
+                {isSignedIn ? <LayoutDashboard className="h-5 w-5" /> : <ArrowRight className="h-5 w-5" />}
               </Link>
               <a
                 href="#how-it-works"
@@ -239,17 +258,20 @@ export default function LandingPage() {
               </p>
               <div className="mt-7 flex flex-col gap-3 sm:flex-row">
                 <Link
-                  href="/sign-up"
+                  href={isSignedIn ? "/dashboard" : "/sign-up"}
                   className="inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-[#2167e8] px-6 text-sm font-black text-white shadow-[0_12px_24px_rgba(33,103,232,0.22)]"
                 >
-                  Build My DNA Profile <ArrowRight className="h-4 w-4" />
+                  {isSignedIn ? "Open dashboard" : "Build My DNA Profile"}{" "}
+                  {isSignedIn ? <LayoutDashboard className="h-4 w-4" /> : <ArrowRight className="h-4 w-4" />}
                 </Link>
-                <Link
-                  href="/sign-in"
-                  className="inline-flex h-12 items-center justify-center rounded-lg border border-[#d8e2f2] bg-white px-6 text-sm font-black text-[#071a3a]"
-                >
-                  Log in
-                </Link>
+                {!isSignedIn && (
+                  <Link
+                    href="/sign-in"
+                    className="inline-flex h-12 items-center justify-center rounded-lg border border-[#d8e2f2] bg-white px-6 text-sm font-black text-[#071a3a]"
+                  >
+                    Log in
+                  </Link>
+                )}
               </div>
             </div>
 
@@ -403,8 +425,9 @@ export default function LandingPage() {
                 <p className="text-sm font-black uppercase tracking-[0.14em] text-[#2167e8]">Resources</p>
                 <h2 className="mt-4 text-[30px] font-black leading-tight text-[#071a3a] sm:text-[38px]">Practical funding help for non-grant experts.</h2>
               </div>
-              <Link href="/sign-up" className="inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-[#2167e8] px-6 text-sm font-black text-white">
-                Open Workspace <ArrowRight className="h-4 w-4" />
+              <Link href={isSignedIn ? "/dashboard" : "/sign-up"} className="inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-[#2167e8] px-6 text-sm font-black text-white">
+                {isSignedIn ? "Open dashboard" : "Open Workspace"}{" "}
+                {isSignedIn ? <LayoutDashboard className="h-4 w-4" /> : <ArrowRight className="h-4 w-4" />}
               </Link>
             </div>
 
@@ -458,12 +481,14 @@ export default function LandingPage() {
               </p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
-              <Link href="/sign-up" className="inline-flex h-12 items-center justify-center rounded-lg bg-[#2167e8] px-7 text-sm font-black text-white">
-                Get started
+              <Link href={isSignedIn ? "/dashboard" : "/sign-up"} className="inline-flex h-12 items-center justify-center rounded-lg bg-[#2167e8] px-7 text-sm font-black text-white">
+                {isSignedIn ? "Return to dashboard" : "Get started"}
               </Link>
-              <Link href="/sign-in" className="inline-flex h-12 items-center justify-center rounded-lg border border-[#d8e2f2] bg-white px-7 text-sm font-black text-[#071a3a]">
-                Log in
-              </Link>
+              {!isSignedIn && (
+                <Link href="/sign-in" className="inline-flex h-12 items-center justify-center rounded-lg border border-[#d8e2f2] bg-white px-7 text-sm font-black text-[#071a3a]">
+                  Log in
+                </Link>
+              )}
             </div>
           </div>
         </section>
@@ -487,7 +512,9 @@ export default function LandingPage() {
             <Link href="/privacy" className="hover:text-[#2167e8]">Privacy</Link>
             <Link href="/terms" className="hover:text-[#2167e8]">Terms</Link>
             <Link href="/refund" className="hover:text-[#2167e8]">Refund policy</Link>
-            <Link href="/sign-in" className="hover:text-[#2167e8]">Log in</Link>
+            <Link href={isSignedIn ? "/dashboard" : "/sign-in"} className="hover:text-[#2167e8]">
+              {isSignedIn ? "Dashboard" : "Log in"}
+            </Link>
           </div>
         </div>
       </footer>
