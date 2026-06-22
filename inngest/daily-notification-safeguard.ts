@@ -20,6 +20,8 @@ const GRANT_COUNT_BATCH_SIZE = 1000;
 const MAX_GRANTS_TO_COUNT = 10000;
 const DIGEST_ENQUEUE_CHUNK_SIZE = positiveIntFromEnv("ELIGIBILITY_DIGEST_ENQUEUE_CHUNK_SIZE", 100);
 const DIGEST_WORKER_CONCURRENCY = positiveIntFromEnv("ELIGIBILITY_DIGEST_WORKER_CONCURRENCY", 25);
+const DIGEST_STRONG_LIMIT = positiveIntFromEnv("ELIGIBILITY_DIGEST_STRONG_LIMIT", 20);
+const DIGEST_PREVIOUS_LIMIT = positiveIntFromEnv("ELIGIBILITY_DIGEST_PREVIOUS_LIMIT", 12);
 const DAILY_ELIGIBILITY_NOTIFICATION_TYPES: NotificationType[] = [
   "daily_grant_update",
   "grant_scan_digest",
@@ -77,6 +79,8 @@ type GrantDigestRow = {
   funder?: string | null;
   url_status?: string | null;
   deadline?: string | null;
+  createdAt?: string | null;
+  created_at?: string | null;
   eligibility?: string | null;
   description?: string | null;
   objectives?: string | null;
@@ -310,6 +314,7 @@ function buildDigestGrantItem(params: {
     grantName: grant.name,
     score,
     scoredAt: row.updated_at ?? null,
+    grantAddedAt: grant.createdAt ?? grant.created_at ?? null,
     summary: finalResult.summary ?? finalResult.reason ?? row.summary ?? undefined,
     startApplicationToken: createStartApplicationToken({ grantId: grant.id, profileId, organisationId: orgId }),
     missingCriteria: finalResult.missing ?? asStringArray(row.missing_criteria),
@@ -382,7 +387,7 @@ async function countStrongEligibleForOrg(
     getOutcomeAdvisoryForProfile(supabase, orgId, profileId),
     supabase
       .from("Grant")
-      .select("id, name, funder, url_status, deadline, eligibility, description, objectives, funderLocations, applicantTypes, sectors, regions")
+      .select("id, name, funder, url_status, deadline, createdAt, eligibility, description, objectives, funderLocations, applicantTypes, sectors, regions")
       .in("id", grantIds),
   ]);
 
@@ -442,7 +447,7 @@ async function buildCurrentDigestForProfile(
     getOutcomeAdvisoryForProfile(supabase, orgId, profileId),
     supabase
       .from("Grant")
-      .select("id, name, funder, url_status, deadline, eligibility, description, objectives, funderLocations, applicantTypes, sectors, regions")
+      .select("id, name, funder, url_status, deadline, createdAt, eligibility, description, objectives, funderLocations, applicantTypes, sectors, regions")
       .in("id", grantIds),
   ]);
 
@@ -464,11 +469,11 @@ async function buildCurrentDigestForProfile(
   }
 
   return {
-    strong: items.filter((item) => item.score >= minStrongScore).sort(sortDigestByFreshScore).slice(0, 5),
+    strong: items.filter((item) => item.score >= minStrongScore).sort(sortDigestByFreshScore).slice(0, DIGEST_STRONG_LIMIT),
     withinReach: withinReachMax >= 50
       ? items.filter((item) => item.score >= 50 && item.score <= withinReachMax).sort(sortDigestByFreshScore).slice(0, 4)
       : [],
-    previous: previousItems.sort(sortDigestByFreshScore).slice(0, 3),
+    previous: previousItems.sort(sortDigestByFreshScore).slice(0, DIGEST_PREVIOUS_LIMIT),
   };
 }
 
@@ -546,11 +551,12 @@ export async function runDailyNotificationSafeguardJob(options?: {
     const recentWindow = notificationCooldownStart(timezone);
 
     const pref = prefs.get(orgId);
-    if (pref?.notify_email === false) {
+    const sendEmail = pref?.notify_email !== false;
+    const sendWhatsApp = pref?.notify_whatsapp === true;
+    if (!sendEmail && !sendWhatsApp) {
       diagnostics.skippedEmailPreference++;
       continue;
     }
-    const sendWhatsApp = pref?.notify_whatsapp === true;
 
     const alreadyDelivered = await orgHasNotificationSince(
       orgId,
@@ -583,7 +589,7 @@ export async function runDailyNotificationSafeguardJob(options?: {
           profileName: profileName(primaryProfile),
           matchedGrantsCount,
         },
-        { sendEmail: true, sendWhatsApp: false }
+        { sendEmail, sendWhatsApp: false }
       );
       diagnostics.upgradePrompts++;
       continue;
@@ -601,22 +607,8 @@ export async function runDailyNotificationSafeguardJob(options?: {
             withinReachGrants: digest.withinReach,
             previousScanGrants: digest.previous,
           },
-          { sendEmail: true, sendWhatsApp: false }
+          { sendEmail, sendWhatsApp }
         );
-        const topWhatsAppMatch = digest.strong.find((item) => item.score >= minScore);
-        if (topWhatsAppMatch && sendWhatsApp) {
-          await notifyOrgMembers(
-            orgId,
-            "grant_match_high",
-            {
-              grantId: topWhatsAppMatch.grantId,
-              grantName: topWhatsAppMatch.grantName,
-              score: topWhatsAppMatch.score,
-              startApplicationToken: topWhatsAppMatch.startApplicationToken,
-            },
-            { sendEmail: false, sendWhatsApp: true }
-          );
-        }
         await markDigestItemsNotified(supabase, orgId, primaryProfile.id, [
           ...digest.strong,
           ...digest.withinReach,
@@ -634,7 +626,7 @@ export async function runDailyNotificationSafeguardJob(options?: {
         checkedGrantsCount,
         matchedGrantsCount,
       },
-      { sendEmail: true, sendWhatsApp: false }
+      { sendEmail, sendWhatsApp: false }
     );
     diagnostics.dailyUpdates++;
   }

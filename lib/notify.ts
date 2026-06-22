@@ -39,6 +39,8 @@ export interface DigestGrantItem {
   summary?: string;
   /** Timestamp of the latest trusted eligibility score; used to keep daily digests fresh. */
   scoredAt?: string | null;
+  /** Timestamp the grant was added/imported; used to split WhatsApp digests by fresh opportunity age. */
+  grantAddedAt?: string | null;
   startApplicationToken?: string;
   /** Labels of required documents the user has not uploaded (for reminder in digest). */
   missingDocuments?: string[];
@@ -268,7 +270,7 @@ export async function notifyUser(
         logPayload.metadata = { twilioSid: result.twilioSid ?? null, twilioStatus: result.twilioStatus ?? null };
       }
       await supabase.from("NotificationLog").insert(logPayload);
-    } else if (type === "deadline_reminder") {
+    } else if (type === "deadline_reminder" || type === "grant_scan_digest") {
       const result = await sendWhatsApp(user.phoneNumber, buildWhatsAppMessage(type, payload, appUrl));
       const logPayload: Record<string, unknown> = {
         userId: user.id,
@@ -281,7 +283,7 @@ export async function notifyUser(
         logPayload.metadata = {
           twilioSid: result.twilioSid ?? null,
           twilioStatus: result.twilioStatus ?? null,
-          fallback: "legacy_body",
+          fallback: type === "deadline_reminder" ? "legacy_body" : "digest_body",
         };
       }
       await supabase.from("NotificationLog").insert(logPayload);

@@ -8,6 +8,34 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const SEVEN_DAYS_MS = 7 * ONE_DAY_MS;
+
+function digestItemTime(item: DigestGrantItem): number {
+  const raw = item.grantAddedAt ?? item.scoredAt;
+  if (!raw) return 0;
+  const time = new Date(raw).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function dedupeDigestItems(items: DigestGrantItem[]): DigestGrantItem[] {
+  const seen = new Set<string>();
+  const unique: DigestGrantItem[] = [];
+  for (const item of items) {
+    if (!item.grantId || seen.has(item.grantId)) continue;
+    seen.add(item.grantId);
+    unique.push(item);
+  }
+  return unique;
+}
+
+function sortDigestItemsByFreshness(a: DigestGrantItem, b: DigestGrantItem): number {
+  const timeDelta = digestItemTime(b) - digestItemTime(a);
+  if (timeDelta !== 0) return timeDelta;
+  if (b.score !== a.score) return b.score - a.score;
+  return a.grantName.localeCompare(b.grantName);
+}
+
 function subscriptionActivatedFeatureList(planName: string): string {
   if (planName === "Business") {
     return "<li>Up to 5 business profiles</li><li>Unlimited full eligibility &amp; DNA scoring</li><li>Unlimited application prep runs</li><li>Company DNA, grant auto-improve &amp; Founder Pack</li><li>Priority support &amp; notifications</li>";
@@ -504,33 +532,47 @@ export function buildWhatsAppMessage(
       const grants = payload.grants ?? [];
       const withinReachGrants = payload.withinReachGrants ?? [];
       const previousScanGrants = payload.previousScanGrants ?? [];
+      const now = Date.now();
+      const todayCutoff = now - ONE_DAY_MS;
+      const recentCutoff = now - SEVEN_DAYS_MS;
+      const strongItems = dedupeDigestItems([
+        ...(grants as DigestGrantItem[]),
+        ...(previousScanGrants as DigestGrantItem[]).filter((g) => g.score >= 85),
+      ]).sort(sortDigestItemsByFreshness);
+      const todayStrong = strongItems.filter((item) => digestItemTime(item) >= todayCutoff);
+      const recentStrong = strongItems.filter((item) => {
+        const time = digestItemTime(item);
+        return time < todayCutoff && time >= recentCutoff;
+      });
+      const olderStrong = strongItems.filter((item) => {
+        const time = digestItemTime(item);
+        return time === 0 || time < recentCutoff;
+      });
+      const compactName = (name: string) => name.replace(/\s+/g, " ").trim().slice(0, 88);
+      const renderSection = (title: string, items: DigestGrantItem[], limit: number) => {
+        if (items.length === 0) return "";
+        const rows = items.slice(0, limit).map((g, index) => `${index + 1}. ${compactName(g.grantName)} (${g.score}% match)`);
+        const extra = items.length > limit ? `\n+ ${items.length - limit} more in the app` : "";
+        return `${title}\n${rows.join("\n")}${extra}\n\n`;
+      };
+
       let msg = `Today's grant opportunities for ${profileName}\n\n`;
-      let anyMissing = false;
-      if (grants.length > 0) msg += "Strong matches:\n";
-      for (const g of grants as DigestGrantItem[]) {
-        const viewUrl = `${appUrl}/grants/${g.grantId}`;
-        msg += `• ${g.grantName} (${g.score}% match)\n  View: ${viewUrl}\n`;
-        if ((g.missingDocuments?.length ?? 0) > 0) anyMissing = true;
-        const workParts = [...(g.improvementPlan?.actions ?? []), ...(g.missingCriteria ?? [])].slice(0, 2);
-        if (g.score < 70 && workParts.length > 0)
-          msg += `  Work needed: ${workParts.join("; ")}\n`;
+      const anyMissing = [...grants, ...withinReachGrants, ...previousScanGrants]
+        .some((g) => ((g as DigestGrantItem).missingDocuments?.length ?? 0) > 0);
+      msg += renderSection("Fresh strong matches today:", todayStrong, 8);
+      msg += renderSection("Last 7 days still available:", recentStrong, 8);
+      if (todayStrong.length === 0 && recentStrong.length === 0) {
+        msg += renderSection("Strong matches still available:", olderStrong, 8);
+      } else {
+        msg += renderSection("Other strong matches still available:", olderStrong, 4);
       }
-      if (withinReachGrants.length > 0) msg += `${grants.length > 0 ? "\n" : ""}Within reach:\n`;
-      for (const g of withinReachGrants as DigestGrantItem[]) {
-        const viewUrl = `${appUrl}/grants/${g.grantId}`;
-        msg += `• ${g.grantName} (${g.score}% match)\n  View: ${viewUrl}\n`;
-        if ((g.missingDocuments?.length ?? 0) > 0) anyMissing = true;
-        const workParts = [...(g.improvementPlan?.actions ?? []), ...(g.missingCriteria ?? [])].slice(0, 2);
-        if (workParts.length > 0) msg += `  Check: ${workParts.join("; ")}\n`;
+      const withinReach = dedupeDigestItems(withinReachGrants as DigestGrantItem[]).sort(sortDigestItemsByFreshness);
+      msg += renderSection("Within reach:", withinReach, 4);
+      if (strongItems.length === 0 && withinReach.length === 0) {
+        msg += "No new strong WhatsApp matches were ready, but your opportunity page is up to date.\n\n";
       }
-      if (previousScanGrants.length > 0) msg += `${grants.length > 0 || withinReachGrants.length > 0 ? "\n" : ""}Still available from previous scans:\n`;
-      for (const g of (previousScanGrants as DigestGrantItem[]).slice(0, 3)) {
-        const viewUrl = `${appUrl}/grants/${g.grantId}`;
-        msg += `• ${g.grantName} (${g.score}% match)\n  View: ${viewUrl}\n`;
-        if ((g.missingDocuments?.length ?? 0) > 0) anyMissing = true;
-      }
-      msg += `\nView all: ${appUrl}/grants`;
-      if (anyMissing) msg += `\n\nSome grants may require documents you haven't uploaded. Add them in Profile → Documents: ${appUrl}/profile`;
+      msg += `View all and start applications: ${appUrl}/grants/eligible`;
+      if (anyMissing) msg += `\n\nSome grants may require documents you haven't uploaded. Add them in Profile > Documents.`;
       return msg;
     }
 

@@ -58,6 +58,8 @@ const CACHE_DAYS = 1;
 const REFRESH_ENQUEUE_CHUNK_SIZE = positiveIntFromEnv("ELIGIBILITY_REFRESH_ENQUEUE_CHUNK_SIZE", 100);
 const REFRESH_WORKER_CONCURRENCY = positiveIntFromEnv("ELIGIBILITY_REFRESH_WORKER_CONCURRENCY", 8);
 const DEEP_SCORE_WORKER_CONCURRENCY = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_WORKER_CONCURRENCY", 3);
+const DIGEST_STRONG_LIMIT = positiveIntFromEnv("ELIGIBILITY_DIGEST_STRONG_LIMIT", 20);
+const DIGEST_PREVIOUS_LIMIT = positiveIntFromEnv("ELIGIBILITY_DIGEST_PREVIOUS_LIMIT", 12);
 
 function recentNotificationWindow(): Date {
   const since = new Date();
@@ -791,6 +793,7 @@ export async function runEligibilityRefreshJob(options?: {
             grantName: grant.name,
             score,
             scoredAt: assessment.updated_at ?? null,
+            grantAddedAt: grant.createdAt ?? null,
             summary:
               finalResult.summary ??
               finalResult.reason ??
@@ -803,7 +806,7 @@ export async function runEligibilityRefreshJob(options?: {
           };
         };
 
-        const buildCurrentStrongDigest = async (limit = 5): Promise<DigestGrantItem[]> => {
+        const buildCurrentStrongDigest = async (limit = DIGEST_STRONG_LIMIT): Promise<DigestGrantItem[]> => {
           const { data: currentRows, error: currentErr } = await supabase
             .from("EligibilityAssessment")
             .select("grant_id, updated_at, score, decision, summary, notified_at, missing_criteria, improvement_plan, scoring_source")
@@ -862,7 +865,7 @@ export async function runEligibilityRefreshJob(options?: {
             .sort((a, b) => sortDigestByFreshScore(grantsByIdForDigest, a, b))
             .slice(0, limit);
         };
-        const buildPreviousScanDigest = async (limit = 3): Promise<DigestGrantItem[]> => {
+        const buildPreviousScanDigest = async (limit = DIGEST_PREVIOUS_LIMIT): Promise<DigestGrantItem[]> => {
           const { data: recentRows, error: recentErr } = await supabase
             .from("EligibilityAssessment")
             .select("grant_id, updated_at, score, decision, summary, notified_at, missing_criteria, improvement_plan, scoring_source")
@@ -912,7 +915,7 @@ export async function runEligibilityRefreshJob(options?: {
             profileName,
           }, {
             sendEmail: true,
-            sendWhatsApp: false,
+            sendWhatsApp,
           });
           diagnostics.dailyUpdates++;
           notifiedCount += currentStrongDigest.length;
@@ -1147,18 +1150,8 @@ export async function runEligibilityRefreshJob(options?: {
             profileName,
           }, {
             sendEmail: sendNotifyEmail,
-            sendWhatsApp: false,
+            sendWhatsApp,
           });
-          for (const item of digestGrants) {
-            if (item.score >= suggestedThreshold && sendWhatsApp) {
-              await notifyOrgMembers(orgId, "grant_match_high", {
-                grantId: item.grantId,
-                grantName: item.grantName,
-                score: item.score,
-                startApplicationToken: item.startApplicationToken,
-              }, { sendEmail: sendNotifyEmail, sendWhatsApp: true });
-            }
-          }
           await markDigestItemsNotified(supabase, orgId, profileId, [
             ...digestGrants,
             ...withinReachGrants,
@@ -1167,7 +1160,7 @@ export async function runEligibilityRefreshJob(options?: {
         } else if (digestGrants.length > 0 && completionScore < minCompletionForNotifications) {
           console.info(`[eligibility-refresh] Skipping digest: completion ${completionScore}% < ${minCompletionForNotifications}%`);
           await sendEligibilityStatusEmail(locationFiltered.length, strongEligibleCount);
-        } else if (completionScore >= minCompletionForNotifications && sendNotifyEmail) {
+        } else if (completionScore >= minCompletionForNotifications && (sendNotifyEmail || sendWhatsApp)) {
           const alreadyUpdated = await orgHasNotificationSince(
             orgId,
             ["daily_grant_update", "grant_scan_digest", "grant_match_high", "eligibility_upgrade_prompt", "business_dna_match_health"],
@@ -1186,21 +1179,9 @@ export async function runEligibilityRefreshJob(options?: {
               previousScanGrants,
               profileName,
             }, {
-              sendEmail: true,
-              sendWhatsApp: false,
+              sendEmail: sendNotifyEmail,
+              sendWhatsApp,
             });
-            const topWhatsAppMatch = currentStrongDigest.find((item) => item.score >= suggestedThreshold);
-            if (topWhatsAppMatch && sendWhatsApp) {
-              await notifyOrgMembers(orgId, "grant_match_high", {
-                grantId: topWhatsAppMatch.grantId,
-                grantName: topWhatsAppMatch.grantName,
-                score: topWhatsAppMatch.score,
-                startApplicationToken: topWhatsAppMatch.startApplicationToken,
-              }, {
-                sendEmail: false,
-                sendWhatsApp: true,
-              });
-            }
             diagnostics.dailyUpdates++;
             notifiedCount += currentStrongDigest.length;
             await markDigestItemsNotified(supabase, orgId, profileId, [
