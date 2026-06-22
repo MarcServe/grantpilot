@@ -7,6 +7,8 @@ const protectedPaths = [
   "/grants",
   "/applications",
   "/billing",
+  "/data-vault",
+  "/feedback",
   "/intelligence",
   "/founder-pack",
   "/admin",
