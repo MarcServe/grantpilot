@@ -6,6 +6,12 @@ import { Providers } from "@/components/providers";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
+const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://www.grantscopilot.com";
+const title = "GrantsCopilot — AI-Powered Grant Discovery & Preparation";
+const description =
+  "Find fresh grants, check eligibility against your company DNA, and prepare funder-ready documents and application tasks.";
+const shareImage = "/Newpilot_1.png";
+
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -17,9 +23,36 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "GrantsCopilot — AI-Powered Grant Discovery & Preparation",
-  description:
-    "Find fresh grants, check eligibility against your company DNA, and prepare funder-ready documents and application tasks.",
+  metadataBase: new URL(appUrl),
+  title,
+  description,
+  applicationName: "GrantsCopilot",
+  icons: {
+    icon: "/icon.png",
+    shortcut: "/icon.png",
+    apple: "/icon.png",
+  },
+  openGraph: {
+    title,
+    description,
+    url: appUrl,
+    siteName: "GrantsCopilot",
+    type: "website",
+    images: [
+      {
+        url: shareImage,
+        width: 1536,
+        height: 1024,
+        alt: "GrantsCopilot grant discovery and application preparation assistant",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title,
+    description,
+    images: [shareImage],
+  },
 };
 
 export default function RootLayout({
