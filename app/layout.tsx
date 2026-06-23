@@ -10,7 +10,7 @@ const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://www.grantscopilot.com
 const title = "GrantsCopilot — AI-Powered Grant Discovery & Preparation";
 const description =
   "Find fresh grants, check eligibility against your company DNA, and prepare funder-ready documents and application tasks.";
-const shareImage = "/grantscopilot-social-preview.jpg";
+const shareImage = "/grantscopilot-social-preview.png";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -41,9 +41,9 @@ export const metadata: Metadata = {
     images: [
       {
         url: shareImage,
-        width: 1200,
-        height: 1200,
-        type: "image/jpeg",
+        width: 1536,
+        height: 1024,
+        type: "image/png",
         alt: "GrantsCopilot grant discovery and application preparation assistant",
       },
     ],
