@@ -1,7 +1,7 @@
 "use server";
 
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { getActiveOrg } from "@/lib/auth";
+import { getActiveOrg, setActiveProfileCookie } from "@/lib/auth";
 import {
   step1Schema,
   step2Schema,
@@ -123,11 +123,29 @@ async function getOrCreateProfile(organisationId: string) {
     throw new Error("Organisation ID is required to load or create profile.");
   }
   const supabase = getSupabaseAdmin();
+  const { activeProfileId } = await getActiveOrg();
 
   const { count: profileCount } = await supabase
     .from("BusinessProfile")
     .select("id", { count: "exact", head: true })
     .eq("organisationId", organisationId);
+
+  if (activeProfileId) {
+    const { data: activeProfile } = await supabase
+      .from("BusinessProfile")
+      .select("*")
+      .eq("organisationId", organisationId)
+      .eq("id", activeProfileId)
+      .maybeSingle();
+
+    if (activeProfile) {
+      const documents = await loadProfileDocuments(activeProfile.id);
+      return {
+        ...activeProfile,
+        documents,
+      };
+    }
+  }
 
   const { data: existing } = await supabase
     .from("BusinessProfile")
@@ -186,6 +204,74 @@ async function getOrCreateProfile(organisationId: string) {
 export async function getProfile() {
   const orgId = await getOrgId();
   return getOrCreateProfile(orgId);
+}
+
+export async function createBusinessProfile(data: { businessName: string }) {
+  const businessName = data.businessName?.trim();
+  if (!businessName) return { error: "Business name is required." };
+  if (businessName.length > 140) return { error: "Business name must be 140 characters or fewer." };
+
+  const { orgId } = await getActiveOrg();
+  const supabase = getSupabaseAdmin();
+  const plan = await getOrganisationPlanKey(orgId);
+  const profileLimit = PLAN_LIMITS[plan].profiles;
+
+  const { count } = await supabase
+    .from("BusinessProfile")
+    .select("id", { count: "exact", head: true })
+    .eq("organisationId", orgId);
+
+  if ((count ?? 0) >= profileLimit) {
+    return {
+      error: `Your ${plan.replace("_", " ").toLowerCase()} plan allows up to ${profileLimit} business profile${profileLimit === 1 ? "" : "s"}. Upgrade on Billing to add more.`,
+    };
+  }
+
+  const id = crypto.randomUUID();
+  const { data: created, error } = await supabase
+    .from("BusinessProfile")
+    .insert({
+      id,
+      organisationId: orgId,
+      businessName,
+      sector: "",
+      missionStatement: "",
+      description: "",
+      location: "",
+      fundingMin: 0,
+      fundingMax: 0,
+      fundingPurposes: [],
+      fundingDetails: null,
+      funderLocations: [],
+    })
+    .select("id, businessName")
+    .single();
+
+  if (error || !created) {
+    return { error: error?.message ?? "Failed to create business profile." };
+  }
+
+  await setActiveProfileCookie(created.id);
+  return { success: true, profileId: created.id };
+}
+
+export async function switchBusinessProfile(profileId: string) {
+  const requestedProfileId = profileId?.trim();
+  if (!requestedProfileId) return { error: "Business profile is required." };
+
+  const { orgId } = await getActiveOrg();
+  const { data: profile, error } = await getSupabaseAdmin()
+    .from("BusinessProfile")
+    .select("id, businessName")
+    .eq("organisationId", orgId)
+    .eq("id", requestedProfileId)
+    .maybeSingle();
+
+  if (error) return { error: error.message };
+  if (!profile) return { error: "Business profile not found for this account." };
+
+  await setActiveProfileCookie(profile.id);
+  return { success: true, profileId: profile.id };
 }
 
 export async function saveStep1(data: Step1Data) {

@@ -50,14 +50,21 @@ async function refreshProfileAfterDocumentUpload(profileId: string, organisation
 
 export async function POST(request: Request) {
   try {
-    const { orgId } = await getActiveOrg();
+    const { orgId, profile: activeProfile } = await getActiveOrg();
+    const profileId = activeProfile?.id;
+    if (!profileId) {
+      return NextResponse.json(
+        { error: "Profile not found" },
+        { status: 400 }
+      );
+    }
 
     const supabase = getSupabaseAdmin();
     const { data: profile } = await supabase
       .from("BusinessProfile")
       .select("id")
+      .eq("id", profileId)
       .eq("organisationId", orgId)
-      .limit(1)
       .maybeSingle();
     if (!profile) {
       return NextResponse.json(

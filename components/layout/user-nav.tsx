@@ -1,18 +1,27 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useTransition } from "react";
+import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ChevronDown, LogOut, User } from "lucide-react";
+import { Building2, Check, ChevronDown, LogOut, Plus, User } from "lucide-react";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
+import { switchBusinessProfile } from "@/app/(dashboard)/profile/actions";
+
+type UserNavProfile = {
+  id: string;
+  businessName: string | null;
+  completionScore?: number | null;
+};
 
 function displayInitials(value: string): string {
   return value
@@ -24,10 +33,21 @@ function displayInitials(value: string): string {
     .toUpperCase() || "U";
 }
 
-export function UserNav({ accountName }: { accountName?: string | null }) {
+export function UserNav({
+  accountName,
+  profiles = [],
+  activeProfileId,
+  profileLimit = 1,
+}: {
+  accountName?: string | null;
+  profiles?: UserNavProfile[];
+  activeProfileId?: string | null;
+  profileLimit?: number;
+}) {
   const router = useRouter();
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isSwitching, startTransition] = useTransition();
 
   useEffect(() => {
     const supabase = createClient();
@@ -54,6 +74,19 @@ export function UserNav({ accountName }: { accountName?: string | null }) {
     router.refresh();
   }
 
+  function handleSwitchProfile(profileId: string) {
+    if (profileId === activeProfileId || isSwitching) return;
+    startTransition(async () => {
+      const result = await switchBusinessProfile(profileId);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success("Business profile switched");
+      router.refresh();
+    });
+  }
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -70,7 +103,7 @@ export function UserNav({ accountName }: { accountName?: string | null }) {
           <ChevronDown className="hidden h-4 w-4 text-[#64748b] sm:block" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-56" align="end" forceMount>
+      <DropdownMenuContent className="w-72" align="end" forceMount>
         <div className="flex items-center gap-2 p-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
             {initials}
@@ -80,6 +113,42 @@ export function UserNav({ accountName }: { accountName?: string | null }) {
             <p className="text-xs text-muted-foreground">{user.email}</p>
           </div>
         </div>
+        {profiles.length > 0 ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-xs font-bold uppercase text-muted-foreground">
+              Business profiles
+            </DropdownMenuLabel>
+            {profiles.map((profile) => {
+              const active = profile.id === activeProfileId;
+              const name = profile.businessName?.trim() || "Untitled business profile";
+              return (
+                <DropdownMenuItem
+                  key={profile.id}
+                  disabled={active || isSwitching}
+                  onSelect={() => handleSwitchProfile(profile.id)}
+                  className="items-start gap-2"
+                >
+                  {active ? (
+                    <Check className="mt-0.5 h-4 w-4 text-[#18a45f]" />
+                  ) : (
+                    <Building2 className="mt-0.5 h-4 w-4" />
+                  )}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium">{name}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {Math.max(0, Number(profile.completionScore ?? 0))}% complete
+                    </span>
+                  </span>
+                </DropdownMenuItem>
+              );
+            })}
+            <DropdownMenuItem onClick={() => router.push("/profile?manage=profiles")}>
+              <Plus className="mr-2 h-4 w-4" />
+              {profiles.length < profileLimit ? "Add or manage profiles" : "Manage profiles"}
+            </DropdownMenuItem>
+          </>
+        ) : null}
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => router.push("/profile")}>
           <User className="mr-2 h-4 w-4" />

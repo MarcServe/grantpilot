@@ -1,16 +1,21 @@
 import { cache } from "react";
+import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
+export const ACTIVE_PROFILE_COOKIE = "grantscopilot_active_profile_id";
+
 type MembershipRow = Record<string, unknown>;
 type UserRow = Record<string, unknown>;
-type NormalisedProfile = Record<string, unknown> & {
+export type NormalisedProfile = Record<string, unknown> & {
   id: string;
   completionScore?: number;
   completion_score?: number;
   businessName?: string | null;
+  createdAt?: string | null;
+  created_at?: string | null;
 };
-type NormalisedOrganisation = Record<string, unknown> & {
+export type NormalisedOrganisation = Record<string, unknown> & {
   id?: string;
   name?: string;
   plan?: string;
@@ -63,6 +68,40 @@ function normaliseUserMemberships(userRow: UserRow): NormalisedUser {
         new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     ),
   };
+}
+
+function profileCreatedTime(profile: NormalisedProfile): number {
+  const raw = profile.createdAt ?? profile.created_at;
+  if (!raw) return 0;
+  const time = new Date(raw).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function profilesWithActiveFirst(
+  profiles: NormalisedProfile[] | undefined,
+  activeProfileId: string | null
+): { profiles: NormalisedProfile[]; activeProfile: NormalisedProfile | null } {
+  const sorted = [...(profiles ?? [])].sort((a, b) => profileCreatedTime(a) - profileCreatedTime(b));
+  const activeIndex = activeProfileId ? sorted.findIndex((profile) => profile.id === activeProfileId) : -1;
+  if (activeIndex > 0) {
+    const [active] = sorted.splice(activeIndex, 1);
+    sorted.unshift(active);
+  }
+  return {
+    profiles: sorted,
+    activeProfile: sorted[0] ?? null,
+  };
+}
+
+export async function setActiveProfileCookie(profileId: string): Promise<void> {
+  const cookieStore = await cookies();
+  cookieStore.set(ACTIVE_PROFILE_COOKIE, profileId, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 365,
+  });
 }
 
 async function fetchFullUserBySupabaseId(admin: ReturnType<typeof getSupabaseAdmin>, supabaseId: string) {
@@ -175,6 +214,8 @@ export const requireUser = cache(async function requireUser(): Promise<Normalise
 export const getActiveOrg = cache(async function getActiveOrg(): Promise<{
   user: Awaited<ReturnType<typeof requireUser>>;
   org: NormalisedOrganisation;
+  profile: NormalisedProfile | null;
+  activeProfileId: string | null;
   role: string;
   orgId: string;
 }> {
@@ -190,9 +231,18 @@ export const getActiveOrg = cache(async function getActiveOrg(): Promise<{
   if (!orgId) {
     throw new Error("Organisation ID missing on membership");
   }
+  const cookieStore = await cookies();
+  const requestedProfileId = cookieStore.get(ACTIVE_PROFILE_COOKIE)?.value ?? null;
+  const { profiles, activeProfile } = profilesWithActiveFirst(membership.organisation.profiles, requestedProfileId);
+  const org = {
+    ...membership.organisation,
+    profiles,
+  };
   return {
     user,
-    org: membership.organisation,
+    org,
+    profile: activeProfile,
+    activeProfileId: activeProfile?.id ?? null,
     role: membership.role,
     orgId,
   };

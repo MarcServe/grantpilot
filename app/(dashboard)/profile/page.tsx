@@ -2,7 +2,9 @@ import { getProfile } from "./actions";
 import { getActiveOrg } from "@/lib/auth";
 import { ProfileForm } from "@/components/profile/profile-form";
 import { NotificationPreferences } from "@/components/profile/notification-preferences";
-import { planAllowsForOrg } from "@/lib/plan-features";
+import { BusinessProfilesManager } from "@/components/profile/business-profiles-manager";
+import { planAllowsForOrg, resolvePlanKey } from "@/lib/plan-features";
+import { PLAN_LIMITS, planNotifyDisplayName } from "@/lib/plans";
 
 function getFirstIncompleteStep(profile: {
   businessName: string;
@@ -34,7 +36,18 @@ export default async function ProfilePage({
   const stepFromQuery =
     Number.isFinite(stepParam) && stepParam >= 1 && stepParam <= 6 ? stepParam : null;
 
-  const [profile, activeOrg] = await Promise.all([getProfile(), getActiveOrg()]);
+  const activeOrg = await getActiveOrg();
+  const profile = await getProfile();
+  const plan = resolvePlanKey(activeOrg.org.plan);
+  const profileLimit = PLAN_LIMITS[plan].profiles;
+  const rawProfiles = activeOrg.org.profiles?.length ? activeOrg.org.profiles : [profile];
+  const businessProfiles = rawProfiles.map((item) => ({
+    id: item.id,
+    businessName: item.businessName ?? null,
+    location: typeof item.location === "string" ? item.location : null,
+    sector: typeof item.sector === "string" ? item.sector : null,
+    completionScore: Number(item.completionScore ?? item.completion_score ?? 0),
+  }));
   const companyDnaAutofillEnabled = planAllowsForOrg(
     activeOrg.org as { plan?: string; createdAt?: string | Date | null },
     "website_intelligence_refresh"
@@ -75,6 +88,12 @@ export default async function ProfilePage({
       </div>
 
       <div className="mx-auto w-full max-w-3xl space-y-5 sm:space-y-6">
+        <BusinessProfilesManager
+          profiles={businessProfiles}
+          activeProfileId={activeOrg.activeProfileId ?? profile.id}
+          profileLimit={profileLimit}
+          planName={planNotifyDisplayName(plan)}
+        />
         <NotificationPreferences
           defaultValues={{
             phoneNumber,

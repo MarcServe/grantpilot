@@ -137,10 +137,11 @@ async function recalcCompletionScore(profileId: string): Promise<void> {
     .eq("id", profileId);
 }
 
-async function getProfileForOrg(orgId: string): Promise<Record<string, unknown> | null> {
+async function getProfileForOrg(orgId: string, profileId: string): Promise<Record<string, unknown> | null> {
   const { data } = await getSupabaseAdmin()
     .from("BusinessProfile")
     .select("*")
+    .eq("id", profileId)
     .eq("organisationId", orgId)
     .maybeSingle();
   return (data as Record<string, unknown> | null) ?? null;
@@ -148,16 +149,19 @@ async function getProfileForOrg(orgId: string): Promise<Record<string, unknown> 
 
 export async function POST(): Promise<NextResponse> {
   try {
-    const { orgId, org } = await getActiveOrg();
+    const { orgId, org, profile: activeProfile } = await getActiveOrg();
     if (!planAllowsForOrg(org as { plan?: string; createdAt?: string | Date | null }, "website_intelligence_refresh")) {
       return NextResponse.json(
         { error: PLAN_CAPABILITY_MESSAGES.website_intelligence_refresh, code: "FEATURE_FORBIDDEN" },
         { status: 402 }
       );
     }
+    if (!activeProfile?.id) {
+      return NextResponse.json({ error: "Profile not found" }, { status: 404 });
+    }
 
     const supabase = getSupabaseAdmin();
-    const profile = await getProfileForOrg(orgId);
+    const profile = await getProfileForOrg(orgId, activeProfile.id);
     if (!profile?.id) {
       return NextResponse.json({ error: "Profile not found" }, { status: 404 });
     }
@@ -235,12 +239,15 @@ Return 5-12 high-value suggestions. Avoid fields where the current profile alrea
 
 export async function PATCH(req: Request): Promise<NextResponse> {
   try {
-    const { orgId, org } = await getActiveOrg();
+    const { orgId, org, profile: activeProfile } = await getActiveOrg();
     if (!planAllowsForOrg(org as { plan?: string; createdAt?: string | Date | null }, "website_intelligence_refresh")) {
       return NextResponse.json(
         { error: PLAN_CAPABILITY_MESSAGES.website_intelligence_refresh, code: "FEATURE_FORBIDDEN" },
         { status: 402 }
       );
+    }
+    if (!activeProfile?.id) {
+      return NextResponse.json({ error: "Profile not found" }, { status: 404 });
     }
 
     const body = await req.json().catch(() => ({}));
@@ -260,7 +267,7 @@ export async function PATCH(req: Request): Promise<NextResponse> {
     }
 
     const supabase = getSupabaseAdmin();
-    const profile = await getProfileForOrg(orgId);
+    const profile = await getProfileForOrg(orgId, activeProfile.id);
     if (!profile?.id) {
       return NextResponse.json({ error: "Profile not found" }, { status: 404 });
     }

@@ -5,12 +5,29 @@ import { Bell } from "lucide-react";
 import { UserNav } from "@/components/layout/user-nav";
 import { DashboardNav } from "@/components/layout/dashboard-nav";
 import { getActiveOrg } from "@/lib/auth";
+import { PLAN_LIMITS } from "@/lib/plans";
+import { resolvePlanKey } from "@/lib/plan-features";
 
 export const dynamic = "force-dynamic";
 
 function preferredAccountName(org: Awaited<ReturnType<typeof getActiveOrg>>["org"]): string | null {
   const profileName = org.profiles?.[0]?.businessName?.trim();
   return profileName || org.name?.trim() || null;
+}
+
+async function loadAccountNavData() {
+  const { org, activeProfileId } = await getActiveOrg();
+  const plan = resolvePlanKey(org.plan);
+  return {
+    accountName: preferredAccountName(org),
+    activeProfileId,
+    profileLimit: PLAN_LIMITS[plan].profiles,
+    profiles: (org.profiles ?? []).map((profile) => ({
+      id: profile.id,
+      businessName: profile.businessName ?? null,
+      completionScore: Number(profile.completionScore ?? profile.completion_score ?? 0),
+    })),
+  };
 }
 
 async function SidebarNavWithProfileStrength() {
@@ -26,8 +43,7 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const accountNamePromise = getActiveOrg()
-    .then(({ org }) => preferredAccountName(org))
+  const accountNavPromise = loadAccountNavData()
     .catch(() => null);
 
   return (
@@ -96,7 +112,7 @@ export default function DashboardLayout({
                 <Bell className="h-5 w-5" />
               </button>
               <Suspense fallback={<div className="h-11 w-11 animate-pulse rounded-full bg-muted" />}>
-                <UserNavWithAccountName accountNamePromise={accountNamePromise} />
+                <UserNavWithAccountName accountNavPromise={accountNavPromise} />
               </Suspense>
             </div>
           </div>
@@ -108,7 +124,18 @@ export default function DashboardLayout({
   );
 }
 
-async function UserNavWithAccountName({ accountNamePromise }: { accountNamePromise: Promise<string | null> }) {
-  const accountName = await accountNamePromise;
-  return <UserNav accountName={accountName} />;
+async function UserNavWithAccountName({
+  accountNavPromise,
+}: {
+  accountNavPromise: Promise<Awaited<ReturnType<typeof loadAccountNavData>> | null>;
+}) {
+  const accountNav = await accountNavPromise;
+  return (
+    <UserNav
+      accountName={accountNav?.accountName}
+      profiles={accountNav?.profiles ?? []}
+      activeProfileId={accountNav?.activeProfileId ?? null}
+      profileLimit={accountNav?.profileLimit ?? 1}
+    />
+  );
 }

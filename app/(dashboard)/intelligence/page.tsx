@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 
 export default async function IntelligencePage() {
-  const { orgId } = await getActiveOrg();
+  const { orgId, profile: activeProfile } = await getActiveOrg();
   const supabase = getSupabaseAdmin();
   const pendingOutcomes = await fetchApplicationsNeedingOutcome(orgId);
 
@@ -50,8 +50,8 @@ export default async function IntelligencePage() {
     supabase
       .from("BusinessProfile")
       .select("completionScore, websiteIntelligence, innovationCapabilities, socialImpact, keyAchievements, teamExpertise")
+      .eq("id", activeProfile?.id ?? "")
       .eq("organisationId", orgId)
-      .limit(1)
       .maybeSingle(),
     supabase
       .from("ApplicationOutcome")

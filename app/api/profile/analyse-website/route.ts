@@ -5,11 +5,17 @@ import { analyseWebsite } from "@/lib/website-intelligence";
 import { planAllowsForOrg, PLAN_CAPABILITY_MESSAGES } from "@/lib/plan-features";
 
 export async function POST() {
-  const { orgId, org } = await getActiveOrg();
+  const { orgId, org, profile: activeProfile } = await getActiveOrg();
   if (!planAllowsForOrg(org as { plan?: string; createdAt?: string | Date | null }, "website_intelligence_refresh")) {
     return NextResponse.json(
       { error: PLAN_CAPABILITY_MESSAGES.website_intelligence_refresh, code: "FEATURE_FORBIDDEN" },
       { status: 402 }
+    );
+  }
+  if (!activeProfile?.id) {
+    return NextResponse.json(
+      { error: "Profile not found" },
+      { status: 400 }
     );
   }
 
@@ -18,6 +24,7 @@ export async function POST() {
   const { data: profile } = await supabase
     .from("BusinessProfile")
     .select("id, websiteUrl")
+    .eq("id", activeProfile.id)
     .eq("organisationId", orgId)
     .maybeSingle();
 
