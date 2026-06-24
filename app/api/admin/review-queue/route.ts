@@ -5,6 +5,7 @@ import { isAdmin } from "@/lib/admin-auth";
 import { getCurrentUser } from "@/lib/auth";
 import { grantSourceEndpointKey, normaliseGrantSourceEndpoint } from "@/lib/grant-source-endpoint";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { classifyGrantApplicationUrl } from "@/lib/grant-application-url-quality";
 
 const sourceTypes = ["rss", "government_portal", "foundation", "newsletter"] as const;
 const crawlFrequencies = ["6h", "24h", "72h", "168h"] as const;
@@ -176,10 +177,28 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid application URL." }, { status: 400 });
     }
 
+    const classification = classifyGrantApplicationUrl(endpoint);
+    if (classification.quality !== "verified_direct" && classification.quality !== "verified_portal") {
+      return NextResponse.json(
+        { error: `This does not look like a direct application form or portal start: ${classification.reason}` },
+        { status: 400 }
+      );
+    }
+
     const [grantUpdate, linkUpdate] = await Promise.all([
       supabase
         .from("Grant")
-        .update({ applicationUrl: endpoint, url_status: "unknown", url_checked_at: null })
+        .update({
+          applicationUrl: endpoint,
+          directApplicationUrl: endpoint,
+          applicationUrlKind: classification.kind,
+          applicationUrlQuality: classification.quality,
+          applicationUrlConfidence: classification.confidence,
+          applicationUrlQualityReason: classification.reason,
+          applicationUrlVerifiedAt: new Date().toISOString(),
+          url_status: "unknown",
+          url_checked_at: null,
+        })
         .eq("id", row.grant_id),
       row.grant_link_id
         ? supabase

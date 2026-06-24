@@ -51,7 +51,7 @@ export function ReviewQueueActions({ id, kind, endpoint }: Props) {
         <Input
           value={url}
           onChange={(event) => setUrl(event.target.value)}
-          placeholder={approvingLink ? "Application form URL" : "Source URL"}
+          placeholder={approvingLink ? "Direct form or official portal start URL" : "Source URL"}
           className="h-8 min-w-0 text-xs"
         />
         {url.trim() ? (
