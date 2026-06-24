@@ -23,6 +23,8 @@ export interface DiscoveryGrantRow {
   amount?: number | null;
   deadline?: string | null;
   applicationUrl: string;
+  detailUrl?: string | null;
+  directApplicationUrl?: string | null;
   eligibility: string;
   sectors?: string[];
   regions?: string[];
@@ -56,10 +58,24 @@ export function toGrantInput(
 ): GrantInput | null {
   const name = typeof row.name === "string" ? row.name.trim() : "";
   const funder = typeof row.funder === "string" ? row.funder.trim() : "";
-  const applicationUrl = typeof row.applicationUrl === "string" ? row.applicationUrl.trim() : "";
+  const raw = row as DiscoveryGrantRow & Record<string, unknown>;
+  const detailUrl =
+    typeof row.detailUrl === "string" && row.detailUrl.trim()
+      ? row.detailUrl.trim()
+      : typeof raw.detail_url === "string" && raw.detail_url.trim()
+        ? raw.detail_url.trim()
+        : "";
+  const directApplicationUrl =
+    typeof row.directApplicationUrl === "string" && row.directApplicationUrl.trim()
+      ? row.directApplicationUrl.trim()
+      : typeof raw.direct_application_url === "string" && raw.direct_application_url.trim()
+        ? raw.direct_application_url.trim()
+        : "";
+  const legacyApplicationUrl = typeof row.applicationUrl === "string" ? row.applicationUrl.trim() : "";
+  const applicationUrl = directApplicationUrl || legacyApplicationUrl || detailUrl;
   const eligibility = typeof row.eligibility === "string" ? row.eligibility.trim() : "See application page.";
   if (!name || !funder || !applicationUrl) return null;
-  if (looksLikeGenericOrListUrl(applicationUrl)) return null;
+  if (!directApplicationUrl && looksLikeGenericOrListUrl(applicationUrl)) return null;
 
   const amount =
     typeof row.amount === "number" && !Number.isNaN(row.amount)
@@ -90,6 +106,8 @@ export function toGrantInput(
     amount,
     deadline,
     applicationUrl,
+    detailUrl: detailUrl || legacyApplicationUrl || applicationUrl,
+    directApplicationUrl: directApplicationUrl || null,
     eligibility,
     sectors,
     regions,

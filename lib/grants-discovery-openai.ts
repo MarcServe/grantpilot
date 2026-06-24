@@ -38,7 +38,7 @@ SEARCH THESE TYPES OF FUNDERS (prioritise direct-access grants):
 - Corporate CSR grants (Google.org, Nesta, Unilever, Barclays Eagle Labs)
 - Grant aggregator sites (grantsonline.org.uk, fundingcentral.org.uk, grants4community.org.uk)
 
-PRIORITISE grants where the applicationUrl is a DIRECT application form:
+PRIORITISE grants where directApplicationUrl is a DIRECT application form:
 - Google Forms, Airtable, Typeform, Submittable, JotForm, SurveyMonkey Apply
 - Simple web forms on the funder's website
 - PDF application forms (downloadable)
@@ -51,17 +51,22 @@ ALSO INCLUDE login-required government or portal grants when they are live and r
 For these, use the real grant/application page URL and mention in eligibility that sign-in is required.
 
 CRITICAL:
-- Every applicationUrl MUST be a real URL you found during this web search
+- Every URL MUST be a real URL you found during this web search
 - Do NOT fabricate, guess, or recall URLs from memory — only use URLs from search results
 - Only include grants that appear currently open for applications
-- If you cannot find a direct form URL, use the official grant detail/apply page URL only when it clearly belongs to this specific open grant
+- detailUrl: official page for this exact grant/opportunity.
+- directApplicationUrl: direct application form or official portal start URL only if the page exposes one. Use null if not visible.
+- applicationUrl: set to directApplicationUrl when present; otherwise set to detailUrl.
+- Do not invent directApplicationUrl. Do not use generic landing pages such as council business support hubs.
 
 Return a JSON array of grant objects. Each must have:
 - name (string): exact grant name as shown on the website
 - funder (string): organisation name
 - amount (number or null): max funding amount if stated
 - deadline (string or null): ISO date if stated, e.g. "2026-06-30"
-- applicationUrl (string): the REAL URL you found via search (required)
+- detailUrl (string): the official page for this exact grant/opportunity
+- directApplicationUrl (string or null): direct application form or official portal start URL only when visible
+- applicationUrl (string): directApplicationUrl when present; otherwise detailUrl
 - eligibility (string): short eligibility summary from the page
 - sectors (string array): e.g. ["Technology", "Healthcare"]
 - regions (string array): e.g. ["England", "UK", "Wales"]

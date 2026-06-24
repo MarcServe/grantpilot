@@ -42,14 +42,22 @@ EXCLUDE (require portal login):
 - Grants.gov (US) portal
 - EU funding portal
 
-CRITICAL: Only include grants you are confident actually exist. The applicationUrl must be a real page for that specific grant — not a homepage. Prefer direct application forms (Google Forms, Typeform, Submittable). Do NOT fabricate URLs.
+CRITICAL: Only include grants you are confident actually exist. URLs must be real pages for that specific grant — not a homepage. Prefer direct application forms (Google Forms, Typeform, Submittable). Do NOT fabricate URLs.
+
+URL rules:
+- detailUrl: official page for this exact grant/opportunity.
+- directApplicationUrl: direct application form or official portal start URL only if the page exposes one. Use null if not visible.
+- applicationUrl: set to directApplicationUrl when present; otherwise set to detailUrl.
+- Do not invent directApplicationUrl. Do not use generic landing pages such as council business support hubs.
 
 Return a JSON array. Each object must have:
 - name (string): exact grant/programme name
 - funder (string): organisation name
 - amount (number or null): max funding if known
 - deadline (string or null): ISO date e.g. "2026-06-30"
-- applicationUrl (string): real URL for this grant (required)
+- detailUrl (string): official page for this exact grant/opportunity
+- directApplicationUrl (string or null): direct application form or official portal start URL only when visible
+- applicationUrl (string): directApplicationUrl when present; otherwise detailUrl
 - eligibility (string): short summary
 - sectors (string array): e.g. ["Technology"]
 - regions (string array): e.g. ["England", "UK"]

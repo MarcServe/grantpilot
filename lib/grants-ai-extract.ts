@@ -54,7 +54,8 @@ const EXTRACT_SYSTEM = `You extract grant and funding opportunities from web pag
 - country (string or null): country or region of the funder
 - eligibility (string): short eligibility summary
 - sector (string or null): sector or theme
-- application_link (string): URL to apply or to the opportunity page; use the page URL if no specific link is given
+- detail_link (string): official grant/detail page URL for this specific grant; use the page URL if no specific page link is given
+- direct_application_link (string or null): direct form or official portal start URL only when clearly present; otherwise null
 
 If the page lists multiple opportunities, include each as a separate object. If you find none, return []. Return only the JSON array, no markdown or explanation.`;
 
@@ -112,12 +113,21 @@ ${text}`,
     const o = item as Record<string, unknown>;
     const name = typeof o.grant_title === "string" ? o.grant_title.trim() : typeof o.name === "string" ? (o.name as string).trim() : "";
     const funder = typeof o.funder === "string" ? (o.funder as string).trim() : "";
-    const applicationUrl =
+    const legacyApplicationUrl =
       typeof o.application_link === "string"
         ? (o.application_link as string).trim()
         : typeof o.applicationUrl === "string"
           ? (o.applicationUrl as string).trim()
-          : pageUrl;
+          : "";
+    const detailUrl =
+      typeof o.detail_link === "string" && o.detail_link.trim()
+        ? o.detail_link.trim()
+        : legacyApplicationUrl || pageUrl;
+    const directApplicationUrl =
+      typeof o.direct_application_link === "string" && o.direct_application_link.trim()
+        ? o.direct_application_link.trim()
+        : null;
+    const applicationUrl = directApplicationUrl || detailUrl;
     if (!name || !funder) continue;
 
     const amount =
@@ -140,7 +150,9 @@ ${text}`,
       funder,
       amount: amount != null && !Number.isNaN(amount) ? amount : null,
       deadline: deadline || null,
-      applicationUrl: applicationUrl || pageUrl,
+      applicationUrl,
+      detailUrl,
+      directApplicationUrl,
       eligibility: eligibility.slice(0, 5000),
       sectors: sector ? [sector] : [],
       regions: country ? [country] : [],
@@ -184,7 +196,10 @@ Rules:
 - Prefer official UK, EU, or global programmes open to UK applicants.
 - Do not include expired, closed, archived, historical, scholarship-only, or login-only pages as actionable grants.
 - Do not invent deadlines, amounts, eligibility rules, or URLs.
-- application_link must be the most direct official grant detail/application URL you can verify from the source context.
+- detail_link must be the official page for this exact grant/opportunity.
+- direct_application_link must be a direct application form or official portal start URL only if the page exposes one. Use null if not visible.
+- application_link may be included for backward compatibility, but set it to direct_application_link when present; otherwise set it to detail_link.
+- Do not invent direct_application_link. Do not use generic landing pages such as council business support hubs.
 - If no current grants are present, return {"grants":[]}.
 
 Return JSON only with this shape:
@@ -198,6 +213,8 @@ Return JSON only with this shape:
       "country": "UK/EU/Global or null",
       "eligibility": "Short eligibility summary",
       "sector": "Sector or null",
+      "detail_link": "https://...",
+      "direct_application_link": "https://... or null",
       "application_link": "https://..."
     }
   ]
@@ -239,7 +256,14 @@ ${text}`,
       const o = item as Record<string, unknown>;
       const name = typeof o.grant_title === "string" ? o.grant_title.trim() : "";
       const funder = typeof o.funder === "string" ? o.funder.trim() : "";
-      const applicationUrl = typeof o.application_link === "string" ? o.application_link.trim() : pageUrl;
+      const legacyApplicationUrl = typeof o.application_link === "string" ? o.application_link.trim() : "";
+      const detailUrl = typeof o.detail_link === "string" && o.detail_link.trim()
+        ? o.detail_link.trim()
+        : legacyApplicationUrl || pageUrl;
+      const directApplicationUrl = typeof o.direct_application_link === "string" && o.direct_application_link.trim()
+        ? o.direct_application_link.trim()
+        : null;
+      const applicationUrl = directApplicationUrl || detailUrl;
       if (!name || !funder || !applicationUrl) return null;
 
       const amount = typeof o.funding_amount === "number" && !Number.isNaN(o.funding_amount)
@@ -260,6 +284,8 @@ ${text}`,
         amount,
         deadline,
         applicationUrl,
+        detailUrl,
+        directApplicationUrl,
         eligibility: eligibility.slice(0, 5000),
         sectors: sector ? [sector] : [],
         regions: country ? [country] : [],

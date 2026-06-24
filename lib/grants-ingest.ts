@@ -12,6 +12,11 @@ import { generateAndStoreGrantEmbedding } from "@/lib/embeddings";
 import { checkUrlHealth } from "@/lib/url-health-check";
 import { getGrantFreshnessStatus, isPastGrantDeadline } from "@/lib/grant-freshness";
 import { verifyGrantActionable } from "@/lib/grant-actionability";
+import {
+  classifyGrantApplicationUrl,
+  isVerifiedApplicationQuality,
+  type ApplicationUrlClassification,
+} from "@/lib/grant-application-url-quality";
 
 /** Normalize string for hashing: lowercase, trim, collapse whitespace. */
 function normalizeForHash(s: string): string {
@@ -41,6 +46,10 @@ export interface GrantInput {
   amount?: number | null;
   deadline?: string | null; // ISO date
   applicationUrl: string;
+  /** Official grant/detail page, even if the application starts elsewhere. */
+  detailUrl?: string | null;
+  /** Confirmed direct form or official portal start URL. */
+  directApplicationUrl?: string | null;
   eligibility: string;
   description?: string | null;
   objectives?: string | null;
@@ -76,13 +85,31 @@ export function parseGrantRow(row: unknown): GrantInput | null {
   const o = row as Record<string, unknown>;
   const name = typeof o.name === "string" ? o.name : typeof o.title === "string" ? o.title : null;
   const funder = typeof o.funder === "string" ? o.funder : null;
-  const applicationUrl = typeof o.applicationUrl === "string" ? o.applicationUrl : typeof o.url === "string" ? o.url : "";
+  const detailUrl =
+    typeof o.detailUrl === "string"
+      ? o.detailUrl.trim()
+      : typeof o.detail_url === "string"
+        ? o.detail_url.trim()
+        : typeof o.detail_link === "string"
+          ? o.detail_link.trim()
+          : "";
+  const directApplicationUrl =
+    typeof o.directApplicationUrl === "string"
+      ? o.directApplicationUrl.trim()
+      : typeof o.direct_application_url === "string"
+        ? o.direct_application_url.trim()
+        : typeof o.direct_application_link === "string"
+          ? o.direct_application_link.trim()
+          : "";
+  const legacyApplicationUrl =
+    typeof o.applicationUrl === "string" ? o.applicationUrl.trim() : typeof o.url === "string" ? o.url.trim() : "";
+  const applicationUrl = directApplicationUrl || legacyApplicationUrl || detailUrl;
   const eligibility = typeof o.eligibility === "string" ? o.eligibility : typeof o.description === "string" ? o.description : "";
   const description = typeof o.description === "string" ? o.description : null;
   const objectives = typeof o.objectives === "string" ? o.objectives : null;
 
   if (!name || !funder || !applicationUrl) return null;
-  if (looksLikeGenericOrListUrl(applicationUrl)) return null;
+  if (!directApplicationUrl && looksLikeGenericOrListUrl(applicationUrl)) return null;
 
   const amount = typeof o.amount === "number" ? o.amount : typeof o.amount === "string" ? parseFloat(o.amount) : null;
   const externalId = typeof o.externalId === "string" ? o.externalId : typeof o.id === "string" ? o.id : undefined;
@@ -111,6 +138,8 @@ export function parseGrantRow(row: unknown): GrantInput | null {
     amount: amount != null && !Number.isNaN(amount) ? amount : null,
     deadline: typeof o.deadline === "string" ? o.deadline : o.deadline != null ? String(o.deadline) : null,
     applicationUrl,
+    detailUrl: detailUrl || legacyApplicationUrl || applicationUrl,
+    directApplicationUrl: directApplicationUrl || null,
     eligibility: eligibility || "See application page.",
     description,
     objectives,
@@ -134,7 +163,24 @@ export async function upsertGrant(input: GrantInput): Promise<{ id: string; crea
   if (!freshness.usable) {
     throw new Error(freshness.message ?? `Grant appears closed: ${input.name}`);
   }
-  const verified = await verifyGrantActionable(input);
+
+  const detailUrl = input.detailUrl?.trim() || input.applicationUrl.trim();
+  const directCandidate = input.directApplicationUrl?.trim() || input.applicationUrl.trim();
+  const directClassification = classifyGrantApplicationUrl(directCandidate);
+  const detailClassification = classifyGrantApplicationUrl(detailUrl);
+
+  if (directClassification.quality === "rejected" && detailClassification.quality === "rejected") {
+    throw new Error(`Grant URL is not actionable: ${directClassification.reason}`);
+  }
+
+  const directApplicationUrl = isVerifiedApplicationQuality(directClassification.quality) ? directCandidate : null;
+  const selectedClassification: ApplicationUrlClassification = directApplicationUrl
+    ? directClassification
+    : detailClassification;
+  const canonicalApplicationUrl = directApplicationUrl ?? detailUrl;
+  const verificationInput = { ...input, applicationUrl: canonicalApplicationUrl, detailUrl, directApplicationUrl };
+
+  const verified = await verifyGrantActionable(verificationInput);
   if (!verified.usable) {
     throw new Error(verified.message ?? `Grant appears closed: ${input.name}`);
   }
@@ -149,7 +195,14 @@ export async function upsertGrant(input: GrantInput): Promise<{ id: string; crea
     funder: input.funder,
     amount: input.amount ?? null,
     deadline: deadline?.toISOString() ?? null,
-    applicationUrl: input.applicationUrl,
+    applicationUrl: canonicalApplicationUrl,
+    detailUrl,
+    directApplicationUrl,
+    applicationUrlKind: selectedClassification.kind,
+    applicationUrlQuality: selectedClassification.quality,
+    applicationUrlConfidence: selectedClassification.confidence,
+    applicationUrlVerifiedAt: directApplicationUrl ? new Date().toISOString() : null,
+    applicationUrlQualityReason: selectedClassification.reason,
     eligibility: input.eligibility,
     description: input.description ?? null,
     objectives: input.objectives ?? null,
@@ -173,8 +226,8 @@ export async function upsertGrant(input: GrantInput): Promise<{ id: string; crea
 
     if (existing) {
       await supabase.from("Grant").update(data).eq("id", existing.id);
-      if (input.applicationUrl) {
-        checkUrlHealth(input.applicationUrl, input)
+      if (canonicalApplicationUrl) {
+        checkUrlHealth(canonicalApplicationUrl, verificationInput)
           .then(async (result) => {
             await getSupabaseAdmin()
               .from("Grant")
@@ -182,6 +235,9 @@ export async function upsertGrant(input: GrantInput): Promise<{ id: string; crea
               .eq("id", existing.id);
           })
           .catch(() => {});
+      }
+      if (!directApplicationUrl && detailClassification.quality === "needs_scout") {
+        await enqueueGrantForScoutIfProgrammeUrl(existing.id).catch(() => {});
       }
       generateAndStoreGrantEmbedding(existing.id).catch(() => {});
       return { id: existing.id, created: false };
@@ -198,11 +254,13 @@ export async function upsertGrant(input: GrantInput): Promise<{ id: string; crea
     .single();
 
   if (error || !grant) throw new Error(error?.message ?? "Failed to create grant");
-  await enqueueGrantForScoutIfProgrammeUrl(grant.id).catch(() => {});
+  if (!directApplicationUrl && detailClassification.quality === "needs_scout") {
+    await enqueueGrantForScoutIfProgrammeUrl(grant.id).catch(() => {});
+  }
   generateAndStoreGrantEmbedding(grant.id).catch(() => {});
 
-  if (input.applicationUrl) {
-    checkUrlHealth(input.applicationUrl, input)
+  if (canonicalApplicationUrl) {
+    checkUrlHealth(canonicalApplicationUrl, verificationInput)
       .then(async (result) => {
         await getSupabaseAdmin()
           .from("Grant")

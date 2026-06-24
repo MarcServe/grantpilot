@@ -33,12 +33,20 @@ PRIORITISE: charity/foundation grants, local authority and LEP funds, small busi
 
 EXCLUDE login-only portals: Innovate UK IFS, Find a Grant account-only flows, Grants.gov workspace login as the only path, EU portal login-only.
 
+URL rules:
+- detailUrl: official page for this exact grant/opportunity.
+- directApplicationUrl: direct application form or official portal start URL only if the page exposes one. Use null if not visible.
+- applicationUrl: set to directApplicationUrl when present; otherwise set to detailUrl.
+- Do not invent directApplicationUrl. Do not use generic landing pages such as council business support hubs.
+
 Return ONLY a JSON array (no markdown). Each object:
 - name (string)
 - funder (string)
 - amount (number or null)
 - deadline (string or null) ISO date if known
-- applicationUrl (string) — must be a real URL from your search
+- detailUrl (string) — official page for this exact grant/opportunity
+- directApplicationUrl (string or null) — direct application form or official portal start URL only when visible
+- applicationUrl (string) — directApplicationUrl when present; otherwise detailUrl
 - eligibility (string)
 - sectors (string array)
 - regions (string array)
