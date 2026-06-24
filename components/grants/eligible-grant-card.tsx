@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, AlertTriangle, FileText } from "lucide-react";
+import { ArrowRight, AlertTriangle, CheckCircle2, FileText, LinkIcon } from "lucide-react";
 
 type GrantUserState = "saved" | "viewed" | "deferred" | "applied" | "dismissed";
 
@@ -69,8 +69,13 @@ function stateLabel(status?: GrantUserState | null): string | null {
   return null;
 }
 
-function hasVerifiedApplicationStart(quality?: string | null): boolean {
+export function hasVerifiedApplicationStart(quality?: string | null): boolean {
   return quality === "verified_direct" || quality === "verified_portal";
+}
+
+function applicationLinkLabel(quality?: string | null): string {
+  if (hasVerifiedApplicationStart(quality)) return "Direct grant form link";
+  return "Grant page link";
 }
 
 export function EligibleGrantCard({ grant }: { grant: EligibleGrant }) {
@@ -81,6 +86,7 @@ export function EligibleGrantCard({ grant }: { grant: EligibleGrant }) {
   const isDeadlineSoon =
     grant.deadline && new Date(grant.deadline).getTime() - pageLoadedAt < ONE_WEEK_MS;
   const verifiedApplicationStart = hasVerifiedApplicationStart(grant.applicationUrlQuality);
+  const linkLabel = applicationLinkLabel(grant.applicationUrlQuality);
 
   const actions: string[] = [];
   if (grant.improvementPlan?.actions?.length) actions.push(...grant.improvementPlan.actions);
@@ -133,6 +139,18 @@ export function EligibleGrantCard({ grant }: { grant: EligibleGrant }) {
         </Badge>
       )}
 
+      <Badge
+        variant="outline"
+        className={`w-fit gap-1.5 ${
+          verifiedApplicationStart
+            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+            : "border-slate-200 bg-slate-50 text-slate-700"
+        }`}
+      >
+        {verifiedApplicationStart ? <CheckCircle2 className="h-3.5 w-3.5" /> : <LinkIcon className="h-3.5 w-3.5" />}
+        {linkLabel}
+      </Badge>
+
       {grant.summary && (
         <p className="text-sm text-muted-foreground line-clamp-2">{grant.summary}</p>
       )}
@@ -151,10 +169,12 @@ export function EligibleGrantCard({ grant }: { grant: EligibleGrant }) {
         </div>
       )}
 
-      {grant.applicationUrlQuality && !verifiedApplicationStart && (
-        <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span>{grant.applicationUrlQualityReason ?? "Direct application form not verified yet."}</span>
+      {!verifiedApplicationStart && (
+        <div className="flex items-start gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/30 dark:text-slate-300">
+          <LinkIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            This is a grant information page, not a verified direct form yet. Review the page to find the funder application route.
+          </span>
         </div>
       )}
 
@@ -167,7 +187,7 @@ export function EligibleGrantCard({ grant }: { grant: EligibleGrant }) {
         </Link>
         <Link href={detailHref}>
           <Button size="sm" className="gap-1.5">
-            {verifiedApplicationStart ? "Apply" : "Review link"}
+            {verifiedApplicationStart ? "Apply" : "Review grant page"}
             <ArrowRight className="h-3.5 w-3.5" />
           </Button>
         </Link>

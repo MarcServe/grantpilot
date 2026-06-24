@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { EligibleGrantCard, type EligibleGrant } from "./eligible-grant-card";
+import { EligibleGrantCard, hasVerifiedApplicationStart, type EligibleGrant } from "./eligible-grant-card";
 
 type ScoreTier = "suggested" | "within_reach" | "other";
 type TierStatus = "idle" | "loading" | "loaded" | "error";
@@ -41,7 +41,7 @@ const TIER_META: Record<ScoreTier, {
 }> = {
   suggested: {
     title: "Suggested for you",
-    subtitle: "High eligibility - strong fit for your business.",
+    subtitle: "High eligibility - grouped by direct forms and grant pages.",
     badgeLabel: "Suggested",
     emptyLabel: "No current suggested grants.",
     icon: <Sparkles className="h-4 w-4 text-primary" />,
@@ -319,6 +319,13 @@ function MatchTierSection({
     );
   }
 
+  const directFormGrants = tier === "suggested"
+    ? grants.filter((grant) => hasVerifiedApplicationStart(grant.applicationUrlQuality))
+    : [];
+  const grantPageGrants = tier === "suggested"
+    ? grants.filter((grant) => !hasVerifiedApplicationStart(grant.applicationUrlQuality))
+    : [];
+
   return (
     <Card>
       <CardHeader>
@@ -335,6 +342,23 @@ function MatchTierSection({
         {grants.length === 0 ? (
           <div className="rounded-lg border border-dashed p-5 text-center text-sm text-muted-foreground">
             No loaded grants match your search in this batch.
+          </div>
+        ) : tier === "suggested" ? (
+          <div className="space-y-5">
+            {directFormGrants.length > 0 && (
+              <GrantLinkGroup
+                title="Direct grant form links"
+                description="These have a verified direct application form or official application portal."
+                grants={directFormGrants}
+              />
+            )}
+            {grantPageGrants.length > 0 && (
+              <GrantLinkGroup
+                title="Grant page links"
+                description="These are strong matches, but the direct form has not been verified yet."
+                grants={grantPageGrants}
+              />
+            )}
           </div>
         ) : (
           grants.map((grant) => <EligibleGrantCard key={grant.grantId} grant={grant} />)
@@ -356,6 +380,30 @@ function MatchTierSection({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function GrantLinkGroup({
+  title,
+  description,
+  grants,
+}: {
+  title: string;
+  description: string;
+  grants: EligibleGrant[];
+}) {
+  return (
+    <div className="space-y-3">
+      <div>
+        <h3 className="text-sm font-semibold text-foreground">
+          {title} <span className="text-xs font-normal text-muted-foreground">({grants.length})</span>
+        </h3>
+        <p className="text-xs text-muted-foreground">{description}</p>
+      </div>
+      <div className="space-y-3">
+        {grants.map((grant) => <EligibleGrantCard key={grant.grantId} grant={grant} />)}
+      </div>
+    </div>
   );
 }
 

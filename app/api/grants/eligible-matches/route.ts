@@ -7,7 +7,6 @@ import { getServerCache } from "@/lib/server-cache";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { isGrantActionableNow } from "@/lib/grant-actionability";
 import { getGrantVerificationWarning } from "@/lib/grant-freshness";
-import { isVerifiedApplicationQuality } from "@/lib/grant-application-url-quality";
 import { deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
 import {
   finalEligibilityScore,
@@ -129,10 +128,6 @@ function tierForScore(score: number): ScoreTier {
   if (score >= 85) return "suggested";
   if (score >= 50) return "within_reach";
   return "other";
-}
-
-function hasVerifiedApplicationStart(grant: GrantRow): boolean {
-  return isVerifiedApplicationQuality(grant.applicationUrlQuality);
 }
 
 function hashIds(ids: string[]): string {
@@ -335,7 +330,6 @@ async function buildMatchIndex({
       const guarded = finaliseEligibilityAssessment(profile, grant, assessment, outcomeAdvisory);
       const score = finalEligibilityScore(guarded);
       const finalTier = tierForScore(score);
-      if (finalTier === "suggested" && !hasVerifiedApplicationStart(grant)) continue;
 
       seenGrantIds.add(assessment.grant_id);
       byTier[finalTier].push({
