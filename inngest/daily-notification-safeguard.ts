@@ -12,6 +12,7 @@ import { isOutsideDigestGrantRepeatCooldown } from "@/lib/eligibility-digest-coo
 import { notifyOrgMembers, orgHasNotificationSince, type DigestGrantItem, type NotificationType } from "@/lib/notify";
 import { organisationAllowsCapability } from "@/lib/plan-check";
 import { createStartApplicationToken } from "@/lib/start-application-token";
+import { isVerifiedApplicationQuality } from "@/lib/grant-application-url-quality";
 
 const NOTIFY_COOLDOWN_HOURS = 20;
 const DEFAULT_DIGEST_SCORE_THRESHOLD = 85;
@@ -88,6 +89,9 @@ type GrantDigestRow = {
   applicantTypes?: string[] | null;
   sectors?: string[] | null;
   regions?: string[] | null;
+  applicationUrl?: string | null;
+  directApplicationUrl?: string | null;
+  applicationUrlQuality?: string | null;
 };
 
 type DailyDigestEnqueueResult = {
@@ -335,6 +339,10 @@ function sortDigestByFreshScore(a: DigestGrantItem, b: DigestGrantItem): number 
   return a.grantName.localeCompare(b.grantName);
 }
 
+function hasVerifiedApplicationStart(grant: GrantDigestRow): boolean {
+  return isVerifiedApplicationQuality(grant.applicationUrlQuality) && Boolean(grant.directApplicationUrl ?? grant.applicationUrl);
+}
+
 function hasStrongWhatsAppMatches(items: DigestGrantItem[], minScore: number): boolean {
   return items.some((item) => item.score >= minScore);
 }
@@ -391,7 +399,7 @@ async function countStrongEligibleForOrg(
     getOutcomeAdvisoryForProfile(supabase, orgId, profileId),
     supabase
       .from("Grant")
-      .select("id, name, funder, url_status, deadline, createdAt, eligibility, description, objectives, funderLocations, applicantTypes, sectors, regions")
+      .select("id, name, funder, url_status, deadline, createdAt, eligibility, description, objectives, funderLocations, applicantTypes, sectors, regions, applicationUrl, directApplicationUrl, applicationUrlQuality")
       .in("id", grantIds),
   ]);
 
@@ -405,6 +413,7 @@ async function countStrongEligibleForOrg(
     if (!isOutsideDigestGrantRepeatCooldown(row.notified_at)) continue;
     const grant = grantById.get(grantId);
     if (!grant || !isGrantActionableNow(grant)) continue;
+    if (!hasVerifiedApplicationStart(grant)) continue;
     if (!grantMatchesFunderLocations(grant.funderLocations ?? undefined, userFunderLocations)) continue;
     const item = buildDigestGrantItem({ row, grant, profile, orgId, profileId, maxScore, outcomeAdvisory });
     if (item && item.score >= minScore && item.score <= maxScore) count++;
@@ -451,7 +460,7 @@ async function buildCurrentDigestForProfile(
     getOutcomeAdvisoryForProfile(supabase, orgId, profileId),
     supabase
       .from("Grant")
-      .select("id, name, funder, url_status, deadline, createdAt, eligibility, description, objectives, funderLocations, applicantTypes, sectors, regions")
+      .select("id, name, funder, url_status, deadline, createdAt, eligibility, description, objectives, funderLocations, applicantTypes, sectors, regions, applicationUrl, directApplicationUrl, applicationUrlQuality")
       .in("id", grantIds),
   ]);
 
@@ -465,6 +474,7 @@ async function buildCurrentDigestForProfile(
     const recentlySent = !isOutsideDigestGrantRepeatCooldown(row.notified_at);
     const grant = grantById.get(grantId);
     if (!grant || !isGrantActionableNow(grant)) continue;
+    if (!hasVerifiedApplicationStart(grant)) continue;
     if (!grantMatchesFunderLocations(grant.funderLocations ?? undefined, userFunderLocations)) continue;
     const item = buildDigestGrantItem({ row, grant, profile, orgId, profileId, maxScore, outcomeAdvisory });
     if (!item) continue;

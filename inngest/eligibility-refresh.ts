@@ -31,6 +31,7 @@ import {
 } from "@/lib/eligibility-deep-score-queue";
 import { fetchGrantIntelligenceForGrantIds } from "@/lib/grant-intelligence-extract";
 import { matchProfileToGrantIntelligence } from "@/lib/grant-intelligence-match";
+import { isVerifiedApplicationQuality } from "@/lib/grant-application-url-quality";
 
 /**
  * 3-Layer Eligibility Pipeline
@@ -197,6 +198,8 @@ type GrantRow = {
   amount?: number;
   deadline?: string;
   applicationUrl?: string | null;
+  directApplicationUrl?: string | null;
+  applicationUrlQuality?: string | null;
   eligibility: string;
   description?: string;
   objectives?: string;
@@ -230,6 +233,10 @@ function sortDigestByFreshScore(
   if (scoredDelta !== 0) return scoredDelta;
   if (b.score !== a.score) return b.score - a.score;
   return grantCreatedTime(grantsById.get(b.grantId)) - grantCreatedTime(grantsById.get(a.grantId));
+}
+
+function hasVerifiedApplicationStart(grant: GrantRow): boolean {
+  return isVerifiedApplicationQuality(grant.applicationUrlQuality) && Boolean(grant.directApplicationUrl ?? grant.applicationUrl);
 }
 
 function uniqueGrantIds(ids: string[]): string[] {
@@ -331,7 +338,7 @@ async function fetchCurrentGrants(
   for (let offset = 0; offset < MAX_GRANTS_PER_REFRESH; offset += GRANT_FETCH_BATCH_SIZE) {
     const { data, error } = await supabase
       .from("Grant")
-      .select("id, name, funder, amount, deadline, applicationUrl, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, required_attachments, url_status, createdAt")
+      .select("id, name, funder, amount, deadline, applicationUrl, directApplicationUrl, applicationUrlQuality, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, required_attachments, url_status, createdAt")
       .order("createdAt", { ascending: false })
       .range(offset, offset + GRANT_FETCH_BATCH_SIZE - 1);
 
@@ -766,6 +773,12 @@ export async function runEligibilityRefreshJob(options?: {
           if (!actionability.usable) {
             console.info(
               `[eligibility-refresh]   Skipping stale grant ${grant.id}: ${actionability.message ?? actionability.reason ?? "not actionable"}`
+            );
+            return null;
+          }
+          if (!hasVerifiedApplicationStart(grant)) {
+            console.info(
+              `[eligibility-refresh]   Skipping unverified application link ${grant.id}: ${grant.applicationUrlQuality ?? "unknown"}`
             );
             return null;
           }
