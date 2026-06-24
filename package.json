@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:grant-actionability": "tsx scripts/test-grant-actionability.ts",
+    "test:grant-url-quality": "tsx scripts/test-grant-application-url-quality.ts",
     "test:eligibility-score-guards": "tsx scripts/test-eligibility-score-guards.ts",
     "test:grant-intelligence": "tsx scripts/test-grant-intelligence.ts",
     "test:plan-gating": "tsx scripts/test-plan-gating.ts",
