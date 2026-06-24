@@ -17,7 +17,7 @@ type TierState = {
   page: number;
   status: TierStatus;
   hasMore: boolean;
-  rawCandidateCount: number | null;
+  availableCandidateCount: number | null;
   error: string | null;
 };
 
@@ -25,7 +25,8 @@ type MatchesResponse = {
   grants: EligibleGrant[];
   page: number;
   hasMore: boolean;
-  rawCandidateCount: number;
+  availableCandidateCount?: number;
+  rawCandidateCount?: number;
   error?: string;
 };
 
@@ -68,7 +69,7 @@ function initialTierState(): TierState {
     page: 0,
     status: "idle",
     hasMore: false,
-    rawCandidateCount: null,
+    availableCandidateCount: null,
     error: null,
   };
 }
@@ -148,7 +149,7 @@ export function BatchedEligibleGrantsList({
             page: result.page,
             status: "loaded",
             hasMore: result.hasMore,
-            rawCandidateCount: result.rawCandidateCount,
+            availableCandidateCount: result.availableCandidateCount ?? result.rawCandidateCount ?? result.grants.length,
             error: null,
           },
         }));
@@ -209,8 +210,8 @@ export function BatchedEligibleGrantsList({
             >
               {TIER_META[tier].icon}
               {TIER_META[tier].badgeLabel}
-              {sections[tier].rawCandidateCount != null && (
-                <span className="ml-0.5 text-[10px] opacity-80">{sections[tier].rawCandidateCount}</span>
+              {sections[tier].availableCandidateCount != null && (
+                <span className="ml-0.5 text-[10px] opacity-80">{sections[tier].availableCandidateCount}</span>
               )}
             </Badge>
           </button>
@@ -325,7 +326,7 @@ function MatchTierSection({
           {meta.icon}
           {meta.title}
           <span className="ml-1 text-xs font-normal text-muted-foreground">
-            ({state.rawCandidateCount ?? state.grants.length})
+            ({state.availableCandidateCount ?? state.grants.length})
           </span>
         </CardTitle>
         <p className="text-sm font-normal text-muted-foreground">{meta.subtitle}</p>
