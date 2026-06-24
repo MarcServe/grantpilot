@@ -3,6 +3,10 @@ import { z } from "zod";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { enqueueGrantForScoutIfProgrammeUrl } from "@/lib/enqueue-scout";
+import {
+  classifyGrantApplicationUrl,
+  isVerifiedApplicationQuality,
+} from "@/lib/grant-application-url-quality";
 
 const patchSchema = z.object({
   applicationUrl: z.string().url("Please enter a valid URL"),
@@ -32,11 +36,36 @@ export async function PATCH(
     }
 
     const supabase = getSupabaseAdmin();
+    const { data: existing } = await supabase
+      .from("Grant")
+      .select("id, applicationUrl, detailUrl")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (!existing) {
+      return NextResponse.json({ error: "Grant not found" }, { status: 404 });
+    }
+
+    const submittedUrl = parsed.data.applicationUrl.trim();
+    const classification = classifyGrantApplicationUrl(submittedUrl);
+    const directApplicationUrl = isVerifiedApplicationQuality(classification.quality) ? submittedUrl : null;
+    const existingDetailUrl = (existing as { detailUrl?: string | null; applicationUrl?: string | null }).detailUrl;
+    const detailUrl = directApplicationUrl ? existingDetailUrl ?? (existing as { applicationUrl?: string | null }).applicationUrl ?? submittedUrl : submittedUrl;
     const { data, error } = await supabase
       .from("Grant")
-      .update({ applicationUrl: parsed.data.applicationUrl, updatedAt: new Date().toISOString() })
+      .update({
+        applicationUrl: directApplicationUrl ?? detailUrl,
+        detailUrl,
+        directApplicationUrl,
+        applicationUrlKind: classification.kind,
+        applicationUrlQuality: classification.quality,
+        applicationUrlConfidence: classification.confidence,
+        applicationUrlQualityReason: classification.reason,
+        applicationUrlVerifiedAt: directApplicationUrl ? new Date().toISOString() : null,
+        updatedAt: new Date().toISOString(),
+      })
       .eq("id", id)
-      .select("id, applicationUrl")
+      .select("id, applicationUrl, detailUrl, directApplicationUrl, applicationUrlQuality, applicationUrlKind, applicationUrlQualityReason")
       .single();
 
     if (error) {
@@ -46,7 +75,9 @@ export async function PATCH(
       return NextResponse.json({ error: "Grant not found" }, { status: 404 });
     }
 
-    await enqueueGrantForScoutIfProgrammeUrl(id).catch(() => {});
+    if (!directApplicationUrl && classification.quality === "needs_scout") {
+      await enqueueGrantForScoutIfProgrammeUrl(id).catch(() => {});
+    }
 
     return NextResponse.json(data);
   } catch (e) {

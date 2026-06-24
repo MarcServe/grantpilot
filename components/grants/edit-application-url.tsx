@@ -75,14 +75,14 @@ export function EditApplicationUrl({ grantId, applicationUrl }: EditApplicationU
   if (editing) {
     return (
       <div className="space-y-2">
-        <Label htmlFor="application-url-edit">Application URL</Label>
+        <Label htmlFor="application-url-edit">Application or source URL</Label>
         <div className="flex gap-2">
           <Input
             id="application-url-edit"
             type="url"
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            placeholder="https://..."
+            placeholder="Direct form, official portal, or grant detail URL"
             className="font-mono text-sm"
           />
           <Button size="sm" onClick={handleSave} disabled={saving}>

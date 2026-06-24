@@ -8,6 +8,7 @@ import { verifyStartApplicationToken } from "@/lib/start-application-token";
 import { createDefaultTasksForApplication } from "@/lib/application-tasks";
 import { buildSessionItems, matchPortalRecipe } from "@/lib/session-items";
 import { isGrantActionableNow } from "@/lib/grant-actionability";
+import { isVerifiedApplicationQuality } from "@/lib/grant-application-url-quality";
 
 const bodySchema = z.object({ token: z.string().min(1) });
 
@@ -50,7 +51,7 @@ export async function POST(req: Request): Promise<NextResponse> {
 
     const { data: grant } = await supabase
       .from("Grant")
-      .select("id, name, applicationUrl, deadline, url_status, eligibility, description, objectives")
+      .select("id, name, applicationUrl, directApplicationUrl, applicationUrlQuality, deadline, url_status, eligibility, description, objectives")
       .eq("id", grantId)
       .single();
     if (!grant) {
@@ -61,6 +62,16 @@ export async function POST(req: Request): Promise<NextResponse> {
       return NextResponse.json(
         { error: "This grant appears closed, stale, or has a broken application link. Please choose a current grant or use 'Apply by link' with an updated URL." },
         { status: 400 }
+      );
+    }
+
+    const quality = (grant as { applicationUrlQuality?: string | null }).applicationUrlQuality;
+    const directUrl = (grant as { directApplicationUrl?: string | null }).directApplicationUrl;
+    const applicationStartUrl = directUrl ?? grant.applicationUrl;
+    if (!isVerifiedApplicationQuality(quality) || !applicationStartUrl) {
+      return NextResponse.json(
+        { error: "This grant does not have a verified direct application form yet. Open the grant detail page and use Find application form first." },
+        { status: 409 }
       );
     }
 
@@ -186,7 +197,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     }
 
     const publicId = `grantapp_${application.id}`;
-    const portalRecipe = matchPortalRecipe(grant.applicationUrl ?? "");
+    const portalRecipe = matchPortalRecipe(applicationStartUrl);
     const sessionItemDefs = buildSessionItems({ portalRecipe });
 
     const { data: session, error: sessionError } = await supabase
@@ -218,7 +229,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       action: item.action,
       grant_id: grantId,
       grant_name: grant.name,
-      grant_url: grant.applicationUrl,
+      grant_url: applicationStartUrl,
       status: "pending",
       ...(item.extra_data ? { extra_data: item.extra_data } : {}),
     }));

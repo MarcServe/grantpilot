@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { isLikelyProgrammeInfoUrl } from "@/lib/grant-url-validation";
+import { isVerifiedApplicationQuality } from "@/lib/grant-application-url-quality";
 
 type GrantLinkRow = {
   status: string;
@@ -29,7 +30,7 @@ export async function POST(
     const supabase = getSupabaseAdmin();
     const { data: grant, error: grantError } = await supabase
       .from("Grant")
-      .select("id, name, funder, amount, deadline, applicationUrl")
+      .select("id, name, funder, amount, deadline, applicationUrl, detailUrl, directApplicationUrl, applicationUrlQuality")
       .eq("id", grantId)
       .single();
 
@@ -37,7 +38,17 @@ export async function POST(
       return NextResponse.json({ error: "Grant not found" }, { status: 404 });
     }
 
-    const applicationUrl = (grant as { applicationUrl?: string }).applicationUrl?.trim() ?? "";
+    const grantUrls = grant as {
+      applicationUrl?: string | null;
+      detailUrl?: string | null;
+      directApplicationUrl?: string | null;
+      applicationUrlQuality?: string | null;
+    };
+    if (isVerifiedApplicationQuality(grantUrls.applicationUrlQuality) && grantUrls.directApplicationUrl?.trim()) {
+      return NextResponse.json({ status: "found", formUrl: grantUrls.directApplicationUrl.trim() });
+    }
+
+    const applicationUrl = (grantUrls.detailUrl ?? grantUrls.applicationUrl ?? "").trim();
     if (!applicationUrl) {
       return NextResponse.json({ error: "Grant has no application URL" }, { status: 400 });
     }

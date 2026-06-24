@@ -153,7 +153,11 @@ export function ApplyButton({ grantId, profileId, applicationUrl, eligibilitySco
                 Open funder form
               </Button>
             </a>
-          ) : null}
+          ) : (
+            <Button disabled title="Direct application form not verified yet">
+              Direct form not verified
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

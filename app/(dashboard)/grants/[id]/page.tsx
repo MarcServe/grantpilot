@@ -34,6 +34,7 @@ import {
   getGrantVerificationWarning,
   type GrantFreshnessStatus,
 } from "@/lib/grant-freshness";
+import { isVerifiedApplicationQuality } from "@/lib/grant-application-url-quality";
 
 function profileForEligibilityGuards(profile: Record<string, unknown>) {
   return {
@@ -111,6 +112,17 @@ export default async function GrantDetailPage({
   const { org, orgId } = await getActiveOrg();
   const freshness = getGrantFreshnessStatus(grant);
   const verificationWarning = getGrantVerificationWarning(grant);
+  const grantUrlMeta = grant as {
+    detailUrl?: string | null;
+    directApplicationUrl?: string | null;
+    applicationUrlQuality?: string | null;
+    applicationUrlQualityReason?: string | null;
+  };
+  const detailUrl = grantUrlMeta.detailUrl ?? grant.applicationUrl ?? "";
+  const directApplicationUrl = grantUrlMeta.directApplicationUrl ?? null;
+  const applicationUrlQuality = grantUrlMeta.applicationUrlQuality ?? null;
+  const canOpenApplication = isVerifiedApplicationQuality(applicationUrlQuality);
+  const applicationStartUrl = canOpenApplication ? directApplicationUrl ?? grant.applicationUrl ?? "" : null;
   const profile = org.profiles?.[0];
   const grantAutoImproveEnabled = planAllowsForOrg(
     org as { plan?: string; createdAt?: string | Date | null },
@@ -263,10 +275,10 @@ export default async function GrantDetailPage({
 
   return (
     <div className="mx-auto max-w-4xl min-w-0 overflow-hidden px-4 py-6 sm:p-6">
-      {freshness.usable && (
+      {freshness.usable && !canOpenApplication && (
         <EnsureFormLinkScout
           grantId={grant.id}
-          applicationUrl={grant.applicationUrl ?? ""}
+          applicationUrl={(detailUrl || grant.applicationUrl) ?? ""}
           eligibilityScore={eligibilityScore}
         />
       )}
@@ -425,7 +437,13 @@ export default async function GrantDetailPage({
                 checkedAt={(grant as { url_checked_at?: string }).url_checked_at}
               />
             </div>
-            <EditApplicationUrl grantId={grant.id} applicationUrl={grant.applicationUrl ?? ""} />
+            <EditApplicationUrl grantId={grant.id} applicationUrl={applicationStartUrl ?? ((detailUrl || grant.applicationUrl) ?? "")} />
+            {freshness.usable && !canOpenApplication && (
+              <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                Direct application form not verified yet. Use Find application form or save a verified direct form/portal URL before preparing an application.
+                {grantUrlMeta.applicationUrlQualityReason ? ` ${grantUrlMeta.applicationUrlQualityReason}` : ""}
+              </p>
+            )}
           </div>
 
           {grant.description && (
@@ -488,7 +506,7 @@ export default async function GrantDetailPage({
                 key={grant.id}
                 grantId={grant.id}
                 profileId={profileId}
-                applicationUrl={grant.applicationUrl ?? ""}
+                applicationUrl={applicationStartUrl}
                 eligibilityScore={eligibilityScore ?? undefined}
               />
             ) : hasProfile && profileId && !freshness.usable ? (
@@ -502,7 +520,7 @@ export default async function GrantDetailPage({
             )}
 
             <a
-              href={grant.applicationUrl}
+              href={(detailUrl || grant.applicationUrl) ?? ""}
               target="_blank"
               rel="noopener noreferrer"
             >
