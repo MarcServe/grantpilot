@@ -160,6 +160,13 @@ model Grant {
   amount           Float?
   deadline         DateTime?
   applicationUrl  String
+  detailUrl        String?
+  directApplicationUrl String?
+  applicationUrlKind String        @default("unknown")
+  applicationUrlQuality String     @default("unknown")
+  applicationUrlConfidence Int     @default(0)
+  applicationUrlVerifiedAt DateTime?
+  applicationUrlQualityReason String?
   eligibility      String        @db.Text
   description      String?       @db.Text    // Full programme description / synopsis
   objectives       String?       @db.Text    // What the grant aims to fund
