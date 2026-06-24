@@ -23,6 +23,16 @@ assert.equal(
 
 assert.equal(
   freshness({
+    name: "CareerTech Challenge Fund",
+    eligibility:
+      "Apply to the CareerTech Challenge Fund by 2pm 9th December 2019. Shortlisted applicants will be informed in January 2020 and successful applicants in late February 2020.",
+  }).usable,
+  false,
+  "2019 CareerTech application window should be stale"
+);
+
+assert.equal(
+  freshness({
     name: "Inclusive Technology Prize",
     eligibility:
       "The winner of the £50,000 contract will be announced in March 2016. Deadline for applications is 16 January 2015.",

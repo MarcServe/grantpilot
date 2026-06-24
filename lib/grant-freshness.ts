@@ -211,7 +211,10 @@ function findProgrammeWindowPassed(grant: GrantFreshnessInput, now = new Date())
       || /\b(start|commence|begin)\b.{0,25}\b(by|in|on|from)\b/.test(sentence);
     const endWindow = /\b(end|finish|complete|completion|deliver|close|announce|announced|award|awarded)\b.{0,40}\b(by|in|on|before|no later than)\b/.test(sentence)
       || /\b(by|before|no later than)\b.{0,40}\b(end|finish|complete|completion|announce|announced|award|awarded)\b/.test(sentence);
-    const applicationDeadline = /\b(deadline|closing date|applications? close|applications? closed|apply by|submission deadline|submit by|closes)\b/.test(sentence);
+    const applicationDeadline =
+      /\b(deadline|closing date|applications? close|applications? closed|submission deadline|closes)\b/.test(sentence) ||
+      /\bapply\b.{0,140}\b(?:by|before)\b/.test(sentence) ||
+      /\bsubmit\b.{0,140}\b(?:by|before)\b/.test(sentence);
 
     if (!mentionsProgramme && !applicationDeadline) continue;
 
