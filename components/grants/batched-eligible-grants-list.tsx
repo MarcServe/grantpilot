@@ -18,6 +18,7 @@ type TierState = {
   status: TierStatus;
   hasMore: boolean;
   availableCandidateCount: number | null;
+  availableCandidateCountIsEstimate: boolean;
   error: string | null;
 };
 
@@ -26,11 +27,19 @@ type MatchesResponse = {
   page: number;
   hasMore: boolean;
   availableCandidateCount?: number;
+  availableCandidateCountIsEstimate?: boolean;
   rawCandidateCount?: number;
   error?: string;
 };
 
+type CachedMatchesResponse = {
+  expiresAt: number;
+  result: MatchesResponse;
+};
+
 const TIER_ORDER: ScoreTier[] = ["suggested", "within_reach", "other"];
+const MATCH_RESPONSE_CACHE_TTL_MS = 30_000;
+const matchResponseCache = new Map<string, CachedMatchesResponse>();
 const TIER_META: Record<ScoreTier, {
   title: string;
   subtitle: string;
@@ -70,6 +79,7 @@ function initialTierState(): TierState {
     status: "idle",
     hasMore: false,
     availableCandidateCount: null,
+    availableCandidateCountIsEstimate: false,
     error: null,
   };
 }
@@ -105,6 +115,12 @@ async function fetchTier(tier: ScoreTier, page: number, pageSize: number): Promi
     page: String(page),
     pageSize: String(pageSize),
   });
+  const cacheKey = params.toString();
+  const cached = matchResponseCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.result;
+  }
+
   const response = await fetch(`/api/grants/eligible-matches?${params.toString()}`, {
     credentials: "same-origin",
   });
@@ -112,7 +128,17 @@ async function fetchTier(tier: ScoreTier, page: number, pageSize: number): Promi
   if (!response.ok) {
     throw new Error(typeof body.error === "string" ? body.error : "Unable to load matches");
   }
-  return body as MatchesResponse;
+  const result = body as MatchesResponse;
+  matchResponseCache.set(cacheKey, {
+    expiresAt: Date.now() + MATCH_RESPONSE_CACHE_TTL_MS,
+    result,
+  });
+  return result;
+}
+
+function formatCount(state: TierState): string | null {
+  if (state.availableCandidateCount == null) return null;
+  return `${state.availableCandidateCount}${state.availableCandidateCountIsEstimate ? "+" : ""}`;
 }
 
 export function BatchedEligibleGrantsList({
@@ -150,6 +176,7 @@ export function BatchedEligibleGrantsList({
             status: "loaded",
             hasMore: result.hasMore,
             availableCandidateCount: result.availableCandidateCount ?? result.rawCandidateCount ?? result.grants.length,
+            availableCandidateCountIsEstimate: Boolean(result.availableCandidateCountIsEstimate),
             error: null,
           },
         }));
@@ -210,8 +237,8 @@ export function BatchedEligibleGrantsList({
             >
               {TIER_META[tier].icon}
               {TIER_META[tier].badgeLabel}
-              {sections[tier].availableCandidateCount != null && (
-                <span className="ml-0.5 text-[10px] opacity-80">{sections[tier].availableCandidateCount}</span>
+              {formatCount(sections[tier]) != null && (
+                <span className="ml-0.5 text-[10px] opacity-80">{formatCount(sections[tier])}</span>
               )}
             </Badge>
           </button>
@@ -244,15 +271,21 @@ export function BatchedEligibleGrantsList({
         </p>
       )}
 
-      {tiersToShow.map((tier) => (
-        <MatchTierSection
-          key={tier}
-          tier={tier}
-          state={sections[tier]}
-          query={query}
-          onLoadMore={() => loadTier(tier, sections[tier].page + 1, "append")}
-        />
-      ))}
+      {tiersToShow.map((tier, index) => {
+        const state = sections[tier];
+        if (!activeTier && state.status === "idle" && index > 0) {
+          return <QueuedTierPlaceholder key={tier} tier={tier} />;
+        }
+        return (
+          <MatchTierSection
+            key={tier}
+            tier={tier}
+            state={state}
+            query={query}
+            onLoadMore={() => loadTier(tier, state.page + 1, "append")}
+          />
+        );
+      })}
 
       {!hasLoadedAny && allVisibleDone && !isAnyLoading && (
         <Card>
@@ -333,7 +366,7 @@ function MatchTierSection({
           {meta.icon}
           {meta.title}
           <span className="ml-1 text-xs font-normal text-muted-foreground">
-            ({state.availableCandidateCount ?? state.grants.length})
+            ({formatCount(state) ?? state.grants.length})
           </span>
         </CardTitle>
         <p className="text-sm font-normal text-muted-foreground">{meta.subtitle}</p>
@@ -383,6 +416,19 @@ function MatchTierSection({
   );
 }
 
+function QueuedTierPlaceholder({ tier }: { tier: ScoreTier }) {
+  const meta = TIER_META[tier];
+  return (
+    <div className="rounded-lg border border-dashed bg-background/60 px-4 py-3 text-sm text-muted-foreground">
+      <div className="flex items-center gap-2">
+        {meta.icon}
+        <span className="font-medium text-foreground">{meta.title}</span>
+        <span>loads after suggested matches.</span>
+      </div>
+    </div>
+  );
+}
+
 function GrantLinkGroup({
   title,
   description,
@@ -420,7 +466,7 @@ function MatchSectionSkeleton({ title }: { title: string }) {
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        {[0, 1, 2].map((item) => (
+        {[0, 1].map((item) => (
           <div key={item} className="rounded-lg border p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1 space-y-2">

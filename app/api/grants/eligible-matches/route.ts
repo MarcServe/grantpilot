@@ -27,6 +27,9 @@ const GRANT_SELECT_WITH_URL_QUALITY = [
   "deadline",
   "funderLocations",
   "url_status",
+  "applicationUrl",
+  "detailUrl",
+  "directApplicationUrl",
   "createdAt",
   "eligibility",
   "description",
@@ -37,7 +40,6 @@ const GRANT_SELECT_WITH_URL_QUALITY = [
   "applicationUrlQuality",
   "applicationUrlKind",
   "applicationUrlQualityReason",
-  "directApplicationUrl",
 ].join(", ");
 const GRANT_SELECT_BASE = [
   "id",
@@ -46,6 +48,7 @@ const GRANT_SELECT_BASE = [
   "deadline",
   "funderLocations",
   "url_status",
+  "applicationUrl",
   "createdAt",
   "eligibility",
   "description",
@@ -79,6 +82,9 @@ type GrantRow = {
   deadline: string | null;
   funderLocations?: string[];
   url_status?: string | null;
+  applicationUrl?: string | null;
+  detailUrl?: string | null;
+  directApplicationUrl?: string | null;
   createdAt?: string | null;
   eligibility?: string | null;
   description?: string | null;
@@ -89,16 +95,16 @@ type GrantRow = {
   applicationUrlQuality?: string | null;
   applicationUrlKind?: string | null;
   applicationUrlQualityReason?: string | null;
-  directApplicationUrl?: string | null;
 };
 type AssessmentBatch = {
   rows: AssessmentRow[];
   count: number;
   usedProfileFallback: boolean;
 };
-type MatchIndex = {
-  byTier: Record<ScoreTier, EligibleGrant[]>;
-  counts: Record<ScoreTier, number>;
+type TierMatchResult = {
+  grants: EligibleGrant[];
+  availableCandidateCount: number;
+  availableCandidateCountIsEstimate: boolean;
   rawAssessmentCount: number;
   scannedAssessmentCount: number;
   usedProfileFallback: boolean;
@@ -130,6 +136,19 @@ function tierForScore(score: number): ScoreTier {
   return "other";
 }
 
+function applyTierFilter<T>(query: T, tier: ScoreTier): T {
+  type ScoreFilterChain = {
+    gte: (column: string, value: number) => T;
+    lt: (column: string, value: number) => T;
+  };
+  const chain = query as ScoreFilterChain;
+  if (tier === "suggested") return chain.gte("score", 85);
+  if (tier === "within_reach") {
+    return (chain.gte("score", 50) as ScoreFilterChain).lt("score", 85);
+  }
+  return chain.lt("score", 50);
+}
+
 function hashIds(ids: string[]): string {
   return createHash("sha1").update(ids.slice().sort().join(",")).digest("hex").slice(0, 16);
 }
@@ -153,7 +172,7 @@ async function fetchEligibleGrantRowsByIds(
   supabase: SupabaseAdmin,
   ids: string[]
 ): Promise<Map<string, GrantRow>> {
-  const cacheKey = `eligible-grants-rows:v1:${hashIds(ids)}`;
+  const cacheKey = `eligible-grants-rows:v2:${hashIds(ids)}`;
 
   return getServerCache(cacheKey, { ttlMs: 60_000, maxEntries: 100 }, async () => {
     const full = await fetchGrantRowsByIds(supabase, ids, GRANT_SELECT_WITH_URL_QUALITY);
@@ -163,7 +182,7 @@ async function fetchEligibleGrantRowsByIds(
 
     const missingUrlQualityColumns =
       full.error.code === "42703" ||
-      /applicationUrlQuality|applicationUrlKind|directApplicationUrl|column .* does not exist/i.test(full.error.message ?? "");
+      /applicationUrlQuality|applicationUrlKind|directApplicationUrl|detailUrl|column .* does not exist/i.test(full.error.message ?? "");
 
     if (!missingUrlQualityColumns) {
       console.warn("[eligible-matches] Grant lookup failed:", full.error.message ?? full.error);
@@ -183,43 +202,53 @@ async function fetchEligibleGrantRowsByIds(
 async function queryAssessmentBatch({
   orgId,
   profileId,
-  limit,
+  tier,
+  from,
+  to,
 }: {
   orgId: string;
   profileId: string;
-  limit: number;
+  tier: ScoreTier;
+  from: number;
+  to: number;
 }): Promise<AssessmentBatch> {
   const supabase = getSupabaseAdmin();
-  const cacheKey = `eligible-match-assessments:v3:${orgId}:${profileId}:${limit}`;
+  const cacheKey = `eligible-match-assessments:v4:${orgId}:${profileId}:${tier}:${from}:${to}`;
   return getServerCache(cacheKey, { ttlMs: 30_000, maxEntries: 200 }, async () => {
-    const withProfile = supabase
-      .from("EligibilityAssessment")
-      .select(ASSESSMENT_SELECT, { count: "exact" })
-      .eq("organisation_id", orgId)
-      .eq("profile_id", profileId)
+    const withProfile = applyTierFilter(
+      supabase
+        .from("EligibilityAssessment")
+        .select(ASSESSMENT_SELECT, { count: "exact" })
+        .eq("organisation_id", orgId)
+        .eq("profile_id", profileId),
+      tier
+    )
       .order("score", { ascending: false })
       .order("updated_at", { ascending: false })
-      .range(0, limit - 1);
+      .range(from, to);
 
     const primary = await withProfile;
     if (primary.error) {
       console.error("[eligible-matches] assessment query error:", primary.error);
     }
-    if (primary.data && primary.data.length > 0) {
+    if ((primary.count ?? primary.data?.length ?? 0) > 0) {
       return {
-        rows: primary.data as AssessmentRow[],
-        count: primary.count ?? primary.data.length,
+        rows: (primary.data ?? []) as AssessmentRow[],
+        count: primary.count ?? primary.data?.length ?? 0,
         usedProfileFallback: false,
       };
     }
 
-    const orgOnly = supabase
-      .from("EligibilityAssessment")
-      .select(ASSESSMENT_SELECT, { count: "exact" })
-      .eq("organisation_id", orgId)
+    const orgOnly = applyTierFilter(
+      supabase
+        .from("EligibilityAssessment")
+        .select(ASSESSMENT_SELECT, { count: "exact" })
+        .eq("organisation_id", orgId),
+      tier
+    )
       .order("score", { ascending: false })
       .order("updated_at", { ascending: false })
-      .range(0, limit - 1);
+      .range(from, to);
 
     const fallback = await orgOnly;
     if (fallback.error) {
@@ -233,20 +262,25 @@ async function queryAssessmentBatch({
   });
 }
 
-async function buildMatchIndex({
+async function buildTierMatches({
   orgId,
   profile,
   profileId,
+  tier,
+  page,
+  pageSize,
 }: {
   orgId: string;
   profile: Record<string, unknown>;
   profileId: string;
-}): Promise<MatchIndex> {
+  tier: ScoreTier;
+  page: number;
+  pageSize: number;
+}): Promise<TierMatchResult> {
   const supabase = getSupabaseAdmin();
-  const cacheKey = `eligible-match-index:v1:${orgId}:${profileId}`;
+  const cacheKey = `eligible-match-tier:v2:${orgId}:${profileId}:${tier}:${page}:${pageSize}`;
 
   return getServerCache(cacheKey, { ttlMs: 30_000, maxEntries: 100 }, async () => {
-    const assessmentsPromise = queryAssessmentBatch({ orgId, profileId, limit: MAX_MATCH_ASSESSMENTS });
     const outcomePromise = supabase
       .from("ApplicationOutcome")
       .select("outcome, awardedAmount, funderFeedback, learningNotes, Grant(name, funder)")
@@ -255,48 +289,18 @@ async function buildMatchIndex({
       .order("reportedAt", { ascending: false })
       .limit(8);
     const appliedPromise = getAppliedGrantIds(supabase, orgId, profileId);
-
-    const [assessmentBatch, outcomeResult, appliedGrantIds] = await Promise.all([
-      assessmentsPromise,
-      outcomePromise,
-      appliedPromise,
-    ]);
-
-    if (assessmentBatch.usedProfileFallback) {
-      console.warn(`[eligible-matches] profileId mismatch: page uses "${profileId}" but org-only fallback returned rows`);
-    }
-
-    const assessments = assessmentBatch.rows;
-    const grantIds = [...new Set(assessments.map((assessment) => assessment.grant_id))];
-    const byTier: Record<ScoreTier, EligibleGrant[]> = {
-      suggested: [],
-      within_reach: [],
-      other: [],
-    };
-
-    if (grantIds.length === 0) {
-      return {
-        byTier,
-        counts: {
-          suggested: 0,
-          within_reach: 0,
-          other: 0,
-        },
-        rawAssessmentCount: assessmentBatch.count,
-        scannedAssessmentCount: assessments.length,
-        usedProfileFallback: assessmentBatch.usedProfileFallback,
-      };
-    }
-
     const savedStatePromise = supabase
       .from("SavedGrant")
       .select("grant_id, status")
       .eq("organisation_id", orgId)
-      .eq("profile_id", profileId)
-      .in("grant_id", grantIds);
-    const grantsPromise = fetchEligibleGrantRowsByIds(supabase, grantIds);
+      .eq("profile_id", profileId);
 
-    const [savedStateResult, grantsById] = await Promise.all([savedStatePromise, grantsPromise]);
+    const [outcomeResult, appliedGrantIds, savedStateResult] = await Promise.all([
+      outcomePromise,
+      appliedPromise,
+      savedStatePromise,
+    ]);
+
     const savedRows = (savedStateResult.data ?? []) as SavedGrantStateRow[];
     const grantUserStateMap = new Map(
       savedRows
@@ -316,66 +320,96 @@ async function buildMatchIndex({
     });
     const outcomeAdvisory = deriveOutcomeLearningAdvisory(outcomeResult.data ?? []);
     const seenGrantIds = new Set<string>();
+    const matches: EligibleGrant[] = [];
+    const targetMatchCount = page * pageSize + 1;
+    let rawAssessmentCount = 0;
+    let scannedAssessmentCount = 0;
+    let usedProfileFallback = false;
 
-    for (const assessment of assessments) {
-      if (seenGrantIds.has(assessment.grant_id)) continue;
-      const grant = grantsById.get(assessment.grant_id);
-      if (!grant) continue;
-      if (!isGrantActionableNow(grant)) continue;
-      if (appliedGrantIds.has(grant.id)) continue;
-      if (hiddenStateGrantIds.has(grant.id)) continue;
-      if (!grantMatchesFunderLocations(grant.funderLocations, userFunderLocations)) continue;
+    while (scannedAssessmentCount < MAX_MATCH_ASSESSMENTS && matches.length < targetMatchCount) {
+      const batchFrom = scannedAssessmentCount;
+      const batchTo = Math.min(MAX_MATCH_ASSESSMENTS, batchFrom + GRANT_QUERY_BATCH_SIZE) - 1;
+      const assessmentBatch = await queryAssessmentBatch({ orgId, profileId, tier, from: batchFrom, to: batchTo });
+      rawAssessmentCount = assessmentBatch.count;
+      usedProfileFallback = usedProfileFallback || assessmentBatch.usedProfileFallback;
 
-      const scoringSource = resolveScoringSource(assessment);
-      const guarded = finaliseEligibilityAssessment(profile, grant, assessment, outcomeAdvisory);
-      const score = finalEligibilityScore(guarded);
-      const finalTier = tierForScore(score);
+      if (assessmentBatch.usedProfileFallback) {
+        console.warn(`[eligible-matches] profileId mismatch: page uses "${profileId}" but org-only fallback returned rows`);
+      }
 
-      seenGrantIds.add(assessment.grant_id);
-      byTier[finalTier].push({
-        grantId: assessment.grant_id,
-        grantName: grant.name,
-        funder: grant.funder,
-        deadline: grant.deadline,
-        addedAt: grant.createdAt ?? null,
-        scoredAt: assessment.updated_at ?? null,
-        score,
-        decision: guarded.decision,
-        summary: guarded.summary ?? assessment.summary,
-        missingCriteria: guarded.missing ?? assessment.missing_criteria,
-        improvementPlan: guarded.improvementPlan ?? assessment.improvement_plan,
-        outcomeWarnings: guarded.outcomeWarnings ?? [],
-        verificationWarning: getGrantVerificationWarning(grant)?.message ?? null,
-        applicationUrlQuality: grant.applicationUrlQuality ?? null,
-        applicationUrlKind: grant.applicationUrlKind ?? null,
-        applicationUrlQualityReason: grant.applicationUrlQualityReason ?? null,
-        scoringSource,
-        userState: grantUserStateMap.get(assessment.grant_id) ?? null,
-      });
+      const assessments = assessmentBatch.rows;
+      scannedAssessmentCount += assessments.length;
+      if (assessments.length === 0) break;
+
+      const grantIds = [...new Set(assessments.map((assessment) => assessment.grant_id))];
+      const grantsById = await fetchEligibleGrantRowsByIds(supabase, grantIds);
+
+      for (const assessment of assessments) {
+        if (seenGrantIds.has(assessment.grant_id)) continue;
+        const grant = grantsById.get(assessment.grant_id);
+        if (!grant) continue;
+        if (!isGrantActionableNow(grant)) continue;
+        if (appliedGrantIds.has(grant.id)) continue;
+        if (hiddenStateGrantIds.has(grant.id)) continue;
+        if (!grantMatchesFunderLocations(grant.funderLocations, userFunderLocations)) continue;
+
+        const scoringSource = resolveScoringSource(assessment);
+        const guarded = finaliseEligibilityAssessment(profile, grant, assessment, outcomeAdvisory);
+        const score = finalEligibilityScore(guarded);
+        if (tierForScore(score) !== tier) continue;
+
+        seenGrantIds.add(assessment.grant_id);
+        matches.push({
+          grantId: assessment.grant_id,
+          grantName: grant.name,
+          funder: grant.funder,
+          deadline: grant.deadline,
+          addedAt: grant.createdAt ?? null,
+          scoredAt: assessment.updated_at ?? null,
+          score,
+          decision: guarded.decision,
+          summary: guarded.summary ?? assessment.summary,
+          missingCriteria: guarded.missing ?? assessment.missing_criteria,
+          improvementPlan: guarded.improvementPlan ?? assessment.improvement_plan,
+          outcomeWarnings: guarded.outcomeWarnings ?? [],
+          verificationWarning: getGrantVerificationWarning(grant)?.message ?? null,
+          applicationUrl: grant.applicationUrl ?? null,
+          detailUrl: grant.detailUrl ?? null,
+          directApplicationUrl: grant.directApplicationUrl ?? null,
+          applicationUrlQuality: grant.applicationUrlQuality ?? null,
+          applicationUrlKind: grant.applicationUrlKind ?? null,
+          applicationUrlQualityReason: grant.applicationUrlQualityReason ?? null,
+          scoringSource,
+          userState: grantUserStateMap.get(assessment.grant_id) ?? null,
+        });
+
+        if (matches.length >= targetMatchCount) break;
+      }
+
+      if (scannedAssessmentCount >= rawAssessmentCount) break;
     }
 
-    for (const grants of Object.values(byTier)) {
-      grants.sort((a, b) => {
-        if (b.score !== a.score) return b.score - a.score;
-        const bScoredTime = b.scoredAt ? new Date(b.scoredAt).getTime() : 0;
-        const aScoredTime = a.scoredAt ? new Date(a.scoredAt).getTime() : 0;
-        if (bScoredTime !== aScoredTime) return bScoredTime - aScoredTime;
-        const bTime = b.addedAt ? new Date(b.addedAt).getTime() : 0;
-        const aTime = a.addedAt ? new Date(a.addedAt).getTime() : 0;
-        return bTime - aTime;
-      });
-    }
+    matches.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      const bScoredTime = b.scoredAt ? new Date(b.scoredAt).getTime() : 0;
+      const aScoredTime = a.scoredAt ? new Date(a.scoredAt).getTime() : 0;
+      if (bScoredTime !== aScoredTime) return bScoredTime - aScoredTime;
+      const bTime = b.addedAt ? new Date(b.addedAt).getTime() : 0;
+      const aTime = a.addedAt ? new Date(a.addedAt).getTime() : 0;
+      return bTime - aTime;
+    });
+
+    const pageEnd = page * pageSize;
+    const scanComplete = scannedAssessmentCount >= rawAssessmentCount || scannedAssessmentCount >= MAX_MATCH_ASSESSMENTS;
+    const hasMoreVisible = matches.length > pageEnd;
 
     return {
-      byTier,
-      counts: {
-        suggested: byTier.suggested.length,
-        within_reach: byTier.within_reach.length,
-        other: byTier.other.length,
-      },
-      rawAssessmentCount: assessmentBatch.count,
-      scannedAssessmentCount: assessments.length,
-      usedProfileFallback: assessmentBatch.usedProfileFallback,
+      grants: matches,
+      availableCandidateCount: scanComplete ? matches.length : Math.max(matches.length, pageEnd + (hasMoreVisible ? 1 : 0)),
+      availableCandidateCountIsEstimate: !scanComplete,
+      rawAssessmentCount,
+      scannedAssessmentCount,
+      usedProfileFallback,
     };
   });
 }
@@ -394,13 +428,20 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Profile required" }, { status: 400 });
     }
 
-    const matchIndex = await buildMatchIndex({ orgId, profile: profile as Record<string, unknown>, profileId });
-    const grants = matchIndex.byTier[tier];
+    const tierMatches = await buildTierMatches({
+      orgId,
+      profile: profile as Record<string, unknown>,
+      profileId,
+      tier,
+      page,
+      pageSize,
+    });
+    const grants = tierMatches.grants;
     const offset = (page - 1) * pageSize;
     const pageEnd = page * pageSize;
     const pageGrants = grants.slice(offset, pageEnd);
-    const availableCandidateCount = matchIndex.counts[tier];
-    const hasMore = availableCandidateCount > pageEnd;
+    const availableCandidateCount = tierMatches.availableCandidateCount;
+    const hasMore = grants.length > pageEnd || tierMatches.availableCandidateCountIsEstimate;
 
     return NextResponse.json(
       {
@@ -410,9 +451,10 @@ export async function GET(request: Request) {
         tier,
         hasMore,
         availableCandidateCount,
+        availableCandidateCountIsEstimate: tierMatches.availableCandidateCountIsEstimate,
         rawCandidateCount: availableCandidateCount,
-        rawAssessmentCount: matchIndex.rawAssessmentCount,
-        scannedCandidateCount: matchIndex.scannedAssessmentCount,
+        rawAssessmentCount: tierMatches.rawAssessmentCount,
+        scannedCandidateCount: tierMatches.scannedAssessmentCount,
         returnedCount: pageGrants.length,
       },
       {

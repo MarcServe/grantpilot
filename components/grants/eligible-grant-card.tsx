@@ -21,6 +21,9 @@ export interface EligibleGrant {
   improvementPlan: { gaps?: string[]; actions?: string[] } | null;
   outcomeWarnings?: string[];
   verificationWarning?: string | null;
+  applicationUrl?: string | null;
+  detailUrl?: string | null;
+  directApplicationUrl?: string | null;
   applicationUrlQuality?: string | null;
   applicationUrlKind?: string | null;
   applicationUrlQualityReason?: string | null;
@@ -87,6 +90,9 @@ export function EligibleGrantCard({ grant }: { grant: EligibleGrant }) {
     grant.deadline && new Date(grant.deadline).getTime() - pageLoadedAt < ONE_WEEK_MS;
   const verifiedApplicationStart = hasVerifiedApplicationStart(grant.applicationUrlQuality);
   const linkLabel = applicationLinkLabel(grant.applicationUrlQuality);
+  const externalActionHref = verifiedApplicationStart
+    ? grant.directApplicationUrl ?? grant.applicationUrl ?? grant.detailUrl ?? null
+    : grant.detailUrl ?? grant.applicationUrl ?? grant.directApplicationUrl ?? null;
 
   const actions: string[] = [];
   if (grant.improvementPlan?.actions?.length) actions.push(...grant.improvementPlan.actions);
@@ -179,18 +185,20 @@ export function EligibleGrantCard({ grant }: { grant: EligibleGrant }) {
       )}
 
       <div className="mt-2 flex flex-wrap items-center gap-2 pt-1">
-        <Link href={detailHref}>
-          <Button variant="outline" size="sm" className="gap-1.5">
+        <Button asChild variant="outline" size="sm" className="gap-1.5">
+          <Link href={detailHref}>
             <FileText className="h-3.5 w-3.5" />
             View details
+          </Link>
+        </Button>
+        {externalActionHref && (
+          <Button asChild size="sm" className="gap-1.5">
+            <a href={externalActionHref} target="_blank" rel="noopener noreferrer">
+              {verifiedApplicationStart ? "Apply" : "Review grant page"}
+              <ArrowRight className="h-3.5 w-3.5" />
+            </a>
           </Button>
-        </Link>
-        <Link href={detailHref}>
-          <Button size="sm" className="gap-1.5">
-            {verifiedApplicationStart ? "Apply" : "Review grant page"}
-            <ArrowRight className="h-3.5 w-3.5" />
-          </Button>
-        </Link>
+        )}
       </div>
     </div>
   );
