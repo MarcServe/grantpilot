@@ -119,6 +119,30 @@ export interface ApplyButtonCandidate {
   tagName: string;
 }
 
+type ScoutCandidate = {
+  url: string;
+  kind:
+    | "direct_form"
+    | "portal_application"
+    | "specific_grant_page"
+    | "generic_listing"
+    | "account_registration"
+    | "closed_or_expired"
+    | "dead_link"
+    | "unknown";
+  quality: "verified_direct" | "verified_portal" | "needs_scout" | "manual_review" | "rejected" | "unknown";
+  confidence: number;
+  reason: string;
+};
+
+function isVerifiedScoutCandidate(candidate: ScoutCandidate | null | undefined): boolean {
+  return candidate?.quality === "verified_direct" || candidate?.quality === "verified_portal";
+}
+
+function rejectedScoutCandidate(url: string, kind: ScoutCandidate["kind"], reason: string): ScoutCandidate {
+  return { url, kind, quality: "rejected", confidence: 90, reason };
+}
+
 // ---------------------------------------------------------------------------
 // Database helpers
 // ---------------------------------------------------------------------------
@@ -161,10 +185,22 @@ export async function markScoutJobResult(
   await getSupabase().from("grant_links").update(patch).eq("id", jobId);
 }
 
-export async function updateGrantApplicationUrl(grantId: string, applicationFormUrl: string): Promise<void> {
+export async function updateGrantDirectApplicationUrl(grantId: string, candidate: ScoutCandidate): Promise<void> {
+  const verified = isVerifiedScoutCandidate(candidate);
+  const patch: Record<string, unknown> = {
+    directApplicationUrl: verified ? candidate.url : null,
+    applicationUrlKind: candidate.kind,
+    applicationUrlQuality: candidate.quality,
+    applicationUrlConfidence: candidate.confidence,
+    applicationUrlVerifiedAt: verified ? new Date().toISOString() : null,
+    applicationUrlQualityReason: candidate.reason,
+    updatedAt: new Date().toISOString(),
+  };
+  if (verified) patch.applicationUrl = candidate.url;
+
   await getSupabase()
     .from("Grant")
-    .update({ applicationUrl: applicationFormUrl, updatedAt: new Date().toISOString() })
+    .update(patch)
     .eq("id", grantId);
 }
 
@@ -217,6 +253,49 @@ async function isFormLikePage(page: Page): Promise<boolean> {
     return document.querySelectorAll("input:not([type=hidden]):not([type=submit]):not([type=button]), textarea, select").length;
   });
   return count >= 3;
+}
+
+async function validateFinalCandidate(page: Page, candidateUrl: string): Promise<ScoutCandidate> {
+  try {
+    const current = page.url() || candidateUrl;
+    const url = current || candidateUrl;
+    const lowerUrl = url.toLowerCase();
+    const visibleFields = await page.evaluate(() =>
+      document.querySelectorAll("input:not([type=hidden]):not([type=submit]):not([type=button]), textarea, select").length
+    ).catch(() => 0);
+    const title = await page.title().catch(() => "");
+    const bodyText = await page.locator("body").innerText({ timeout: 5000 }).catch(() => "");
+    const lower = `${title} ${bodyText}`.toLowerCase();
+
+    if (FORM_HOSTS.some((h) => lowerUrl.includes(h))) {
+      return { url, kind: "direct_form", quality: "verified_direct", confidence: 95, reason: "Known hosted form provider" };
+    }
+    if (visibleFields >= 3) {
+      return { url, kind: "direct_form", quality: "verified_direct", confidence: 95, reason: "Page contains application form fields" };
+    }
+    if (/account has been successfully created|activate your account|thank you/i.test(lower)) {
+      return { url, kind: "account_registration", quality: "manual_review", confidence: 90, reason: "Account registration/activation step detected" };
+    }
+    if (/applications? (are|is|have|has) (now )?(closed|ended)|no longer accepting|deadline has passed/i.test(lower)) {
+      return rejectedScoutCandidate(url, "closed_or_expired", "Closed/expired wording detected");
+    }
+    if (/login|sign in|create account|register/i.test(lower) && /application|apply|loan|grant|funding/i.test(lower)) {
+      return { url, kind: "portal_application", quality: "verified_portal", confidence: 75, reason: "Official portal start/login page detected" };
+    }
+    if (/^https?:\/\/apply\./i.test(url) || /\/(apply|application|applications|start-application)(\/|$|\?)/i.test(lowerUrl)) {
+      return { url, kind: "portal_application", quality: "verified_portal", confidence: 75, reason: "Apply/application URL pattern verified" };
+    }
+
+    return {
+      url,
+      kind: "specific_grant_page",
+      quality: "needs_scout",
+      confidence: 55,
+      reason: "Candidate did not expose form fields or portal proof",
+    };
+  } catch {
+    return { url: candidateUrl, kind: "unknown", quality: "manual_review", confidence: 30, reason: "Candidate validation failed" };
+  }
 }
 
 function escapeCssId(id: string): string {
@@ -453,31 +532,34 @@ Reply with ONLY one word: LIVE_GRANT, DEAD, or EXPIRED. No explanation.`;
 // Discovery orchestrator
 // ---------------------------------------------------------------------------
 
-export async function runScoutDiscovery(page: Page, homepageUrl: string, mode: ScoutMode, skipInitialNav = false): Promise<string | null> {
+export async function runScoutDiscovery(page: Page, homepageUrl: string, mode: ScoutMode, skipInitialNav = false): Promise<ScoutCandidate | null> {
   if (!skipInitialNav) {
     const { ok } = await navigateToGrantUrl(page, homepageUrl);
     if (!ok) return null;
   }
 
-  let lastFormUrl: string | null = null;
+  let lastCandidate: ScoutCandidate | null = null;
   const useGemini = mode === "full";
 
   for (let hop = 0; hop < MAX_SCOUT_HOPS; hop++) {
     const currentUrl = page.url();
 
-    if (await isFormLikePage(page)) return currentUrl;
+    if (await isFormLikePage(page)) return validateFinalCandidate(page, currentUrl);
 
     // --- Tier 1: regex scoring ---
     const regexUrl = await regexFindFormUrl(page);
     if (regexUrl) {
-      lastFormUrl = regexUrl;
-      if (regexUrl === currentUrl || regexUrl === homepageUrl) return regexUrl;
+      lastCandidate = { url: regexUrl, kind: "unknown", quality: "manual_review", confidence: 45, reason: "Regex candidate not yet validated" };
+      if (regexUrl === currentUrl || regexUrl === homepageUrl) return validateFinalCandidate(page, regexUrl);
       try {
         const nav = await page.goto(regexUrl, { waitUntil: "domcontentloaded", timeout: 300_000 });
-        if (nav && nav.status() >= 400) return regexUrl;
-        if (await isFormLikePage(page)) return page.url();
-        return regexUrl;
-      } catch { return regexUrl; }
+        if (nav && nav.status() >= 400) return rejectedScoutCandidate(regexUrl, "dead_link", `HTTP ${nav.status()} for candidate`);
+        const candidate = await validateFinalCandidate(page, regexUrl);
+        if (isVerifiedScoutCandidate(candidate)) return candidate;
+        lastCandidate = candidate;
+      } catch {
+        return { url: regexUrl, kind: "unknown", quality: "manual_review", confidence: 40, reason: "Candidate navigation failed" };
+      }
     }
 
     // --- Tier 2: Gemini Flash (only in "full" mode) ---
@@ -491,14 +573,17 @@ export async function runScoutDiscovery(page: Page, homepageUrl: string, mode: S
       }
 
       if (formUrl) {
-        lastFormUrl = formUrl;
-        if (formUrl === currentUrl || formUrl === homepageUrl) return formUrl;
+        lastCandidate = { url: formUrl, kind: "unknown", quality: "manual_review", confidence: 45, reason: "Gemini candidate not yet validated" };
+        if (formUrl === currentUrl || formUrl === homepageUrl) return validateFinalCandidate(page, formUrl);
         try {
           const nav = await page.goto(formUrl, { waitUntil: "domcontentloaded", timeout: 300_000 });
-          if (nav && nav.status() >= 400) return formUrl;
-          if (await isFormLikePage(page)) return page.url();
-          return formUrl;
-        } catch { return formUrl; }
+          if (nav && nav.status() >= 400) return rejectedScoutCandidate(formUrl, "dead_link", `HTTP ${nav.status()} for candidate`);
+          const candidate = await validateFinalCandidate(page, formUrl);
+          if (isVerifiedScoutCandidate(candidate)) return candidate;
+          lastCandidate = candidate;
+        } catch {
+          return { url: formUrl, kind: "unknown", quality: "manual_review", confidence: 40, reason: "Candidate navigation failed" };
+        }
       }
     }
 
@@ -511,10 +596,12 @@ export async function runScoutDiscovery(page: Page, homepageUrl: string, mode: S
       try {
         await page.goto(applyLink.href, { waitUntil: "domcontentloaded", timeout: 300_000 });
         await page.waitForTimeout(2000);
-        if (await isFormLikePage(page)) return page.url();
+        const candidate = await validateFinalCandidate(page, applyLink.href);
+        if (isVerifiedScoutCandidate(candidate)) return candidate;
+        lastCandidate = candidate;
         continue;
       } catch {
-        lastFormUrl = applyLink.href;
+        lastCandidate = { url: applyLink.href, kind: "unknown", quality: "manual_review", confidence: 40, reason: "Apply link navigation failed" };
       }
     }
 
@@ -522,16 +609,18 @@ export async function runScoutDiscovery(page: Page, homepageUrl: string, mode: S
       const clicked = await clickApplyButton(page, applyButtons[0]);
       if (clicked) {
         await page.waitForTimeout(2000);
-        if (await isFormLikePage(page)) return page.url();
+        const candidate = await validateFinalCandidate(page, page.url());
+        if (isVerifiedScoutCandidate(candidate)) return candidate;
+        lastCandidate = candidate;
         continue;
       }
     }
 
-    if (lastFormUrl) return lastFormUrl;
+    if (lastCandidate) return lastCandidate;
     break;
   }
 
-  return lastFormUrl;
+  return lastCandidate;
 }
 
 // ---------------------------------------------------------------------------
@@ -560,6 +649,10 @@ export async function processScoutJob(job: GrantLinkJob): Promise<void> {
     const nav = await navigateToGrantUrl(page, job.homepage_url);
     if (!nav.ok) {
       await updateGrantUrlStatus(job.grant_id, "dead");
+      await updateGrantDirectApplicationUrl(
+        job.grant_id,
+        rejectedScoutCandidate(job.homepage_url, "dead_link", `Navigation failed: ${nav.error ?? "unknown"}`)
+      );
       await markScoutJobResult(job.id, "failed", null, `Navigation failed: ${nav.error ?? "unknown"}`);
       console.log(`[scout] Navigation failed for grant ${job.grant_id}, marked dead`);
       return;
@@ -567,6 +660,10 @@ export async function processScoutJob(job: GrantLinkJob): Promise<void> {
 
     if (nav.status && (nav.status === 404 || nav.status === 410)) {
       await updateGrantUrlStatus(job.grant_id, "dead");
+      await updateGrantDirectApplicationUrl(
+        job.grant_id,
+        rejectedScoutCandidate(job.homepage_url, "dead_link", `HTTP ${nav.status}`)
+      );
       await markScoutJobResult(job.id, "failed", null, `HTTP ${nav.status}`);
       console.log(`[scout] HTTP ${nav.status} for grant ${job.grant_id}, marked dead`);
       return;
@@ -578,25 +675,41 @@ export async function processScoutJob(job: GrantLinkJob): Promise<void> {
       await updateGrantUrlStatus(job.grant_id, health.status);
 
       if (health.status === "dead") {
+        await updateGrantDirectApplicationUrl(
+          job.grant_id,
+          rejectedScoutCandidate(job.homepage_url, "dead_link", health.reason)
+        );
         await markScoutJobResult(job.id, "failed", null, health.reason);
         return;
       }
       if (health.status === "expired") {
+        await updateGrantDirectApplicationUrl(
+          job.grant_id,
+          rejectedScoutCandidate(job.homepage_url, "closed_or_expired", health.reason)
+        );
         await markScoutJobResult(job.id, "manual_review_needed", null, health.reason);
         return;
       }
     }
 
-    const formUrl = await runScoutDiscovery(page, job.homepage_url, mode, true);
+    const candidate = await runScoutDiscovery(page, job.homepage_url, mode, true);
 
-    if (formUrl && formUrl.trim() !== "") {
-      await markScoutJobResult(job.id, "found", formUrl);
-      await updateGrantApplicationUrl(job.grant_id, formUrl.trim());
+    if (candidate && isVerifiedScoutCandidate(candidate)) {
+      await markScoutJobResult(job.id, "found", candidate.url);
+      await updateGrantDirectApplicationUrl(job.grant_id, candidate);
       if (mode !== "full") await updateGrantUrlStatus(job.grant_id, "live");
-      console.log(`[scout] Found form URL for grant ${job.grant_id}: ${formUrl.slice(0, 60)}...`);
+      console.log(`[scout] Found verified form URL for grant ${job.grant_id}: ${candidate.url.slice(0, 60)}...`);
     } else {
-      await markScoutJobResult(job.id, "manual_review_needed", null, "No application form link identified");
-      console.log(`[scout] No form URL found for grant ${job.grant_id}, marked manual_review_needed`);
+      const reason = candidate?.reason ?? "No verified direct application form or official portal start link identified";
+      await markScoutJobResult(job.id, "manual_review_needed", candidate?.url ?? null, reason);
+      await updateGrantDirectApplicationUrl(job.grant_id, candidate ?? {
+        url: job.homepage_url,
+        kind: "unknown",
+        quality: "manual_review",
+        confidence: 0,
+        reason,
+      });
+      console.log(`[scout] No verified form URL found for grant ${job.grant_id}, marked manual_review_needed`);
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
