@@ -7,6 +7,7 @@ import { fetchCachedGrantRowsByIds } from "@/lib/grant-record-cache";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { isGrantActionableNow } from "@/lib/grant-actionability";
 import { getGrantVerificationWarning } from "@/lib/grant-freshness";
+import { isVerifiedApplicationQuality } from "@/lib/grant-application-url-quality";
 import { deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
 import {
   finalEligibilityScore,
@@ -52,6 +53,10 @@ type GrantRow = {
   applicantTypes?: string[];
   sectors?: string[];
   regions?: string[];
+  applicationUrlQuality?: string | null;
+  applicationUrlKind?: string | null;
+  applicationUrlQualityReason?: string | null;
+  directApplicationUrl?: string | null;
 };
 type AssessmentBatch = {
   rows: AssessmentRow[];
@@ -78,6 +83,10 @@ function tierForScore(score: number): ScoreTier {
   if (score >= 85) return "suggested";
   if (score >= 50) return "within_reach";
   return "other";
+}
+
+function hasVerifiedApplicationStart(grant: GrantRow): boolean {
+  return isVerifiedApplicationQuality(grant.applicationUrlQuality);
 }
 
 function scanLimitFor(page: number, pageSize: number): number {
@@ -210,7 +219,7 @@ export async function GET(request: Request) {
       const grantsPromise = fetchCachedGrantRowsByIds<GrantRow>({
         supabase,
         ids: grantIds,
-        select: "id, name, funder, deadline, funderLocations, url_status, createdAt, eligibility, description, objectives, applicantTypes, sectors, regions",
+        select: "id, name, funder, deadline, funderLocations, url_status, createdAt, eligibility, description, objectives, applicantTypes, sectors, regions, applicationUrlQuality, applicationUrlKind, applicationUrlQualityReason, directApplicationUrl",
         batchSize: GRANT_QUERY_BATCH_SIZE,
         ttlMs: 60_000,
         cacheNamespace: "eligible-grants",
@@ -236,6 +245,7 @@ export async function GET(request: Request) {
       });
       const validGrants = [...grantsById.values()].filter((grant) =>
         isGrantActionableNow(grant) &&
+        (tier !== "suggested" || hasVerifiedApplicationStart(grant)) &&
         !appliedGrantIds.has(grant.id) &&
         !hiddenStateGrantIds.has(grant.id) &&
         grantMatchesFunderLocations(grant.funderLocations, userFunderLocations)
@@ -269,6 +279,9 @@ export async function GET(request: Request) {
         improvementPlan: guarded.improvementPlan ?? assessment.improvement_plan,
         outcomeWarnings: guarded.outcomeWarnings ?? [],
         verificationWarning: getGrantVerificationWarning(grant)?.message ?? null,
+        applicationUrlQuality: grant.applicationUrlQuality ?? null,
+        applicationUrlKind: grant.applicationUrlKind ?? null,
+        applicationUrlQualityReason: grant.applicationUrlQualityReason ?? null,
         scoringSource,
         userState: grantUserStateMap.get(assessment.grant_id) ?? null,
       });

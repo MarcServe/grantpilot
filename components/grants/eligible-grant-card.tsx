@@ -21,6 +21,9 @@ export interface EligibleGrant {
   improvementPlan: { gaps?: string[]; actions?: string[] } | null;
   outcomeWarnings?: string[];
   verificationWarning?: string | null;
+  applicationUrlQuality?: string | null;
+  applicationUrlKind?: string | null;
+  applicationUrlQualityReason?: string | null;
   scoringSource?: string | null;
   userState?: GrantUserState | null;
 }
@@ -66,6 +69,10 @@ function stateLabel(status?: GrantUserState | null): string | null {
   return null;
 }
 
+function hasVerifiedApplicationStart(quality?: string | null): boolean {
+  return quality === "verified_direct" || quality === "verified_portal";
+}
+
 export function EligibleGrantCard({ grant }: { grant: EligibleGrant }) {
   const detailHref = `/grants/${grant.grantId}?from=matches`;
   const deadlineStr = formatDeadline(grant.deadline);
@@ -73,6 +80,7 @@ export function EligibleGrantCard({ grant }: { grant: EligibleGrant }) {
   const state = stateLabel(grant.userState);
   const isDeadlineSoon =
     grant.deadline && new Date(grant.deadline).getTime() - pageLoadedAt < ONE_WEEK_MS;
+  const verifiedApplicationStart = hasVerifiedApplicationStart(grant.applicationUrlQuality);
 
   const actions: string[] = [];
   if (grant.improvementPlan?.actions?.length) actions.push(...grant.improvementPlan.actions);
@@ -143,6 +151,13 @@ export function EligibleGrantCard({ grant }: { grant: EligibleGrant }) {
         </div>
       )}
 
+      {grant.applicationUrlQuality && !verifiedApplicationStart && (
+        <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>{grant.applicationUrlQualityReason ?? "Direct application form not verified yet."}</span>
+        </div>
+      )}
+
       <div className="mt-2 flex flex-wrap items-center gap-2 pt-1">
         <Link href={detailHref}>
           <Button variant="outline" size="sm" className="gap-1.5">
@@ -152,7 +167,7 @@ export function EligibleGrantCard({ grant }: { grant: EligibleGrant }) {
         </Link>
         <Link href={detailHref}>
           <Button size="sm" className="gap-1.5">
-            Apply
+            {verifiedApplicationStart ? "Apply" : "Review link"}
             <ArrowRight className="h-3.5 w-3.5" />
           </Button>
         </Link>
