@@ -31,7 +31,6 @@ import {
 } from "@/lib/eligibility-deep-score-queue";
 import { fetchGrantIntelligenceForGrantIds } from "@/lib/grant-intelligence-extract";
 import { matchProfileToGrantIntelligence } from "@/lib/grant-intelligence-match";
-import { isVerifiedApplicationQuality } from "@/lib/grant-application-url-quality";
 
 /**
  * 3-Layer Eligibility Pipeline
@@ -233,10 +232,6 @@ function sortDigestByFreshScore(
   if (scoredDelta !== 0) return scoredDelta;
   if (b.score !== a.score) return b.score - a.score;
   return grantCreatedTime(grantsById.get(b.grantId)) - grantCreatedTime(grantsById.get(a.grantId));
-}
-
-function hasVerifiedApplicationStart(grant: GrantRow): boolean {
-  return isVerifiedApplicationQuality(grant.applicationUrlQuality) && Boolean(grant.directApplicationUrl ?? grant.applicationUrl);
 }
 
 function uniqueGrantIds(ids: string[]): string[] {
@@ -773,12 +768,6 @@ export async function runEligibilityRefreshJob(options?: {
           if (!actionability.usable) {
             console.info(
               `[eligibility-refresh]   Skipping stale grant ${grant.id}: ${actionability.message ?? actionability.reason ?? "not actionable"}`
-            );
-            return null;
-          }
-          if (!hasVerifiedApplicationStart(grant)) {
-            console.info(
-              `[eligibility-refresh]   Skipping unverified application link ${grant.id}: ${grant.applicationUrlQuality ?? "unknown"}`
             );
             return null;
           }
