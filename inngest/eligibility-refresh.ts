@@ -1,7 +1,7 @@
 import { inngest } from "./client";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getEligibilityDecision } from "@/lib/claude";
-import { notifyOrgMembers, orgHasNotificationSince } from "@/lib/notify";
+import { notifyOrgMembers, orgHasNotificationChannelSince, orgHasNotificationSince } from "@/lib/notify";
 import { grantMatchesFunderLocations, inferFunderLocationsFromProfile } from "@/lib/constants";
 import { createStartApplicationToken } from "@/lib/start-application-token";
 import { checkRequirementsAgainstDocuments } from "@/lib/grant-requirements";
@@ -60,6 +60,7 @@ const REFRESH_WORKER_CONCURRENCY = positiveIntFromEnv("ELIGIBILITY_REFRESH_WORKE
 const DEEP_SCORE_WORKER_CONCURRENCY = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_WORKER_CONCURRENCY", 3);
 const DIGEST_STRONG_LIMIT = positiveIntFromEnv("ELIGIBILITY_DIGEST_STRONG_LIMIT", 20);
 const DIGEST_PREVIOUS_LIMIT = positiveIntFromEnv("ELIGIBILITY_DIGEST_PREVIOUS_LIMIT", 12);
+const DIGEST_OTHER_LIMIT = positiveIntFromEnv("ELIGIBILITY_DIGEST_OTHER_LIMIT", 4);
 
 function recentNotificationWindow(): Date {
   const since = new Date();
@@ -199,6 +200,7 @@ type GrantRow = {
   applicationUrl?: string | null;
   directApplicationUrl?: string | null;
   applicationUrlQuality?: string | null;
+  applicationUrlKind?: string | null;
   eligibility: string;
   description?: string;
   objectives?: string;
@@ -333,7 +335,7 @@ async function fetchCurrentGrants(
   for (let offset = 0; offset < MAX_GRANTS_PER_REFRESH; offset += GRANT_FETCH_BATCH_SIZE) {
     const { data, error } = await supabase
       .from("Grant")
-      .select("id, name, funder, amount, deadline, applicationUrl, directApplicationUrl, applicationUrlQuality, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, required_attachments, url_status, createdAt")
+      .select("id, name, funder, amount, deadline, applicationUrl, directApplicationUrl, applicationUrlQuality, applicationUrlKind, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, required_attachments, url_status, createdAt")
       .order("createdAt", { ascending: false })
       .range(offset, offset + GRANT_FETCH_BATCH_SIZE - 1);
 
@@ -441,12 +443,31 @@ export async function runEligibilityRefreshJob(options?: {
         const sendNotifyEmail = (prefs as { notify_email?: boolean } | null)?.notify_email !== false;
         const canReceiveProactiveNotifications = await organisationAllowsCapability(orgId, "proactive_notifications");
         const recentWindow = recentNotificationWindow();
+        const whatsappOpportunityNotificationTypes = ["grant_scan_digest", "grant_match_high"] as const;
         let sendCurrentDigestIfAvailable: (() => Promise<boolean>) | null = null;
 
         const sendEligibilityStatusEmail = async (checkedGrantsCount: number, digestCandidateCount = 0) => {
           if (!sendNotifications) return;
           if (!sendNotifyEmail) return;
           const strongEligibleCount = Math.max(0, Math.round(digestCandidateCount));
+
+          if (completionScore < minCompletionForNotifications) {
+            const alreadyPrompted = await orgHasNotificationSince(
+              orgId,
+              ["profile_completion_reminder"],
+              recentWindow
+            );
+            if (alreadyPrompted) return;
+            await notifyOrgMembers(orgId, "profile_completion_reminder", {
+              profileName,
+              profileCompletion: completionScore,
+            }, {
+              sendEmail: true,
+              sendWhatsApp: false,
+            });
+            diagnostics.dailyUpdates++;
+            return;
+          }
 
           if (!canReceiveProactiveNotifications) {
             const alreadyPrompted = await orgHasNotificationSince(
@@ -468,10 +489,13 @@ export async function runEligibilityRefreshJob(options?: {
 
           const alreadyUpdated = await orgHasNotificationSince(
             orgId,
-            ["daily_grant_update", "grant_scan_digest", "grant_match_high", "eligibility_upgrade_prompt", "business_dna_match_health"],
+            ["daily_grant_update", "grant_scan_digest", "grant_match_high", "eligibility_upgrade_prompt", "business_dna_match_health", "profile_completion_reminder"],
             recentWindow
           );
-          if (alreadyUpdated) return;
+          if (alreadyUpdated) {
+            if (sendCurrentDigestIfAvailable && await sendCurrentDigestIfAvailable()) return;
+            return;
+          }
 
           if (sendCurrentDigestIfAvailable && await sendCurrentDigestIfAvailable()) {
             return;
@@ -794,6 +818,9 @@ export async function runEligibilityRefreshJob(options?: {
             grantId: grant.id,
             grantName: grant.name,
             score,
+            applicationUrlQuality: grant.applicationUrlQuality ?? null,
+            applicationUrlKind: grant.applicationUrlKind ?? null,
+            scoringSource: assessment.scoring_source ?? null,
             scoredAt: assessment.updated_at ?? null,
             grantAddedAt: grant.createdAt ?? null,
             summary:
@@ -846,7 +873,6 @@ export async function runEligibilityRefreshJob(options?: {
             .select("grant_id, updated_at, score, decision, summary, notified_at, missing_criteria, improvement_plan, scoring_source")
             .eq("organisation_id", orgId)
             .eq("profile_id", profileId)
-            .in("scoring_source", ["openai", "intelligence"])
             .gte("score", 50)
             .lte("score", withinReachMax)
             .order("updated_at", { ascending: false })
@@ -867,14 +893,39 @@ export async function runEligibilityRefreshJob(options?: {
             .sort((a, b) => sortDigestByFreshScore(grantsByIdForDigest, a, b))
             .slice(0, limit);
         };
+        const buildCurrentOtherDigest = async (limit = DIGEST_OTHER_LIMIT): Promise<DigestGrantItem[]> => {
+          const { data: currentRows, error: currentErr } = await supabase
+            .from("EligibilityAssessment")
+            .select("grant_id, updated_at, score, decision, summary, notified_at, missing_criteria, improvement_plan, scoring_source")
+            .eq("organisation_id", orgId)
+            .eq("profile_id", profileId)
+            .gte("score", 1)
+            .lt("score", 50)
+            .order("updated_at", { ascending: false })
+            .limit(40);
+
+          if (currentErr) {
+            console.error("[eligibility-refresh] current other digest query", currentErr);
+            return [];
+          }
+
+          const items: DigestGrantItem[] = [];
+          for (const row of (currentRows ?? []) as CachedEligibilityRow[]) {
+            const item = await buildDigestItem(row, { minScore: 1, maxScore: 49 });
+            if (item) items.push(item);
+          }
+
+          return items
+            .sort((a, b) => sortDigestByFreshScore(grantsByIdForDigest, a, b))
+            .slice(0, limit);
+        };
         const buildPreviousScanDigest = async (limit = DIGEST_PREVIOUS_LIMIT): Promise<DigestGrantItem[]> => {
           const { data: recentRows, error: recentErr } = await supabase
             .from("EligibilityAssessment")
             .select("grant_id, updated_at, score, decision, summary, notified_at, missing_criteria, improvement_plan, scoring_source")
             .eq("organisation_id", orgId)
             .eq("profile_id", profileId)
-            .in("scoring_source", ["openai", "intelligence"])
-            .gte("score", 50)
+            .gte("score", 1)
             .lte("score", maxScore)
             .not("notified_at", "is", null)
             .order("notified_at", { ascending: false })
@@ -888,7 +939,7 @@ export async function runEligibilityRefreshJob(options?: {
           const items: DigestGrantItem[] = [];
           for (const row of (recentRows ?? []) as CachedEligibilityRow[]) {
             if (isOutsideDigestGrantRepeatCooldown(row.notified_at)) continue;
-            const item = await buildDigestItem(row, { minScore: 50, maxScore }, { includeRecentlyNotified: true });
+            const item = await buildDigestItem(row, { minScore: 1, maxScore }, { includeRecentlyNotified: true });
             if (item) items.push(item);
           }
 
@@ -902,31 +953,54 @@ export async function runEligibilityRefreshJob(options?: {
           return currentStrongDigestCache;
         };
         const hasStrongWhatsAppMatches = (items: DigestGrantItem[]) =>
-          items.some((item) => item.score >= suggestedThreshold);
+          items.some(
+            (item) =>
+              item.score >= suggestedThreshold &&
+              (item.scoringSource === "openai" || item.scoringSource === "intelligence")
+          );
         sendCurrentDigestIfAvailable = async () => {
+          const alreadyUpdated = await orgHasNotificationSince(
+            orgId,
+            ["daily_grant_update", "grant_scan_digest", "grant_match_high", "eligibility_upgrade_prompt", "business_dna_match_health", "profile_completion_reminder"],
+            recentWindow
+          );
+          const alreadySentWhatsApp = await orgHasNotificationChannelSince(
+            orgId,
+            whatsappOpportunityNotificationTypes,
+            "whatsapp",
+            recentWindow
+          );
+          const shouldSendEmail = sendNotifyEmail && !alreadyUpdated;
+          const maySendWhatsApp = sendWhatsApp && !alreadySentWhatsApp;
+          if (!shouldSendEmail && !maySendWhatsApp) return false;
+
           const currentStrongDigest = await getCurrentStrongDigest();
-          const currentWithinReachDigest = await buildCurrentWithinReachDigest();
+          const currentWithinReachDigest = shouldSendEmail ? await buildCurrentWithinReachDigest() : [];
+          const currentOtherDigest = shouldSendEmail ? await buildCurrentOtherDigest() : [];
           const previousScanGrants = await buildPreviousScanDigest();
-          if (currentStrongDigest.length === 0 && currentWithinReachDigest.length === 0 && previousScanGrants.length === 0) return false;
+          if (currentStrongDigest.length === 0 && currentWithinReachDigest.length === 0 && currentOtherDigest.length === 0 && previousScanGrants.length === 0) return false;
+          const shouldSendWhatsApp = maySendWhatsApp && hasStrongWhatsAppMatches([...currentStrongDigest, ...previousScanGrants]);
+          if (!shouldSendEmail && !shouldSendWhatsApp) return false;
 
           console.info(
-            `[eligibility-refresh]   SENDING fallback current-match digest for ${currentStrongDigest.length} strong, ${currentWithinReachDigest.length} within-reach, and ${previousScanGrants.length} previous grants to org ${orgId}`
+            `[eligibility-refresh]   SENDING fallback current-match digest for ${currentStrongDigest.length} strong, ${currentWithinReachDigest.length} within-reach, ${currentOtherDigest.length} other, and ${previousScanGrants.length} previous grants to org ${orgId} email=${shouldSendEmail} whatsapp=${shouldSendWhatsApp}`
           );
           await notifyOrgMembers(orgId, "grant_scan_digest", {
             grants: currentStrongDigest,
             withinReachGrants: currentWithinReachDigest,
+            otherGrants: currentOtherDigest,
             previousScanGrants,
             profileName,
           }, {
-            sendEmail: true,
-            sendWhatsApp: sendWhatsApp && hasStrongWhatsAppMatches([...currentStrongDigest, ...previousScanGrants]),
+            sendEmail: shouldSendEmail,
+            sendWhatsApp: shouldSendWhatsApp,
           });
           diagnostics.dailyUpdates++;
           notifiedCount += currentStrongDigest.length;
-          await markDigestItemsNotified(supabase, orgId, profileId, [
-            ...currentStrongDigest,
-            ...currentWithinReachDigest,
-          ]);
+          const notifiedItems = shouldSendEmail
+            ? [...currentStrongDigest, ...currentWithinReachDigest, ...currentOtherDigest]
+            : currentStrongDigest;
+          if (notifiedItems.length > 0) await markDigestItemsNotified(supabase, orgId, profileId, notifiedItems);
           return true;
         };
 
@@ -1128,70 +1202,80 @@ export async function runEligibilityRefreshJob(options?: {
           digestGrants.length > 0 ? digestGrants.length : (await getCurrentStrongDigest()).length;
 
         if (!canReceiveProactiveNotifications && sendNotifyEmail) {
-          const alreadyPrompted = await orgHasNotificationSince(
-            orgId,
-            ["eligibility_upgrade_prompt"],
-            recentWindow
-          );
-          if (!alreadyPrompted) {
-            await notifyOrgMembers(orgId, "eligibility_upgrade_prompt", {
-              profileName,
-              matchedGrantsCount: strongEligibleCount,
-            }, {
-              sendEmail: true,
-              sendWhatsApp: false,
-            });
-            diagnostics.upgradePrompts++;
-          }
+          await sendEligibilityStatusEmail(locationFiltered.length, strongEligibleCount);
         } else if (digestGrants.length > 0 && completionScore >= minCompletionForNotifications) {
           console.info(`[eligibility-refresh]   SENDING digest notification for ${digestGrants.length} grants to org ${orgId}`);
           const withinReachGrants = await buildCurrentWithinReachDigest();
+          const otherGrants = await buildCurrentOtherDigest();
           const previousScanGrants = await buildPreviousScanDigest();
-          await notifyOrgMembers(orgId, "grant_scan_digest", {
-            grants: digestGrants,
-            withinReachGrants,
-            previousScanGrants,
-            profileName,
-          }, {
-            sendEmail: sendNotifyEmail,
-            sendWhatsApp: sendWhatsApp && hasStrongWhatsAppMatches([...digestGrants, ...previousScanGrants]),
-          });
-          await markDigestItemsNotified(supabase, orgId, profileId, [
-            ...digestGrants,
-            ...withinReachGrants,
-          ]);
-          notifiedCount += digestGrants.length;
+          const alreadySentWhatsApp = await orgHasNotificationChannelSince(
+            orgId,
+            whatsappOpportunityNotificationTypes,
+            "whatsapp",
+            recentWindow
+          );
+          const shouldSendWhatsApp = sendWhatsApp && !alreadySentWhatsApp && hasStrongWhatsAppMatches([...digestGrants, ...previousScanGrants]);
+          if (sendNotifyEmail || shouldSendWhatsApp) {
+            await notifyOrgMembers(orgId, "grant_scan_digest", {
+              grants: digestGrants,
+              withinReachGrants: sendNotifyEmail ? withinReachGrants : [],
+              otherGrants: sendNotifyEmail ? otherGrants : [],
+              previousScanGrants,
+              profileName,
+            }, {
+              sendEmail: sendNotifyEmail,
+              sendWhatsApp: shouldSendWhatsApp,
+            });
+            const notifiedItems = sendNotifyEmail
+              ? [...digestGrants, ...withinReachGrants, ...otherGrants]
+              : digestGrants;
+            if (notifiedItems.length > 0) await markDigestItemsNotified(supabase, orgId, profileId, notifiedItems);
+            notifiedCount += digestGrants.length;
+          }
         } else if (digestGrants.length > 0 && completionScore < minCompletionForNotifications) {
           console.info(`[eligibility-refresh] Skipping digest: completion ${completionScore}% < ${minCompletionForNotifications}%`);
           await sendEligibilityStatusEmail(locationFiltered.length, strongEligibleCount);
         } else if (completionScore >= minCompletionForNotifications && (sendNotifyEmail || sendWhatsApp)) {
           const alreadyUpdated = await orgHasNotificationSince(
             orgId,
-            ["daily_grant_update", "grant_scan_digest", "grant_match_high", "eligibility_upgrade_prompt", "business_dna_match_health"],
+            ["daily_grant_update", "grant_scan_digest", "grant_match_high", "eligibility_upgrade_prompt", "business_dna_match_health", "profile_completion_reminder"],
             recentWindow
           );
-          const currentStrongDigest = alreadyUpdated ? [] : await getCurrentStrongDigest();
-          const currentWithinReachDigest = alreadyUpdated ? [] : await buildCurrentWithinReachDigest();
-          const previousScanGrants = alreadyUpdated ? [] : await buildPreviousScanDigest();
-          if (currentStrongDigest.length > 0 || currentWithinReachDigest.length > 0 || previousScanGrants.length > 0) {
+          const alreadySentWhatsApp = await orgHasNotificationChannelSince(
+            orgId,
+            whatsappOpportunityNotificationTypes,
+            "whatsapp",
+            recentWindow
+          );
+          const shouldSendEmail = sendNotifyEmail && !alreadyUpdated;
+          const maySendWhatsApp = sendWhatsApp && !alreadySentWhatsApp;
+          const currentStrongDigest = shouldSendEmail || maySendWhatsApp ? await getCurrentStrongDigest() : [];
+          const currentWithinReachDigest = shouldSendEmail ? await buildCurrentWithinReachDigest() : [];
+          const currentOtherDigest = shouldSendEmail ? await buildCurrentOtherDigest() : [];
+          const previousScanGrants = shouldSendEmail || maySendWhatsApp ? await buildPreviousScanDigest() : [];
+          if (currentStrongDigest.length > 0 || currentWithinReachDigest.length > 0 || currentOtherDigest.length > 0 || previousScanGrants.length > 0) {
+            const shouldSendWhatsApp = maySendWhatsApp && hasStrongWhatsAppMatches([...currentStrongDigest, ...previousScanGrants]);
             console.info(
-              `[eligibility-refresh]   SENDING current-match digest for ${currentStrongDigest.length} strong, ${currentWithinReachDigest.length} within-reach, and ${previousScanGrants.length} previous grants to org ${orgId}`
+              `[eligibility-refresh]   SENDING current-match digest for ${currentStrongDigest.length} strong, ${currentWithinReachDigest.length} within-reach, ${currentOtherDigest.length} other, and ${previousScanGrants.length} previous grants to org ${orgId} email=${shouldSendEmail} whatsapp=${shouldSendWhatsApp}`
             );
-            await notifyOrgMembers(orgId, "grant_scan_digest", {
-              grants: currentStrongDigest,
-              withinReachGrants: currentWithinReachDigest,
-              previousScanGrants,
-              profileName,
-            }, {
-              sendEmail: sendNotifyEmail,
-              sendWhatsApp: sendWhatsApp && hasStrongWhatsAppMatches([...currentStrongDigest, ...previousScanGrants]),
-            });
-            diagnostics.dailyUpdates++;
-            notifiedCount += currentStrongDigest.length;
-            await markDigestItemsNotified(supabase, orgId, profileId, [
-              ...currentStrongDigest,
-              ...currentWithinReachDigest,
-            ]);
+            if (shouldSendEmail || shouldSendWhatsApp) {
+              await notifyOrgMembers(orgId, "grant_scan_digest", {
+                grants: currentStrongDigest,
+                withinReachGrants: currentWithinReachDigest,
+                otherGrants: currentOtherDigest,
+                previousScanGrants,
+                profileName,
+              }, {
+                sendEmail: shouldSendEmail,
+                sendWhatsApp: shouldSendWhatsApp,
+              });
+              diagnostics.dailyUpdates++;
+              notifiedCount += currentStrongDigest.length;
+              const notifiedItems = shouldSendEmail
+                ? [...currentStrongDigest, ...currentWithinReachDigest, ...currentOtherDigest]
+                : currentStrongDigest;
+              if (notifiedItems.length > 0) await markDigestItemsNotified(supabase, orgId, profileId, notifiedItems);
+            }
           } else {
             if (!(await sendMatchHealthPrompt())) await sendEligibilityStatusEmail(locationFiltered.length, strongEligibleCount);
           }

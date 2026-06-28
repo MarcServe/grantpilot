@@ -266,6 +266,22 @@ export function buildEmailHtml(
       };
     }
 
+    case "profile_completion_reminder": {
+      const profileName = payload.profileName ?? "your business";
+      const completion = Math.max(0, Math.min(100, Math.round(Number(payload.profileCompletion ?? 0))));
+      return {
+        subject: "Complete your GrantsCopilot profile to receive better grant matches",
+        html: baseLayout(
+          "Complete your business profile",
+          `<p>Your GrantsCopilot profile for <strong>${escapeHtml(profileName)}</strong> is currently <strong>${completion}% complete</strong>.</p>
+          <p>Complete the missing business details so GrantsCopilot can match you to grants aligned with your location, sector, funding goals, company stage, and evidence.</p>
+          <p>Once your profile has enough detail, we&apos;ll start sending daily grant opportunities and clear next steps for the best-fit matches.</p>`,
+          `${appUrl}/profile`,
+          "Complete Profile"
+        ),
+      };
+    }
+
     case "grant_match":
       return {
         subject: "New grant matches found",
@@ -296,8 +312,11 @@ export function buildEmailHtml(
       const profileName = payload.profileName ?? "Your business";
       const grants = payload.grants ?? [];
       const withinReachGrants = payload.withinReachGrants ?? [];
+      const otherGrants = payload.otherGrants ?? [];
       const previousScanGrants = payload.previousScanGrants ?? [];
-      const renderRows = (items: DigestGrantItem[], tone: "strong" | "withinReach" | "previous") => {
+      const hasDirectApplicationStart = (item: DigestGrantItem) =>
+        item.applicationUrlQuality === "verified_direct" || item.applicationUrlQuality === "verified_portal";
+      const renderRows = (items: DigestGrantItem[], tone: "strong" | "withinReach" | "other" | "previous") => {
         const palette =
           tone === "strong"
             ? {
@@ -319,6 +338,16 @@ export function buildEmailHtml(
                   badgeText: "#92400e",
                   workText: "#b45309",
                 }
+              : tone === "other"
+                ? {
+                    background: "#f9fafb",
+                    border: "#d1d5db",
+                    accent: "#6b7280",
+                    title: "#374151",
+                    badgeBackground: "#e5e7eb",
+                    badgeText: "#374151",
+                    workText: "#4b5563",
+                  }
               : {
                   background: "#f8fafc",
                   border: "#cbd5e1",
@@ -353,23 +382,38 @@ export function buildEmailHtml(
           })
           .join("");
       };
-      const strongRows = renderRows(grants, "strong");
-      const withinReachRows = renderRows(withinReachGrants, "withinReach");
-      const previousRows = renderRows(previousScanGrants.slice(0, 3), "previous");
-      const strongSection = strongRows
-        ? `<h2 style="font-size:16px;color:#1e3a8a;margin:20px 0 4px;font-weight:700">Strong matches</h2><table style="width:100%;border-collapse:separate;border-spacing:0 10px">${strongRows}</table>`
+      const renderLinkGroups = (items: DigestGrantItem[], tone: "strong" | "withinReach" | "other" | "previous") => {
+        const directRows = renderRows(items.filter(hasDirectApplicationStart), tone);
+        const grantPageRows = renderRows(items.filter((item) => !hasDirectApplicationStart(item)), tone);
+        const directSection = directRows
+          ? `<h3 style="font-size:13px;color:#0f766e;margin:12px 0 4px;font-weight:700">Direct grant form links</h3><table style="width:100%;border-collapse:separate;border-spacing:0 8px">${directRows}</table>`
+          : "";
+        const grantPageSection = grantPageRows
+          ? `<h3 style="font-size:13px;color:#475569;margin:12px 0 4px;font-weight:700">Grant page links</h3><p style="margin:0 0 6px;color:#64748b;font-size:12px">These open the official grant information page. Review the page for the funder&apos;s application route.</p><table style="width:100%;border-collapse:separate;border-spacing:0 8px">${grantPageRows}</table>`
+          : "";
+        return `${directSection}${grantPageSection}`;
+      };
+      const strongGroups = renderLinkGroups(grants, "strong");
+      const withinReachGroups = renderLinkGroups(withinReachGrants, "withinReach");
+      const otherGroups = renderLinkGroups(otherGrants, "other");
+      const previousGroups = renderLinkGroups(previousScanGrants.slice(0, 3), "previous");
+      const strongSection = strongGroups
+        ? `<h2 style="font-size:16px;color:#1e3a8a;margin:20px 0 4px;font-weight:700">Strong matches</h2>${strongGroups}`
         : "";
-      const withinReachSection = withinReachRows
-        ? `<h2 style="font-size:16px;color:#92400e;margin:20px 0 4px;font-weight:700">Within reach</h2><p style="margin:0 0 8px;color:#64748b;font-size:13px">These may be worth reviewing, but check the listed gaps before applying.</p><table style="width:100%;border-collapse:separate;border-spacing:0 10px">${withinReachRows}</table>`
+      const withinReachSection = withinReachGroups
+        ? `<h2 style="font-size:16px;color:#92400e;margin:20px 0 4px;font-weight:700">Within reach</h2><p style="margin:0 0 8px;color:#64748b;font-size:13px">These may be worth reviewing, but check the listed gaps before applying.</p>${withinReachGroups}`
         : "";
-      const previousSection = previousRows
-        ? `<h2 style="font-size:15px;color:#334155;margin:20px 0 4px;font-weight:700">Still available from previous scans</h2><p style="margin:0 0 8px;color:#64748b;font-size:13px">You may have seen these recently. They are still current if you missed them.</p><table style="width:100%;border-collapse:separate;border-spacing:0 8px">${previousRows}</table>`
+      const otherSection = otherGroups
+        ? `<h2 style="font-size:15px;color:#374151;margin:20px 0 4px;font-weight:700">Other scored grants</h2><p style="margin:0 0 8px;color:#64748b;font-size:13px">Lower-fit grants kept visible for later review or profile improvements.</p>${otherGroups}`
         : "";
-      const hasAnyMissing = [...grants, ...withinReachGrants, ...previousScanGrants].some((g: DigestGrantItem) => ((g.missingDocuments?.length) ?? 0) > 0);
+      const previousSection = previousGroups
+        ? `<h2 style="font-size:15px;color:#334155;margin:20px 0 4px;font-weight:700">Still available from previous scans</h2><p style="margin:0 0 8px;color:#64748b;font-size:13px">You may have seen these recently. They are still current if you missed them.</p>${previousGroups}`
+        : "";
+      const hasAnyMissing = [...grants, ...withinReachGrants, ...otherGrants, ...previousScanGrants].some((g: DigestGrantItem) => ((g.missingDocuments?.length) ?? 0) > 0);
       const missingReminder = hasAnyMissing
         ? `<p style="margin-top:16px;padding:12px;background:#fef3c7;border-radius:8px;color:#92400e">Some grants may require documents you haven&apos;t uploaded yet. Add them in <a href="${appUrl}/profile" style="color:#1B3A6B;font-weight:600">Profile → Documents</a> before you apply.</p>`
         : "";
-      const body = `<p>Today&apos;s grant opportunities for <strong>${escapeHtml(profileName)}</strong> — review the fit, prepare your documents, and apply on the official funder site.</p>${strongSection}${withinReachSection}${previousSection}${missingReminder}<p style="margin-top:16px">You can also browse all your matches from the app.</p>`;
+      const body = `<p>Today&apos;s grant opportunities for <strong>${escapeHtml(profileName)}</strong> — review the fit, prepare your documents, and apply on the official funder site.</p>${strongSection}${withinReachSection}${otherSection}${previousSection}${missingReminder}<p style="margin-top:16px">You can also browse all your matches from the app.</p>`;
       return {
         subject: `[Grants-Copilot] Today's grant opportunities for ${profileName}`,
         html: baseLayout(
@@ -519,6 +563,12 @@ export function buildWhatsAppMessage(
       const profileName = payload.profileName ?? "your business";
       const withinReach = Math.max(0, Math.round(Number(payload.withinReachCount ?? payload.matchedGrantsCount ?? 0)));
       return `No new 85%+ match for ${profileName} yet. GrantsCopilot found ${withinReach} within-reach grants, but your Business DNA may need stronger evidence or broader factual positioning.\n\nReview: ${appUrl}/grants/eligible`;
+    }
+
+    case "profile_completion_reminder": {
+      const profileName = payload.profileName ?? "your business";
+      const completion = Math.max(0, Math.min(100, Math.round(Number(payload.profileCompletion ?? 0))));
+      return `Your GrantsCopilot profile for ${profileName} is ${completion}% complete. Add the missing business details so we can send better aligned grant matches.\n\nComplete profile: ${appUrl}/profile`;
     }
 
     case "grant_match_high": {

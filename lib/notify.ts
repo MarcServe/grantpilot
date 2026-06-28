@@ -23,6 +23,7 @@ export type NotificationType =
   | "deadline_daily_update"
   | "eligibility_upgrade_prompt"
   | "business_dna_match_health"
+  | "profile_completion_reminder"
   | "welcome"
   | "grant_match"
   | "grant_match_high"
@@ -37,6 +38,11 @@ export interface DigestGrantItem {
   grantName: string;
   score: number;
   summary?: string;
+  /** URL quality used to separate direct application links from grant information pages. */
+  applicationUrlQuality?: string | null;
+  applicationUrlKind?: string | null;
+  /** Source used for scoring; WhatsApp alerts only use trusted strong sources. */
+  scoringSource?: string | null;
   /** Timestamp of the latest trusted eligibility score; used to keep daily digests fresh. */
   scoredAt?: string | null;
   /** Timestamp the grant was added/imported; used to split WhatsApp digests by fresh opportunity age. */
@@ -66,10 +72,14 @@ export interface NotificationPayload {
   grants?: DigestGrantItem[];
   /** For grant_scan_digest: partial-fit grants worth reviewing, shown separately from strong matches. */
   withinReachGrants?: DigestGrantItem[];
+  /** For grant_scan_digest: lower scored grants still worth keeping visible. */
+  otherGrants?: DigestGrantItem[];
   /** For grant_scan_digest: recently emailed grants still worth a second look, shown as a small reminder section. */
   previousScanGrants?: DigestGrantItem[];
   /** Business/profile name for digest subject and body */
   profileName?: string;
+  /** Business profile completion percentage for onboarding/profile-completion prompts. */
+  profileCompletion?: number;
   /** Subscription plan name for billing notifications */
   planName?: string;
   /** Number of submitted apps awaiting outcome feedback (outcome_feedback_reminder) */
@@ -365,7 +375,7 @@ async function getNotifyUsersForOrg(
 
 export async function orgHasNotificationSince(
   organisationId: string,
-  types: NotificationType[],
+  types: readonly NotificationType[],
   since: Date
 ): Promise<boolean> {
   const supabase = getSupabaseAdmin();
@@ -377,6 +387,29 @@ export async function orgHasNotificationSince(
     .select("id")
     .in("userId", users.map((u) => u.id))
     .in("type", types)
+    .eq("status", "sent")
+    .gte("createdAt", since.toISOString())
+    .limit(1);
+
+  return (data?.length ?? 0) > 0;
+}
+
+export async function orgHasNotificationChannelSince(
+  organisationId: string,
+  types: readonly NotificationType[],
+  channel: "email" | "whatsapp",
+  since: Date
+): Promise<boolean> {
+  const supabase = getSupabaseAdmin();
+  const users = await getNotifyUsersForOrg(supabase, organisationId);
+  if (users.length === 0) return false;
+
+  const { data } = await supabase
+    .from("NotificationLog")
+    .select("id")
+    .in("userId", users.map((u) => u.id))
+    .in("type", types)
+    .eq("channel", channel)
     .eq("status", "sent")
     .gte("createdAt", since.toISOString())
     .limit(1);

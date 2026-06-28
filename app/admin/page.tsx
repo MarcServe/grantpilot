@@ -51,6 +51,7 @@ const OPS_NOTIFICATION_TYPES = [
   "daily_grant_update",
   "eligibility_upgrade_prompt",
   "business_dna_match_health",
+  "profile_completion_reminder",
   "deadline_reminder",
   "deadline_daily_update",
 ] as const;
@@ -293,6 +294,7 @@ const NOTIFICATION_LABELS: Record<OpsNotificationType, string> = {
   daily_grant_update: "Daily scan email",
   eligibility_upgrade_prompt: "Upgrade prompt email",
   business_dna_match_health: "Business DNA prompt",
+  profile_completion_reminder: "Profile completion reminder",
   deadline_reminder: "Deadline reminder email",
   deadline_daily_update: "Deadline scan email",
 };
@@ -1344,6 +1346,11 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
     type: "grant_match_high",
     channel: "whatsapp",
     status: "sent",
+  }) + countNotifications(notificationRows, {
+    since: todayStart,
+    type: "grant_scan_digest",
+    channel: "whatsapp",
+    status: "sent",
   });
   const deadlineEmailsToday =
     countNotifications(notificationRows, { since: todayStart, type: "deadline_reminder", channel: "email", status: "sent" }) +
@@ -1358,6 +1365,12 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
     countNotifications(notificationRows, {
       since: todayStart,
       type: "daily_grant_update",
+      channel: "email",
+      status: "sent",
+    }) +
+    countNotifications(notificationRows, {
+      since: todayStart,
+      type: "profile_completion_reminder",
       channel: "email",
       status: "sent",
     });

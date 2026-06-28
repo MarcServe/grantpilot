@@ -23,6 +23,7 @@ const ELIGIBILITY_NOTIFICATION_TYPES = [
   "daily_grant_update",
   "eligibility_upgrade_prompt",
   "business_dna_match_health",
+  "profile_completion_reminder",
 ] as const;
 
 type SupabaseAdmin = ReturnType<typeof getSupabaseAdmin>;
@@ -627,12 +628,14 @@ export async function getEligibilityWhatsAppTraceForOrg(
         return Number.isFinite(created) && created >= latestRunSince.getTime();
       })
     : [];
-  const recentWhatsApp = notificationCounts(logs, "whatsapp", ["grant_match_high"]);
-  const latestRunWhatsApp = notificationCounts(logsSinceLatestRun, "whatsapp", ["grant_match_high"]);
+  const whatsappOpportunityTypes = ["grant_match_high", "grant_scan_digest"];
+  const recentWhatsApp = notificationCounts(logs, "whatsapp", whatsappOpportunityTypes);
+  const latestRunWhatsApp = notificationCounts(logsSinceLatestRun, "whatsapp", whatsappOpportunityTypes);
   const emailCounts = notificationCounts(logs, "email", [
     "grant_scan_digest",
     "daily_grant_update",
     "eligibility_upgrade_prompt",
+    "profile_completion_reminder",
   ]);
   const recentEligibilityEmail = {
     sent: emailCounts.sent,

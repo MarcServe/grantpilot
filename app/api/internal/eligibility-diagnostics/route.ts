@@ -87,6 +87,7 @@ export async function GET(req: Request): Promise<NextResponse> {
           "daily_grant_update",
           "eligibility_upgrade_prompt",
           "business_dna_match_health",
+          "profile_completion_reminder",
           "deadline_reminder",
           "deadline_daily_update",
         ])
