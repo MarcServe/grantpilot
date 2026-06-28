@@ -19,6 +19,10 @@ const MATCH_PAGE_SIZE_OPTIONS = [20, 30, 50] as const;
 const DEFAULT_MATCH_PAGE_SIZE = 20;
 const MAX_MATCH_ASSESSMENTS = 800;
 const GRANT_QUERY_BATCH_SIZE = 80;
+const FRESH_MATCH_WINDOW_DAYS = (() => {
+  const configured = Number(process.env.ELIGIBLE_MATCH_FRESH_DAYS);
+  return Number.isFinite(configured) && configured > 0 ? Math.floor(configured) : 31;
+})();
 const ASSESSMENT_SELECT = "grant_id, score, decision, summary, missing_criteria, improvement_plan, updated_at, profile_id, scoring_source";
 const GRANT_SELECT_WITH_URL_QUALITY = [
   "id",
@@ -58,7 +62,7 @@ const GRANT_SELECT_BASE = [
   "regions",
 ].join(", ");
 
-type ScoreTier = "suggested" | "within_reach" | "other";
+type ScoreTier = "fresh" | "suggested" | "within_reach" | "other";
 type GrantUserState = "saved" | "viewed" | "deferred" | "applied" | "dismissed";
 type AssessmentRow = {
   grant_id: string;
@@ -126,6 +130,7 @@ function normalizePageSize(raw: string | null): number {
 }
 
 function normalizeTier(raw: string | null): ScoreTier {
+  if (raw === "fresh") return raw;
   if (raw === "within_reach" || raw === "other") return raw;
   return "suggested";
 }
@@ -142,11 +147,24 @@ function applyTierFilter<T>(query: T, tier: ScoreTier): T {
     lt: (column: string, value: number) => T;
   };
   const chain = query as ScoreFilterChain;
+  if (tier === "fresh") return chain.gte("score", 50);
   if (tier === "suggested") return chain.gte("score", 85);
   if (tier === "within_reach") {
     return (chain.gte("score", 50) as ScoreFilterChain).lt("score", 85);
   }
   return chain.lt("score", 50);
+}
+
+function dateTime(value?: string | null): number {
+  if (!value) return 0;
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function isFreshGrant(grant: GrantRow): boolean {
+  const addedAt = dateTime(grant.createdAt);
+  if (!addedAt) return false;
+  return addedAt >= Date.now() - FRESH_MATCH_WINDOW_DAYS * 86_400_000;
 }
 
 function hashIds(ids: string[]): string {
@@ -213,7 +231,7 @@ async function queryAssessmentBatch({
   to: number;
 }): Promise<AssessmentBatch> {
   const supabase = getSupabaseAdmin();
-  const cacheKey = `eligible-match-assessments:v4:${orgId}:${profileId}:${tier}:${from}:${to}`;
+  const cacheKey = `eligible-match-assessments:v5:${orgId}:${profileId}:${tier}:${from}:${to}`;
   return getServerCache(cacheKey, { ttlMs: 30_000, maxEntries: 200 }, async () => {
     const withProfile = applyTierFilter(
       supabase
@@ -278,7 +296,7 @@ async function buildTierMatches({
   pageSize: number;
 }): Promise<TierMatchResult> {
   const supabase = getSupabaseAdmin();
-  const cacheKey = `eligible-match-tier:v2:${orgId}:${profileId}:${tier}:${page}:${pageSize}`;
+  const cacheKey = `eligible-match-tier:v3:${orgId}:${profileId}:${tier}:${page}:${pageSize}`;
 
   return getServerCache(cacheKey, { ttlMs: 30_000, maxEntries: 100 }, async () => {
     const outcomePromise = supabase
@@ -349,6 +367,7 @@ async function buildTierMatches({
         const grant = grantsById.get(assessment.grant_id);
         if (!grant) continue;
         if (!isGrantActionableNow(grant)) continue;
+        if (tier === "fresh" && !isFreshGrant(grant)) continue;
         if (appliedGrantIds.has(grant.id)) continue;
         if (hiddenStateGrantIds.has(grant.id)) continue;
         if (!grantMatchesFunderLocations(grant.funderLocations, userFunderLocations)) continue;
@@ -356,7 +375,9 @@ async function buildTierMatches({
         const scoringSource = resolveScoringSource(assessment);
         const guarded = finaliseEligibilityAssessment(profile, grant, assessment, outcomeAdvisory);
         const score = finalEligibilityScore(guarded);
-        if (tierForScore(score) !== tier) continue;
+        if (tier === "fresh") {
+          if (score < 50) continue;
+        } else if (tierForScore(score) !== tier) continue;
 
         seenGrantIds.add(assessment.grant_id);
         matches.push({
@@ -390,13 +411,20 @@ async function buildTierMatches({
     }
 
     matches.sort((a, b) => {
+      if (tier === "fresh") {
+        const bAddedTime = dateTime(b.addedAt);
+        const aAddedTime = dateTime(a.addedAt);
+        if (bAddedTime !== aAddedTime) return bAddedTime - aAddedTime;
+        if (b.score !== a.score) return b.score - a.score;
+        return dateTime(b.scoredAt) - dateTime(a.scoredAt);
+      }
       if (b.score !== a.score) return b.score - a.score;
-      const bScoredTime = b.scoredAt ? new Date(b.scoredAt).getTime() : 0;
-      const aScoredTime = a.scoredAt ? new Date(a.scoredAt).getTime() : 0;
-      if (bScoredTime !== aScoredTime) return bScoredTime - aScoredTime;
-      const bTime = b.addedAt ? new Date(b.addedAt).getTime() : 0;
-      const aTime = a.addedAt ? new Date(a.addedAt).getTime() : 0;
-      return bTime - aTime;
+      const bAddedTime = dateTime(b.addedAt);
+      const aAddedTime = dateTime(a.addedAt);
+      if (bAddedTime !== aAddedTime) return bAddedTime - aAddedTime;
+      const bScoredTime = dateTime(b.scoredAt);
+      const aScoredTime = dateTime(a.scoredAt);
+      return bScoredTime - aScoredTime;
     });
 
     const pageEnd = page * pageSize;

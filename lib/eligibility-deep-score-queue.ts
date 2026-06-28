@@ -5,7 +5,7 @@ import {
   touchEligibilityAiCaches,
 } from "@/lib/eligibility-ai-cache";
 import { finalEligibilityScore, finaliseEligibilityAssessment } from "@/lib/eligibility-final-score";
-import { verifyGrantActionable } from "@/lib/grant-actionability";
+import { isGrantActionableNow, verifyGrantActionable } from "@/lib/grant-actionability";
 import { buildFundingOutcomeSignals, deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
 import { isFreeTrialActive, resolvePlanKey, type PlanAccessSource } from "@/lib/plan-features";
 import { PLAN_RANK } from "@/lib/plans";
@@ -26,6 +26,7 @@ type GrantRow = {
   amount?: number | null;
   deadline?: string | null;
   applicationUrl?: string | null;
+  createdAt?: string | null;
   eligibility: string;
   description?: string | null;
   objectives?: string | null;
@@ -75,6 +76,9 @@ function positiveIntFromEnv(name: string, fallback: number): number {
 export const DEEP_SCORE_BATCH_SIZE = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_QUEUE_BATCH_SIZE", 50);
 const MIN_DEEP_SCORE_PROFILE_COMPLETION = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_MIN_PROFILE_COMPLETION", 50);
 const MAX_QUEUE_SCAN_LIMIT = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_QUEUE_SCAN_LIMIT", 10000);
+const FRESH_DEEP_SCORE_WINDOW_DAYS = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_FRESH_DAYS", 31);
+const FRESH_DEEP_SCORE_PRIORITY_BONUS = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_FRESH_PRIORITY_BONUS", 500);
+const STALE_RUNNING_LOCK_MINUTES = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_STALE_LOCK_MINUTES", 20);
 
 function valueAsString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -168,11 +172,24 @@ function grantToMatching(grant: GrantRow) {
   };
 }
 
+function dateTime(value?: string | null): number {
+  if (!value) return 0;
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function isFreshDeepScoreGrant(grant: Pick<GrantRow, "createdAt">): boolean {
+  const addedAt = dateTime(grant.createdAt);
+  if (!addedAt) return false;
+  return addedAt >= Date.now() - FRESH_DEEP_SCORE_WINDOW_DAYS * 86_400_000;
+}
+
 function priorityForCandidate(candidate: DeepScoreCandidate): number {
   const score = Math.max(0, Math.min(100, Number(candidate.heuristicScore) || 0));
   const deadline = candidate.grant.deadline ? new Date(candidate.grant.deadline).getTime() : 0;
   const deadlineBonus = Number.isFinite(deadline) && deadline > Date.now() ? 10 : 0;
-  return Math.round(score * 10 + deadlineBonus);
+  const freshnessBonus = isFreshDeepScoreGrant(candidate.grant) ? FRESH_DEEP_SCORE_PRIORITY_BONUS : 0;
+  return Math.round(score * 10 + deadlineBonus + freshnessBonus);
 }
 
 function selectFairRows<T extends { organisation_id: string | null; profile_id: string | null }>(
@@ -243,11 +260,38 @@ export async function enqueueDeepScoreCandidates(options: {
       };
     });
 
-    const { error } = await supabase.from("eligibility_deep_score_queue").upsert(rows, {
-      onConflict: "organisation_id,profile_id,grant_id,profile_hash,grant_content_hash",
+    const profileHash = rows[0]?.profile_hash;
+    const grantIds = rows.map((row) => row.grant_id);
+    const existingResult = profileHash && grantIds.length > 0
+      ? await supabase
+        .from("eligibility_deep_score_queue")
+        .select("grant_id, profile_hash, grant_content_hash, status")
+        .eq("organisation_id", options.organisationId)
+        .eq("profile_id", options.profileId)
+        .eq("profile_hash", profileHash)
+        .in("grant_id", grantIds)
+      : { data: [], error: null };
+    if (existingResult.error) throw existingResult.error;
+
+    const existingByKey = new Map(
+      ((existingResult.data ?? []) as Array<{
+        grant_id: string;
+        profile_hash: string | null;
+        grant_content_hash: string | null;
+        status: string | null;
+      }>).map((row) => [`${row.grant_id}:${row.profile_hash ?? ""}:${row.grant_content_hash ?? ""}`, row])
+    );
+    const rowsToUpsert = rows.filter((row) => {
+      const existing = existingByKey.get(`${row.grant_id}:${row.profile_hash}:${row.grant_content_hash}`);
+      return !existing || existing.status === "pending";
     });
+    if (rowsToUpsert.length === 0) return { requested, enqueued: 0 };
+
+    const { data, error } = await supabase.from("eligibility_deep_score_queue").upsert(rowsToUpsert, {
+      onConflict: "organisation_id,profile_id,grant_id,profile_hash,grant_content_hash",
+    }).select("id");
     if (error) throw error;
-    return { requested, enqueued: rows.length };
+    return { requested, enqueued: data?.length ?? 0 };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.warn("[eligibility-deep-score-queue] enqueue skipped:", message);
@@ -326,19 +370,43 @@ export async function enqueueExistingHeuristicAssessments(options?: {
         if ((b.score ?? 0) !== (a.score ?? 0)) return (b.score ?? 0) - (a.score ?? 0);
         return new Date(b.updated_at ?? 0).getTime() - new Date(a.updated_at ?? 0).getTime();
       });
-    const assessments = selectFairRows(eligibleAssessments, limit);
-    const grantIds = Array.from(new Set(assessments.map((row) => row.grant_id).filter(Boolean))) as string[];
+    const candidateAssessments = selectFairRows(
+      eligibleAssessments,
+      Math.min(eligibleAssessments.length, Math.max(limit, Math.min(1000, limit * 4)))
+    );
+    const grantIds = Array.from(new Set(candidateAssessments.map((row) => row.grant_id).filter(Boolean))) as string[];
     if (grantIds.length === 0) {
       return { scanned: scannedAssessments.length, enqueued: 0 };
     }
 
     const grantsResult = await supabase
       .from("Grant")
-      .select("id, name, funder, amount, deadline, applicationUrl, eligibility, description, objectives, applicantTypes, sectors, regions, url_status")
+      .select("id, name, funder, amount, deadline, applicationUrl, createdAt, eligibility, description, objectives, applicantTypes, sectors, regions, url_status")
       .in("id", grantIds);
     if (grantsResult.error) throw grantsResult.error;
 
     const grantsById = new Map(((grantsResult.data ?? []) as GrantRow[]).map((grant) => [grant.id, grant]));
+    const actionableAssessments = candidateAssessments
+      .map((assessment) => {
+        if (!assessment.organisation_id || !assessment.profile_id || !assessment.grant_id) return null;
+        const profile = profilesById.get(assessment.profile_id);
+        const grant = grantsById.get(assessment.grant_id);
+        if (!profile || !grant || !isGrantActionableNow(grant)) return null;
+        return {
+          ...assessment,
+          _freshGrant: isFreshDeepScoreGrant(grant),
+        };
+      })
+      .filter((assessment): assessment is NonNullable<typeof assessment> => assessment != null)
+      .sort((a, b) => {
+        if (a._freshGrant !== b._freshGrant) return a._freshGrant ? -1 : 1;
+        if ((b._selectionPriority ?? 0) !== (a._selectionPriority ?? 0)) {
+          return (b._selectionPriority ?? 0) - (a._selectionPriority ?? 0);
+        }
+        if ((b.score ?? 0) !== (a.score ?? 0)) return (b.score ?? 0) - (a.score ?? 0);
+        return new Date(b.updated_at ?? 0).getTime() - new Date(a.updated_at ?? 0).getTime();
+      });
+    const assessments = selectFairRows(actionableAssessments, limit);
     const grouped = new Map<string, {
       organisationId: string;
       profileId: string;
@@ -401,6 +469,24 @@ async function markQueueRow(
     .update({ ...values, updated_at: new Date().toISOString() })
     .eq("id", id);
   if (error) throw error;
+}
+
+async function resetStaleRunningQueueRows(supabase: SupabaseAdmin): Promise<void> {
+  const cutoff = new Date(Date.now() - STALE_RUNNING_LOCK_MINUTES * 60_000).toISOString();
+  const { error } = await supabase
+    .from("eligibility_deep_score_queue")
+    .update({
+      status: "pending",
+      locked_at: null,
+      last_error: "Recovered from stale running lock.",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("status", "running")
+    .lt("locked_at", cutoff);
+
+  if (error) {
+    console.warn("[eligibility-deep-score-queue] stale lock recovery failed:", error.message);
+  }
 }
 
 function isMissingClaimFunction(error: unknown): boolean {
@@ -467,6 +553,8 @@ export async function processEligibilityDeepScoreQueue(options?: {
   const canUseAtomicClaim = !options?.organisationId && !options?.profileId;
   let rowsAreClaimed = false;
   let rawRows: DeepQueueRow[] = [];
+
+  await resetStaleRunningQueueRows(supabase);
 
   if (canUseAtomicClaim) {
     const { data, error } = await supabase.rpc("claim_eligibility_deep_score_queue", {
@@ -585,7 +673,7 @@ export async function processEligibilityDeepScoreQueue(options?: {
     supabase.from("BusinessProfile").select("*").in("id", profileIds),
     supabase
       .from("Grant")
-      .select("id, name, funder, amount, deadline, applicationUrl, eligibility, description, objectives, applicantTypes, sectors, regions, url_status")
+      .select("id, name, funder, amount, deadline, applicationUrl, createdAt, eligibility, description, objectives, applicantTypes, sectors, regions, url_status")
       .in("id", grantIds),
   ]);
   if (selectedProfilesResult.error) throw selectedProfilesResult.error;
