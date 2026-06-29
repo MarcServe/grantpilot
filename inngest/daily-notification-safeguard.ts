@@ -345,6 +345,17 @@ function sortDigestByFreshScore(a: DigestGrantItem, b: DigestGrantItem): number 
   return a.grantName.localeCompare(b.grantName);
 }
 
+function dedupeDigestItems(items: DigestGrantItem[]): DigestGrantItem[] {
+  const seen = new Set<string>();
+  const unique: DigestGrantItem[] = [];
+  for (const item of items) {
+    if (!item.grantId || seen.has(item.grantId)) continue;
+    seen.add(item.grantId);
+    unique.push(item);
+  }
+  return unique;
+}
+
 function hasStrongWhatsAppMatches(items: DigestGrantItem[], minScore: number): boolean {
   return items.some(
     (item) =>
@@ -438,23 +449,72 @@ async function buildCurrentDigestForProfile(
   if (!profileId) return { strong: [], withinReach: [], other: [], previous: [] };
   const withinReachMax = Math.min(maxScore, minStrongScore - 1);
 
-  const { data, error } = await supabase
+  const strongQuery = supabase
+    .from("EligibilityAssessment")
+    .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, scoring_source, updated_at, notified_at")
+    .eq("organisation_id", orgId)
+    .eq("profile_id", profileId)
+    .eq("decision", "likely_eligible")
+    .in("scoring_source", ["openai", "intelligence"])
+    .gte("score", minStrongScore)
+    .lte("score", maxScore)
+    .order("updated_at", { ascending: false })
+    .order("score", { ascending: false })
+    .limit(Math.max(DIGEST_STRONG_LIMIT + DIGEST_PREVIOUS_LIMIT, 80));
+
+  const withinReachQuery = withinReachMax >= 50
+    ? supabase
+      .from("EligibilityAssessment")
+      .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, scoring_source, updated_at, notified_at")
+      .eq("organisation_id", orgId)
+      .eq("profile_id", profileId)
+      .gte("score", 50)
+      .lte("score", withinReachMax)
+      .order("updated_at", { ascending: false })
+      .order("score", { ascending: false })
+      .limit(80)
+    : Promise.resolve({ data: [], error: null });
+
+  const otherQuery = supabase
+    .from("EligibilityAssessment")
+    .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, scoring_source, updated_at, notified_at")
+    .eq("organisation_id", orgId)
+    .eq("profile_id", profileId)
+    .gte("score", 1)
+    .lt("score", 50)
+    .order("updated_at", { ascending: false })
+    .order("score", { ascending: false })
+    .limit(60);
+
+  const previousQuery = supabase
     .from("EligibilityAssessment")
     .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, scoring_source, updated_at, notified_at")
     .eq("organisation_id", orgId)
     .eq("profile_id", profileId)
     .gte("score", 1)
     .lte("score", maxScore)
-    .order("updated_at", { ascending: false })
-    .order("score", { ascending: false })
-    .limit(300);
+    .not("notified_at", "is", null)
+    .order("notified_at", { ascending: false })
+    .limit(100);
 
-  if (error) {
-    console.error("[daily-notification-safeguard] digest assessment query", error);
+  const [strongResult, withinReachResult, otherResult, previousResult] = await Promise.all([
+    strongQuery,
+    withinReachQuery,
+    otherQuery,
+    previousQuery,
+  ]);
+
+  const firstError = strongResult.error ?? withinReachResult.error ?? otherResult.error ?? previousResult.error;
+  if (firstError) {
+    console.error("[daily-notification-safeguard] digest assessment query", firstError);
     return { strong: [], withinReach: [], other: [], previous: [] };
   }
 
-  const assessments = (data ?? []) as AssessmentDigestRow[];
+  const strongRows = (strongResult.data ?? []) as AssessmentDigestRow[];
+  const withinReachRows = (withinReachResult.data ?? []) as AssessmentDigestRow[];
+  const otherRows = (otherResult.data ?? []) as AssessmentDigestRow[];
+  const previousRows = (previousResult.data ?? []) as AssessmentDigestRow[];
+  const assessments = [...strongRows, ...withinReachRows, ...otherRows, ...previousRows];
   const grantIds = [...new Set(assessments.map((row) => row.grant_id).filter((id): id is string => Boolean(id)))];
   if (grantIds.length === 0) return { strong: [], withinReach: [], other: [], previous: [] };
 
@@ -470,28 +530,50 @@ async function buildCurrentDigestForProfile(
 
   const userFunderLocations = profileFunderLocations(profile);
   const grantById = new Map(((grantsResult.data ?? []) as GrantDigestRow[]).map((grant) => [grant.id, grant]));
-  const items: DigestGrantItem[] = [];
-  const previousItems: DigestGrantItem[] = [];
-  for (const row of assessments) {
+  const buildItem = (row: AssessmentDigestRow): DigestGrantItem | null => {
     const grantId = row.grant_id;
-    if (!grantId || appliedGrantIds.has(grantId) || hiddenGrantIds.has(grantId)) continue;
-    const recentlySent = !isOutsideDigestGrantRepeatCooldown(row.notified_at);
+    if (!grantId || appliedGrantIds.has(grantId) || hiddenGrantIds.has(grantId)) return null;
     const grant = grantById.get(grantId);
-    if (!grant || !isGrantActionableNow(grant)) continue;
-    if (!grantMatchesFunderLocations(grant.funderLocations ?? undefined, userFunderLocations)) continue;
-    const item = buildDigestGrantItem({ row, grant, profile, orgId, profileId, maxScore, outcomeAdvisory });
-    if (!item) continue;
-    if (recentlySent) previousItems.push(item);
-    else items.push(item);
-  }
+    if (!grant || !isGrantActionableNow(grant)) return null;
+    if (!grantMatchesFunderLocations(grant.funderLocations ?? undefined, userFunderLocations)) return null;
+    return buildDigestGrantItem({ row, grant, profile, orgId, profileId, maxScore, outcomeAdvisory });
+  };
+
+  const currentStrongItems = strongRows
+    .filter((row) => isOutsideDigestGrantRepeatCooldown(row.notified_at))
+    .map(buildItem)
+    .filter((item): item is DigestGrantItem => Boolean(item));
+  const currentWithinReachItems = withinReachRows
+    .filter((row) => isOutsideDigestGrantRepeatCooldown(row.notified_at))
+    .map(buildItem)
+    .filter((item): item is DigestGrantItem => Boolean(item));
+  const currentOtherItems = otherRows
+    .filter((row) => isOutsideDigestGrantRepeatCooldown(row.notified_at))
+    .map(buildItem)
+    .filter((item): item is DigestGrantItem => Boolean(item));
+  const previousItems = previousRows
+    .filter((row) => !isOutsideDigestGrantRepeatCooldown(row.notified_at))
+    .map(buildItem)
+    .filter((item): item is DigestGrantItem => Boolean(item));
 
   return {
-    strong: items.filter((item) => item.score >= minStrongScore).sort(sortDigestByFreshScore).slice(0, DIGEST_STRONG_LIMIT),
+    strong: dedupeDigestItems(currentStrongItems)
+      .filter((item) => item.score >= minStrongScore)
+      .sort(sortDigestByFreshScore)
+      .slice(0, DIGEST_STRONG_LIMIT),
     withinReach: withinReachMax >= 50
-      ? items.filter((item) => item.score >= 50 && item.score <= withinReachMax).sort(sortDigestByFreshScore).slice(0, 4)
+      ? dedupeDigestItems(currentWithinReachItems)
+        .filter((item) => item.score >= 50 && item.score <= withinReachMax)
+        .sort(sortDigestByFreshScore)
+        .slice(0, 4)
       : [],
-    other: items.filter((item) => item.score < 50).sort(sortDigestByFreshScore).slice(0, DIGEST_OTHER_LIMIT),
-    previous: previousItems.sort(sortDigestByFreshScore).slice(0, DIGEST_PREVIOUS_LIMIT),
+    other: dedupeDigestItems(currentOtherItems)
+      .filter((item) => item.score < 50)
+      .sort(sortDigestByFreshScore)
+      .slice(0, DIGEST_OTHER_LIMIT),
+    previous: dedupeDigestItems(previousItems)
+      .sort(sortDigestByFreshScore)
+      .slice(0, DIGEST_PREVIOUS_LIMIT),
   };
 }
 
@@ -681,17 +763,9 @@ export async function runDailyNotificationSafeguardJob(options?: {
       continue;
     }
 
-    await notifyOrgMembers(
-      orgId,
-      "daily_grant_update",
-      {
-        profileName: profileName(primaryProfile),
-        checkedGrantsCount,
-        matchedGrantsCount,
-      },
-      { sendEmail, sendWhatsApp: false }
+    console.info(
+      `[daily-notification-safeguard] No rich digest content for org=${orgId}; skipping simple daily_grant_update fallback`
     );
-    diagnostics.dailyUpdates++;
   }
 
   console.info("[daily-notification-safeguard] Complete", diagnostics);
