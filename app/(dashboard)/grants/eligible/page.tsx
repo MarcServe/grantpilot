@@ -13,7 +13,7 @@ const MATCH_PAGE_SIZE_OPTIONS = [20, 30, 50] as const;
 const DEFAULT_MATCH_PAGE_SIZE = 20;
 const MATCH_HEALTH_ASSESSMENT_LIMIT = 300;
 
-type ScoreTier = "fresh" | "suggested" | "within_reach" | "other";
+type ScoreTier = "suggested" | "within_reach" | "other";
 type MatchSearchParams = Promise<{ page?: string; pageSize?: string; tier?: string }>;
 
 function normalizePage(raw: string | undefined): number {
@@ -27,7 +27,7 @@ function normalizePageSize(raw: string | undefined): number {
 }
 
 function normalizeTier(raw: string | undefined): ScoreTier | null {
-  if (raw === "fresh" || raw === "suggested" || raw === "within_reach" || raw === "other") return raw;
+  if (raw === "suggested" || raw === "within_reach" || raw === "other") return raw;
   return null;
 }
 
@@ -104,8 +104,8 @@ export default async function EligibleGrantsPage({
         <div>
           <h1 className="text-2xl font-bold">My Matches</h1>
           <p className="mt-1 max-w-2xl text-muted-foreground">
-            Fresh current grants load first, then suggested 85%+ matches, within-reach, and other scored grants in
-            smaller batches so refreshes do not wait on the full match database.
+            Suggested 85%+ matches load first. Fresh sub-85% grants appear at the top of Within reach, followed by
+            older near-matches and other scored grants in smaller batches.
           </p>
         </div>
         <Link

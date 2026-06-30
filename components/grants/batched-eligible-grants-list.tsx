@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { EligibleGrantCard, hasVerifiedApplicationStart, type EligibleGrant } from "./eligible-grant-card";
 
-type ScoreTier = "fresh" | "suggested" | "within_reach" | "other";
+type ScoreTier = "suggested" | "within_reach" | "other";
 type TierStatus = "idle" | "loading" | "loaded" | "error";
 
 type TierState = {
@@ -37,7 +37,7 @@ type CachedMatchesResponse = {
   result: MatchesResponse;
 };
 
-const TIER_ORDER: ScoreTier[] = ["fresh", "suggested", "within_reach", "other"];
+const TIER_ORDER: ScoreTier[] = ["suggested", "within_reach", "other"];
 const MATCH_RESPONSE_CACHE_TTL_MS = 30_000;
 const matchResponseCache = new Map<string, CachedMatchesResponse>();
 const TIER_META: Record<ScoreTier, {
@@ -48,13 +48,6 @@ const TIER_META: Record<ScoreTier, {
   icon: ReactNode;
   muted?: boolean;
 }> = {
-  fresh: {
-    title: "Freshly added",
-    subtitle: "Recent current grants, separated from older high-scoring matches.",
-    badgeLabel: "Fresh",
-    emptyLabel: "No recent current grants in this batch.",
-    icon: <Sparkles className="h-4 w-4 text-emerald-600" />,
-  },
   suggested: {
     title: "Suggested for you",
     subtitle: "High eligibility - grouped by direct forms and grant pages.",
@@ -64,7 +57,7 @@ const TIER_META: Record<ScoreTier, {
   },
   within_reach: {
     title: "Within reach",
-    subtitle: "Partial fit - review the gaps before applying.",
+    subtitle: "Partial fit - newer current grants appear first, then older near-matches.",
     badgeLabel: "Within reach",
     emptyLabel: "No within-reach grants in this batch.",
     icon: <Target className="h-4 w-4 text-amber-600" />,
@@ -93,7 +86,6 @@ function initialTierState(): TierState {
 
 function emptySections(): Record<ScoreTier, TierState> {
   return {
-    fresh: initialTierState(),
     suggested: initialTierState(),
     within_reach: initialTierState(),
     other: initialTierState(),

@@ -19,10 +19,6 @@ const MATCH_PAGE_SIZE_OPTIONS = [20, 30, 50] as const;
 const DEFAULT_MATCH_PAGE_SIZE = 20;
 const MAX_MATCH_ASSESSMENTS = 800;
 const GRANT_QUERY_BATCH_SIZE = 80;
-const FRESH_MATCH_WINDOW_DAYS = (() => {
-  const configured = Number(process.env.ELIGIBLE_MATCH_FRESH_DAYS);
-  return Number.isFinite(configured) && configured > 0 ? Math.floor(configured) : 31;
-})();
 const ASSESSMENT_SELECT = "grant_id, score, decision, summary, missing_criteria, improvement_plan, updated_at, profile_id, scoring_source";
 const GRANT_SELECT_WITH_URL_QUALITY = [
   "id",
@@ -62,7 +58,7 @@ const GRANT_SELECT_BASE = [
   "regions",
 ].join(", ");
 
-type ScoreTier = "fresh" | "suggested" | "within_reach" | "other";
+type ScoreTier = "suggested" | "within_reach" | "other";
 type GrantUserState = "saved" | "viewed" | "deferred" | "applied" | "dismissed";
 type AssessmentRow = {
   grant_id: string;
@@ -130,7 +126,6 @@ function normalizePageSize(raw: string | null): number {
 }
 
 function normalizeTier(raw: string | null): ScoreTier {
-  if (raw === "fresh") return raw;
   if (raw === "within_reach" || raw === "other") return raw;
   return "suggested";
 }
@@ -147,7 +142,6 @@ function applyTierFilter<T>(query: T, tier: ScoreTier): T {
     lt: (column: string, value: number) => T;
   };
   const chain = query as ScoreFilterChain;
-  if (tier === "fresh") return chain.gte("score", 50);
   if (tier === "suggested") return chain.gte("score", 85);
   if (tier === "within_reach") {
     return (chain.gte("score", 50) as ScoreFilterChain).lt("score", 85);
@@ -159,12 +153,6 @@ function dateTime(value?: string | null): number {
   if (!value) return 0;
   const parsed = new Date(value).getTime();
   return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function isFreshGrant(grant: GrantRow): boolean {
-  const addedAt = dateTime(grant.createdAt);
-  if (!addedAt) return false;
-  return addedAt >= Date.now() - FRESH_MATCH_WINDOW_DAYS * 86_400_000;
 }
 
 function hashIds(ids: string[]): string {
@@ -231,19 +219,20 @@ async function queryAssessmentBatch({
   to: number;
 }): Promise<AssessmentBatch> {
   const supabase = getSupabaseAdmin();
-  const cacheKey = `eligible-match-assessments:v5:${orgId}:${profileId}:${tier}:${from}:${to}`;
+  const cacheKey = `eligible-match-assessments:v6:${orgId}:${profileId}:${tier}:${from}:${to}`;
   return getServerCache(cacheKey, { ttlMs: 30_000, maxEntries: 200 }, async () => {
-    const withProfile = applyTierFilter(
+    let withProfile = applyTierFilter(
       supabase
         .from("EligibilityAssessment")
         .select(ASSESSMENT_SELECT, { count: "exact" })
         .eq("organisation_id", orgId)
         .eq("profile_id", profileId),
       tier
-    )
-      .order("score", { ascending: false })
-      .order("updated_at", { ascending: false })
-      .range(from, to);
+    );
+    withProfile = tier === "within_reach"
+      ? withProfile.order("updated_at", { ascending: false }).order("score", { ascending: false })
+      : withProfile.order("score", { ascending: false }).order("updated_at", { ascending: false });
+    withProfile = withProfile.range(from, to);
 
     const primary = await withProfile;
     if (primary.error) {
@@ -257,16 +246,17 @@ async function queryAssessmentBatch({
       };
     }
 
-    const orgOnly = applyTierFilter(
+    let orgOnly = applyTierFilter(
       supabase
         .from("EligibilityAssessment")
         .select(ASSESSMENT_SELECT, { count: "exact" })
         .eq("organisation_id", orgId),
       tier
-    )
-      .order("score", { ascending: false })
-      .order("updated_at", { ascending: false })
-      .range(from, to);
+    );
+    orgOnly = tier === "within_reach"
+      ? orgOnly.order("updated_at", { ascending: false }).order("score", { ascending: false })
+      : orgOnly.order("score", { ascending: false }).order("updated_at", { ascending: false });
+    orgOnly = orgOnly.range(from, to);
 
     const fallback = await orgOnly;
     if (fallback.error) {
@@ -296,7 +286,7 @@ async function buildTierMatches({
   pageSize: number;
 }): Promise<TierMatchResult> {
   const supabase = getSupabaseAdmin();
-  const cacheKey = `eligible-match-tier:v3:${orgId}:${profileId}:${tier}:${page}:${pageSize}`;
+  const cacheKey = `eligible-match-tier:v4:${orgId}:${profileId}:${tier}:${page}:${pageSize}`;
 
   return getServerCache(cacheKey, { ttlMs: 30_000, maxEntries: 100 }, async () => {
     const outcomePromise = supabase
@@ -367,7 +357,6 @@ async function buildTierMatches({
         const grant = grantsById.get(assessment.grant_id);
         if (!grant) continue;
         if (!isGrantActionableNow(grant)) continue;
-        if (tier === "fresh" && !isFreshGrant(grant)) continue;
         if (appliedGrantIds.has(grant.id)) continue;
         if (hiddenStateGrantIds.has(grant.id)) continue;
         if (!grantMatchesFunderLocations(grant.funderLocations, userFunderLocations)) continue;
@@ -375,9 +364,7 @@ async function buildTierMatches({
         const scoringSource = resolveScoringSource(assessment);
         const guarded = finaliseEligibilityAssessment(profile, grant, assessment, outcomeAdvisory);
         const score = finalEligibilityScore(guarded);
-        if (tier === "fresh") {
-          if (score < 50) continue;
-        } else if (tierForScore(score) !== tier) continue;
+        if (tierForScore(score) !== tier) continue;
 
         seenGrantIds.add(assessment.grant_id);
         matches.push({
@@ -411,7 +398,7 @@ async function buildTierMatches({
     }
 
     matches.sort((a, b) => {
-      if (tier === "fresh") {
+      if (tier === "within_reach") {
         const bAddedTime = dateTime(b.addedAt);
         const aAddedTime = dateTime(a.addedAt);
         if (bAddedTime !== aAddedTime) return bAddedTime - aAddedTime;
