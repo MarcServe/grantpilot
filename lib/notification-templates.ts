@@ -314,6 +314,8 @@ export function buildEmailHtml(
       const withinReachGrants = payload.withinReachGrants ?? [];
       const otherGrants = payload.otherGrants ?? [];
       const previousScanGrants = payload.previousScanGrants ?? [];
+      const checked = Math.max(0, Math.round(Number(payload.checkedGrantsCount ?? 0)));
+      const matched = Math.max(0, Math.round(Number(payload.matchedGrantsCount ?? grants.length)));
       const hasDirectApplicationStart = (item: DigestGrantItem) =>
         item.applicationUrlQuality === "verified_direct" || item.applicationUrlQuality === "verified_portal";
       const renderRows = (items: DigestGrantItem[], tone: "strong" | "withinReach" | "other" | "previous") => {
@@ -397,6 +399,11 @@ export function buildEmailHtml(
       const withinReachGroups = renderLinkGroups(withinReachGrants, "withinReach");
       const otherGroups = renderLinkGroups(otherGrants, "other");
       const previousGroups = renderLinkGroups(previousScanGrants.slice(0, 3), "previous");
+      const hasDigestItems =
+        grants.length > 0 ||
+        withinReachGrants.length > 0 ||
+        otherGrants.length > 0 ||
+        previousScanGrants.length > 0;
       const strongSection = strongGroups
         ? `<h2 style="font-size:16px;color:#1e3a8a;margin:20px 0 4px;font-weight:700">Strong matches</h2>${strongGroups}`
         : "";
@@ -409,11 +416,18 @@ export function buildEmailHtml(
       const previousSection = previousGroups
         ? `<h2 style="font-size:15px;color:#334155;margin:20px 0 4px;font-weight:700">Still available from previous scans</h2><p style="margin:0 0 8px;color:#64748b;font-size:13px">You may have seen these recently. They are still current if you missed them.</p>${previousGroups}`
         : "";
+      const emptySection = !hasDigestItems
+        ? `<div style="margin:18px 0;padding:14px 16px;border:1px solid #dbeafe;border-left:4px solid #2563eb;border-radius:10px;background:#f8fbff">
+            <p style="margin:0 0 8px;color:#1e3a8a;font-weight:700">No new high-confidence matches were ready today.</p>
+            <p style="margin:0;color:#475569">GrantsCopilot still completed the scan for <strong>${escapeHtml(profileName)}</strong>. ${matched > 0 ? `You currently have ${matched} strong ${matched === 1 ? "match" : "matches"} in My Matches.` : "Within-reach and other scored grants will appear here when current opportunities are available."}</p>
+            ${checked > 0 ? `<p style="margin:8px 0 0;color:#64748b;font-size:13px">Checked ${checked} available grants.</p>` : ""}
+          </div>`
+        : "";
       const hasAnyMissing = [...grants, ...withinReachGrants, ...otherGrants, ...previousScanGrants].some((g: DigestGrantItem) => ((g.missingDocuments?.length) ?? 0) > 0);
       const missingReminder = hasAnyMissing
         ? `<p style="margin-top:16px;padding:12px;background:#fef3c7;border-radius:8px;color:#92400e">Some grants may require documents you haven&apos;t uploaded yet. Add them in <a href="${appUrl}/profile" style="color:#1B3A6B;font-weight:600">Profile → Documents</a> before you apply.</p>`
         : "";
-      const body = `<p>Today&apos;s grant opportunities for <strong>${escapeHtml(profileName)}</strong> — review the fit, prepare your documents, and apply on the official funder site.</p>${strongSection}${withinReachSection}${otherSection}${previousSection}${missingReminder}<p style="margin-top:16px">You can also browse all your matches from the app.</p>`;
+      const body = `<p>Today&apos;s grant opportunities for <strong>${escapeHtml(profileName)}</strong> — review the fit, prepare your documents, and apply on the official funder site.</p>${emptySection}${strongSection}${withinReachSection}${otherSection}${previousSection}${missingReminder}<p style="margin-top:16px">You can also browse all your matches from the app.</p>`;
       return {
         subject: `[Grants-Copilot] Today's grant opportunities for ${profileName}`,
         html: baseLayout(

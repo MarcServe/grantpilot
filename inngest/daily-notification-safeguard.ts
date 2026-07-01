@@ -13,6 +13,7 @@ import { notifyOrgMembers, orgHasNotificationChannelSince, orgHasNotificationSin
 import { organisationAllowsCapability } from "@/lib/plan-check";
 import { createStartApplicationToken } from "@/lib/start-application-token";
 import { getEligibilityNotifyMinCompletion } from "@/lib/eligibility-notify-config";
+import { isMissingGrantUrlQualityColumnsError } from "@/lib/grant-url-quality-columns";
 
 const NOTIFY_COOLDOWN_HOURS = 20;
 const DEFAULT_DIGEST_SCORE_THRESHOLD = 85;
@@ -24,6 +25,10 @@ const DIGEST_WORKER_CONCURRENCY = positiveIntFromEnv("ELIGIBILITY_DIGEST_WORKER_
 const DIGEST_STRONG_LIMIT = positiveIntFromEnv("ELIGIBILITY_DIGEST_STRONG_LIMIT", 20);
 const DIGEST_PREVIOUS_LIMIT = positiveIntFromEnv("ELIGIBILITY_DIGEST_PREVIOUS_LIMIT", 12);
 const DIGEST_OTHER_LIMIT = positiveIntFromEnv("ELIGIBILITY_DIGEST_OTHER_LIMIT", 4);
+const GRANT_DIGEST_SELECT_BASE =
+  "id, name, funder, url_status, deadline, createdAt, eligibility, description, objectives, funderLocations, applicantTypes, sectors, regions, applicationUrl";
+const GRANT_DIGEST_SELECT_WITH_URL_QUALITY =
+  `${GRANT_DIGEST_SELECT_BASE}, directApplicationUrl, applicationUrlQuality, applicationUrlKind`;
 const DAILY_ELIGIBILITY_NOTIFICATION_TYPES: NotificationType[] = [
   "daily_grant_update",
   "grant_scan_digest",
@@ -116,6 +121,44 @@ function uniqueIds(ids: string[]): string[] {
     unique.push(id);
   }
   return unique;
+}
+
+async function fetchDigestGrantRowsByIds(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  grantIds: string[],
+  context: string
+): Promise<GrantDigestRow[]> {
+  if (grantIds.length === 0) return [];
+
+  const full = await supabase
+    .from("Grant")
+    .select(GRANT_DIGEST_SELECT_WITH_URL_QUALITY)
+    .in("id", grantIds);
+
+  if (!full.error) return (full.data ?? []) as GrantDigestRow[];
+
+  if (!isMissingGrantUrlQualityColumnsError(full.error)) {
+    console.error(`[daily-notification-safeguard] ${context} grant lookup failed`, full.error.message ?? full.error);
+    return [];
+  }
+
+  console.warn(
+    `[daily-notification-safeguard] ${context} URL-quality Grant columns unavailable; using base Grant columns`
+  );
+  const fallback = await supabase
+    .from("Grant")
+    .select(GRANT_DIGEST_SELECT_BASE)
+    .in("id", grantIds);
+
+  if (fallback.error) {
+    console.error(
+      `[daily-notification-safeguard] ${context} fallback grant lookup failed`,
+      fallback.error.message ?? fallback.error
+    );
+    return [];
+  }
+
+  return (fallback.data ?? []) as GrantDigestRow[];
 }
 
 function profileOrgId(profile: ProfileRow): string | null {
@@ -410,19 +453,15 @@ async function countStrongEligibleForOrg(
     .filter((id): id is string => Boolean(id)))];
   if (grantIds.length === 0) return 0;
 
-  const [appliedGrantIds, hiddenGrantIds, outcomeAdvisory, grantsResult] = await Promise.all([
+  const [appliedGrantIds, hiddenGrantIds, outcomeAdvisory, grants] = await Promise.all([
     getAppliedGrantIds(supabase, orgId, profileId),
     getDigestHiddenGrantIds(supabase, orgId, profileId, grantIds),
     getOutcomeAdvisoryForProfile(supabase, orgId, profileId),
-    supabase
-      .from("Grant")
-      .select("id, name, funder, url_status, deadline, createdAt, eligibility, description, objectives, funderLocations, applicantTypes, sectors, regions, applicationUrl, directApplicationUrl, applicationUrlQuality")
-      .in("id", grantIds),
+    fetchDigestGrantRowsByIds(supabase, grantIds, "strong-count"),
   ]);
 
   const userFunderLocations = profileFunderLocations(profile);
-  const grants = grantsResult.data ?? [];
-  const grantById = new Map((grants as GrantDigestRow[]).map((grant) => [grant.id, grant]));
+  const grantById = new Map(grants.map((grant) => [grant.id, grant]));
   let count = 0;
   for (const row of rows) {
     const grantId = row.grant_id;
@@ -518,18 +557,15 @@ async function buildCurrentDigestForProfile(
   const grantIds = [...new Set(assessments.map((row) => row.grant_id).filter((id): id is string => Boolean(id)))];
   if (grantIds.length === 0) return { strong: [], withinReach: [], other: [], previous: [] };
 
-  const [appliedGrantIds, hiddenGrantIds, outcomeAdvisory, grantsResult] = await Promise.all([
+  const [appliedGrantIds, hiddenGrantIds, outcomeAdvisory, grants] = await Promise.all([
     getAppliedGrantIds(supabase, orgId, profileId),
     getDigestHiddenGrantIds(supabase, orgId, profileId, grantIds),
     getOutcomeAdvisoryForProfile(supabase, orgId, profileId),
-    supabase
-      .from("Grant")
-      .select("id, name, funder, url_status, deadline, createdAt, eligibility, description, objectives, funderLocations, applicantTypes, sectors, regions, applicationUrl, directApplicationUrl, applicationUrlQuality, applicationUrlKind")
-      .in("id", grantIds),
+    fetchDigestGrantRowsByIds(supabase, grantIds, "digest"),
   ]);
 
   const userFunderLocations = profileFunderLocations(profile);
-  const grantById = new Map(((grantsResult.data ?? []) as GrantDigestRow[]).map((grant) => [grant.id, grant]));
+  const grantById = new Map(grants.map((grant) => [grant.id, grant]));
   const buildItem = (row: AssessmentDigestRow): DigestGrantItem | null => {
     const grantId = row.grant_id;
     if (!grantId || appliedGrantIds.has(grantId) || hiddenGrantIds.has(grantId)) return null;
@@ -746,6 +782,8 @@ export async function runDailyNotificationSafeguardJob(options?: {
             withinReachGrants: shouldSendEmail ? digest.withinReach : [],
             otherGrants: shouldSendEmail ? digest.other : [],
             previousScanGrants: digest.previous,
+            checkedGrantsCount,
+            matchedGrantsCount,
           },
           { sendEmail: shouldSendEmail, sendWhatsApp: shouldSendWhatsApp }
         );
@@ -763,9 +801,25 @@ export async function runDailyNotificationSafeguardJob(options?: {
       continue;
     }
 
-    console.info(
-      `[daily-notification-safeguard] No rich digest content for org=${orgId}; skipping simple daily_grant_update fallback`
-    );
+    if (sendEmail) {
+      await notifyOrgMembers(
+        orgId,
+        "grant_scan_digest",
+        {
+          profileName: profileName(primaryProfile),
+          grants: [],
+          withinReachGrants: [],
+          otherGrants: [],
+          previousScanGrants: [],
+          checkedGrantsCount,
+          matchedGrantsCount,
+        },
+        { sendEmail: true, sendWhatsApp: false }
+      );
+      diagnostics.dailyUpdates++;
+    } else {
+      diagnostics.skippedEmailPreference++;
+    }
   }
 
   console.info("[daily-notification-safeguard] Complete", diagnostics);

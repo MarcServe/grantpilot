@@ -24,6 +24,7 @@ import {
 import { finalEligibilityScore, finaliseEligibilityAssessment } from "@/lib/eligibility-final-score";
 import { isOutsideDigestGrantRepeatCooldown } from "@/lib/eligibility-digest-cooldown";
 import { getMatchHealthReport } from "@/lib/match-health";
+import { isMissingGrantUrlQualityColumnsError } from "@/lib/grant-url-quality-columns";
 import {
   DEEP_SCORE_BATCH_SIZE,
   enqueueDeepScoreCandidates,
@@ -61,6 +62,10 @@ const DEEP_SCORE_WORKER_CONCURRENCY = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE
 const DIGEST_STRONG_LIMIT = positiveIntFromEnv("ELIGIBILITY_DIGEST_STRONG_LIMIT", 20);
 const DIGEST_PREVIOUS_LIMIT = positiveIntFromEnv("ELIGIBILITY_DIGEST_PREVIOUS_LIMIT", 12);
 const DIGEST_OTHER_LIMIT = positiveIntFromEnv("ELIGIBILITY_DIGEST_OTHER_LIMIT", 4);
+const GRANT_REFRESH_SELECT_BASE =
+  "id, name, funder, amount, deadline, applicationUrl, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, required_attachments, url_status, createdAt";
+const GRANT_REFRESH_SELECT_WITH_URL_QUALITY =
+  `${GRANT_REFRESH_SELECT_BASE}, directApplicationUrl, applicationUrlQuality, applicationUrlKind`;
 
 function recentNotificationWindow(): Date {
   const since = new Date();
@@ -331,16 +336,29 @@ async function fetchCurrentGrants(
   supabase: ReturnType<typeof getSupabaseAdmin>
 ): Promise<GrantRow[]> {
   const rows: GrantRow[] = [];
+  let select = GRANT_REFRESH_SELECT_WITH_URL_QUALITY;
 
   for (let offset = 0; offset < MAX_GRANTS_PER_REFRESH; offset += GRANT_FETCH_BATCH_SIZE) {
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("Grant")
-      .select("id, name, funder, amount, deadline, applicationUrl, directApplicationUrl, applicationUrlQuality, applicationUrlKind, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, required_attachments, url_status, createdAt")
+      .select(select)
       .order("createdAt", { ascending: false })
       .range(offset, offset + GRANT_FETCH_BATCH_SIZE - 1);
 
+    if (error && select === GRANT_REFRESH_SELECT_WITH_URL_QUALITY && isMissingGrantUrlQualityColumnsError(error)) {
+      console.warn("[eligibility-refresh] URL-quality Grant columns unavailable; using base Grant columns");
+      select = GRANT_REFRESH_SELECT_BASE;
+      const fallback = await supabase
+        .from("Grant")
+        .select(select)
+        .order("createdAt", { ascending: false })
+        .range(offset, offset + GRANT_FETCH_BATCH_SIZE - 1);
+      data = fallback.data;
+      error = fallback.error;
+    }
+
     if (error) throw error;
-    const batch = (data ?? []) as GrantRow[];
+    const batch = (data ?? []) as unknown as GrantRow[];
     rows.push(...batch);
     if (batch.length < GRANT_FETCH_BATCH_SIZE) break;
   }
@@ -501,8 +519,12 @@ export async function runEligibilityRefreshJob(options?: {
             return;
           }
 
-          await notifyOrgMembers(orgId, "daily_grant_update", {
+          await notifyOrgMembers(orgId, "grant_scan_digest", {
             profileName,
+            grants: [],
+            withinReachGrants: [],
+            otherGrants: [],
+            previousScanGrants: [],
             checkedGrantsCount,
             matchedGrantsCount: strongEligibleCount,
           }, {
