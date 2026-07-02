@@ -3,6 +3,7 @@ import { sendWhatsApp, sendWhatsAppWithTemplate } from "./whatsapp";
 import { getSupabaseAdmin } from "./supabase";
 import { buildEmailHtml, buildWhatsAppMessage } from "./notification-templates";
 import { organisationAllowsCapability } from "./plan-check";
+import { buildDigestWhatsAppTemplateVariables } from "./whatsapp-digest-template";
 
 interface NotifyUser {
   id: string;
@@ -195,6 +196,11 @@ export async function notifyUser(
     // Org opted out of WhatsApp for this notification type (e.g. eligibility digest).
   } else if (user.whatsappOptIn && user.phoneNumber) {
     const grantMatchSid = (process.env.TWILIO_WHATSAPP_GRANT_MATCH_CONTENT_SID ?? "").trim();
+    const digestSid = (
+      process.env.TWILIO_WHATSAPP_DIGEST_CONTENT_SID ??
+      process.env.TWILIO_WHATSAPP_GRANT_DIGEST_CONTENT_SID ??
+      ""
+    ).trim();
     const deadlineSid = (
       process.env.TWILIO_WHATSAPP_DEADLINE_CONTENT_SID ??
       process.env.TWILIO_WHATSAPP_DEADLINE_TEMPLATE_SID ??
@@ -205,6 +211,7 @@ export async function notifyUser(
 
     const useGrantTemplate =
       (type === "grant_match" || type === "grant_match_high") && grantMatchSid.length > 0;
+    const useDigestTemplate = type === "grant_scan_digest" && (digestSid.length > 0 || grantMatchSid.length > 0);
     const useDeadlineTemplate = type === "deadline_reminder" && deadlineSid.length > 0;
     const useNeedsInfoTemplate = type === "application_needs_info" && needsInfoSid.length > 0;
 
@@ -234,6 +241,32 @@ export async function notifyUser(
       };
       if (result.twilioSid ?? result.twilioStatus) {
         logPayload.metadata = { twilioSid: result.twilioSid ?? null, twilioStatus: result.twilioStatus ?? null };
+      }
+      await supabase.from("NotificationLog").insert(logPayload);
+    } else if (useDigestTemplate) {
+      const digestVariables = buildDigestWhatsAppTemplateVariables(payload, appUrl);
+      const usingDedicatedDigestTemplate = digestSid.length > 0;
+      const result = await sendWhatsAppWithTemplate(
+        user.phoneNumber,
+        usingDedicatedDigestTemplate ? digestSid : grantMatchSid,
+        usingDedicatedDigestTemplate
+          ? digestVariables.digestTemplateVariables
+          : digestVariables.grantMatchTemplateVariables
+      );
+      const logPayload: Record<string, unknown> = {
+        userId: user.id,
+        channel: "whatsapp",
+        type,
+        status: result.success ? "sent" : "failed",
+        error: result.error ?? null,
+      };
+      if (result.twilioSid ?? result.twilioStatus) {
+        logPayload.metadata = {
+          twilioSid: result.twilioSid ?? null,
+          twilioStatus: result.twilioStatus ?? null,
+          fallback: usingDedicatedDigestTemplate ? "digest_template" : "grant_match_template",
+          strongCount: digestVariables.strongCount,
+        };
       }
       await supabase.from("NotificationLog").insert(logPayload);
     } else if (useDeadlineTemplate) {
@@ -280,7 +313,7 @@ export async function notifyUser(
         logPayload.metadata = { twilioSid: result.twilioSid ?? null, twilioStatus: result.twilioStatus ?? null };
       }
       await supabase.from("NotificationLog").insert(logPayload);
-    } else if (type === "deadline_reminder" || type === "grant_scan_digest") {
+    } else if (type === "deadline_reminder") {
       const result = await sendWhatsApp(user.phoneNumber, buildWhatsAppMessage(type, payload, appUrl));
       const logPayload: Record<string, unknown> = {
         userId: user.id,
