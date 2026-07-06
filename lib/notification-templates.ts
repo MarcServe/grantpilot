@@ -270,14 +270,14 @@ export function buildEmailHtml(
       const profileName = payload.profileName ?? "your business";
       const completion = Math.max(0, Math.min(100, Math.round(Number(payload.profileCompletion ?? 0))));
       return {
-        subject: "Complete your GrantsCopilot profile to receive better grant matches",
+        subject: "Complete your Business DNA to start receiving daily grant matches",
         html: baseLayout(
-          "Complete your business profile",
+          "Complete your Business DNA",
           `<p>Your GrantsCopilot profile for <strong>${escapeHtml(profileName)}</strong> is currently <strong>${completion}% complete</strong>.</p>
-          <p>Complete the missing business details so GrantsCopilot can match you to grants aligned with your location, sector, funding goals, company stage, and evidence.</p>
-          <p>Once your profile has enough detail, we&apos;ll start sending daily grant opportunities and clear next steps for the best-fit matches.</p>`,
-          `${appUrl}/profile`,
-          "Complete Profile"
+          <p>To receive grants that properly match your business, complete your Business DNA with your location, sector, funding goals, company stage, and evidence.</p>
+          <p>You can use the <strong>AI Business DNA generator</strong> to turn your company website into structured profile fields in seconds. Review the suggestions, approve the fields you want to save, and GrantsCopilot can start sending daily aligned grant opportunities once your profile reaches the notification threshold.</p>`,
+          `${appUrl}/profile#business-dna-generator`,
+          "Complete with AI"
         ),
       };
     }
@@ -582,7 +582,7 @@ export function buildWhatsAppMessage(
     case "profile_completion_reminder": {
       const profileName = payload.profileName ?? "your business";
       const completion = Math.max(0, Math.min(100, Math.round(Number(payload.profileCompletion ?? 0))));
-      return `Your GrantsCopilot profile for ${profileName} is ${completion}% complete. Add the missing business details so we can send better aligned grant matches.\n\nComplete profile: ${appUrl}/profile`;
+      return `Your GrantsCopilot profile for ${profileName} is ${completion}% complete. Use the AI Business DNA generator to turn your website into structured profile fields, approve the details, and start receiving better aligned daily grant matches.\n\nComplete Business DNA: ${appUrl}/profile#business-dna-generator`;
     }
 
     case "grant_match_high": {

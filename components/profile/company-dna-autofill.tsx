@@ -77,11 +77,11 @@ export function CompanyDnaAutofill({
 
   if (!companyDnaAutofillEnabled) {
     return (
-      <Card className="overflow-hidden rounded-2xl border-muted bg-muted/20">
+      <Card id="business-dna-generator" className="scroll-mt-24 overflow-hidden rounded-2xl border-muted bg-muted/20">
         <CardHeader className="px-4 pb-3 sm:px-6">
           <CardTitle className="flex items-center gap-2 text-base">
             <Brain className="h-4 w-4" />
-            Company DNA Autofill
+            AI Business DNA generator
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 px-4 sm:px-6">
@@ -209,12 +209,12 @@ export function CompanyDnaAutofill({
   }
 
   return (
-    <Card className="overflow-hidden rounded-2xl border-primary/20 bg-primary/5">
+    <Card id="business-dna-generator" className="scroll-mt-24 overflow-hidden rounded-2xl border-primary/20 bg-primary/5">
       <CardHeader className="px-4 pb-3 sm:px-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <CardTitle className="flex items-center gap-2 text-base">
             <Brain className="h-4 w-4" />
-            Company DNA Autofill
+            AI Business DNA generator
           </CardTitle>
           {hasWebsiteIntelligence && (
             <Badge variant="outline" className="gap-1">
@@ -227,7 +227,7 @@ export function CompanyDnaAutofill({
       <CardContent className="min-w-0 space-y-4 px-4 sm:px-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-muted-foreground">
-            Generate structured profile updates from the company website, then approve the fields you want to save.
+            Generate structured Business DNA from the company website, then approve the fields you want to save.
           </p>
           <Button
             type="button"
