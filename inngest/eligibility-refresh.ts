@@ -128,7 +128,7 @@ function isOutsideNotificationCooldown(notifiedAt: string | null | undefined, co
   return !Number.isFinite(notifiedAtTime) || notifiedAtTime < cooldown.getTime();
 }
 
-const DIGEST_HIDDEN_SAVED_GRANT_STATES = new Set(["deferred", "applied", "dismissed"]);
+const DIGEST_HIDDEN_SAVED_GRANT_STATES = new Set(["viewed", "deferred", "applied", "dismissed"]);
 
 async function getDigestHiddenGrantIds(
   supabase: ReturnType<typeof getSupabaseAdmin>,
@@ -136,7 +136,7 @@ async function getDigestHiddenGrantIds(
   profileId: string,
   candidateGrantIds?: string[]
 ): Promise<Set<string>> {
-  const hidden = await getSuppressedGrantIds(supabase, orgId, profileId);
+  const hidden = await getSuppressedGrantIds(supabase, orgId, profileId, { includeViewed: true });
 
   let query = supabase
     .from("SavedGrant")
@@ -235,10 +235,10 @@ function sortDigestByFreshScore(
   a: DigestGrantItem,
   b: DigestGrantItem
 ): number {
-  const scoredDelta = digestScoredTime(b) - digestScoredTime(a);
-  if (scoredDelta !== 0) return scoredDelta;
+  const addedDelta = grantCreatedTime(grantsById.get(b.grantId)) - grantCreatedTime(grantsById.get(a.grantId));
+  if (addedDelta !== 0) return addedDelta;
   if (b.score !== a.score) return b.score - a.score;
-  return grantCreatedTime(grantsById.get(b.grantId)) - grantCreatedTime(grantsById.get(a.grantId));
+  return digestScoredTime(b) - digestScoredTime(a);
 }
 
 function uniqueGrantIds(ids: string[]): string[] {
@@ -895,6 +895,7 @@ export async function runEligibilityRefreshJob(options?: {
             .select("grant_id, updated_at, score, decision, summary, notified_at, missing_criteria, improvement_plan, scoring_source")
             .eq("organisation_id", orgId)
             .eq("profile_id", profileId)
+            .in("scoring_source", ["openai", "intelligence"])
             .gte("score", 50)
             .lte("score", withinReachMax)
             .order("updated_at", { ascending: false })
@@ -921,6 +922,7 @@ export async function runEligibilityRefreshJob(options?: {
             .select("grant_id, updated_at, score, decision, summary, notified_at, missing_criteria, improvement_plan, scoring_source")
             .eq("organisation_id", orgId)
             .eq("profile_id", profileId)
+            .in("scoring_source", ["openai", "intelligence"])
             .gte("score", 1)
             .lt("score", 50)
             .order("updated_at", { ascending: false })

@@ -4,6 +4,7 @@ import { getSupabaseAdmin } from "./supabase";
 import { buildEmailHtml, buildWhatsAppMessage } from "./notification-templates";
 import { organisationAllowsCapability } from "./plan-check";
 import { buildDigestWhatsAppTemplateVariables } from "./whatsapp-digest-template";
+import { resolveWhatsAppTemplateForType } from "./whatsapp-template-config";
 
 interface NotifyUser {
   id: string;
@@ -195,29 +196,11 @@ export async function notifyUser(
   if (options?.sendWhatsApp === false) {
     // Org opted out of WhatsApp for this notification type (e.g. eligibility digest).
   } else if (user.whatsappOptIn && user.phoneNumber) {
-    const grantMatchSid = (process.env.TWILIO_WHATSAPP_GRANT_MATCH_CONTENT_SID ?? "").trim();
-    const digestSid = (
-      process.env.TWILIO_WHATSAPP_DIGEST_CONTENT_SID ??
-      process.env.TWILIO_WHATSAPP_GRANT_DIGEST_CONTENT_SID ??
-      ""
-    ).trim();
-    const deadlineSid = (
-      process.env.TWILIO_WHATSAPP_DEADLINE_CONTENT_SID ??
-      process.env.TWILIO_WHATSAPP_DEADLINE_TEMPLATE_SID ??
-      process.env.TWILIO_DEADLINE_CONTENT_SID ??
-      ""
-    ).trim();
-    const needsInfoSid = (process.env.TWILIO_WHATSAPP_APPLICATION_NEEDS_INFO_CONTENT_SID ?? "").trim();
-
-    const useGrantTemplate =
-      (type === "grant_match" || type === "grant_match_high") && grantMatchSid.length > 0;
-    const useDigestTemplate = type === "grant_scan_digest" && (digestSid.length > 0 || grantMatchSid.length > 0);
-    const useDeadlineTemplate = type === "deadline_reminder" && deadlineSid.length > 0;
-    const useNeedsInfoTemplate = type === "application_needs_info" && needsInfoSid.length > 0;
+    const template = resolveWhatsAppTemplateForType(type);
 
     // Prefer approved Content Templates. Deadline reminders keep a legacy body fallback
     // so a missing template env var does not silently suppress urgent notifications.
-    if (useGrantTemplate) {
+    if (template.kind === "grant_match" && template.contentSid) {
       const linkUrl =
         type === "grant_match_high" && payload.startApplicationToken
           ? `${appUrl}/start-application?token=${encodeURIComponent(payload.startApplicationToken)}`
@@ -227,7 +210,7 @@ export async function notifyUser(
       const grantUrl = String(linkUrl).replace(/[\r\n\t]+/g, " ").trim() || `${appUrl}/grants`;
       const score = payload.score != null ? String(Math.round(Number(payload.score))) : "85";
       const grantName = (payload.grantName ?? "Grant").replace(/[\r\n\t]+/g, " ").trim() || "Grant";
-      const result = await sendWhatsAppWithTemplate(user.phoneNumber, grantMatchSid, {
+      const result = await sendWhatsAppWithTemplate(user.phoneNumber, template.contentSid, {
         "1": score,
         "2": grantName,
         "3": grantUrl,
@@ -243,13 +226,12 @@ export async function notifyUser(
         logPayload.metadata = { twilioSid: result.twilioSid ?? null, twilioStatus: result.twilioStatus ?? null };
       }
       await supabase.from("NotificationLog").insert(logPayload);
-    } else if (useDigestTemplate) {
+    } else if ((template.kind === "digest" || template.kind === "digest_single_match") && template.contentSid) {
       const digestVariables = buildDigestWhatsAppTemplateVariables(payload, appUrl);
-      const usingDedicatedDigestTemplate = digestSid.length > 0;
       const result = await sendWhatsAppWithTemplate(
         user.phoneNumber,
-        usingDedicatedDigestTemplate ? digestSid : grantMatchSid,
-        usingDedicatedDigestTemplate
+        template.contentSid,
+        template.kind === "digest"
           ? digestVariables.digestTemplateVariables
           : digestVariables.grantMatchTemplateVariables
       );
@@ -264,16 +246,16 @@ export async function notifyUser(
         logPayload.metadata = {
           twilioSid: result.twilioSid ?? null,
           twilioStatus: result.twilioStatus ?? null,
-          fallback: usingDedicatedDigestTemplate ? "digest_template" : "grant_match_template",
+          fallback: template.kind === "digest" ? "digest_template" : "grant_match_template",
           strongCount: digestVariables.strongCount,
         };
       }
       await supabase.from("NotificationLog").insert(logPayload);
-    } else if (useDeadlineTemplate) {
+    } else if (template.kind === "deadline" && template.contentSid) {
       const startUrl = payload.startApplicationToken
         ? `${appUrl}/start-application?token=${encodeURIComponent(payload.startApplicationToken)}`
         : `${appUrl}/grants/${payload.grantId ?? ""}`;
-      const result = await sendWhatsAppWithTemplate(user.phoneNumber, deadlineSid, {
+      const result = await sendWhatsAppWithTemplate(user.phoneNumber, template.contentSid, {
         "1": payload.grantName ?? "Grant",
         "2": payload.deadline ?? "soon",
         "3": startUrl,
@@ -289,7 +271,7 @@ export async function notifyUser(
         logPayload.metadata = { twilioSid: result.twilioSid ?? null, twilioStatus: result.twilioStatus ?? null };
       }
       await supabase.from("NotificationLog").insert(logPayload);
-    } else if (useNeedsInfoTemplate) {
+    } else if (template.kind === "needs_info" && template.contentSid) {
       const applicationUrl = payload.applicationId
         ? `${appUrl}/applications/${payload.applicationId}`
         : `${appUrl}/applications`;
@@ -297,7 +279,7 @@ export async function notifyUser(
         .filter((label) => typeof label === "string" && label.trim().length > 0)
         .slice(0, 3)
         .join("; ") || "a few required details";
-      const result = await sendWhatsAppWithTemplate(user.phoneNumber, needsInfoSid, {
+      const result = await sendWhatsAppWithTemplate(user.phoneNumber, template.contentSid, {
         "1": payload.grantName ?? "your grant",
         "2": details,
         "3": applicationUrl,
@@ -336,7 +318,7 @@ export async function notifyUser(
         channel: "whatsapp",
         type,
         status: "skipped",
-        error: "whatsapp_requires_template",
+        error: template.error ?? "whatsapp_requires_template",
       });
     }
   } else if (user.whatsappOptIn && !user.phoneNumber) {

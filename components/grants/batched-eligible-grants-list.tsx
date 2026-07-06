@@ -2,14 +2,14 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { AlertTriangle, Loader2, Search, Sparkles, Target, X } from "lucide-react";
+import { AlertTriangle, BrainCircuit, Eye, Loader2, Search, Sparkles, Target, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { EligibleGrantCard, hasVerifiedApplicationStart, type EligibleGrant } from "./eligible-grant-card";
 
-type ScoreTier = "suggested" | "within_reach" | "other";
+type MatchSection = "suggested" | "within_reach" | "other" | "needs_review" | "reviewed";
 type TierStatus = "idle" | "loading" | "loaded" | "error";
 
 type TierState = {
@@ -32,15 +32,8 @@ type MatchesResponse = {
   error?: string;
 };
 
-type CachedMatchesResponse = {
-  expiresAt: number;
-  result: MatchesResponse;
-};
-
-const TIER_ORDER: ScoreTier[] = ["suggested", "within_reach", "other"];
-const MATCH_RESPONSE_CACHE_TTL_MS = 30_000;
-const matchResponseCache = new Map<string, CachedMatchesResponse>();
-const TIER_META: Record<ScoreTier, {
+const TIER_ORDER: MatchSection[] = ["suggested", "within_reach", "other", "needs_review", "reviewed"];
+const TIER_META: Record<MatchSection, {
   title: string;
   subtitle: string;
   badgeLabel: string;
@@ -64,10 +57,25 @@ const TIER_META: Record<ScoreTier, {
   },
   other: {
     title: "Other scored grants",
-    subtitle: "Lower fit - may still be worth reviewing later.",
+    subtitle: "Lower fit - newest trusted AI-scored grants first.",
     badgeLabel: "Other",
     emptyLabel: "No lower-fit grants in this batch.",
     icon: null,
+    muted: true,
+  },
+  needs_review: {
+    title: "Needs full AI review",
+    subtitle: "Preliminary heuristic matches kept separate until the full company-DNA score runs.",
+    badgeLabel: "Needs AI review",
+    emptyLabel: "No preliminary grants waiting for full AI review.",
+    icon: <BrainCircuit className="h-4 w-4 text-amber-600" />,
+  },
+  reviewed: {
+    title: "Reviewed / seen before",
+    subtitle: "Viewed grants remain available here without counting as active Suggested matches.",
+    badgeLabel: "Reviewed",
+    emptyLabel: "No viewed grants in this batch.",
+    icon: <Eye className="h-4 w-4 text-slate-600" />,
     muted: true,
   },
 };
@@ -84,11 +92,13 @@ function initialTierState(): TierState {
   };
 }
 
-function emptySections(): Record<ScoreTier, TierState> {
+function emptySections(): Record<MatchSection, TierState> {
   return {
     suggested: initialTierState(),
     within_reach: initialTierState(),
     other: initialTierState(),
+    needs_review: initialTierState(),
+    reviewed: initialTierState(),
   };
 }
 
@@ -109,31 +119,22 @@ function matchesQuery(grant: EligibleGrant, query: string): boolean {
   return grant.grantName.toLowerCase().includes(q) || grant.funder.toLowerCase().includes(q);
 }
 
-async function fetchTier(tier: ScoreTier, page: number, pageSize: number): Promise<MatchesResponse> {
+async function fetchTier(tier: MatchSection, page: number, pageSize: number): Promise<MatchesResponse> {
   const params = new URLSearchParams({
     tier,
     page: String(page),
     pageSize: String(pageSize),
   });
-  const cacheKey = params.toString();
-  const cached = matchResponseCache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.result;
-  }
 
   const response = await fetch(`/api/grants/eligible-matches?${params.toString()}`, {
     credentials: "same-origin",
+    cache: "no-store",
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(typeof body.error === "string" ? body.error : "Unable to load matches");
   }
-  const result = body as MatchesResponse;
-  matchResponseCache.set(cacheKey, {
-    expiresAt: Date.now() + MATCH_RESPONSE_CACHE_TTL_MS,
-    result,
-  });
-  return result;
+  return body as MatchesResponse;
 }
 
 function formatCount(state: TierState): string | null {
@@ -146,17 +147,17 @@ export function BatchedEligibleGrantsList({
   initialPage,
   pageSize,
 }: {
-  initialTier: ScoreTier | null;
+  initialTier: MatchSection | null;
   initialPage: number;
   pageSize: number;
 }) {
-  const [activeTier, setActiveTier] = useState<ScoreTier | null>(initialTier);
+  const [activeTier, setActiveTier] = useState<MatchSection | null>(initialTier);
   const [query, setQuery] = useState("");
-  const [sections, setSections] = useState<Record<ScoreTier, TierState>>(() => emptySections());
+  const [sections, setSections] = useState<Record<MatchSection, TierState>>(() => emptySections());
   const tiersToShow = useMemo(() => activeTier ? [activeTier] : TIER_ORDER, [activeTier]);
 
   const loadTier = useCallback(
-    async (tier: ScoreTier, page: number, mode: "replace" | "append") => {
+    async (tier: MatchSection, page: number, mode: "replace" | "append") => {
       setSections((current) => ({
         ...current,
         [tier]: {
@@ -311,7 +312,7 @@ function MatchTierSection({
   query,
   onLoadMore,
 }: {
-  tier: ScoreTier;
+  tier: MatchSection;
   state: TierState;
   query: string;
   onLoadMore: () => void;
@@ -416,7 +417,7 @@ function MatchTierSection({
   );
 }
 
-function QueuedTierPlaceholder({ tier }: { tier: ScoreTier }) {
+function QueuedTierPlaceholder({ tier }: { tier: MatchSection }) {
   const meta = TIER_META[tier];
   return (
     <div className="rounded-lg border border-dashed bg-background/60 px-4 py-3 text-sm text-muted-foreground">

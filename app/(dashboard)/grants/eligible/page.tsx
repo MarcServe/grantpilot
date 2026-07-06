@@ -8,12 +8,12 @@ import { Button } from "@/components/ui/button";
 import { BatchedEligibleGrantsList } from "@/components/grants/batched-eligible-grants-list";
 import { BusinessDnaMatchHealth } from "@/components/profile/business-dna-match-health";
 import { getMatchHealthReport } from "@/lib/match-health";
+import { optionalEligibleMatchSection, type EligibleMatchSection } from "@/lib/eligible-match-rules";
 
 const MATCH_PAGE_SIZE_OPTIONS = [20, 30, 50] as const;
 const DEFAULT_MATCH_PAGE_SIZE = 20;
 const MATCH_HEALTH_ASSESSMENT_LIMIT = 300;
 
-type ScoreTier = "suggested" | "within_reach" | "other";
 type MatchSearchParams = Promise<{ page?: string; pageSize?: string; tier?: string }>;
 
 function normalizePage(raw: string | undefined): number {
@@ -26,12 +26,7 @@ function normalizePageSize(raw: string | undefined): number {
   return (MATCH_PAGE_SIZE_OPTIONS as readonly number[]).includes(parsed) ? parsed : DEFAULT_MATCH_PAGE_SIZE;
 }
 
-function normalizeTier(raw: string | undefined): ScoreTier | null {
-  if (raw === "suggested" || raw === "within_reach" || raw === "other") return raw;
-  return null;
-}
-
-function buildMatchesHref(pageSize: number, tier: ScoreTier | null): string {
+function buildMatchesHref(pageSize: number, tier: EligibleMatchSection | null): string {
   const params = new URLSearchParams();
   if (tier) params.set("tier", tier);
   if (pageSize !== DEFAULT_MATCH_PAGE_SIZE) params.set("pageSize", String(pageSize));
@@ -47,7 +42,7 @@ export default async function EligibleGrantsPage({
   const params = await searchParams;
   const initialPage = normalizePage(params.page);
   const pageSize = normalizePageSize(params.pageSize);
-  const activeTier = normalizeTier(params.tier);
+  const activeTier = optionalEligibleMatchSection(params.tier);
   const { org, orgId } = await getActiveOrg();
   const supabase = getSupabaseAdmin();
 

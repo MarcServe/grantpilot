@@ -4,6 +4,7 @@ import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { markGrantUserState } from "@/lib/grant-user-state";
 import { createDefaultTasksForApplication } from "@/lib/application-tasks";
+import { clearEligibleMatchCaches } from "@/lib/eligible-match-cache";
 
 const schema = z.object({
   grantId: z.string().min(1),
@@ -33,6 +34,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       status: parsed.data.status,
       notes: parsed.data.notes ?? null,
     });
+    clearEligibleMatchCaches();
 
     let applicationId: string | null = null;
     if (parsed.data.status === "applied") {

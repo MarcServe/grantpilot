@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { markGrantUserState } from "@/lib/grant-user-state";
+import { clearEligibleMatchCaches } from "@/lib/eligible-match-cache";
 
 const postSchema = z.object({
   grantIds: z.array(z.string().min(1)).min(1).max(200),
@@ -76,6 +77,7 @@ export async function POST(req: Request): Promise<NextResponse> {
         status: parsed.data.status ?? "saved",
       });
     }
+    clearEligibleMatchCaches();
 
     return NextResponse.json({ success: true, added: parsed.data.grantIds.length });
   } catch (e) {
@@ -115,6 +117,7 @@ export async function DELETE(req: Request): Promise<NextResponse> {
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+    clearEligibleMatchCaches();
     return NextResponse.json({ success: true });
   } catch (e) {
     return NextResponse.json(

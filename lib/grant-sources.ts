@@ -5,6 +5,7 @@
  */
 
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { inngest } from "@/inngest/client";
 import type { GrantInput } from "@/lib/grants-ingest";
 import { upsertGrant } from "@/lib/grants-ingest";
 import { waitForDomainThrottle } from "@/lib/throttle-per-domain";
@@ -21,6 +22,11 @@ export interface GrantSourceRow {
   last_crawled_at: string | null;
   last_content_hash: string | null;
   adapter: string | null;
+  claim_token?: string | null;
+  claimed_at?: string | null;
+  last_crawl_status?: string | null;
+  last_crawl_error?: string | null;
+  last_crawl_result?: Record<string, unknown> | null;
 }
 
 export interface GrantSourceRunResult {
@@ -30,6 +36,31 @@ export interface GrantSourceRunResult {
   created: number;
   updated: number;
   error?: string;
+}
+
+export type GrantSourceFailureKind = "blocked" | "missing" | "timeout" | "internal";
+
+export interface GrantSourceFailureClassification {
+  kind: GrantSourceFailureKind;
+  external: boolean;
+  message: string;
+}
+
+export interface GrantSourceEnqueueResult {
+  ok: true;
+  claimed: number;
+  enqueued: number;
+  processed: number;
+  failedExternal: number;
+  failedInternal: number;
+  durationMs: number;
+  sourceSeed?: AutoSeedGrantSourcesResult;
+  sources: Array<{ sourceId: string; sourceName: string }>;
+}
+
+export interface ClaimDueGrantSourcesOptions {
+  limit?: number;
+  claimTtlMinutes?: number;
 }
 
 const CRAWL_INTERVAL_SQL: Record<string, string> = {
@@ -65,6 +96,68 @@ export async function getDueGrantSources(): Promise<GrantSourceRow[]> {
     if (nextDue <= now) due.push(row);
   }
   return due;
+}
+
+function safeLimit(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(parsed)));
+}
+
+function isMissingClaimSchemaError(error: { code?: string; message?: string } | null | undefined): boolean {
+  const message = error?.message?.toLowerCase() ?? "";
+  return (
+    error?.code === "PGRST202" ||
+    error?.code === "PGRST204" ||
+    message.includes("claim_due_grant_sources") ||
+    message.includes("claim_token") ||
+    message.includes("last_crawl_status")
+  );
+}
+
+function sourceSelectWithClaimColumns(): string {
+  return [
+    "id",
+    "source_name",
+    "country",
+    "type",
+    "endpoint",
+    "crawl_frequency",
+    "enabled",
+    "last_crawled_at",
+    "last_content_hash",
+    "adapter",
+    "claim_token",
+    "claimed_at",
+    "last_crawl_status",
+    "last_crawl_error",
+    "last_crawl_result",
+  ].join(", ");
+}
+
+export function classifyGrantSourceFailure(error: unknown): GrantSourceFailureClassification {
+  const message = error instanceof Error ? error.message : String(error);
+  const lower = message.toLowerCase();
+  if (lower.includes("robots") || lower.includes("403") || lower.includes("forbidden")) {
+    return { kind: "blocked", external: true, message };
+  }
+  if (lower.includes("404") || lower.includes("not found")) {
+    return { kind: "missing", external: true, message };
+  }
+  if (
+    lower.includes("timeout") ||
+    lower.includes("timed out") ||
+    lower.includes("aborterror") ||
+    lower.includes("etimedout") ||
+    lower.includes("und_err_connect_timeout")
+  ) {
+    return { kind: "timeout", external: true, message };
+  }
+  return { kind: "internal", external: false, message };
+}
+
+export function sourceClaimMatches(source: Pick<GrantSourceRow, "claim_token">, expectedClaimToken?: string | null): boolean {
+  return !expectedClaimToken || source.claim_token === expectedClaimToken;
 }
 
 function parseIntervalToMs(interval: string): number {
@@ -155,19 +248,71 @@ export async function fetchGrantsForSource(source: GrantSourceRow): Promise<Gran
  */
 export async function updateLastCrawled(
   sourceId: string,
-  lastContentHash?: string | null
+  lastContentHash?: string | null,
+  result?: Record<string, unknown>
 ): Promise<void> {
   const supabase = getSupabaseAdmin();
-  const payload: { last_crawled_at: string; updated_at: string; last_content_hash?: string | null } = {
-    last_crawled_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
+  const now = new Date().toISOString();
+  const payload: Record<string, unknown> = {
+    last_crawled_at: now,
+    updated_at: now,
+    claim_token: null,
+    claimed_at: null,
+    last_crawl_status: "success",
+    last_crawl_error: null,
+    last_crawl_result: result ?? {},
   };
   if (lastContentHash !== undefined) payload.last_content_hash = lastContentHash ?? null;
   const { error } = await supabase
     .from("grant_sources")
     .update(payload)
     .eq("id", sourceId);
+  if (error && isMissingClaimSchemaError(error)) {
+    const fallbackPayload: { last_crawled_at: string; updated_at: string; last_content_hash?: string | null } = {
+      last_crawled_at: now,
+      updated_at: now,
+    };
+    if (lastContentHash !== undefined) fallbackPayload.last_content_hash = lastContentHash ?? null;
+    const fallback = await supabase
+      .from("grant_sources")
+      .update(fallbackPayload)
+      .eq("id", sourceId);
+    if (fallback.error) throw new Error(`Failed to update last_crawled_at: ${fallback.error.message}`);
+    return;
+  }
   if (error) throw new Error(`Failed to update last_crawled_at: ${error.message}`);
+}
+
+export async function markSourceRunOutcome(
+  sourceId: string,
+  status: string,
+  details?: {
+    error?: string | null;
+    lastContentHash?: string | null;
+    result?: Record<string, unknown>;
+  }
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const now = new Date().toISOString();
+  const payload: Record<string, unknown> = {
+    last_crawled_at: now,
+    updated_at: now,
+    claim_token: null,
+    claimed_at: null,
+    last_crawl_status: status,
+    last_crawl_error: details?.error ? details.error.slice(0, 2000) : null,
+    last_crawl_result: details?.result ?? {},
+  };
+  if (details?.lastContentHash !== undefined) payload.last_content_hash = details.lastContentHash ?? null;
+  const { error } = await supabase
+    .from("grant_sources")
+    .update(payload)
+    .eq("id", sourceId);
+  if (error && isMissingClaimSchemaError(error)) {
+    await updateLastCrawled(sourceId, details?.lastContentHash);
+    return;
+  }
+  if (error) throw new Error(`Failed to mark source run outcome: ${error.message}`);
 }
 
 /**
@@ -210,8 +355,190 @@ export async function runSourceAndUpsert(source: GrantSourceRow): Promise<{
       console.warn(`[grant-sources] Skip grant from ${source.source_name}:`, e);
     }
   }
-  await updateLastCrawled(source.id, contentHash ?? undefined);
+  await updateLastCrawled(source.id, contentHash ?? undefined, {
+    synced: grants.length,
+    created,
+    updated,
+  });
   return { synced: grants.length, created, updated };
+}
+
+export async function claimDueGrantSources(options?: ClaimDueGrantSourcesOptions): Promise<GrantSourceRow[]> {
+  const limit = safeLimit(options?.limit, 20, 1, 100);
+  const claimTtlMinutes = safeLimit(options?.claimTtlMinutes, 30, 1, 180);
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase.rpc("claim_due_grant_sources", {
+    p_limit: limit,
+    p_claim_ttl_minutes: claimTtlMinutes,
+  });
+
+  if (!error) return (data ?? []) as GrantSourceRow[];
+  if (!isMissingClaimSchemaError(error)) throw new Error(`claim_due_grant_sources failed: ${error.message}`);
+
+  const due = await getDueGrantSources();
+  return [...due]
+    .sort((a, b) =>
+      sourceRunPriority(a) - sourceRunPriority(b) ||
+      sourceLastCrawledTime(a) - sourceLastCrawledTime(b) ||
+      a.source_name.localeCompare(b.source_name)
+    )
+    .slice(0, limit);
+}
+
+export async function enqueueDueGrantSourceRuns(options?: {
+  limit?: number;
+  claimTtlMinutes?: number;
+  source?: string;
+}): Promise<GrantSourceEnqueueResult> {
+  const startedAt = Date.now();
+  const sourceSeed = await autoSeedDefaultGrantSources({
+    runSource: "app_default_seed",
+    createdBy: "grant-source-crawler",
+  });
+  const claimed = await claimDueGrantSources({
+    limit: options?.limit,
+    claimTtlMinutes: options?.claimTtlMinutes,
+  });
+
+  const events = claimed.map((source) => ({
+    id: `grant-source:${source.id}:${source.claim_token ?? new Date().toISOString()}`,
+    name: "grant-source/run.requested",
+    data: {
+      sourceId: source.id,
+      claimToken: source.claim_token ?? null,
+      sourceName: source.source_name,
+      requestedBy: options?.source ?? "unknown",
+    },
+  }));
+
+  if (events.length > 0) await inngest.send(events);
+
+  return {
+    ok: true,
+    claimed: claimed.length,
+    enqueued: events.length,
+    processed: 0,
+    failedExternal: 0,
+    failedInternal: 0,
+    durationMs: Date.now() - startedAt,
+    sourceSeed,
+    sources: claimed.map((source) => ({ sourceId: source.id, sourceName: source.source_name })),
+  };
+}
+
+export async function getGrantSourceById(sourceId: string): Promise<GrantSourceRow | null> {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("grant_sources")
+    .select(sourceSelectWithClaimColumns())
+    .eq("id", sourceId)
+    .maybeSingle();
+
+  if (!error) return data as GrantSourceRow | null;
+  if (!isMissingClaimSchemaError(error)) throw new Error(`grant_sources lookup failed: ${error.message}`);
+
+  const fallback = await supabase
+    .from("grant_sources")
+    .select("id, source_name, country, type, endpoint, crawl_frequency, enabled, last_crawled_at, last_content_hash, adapter")
+    .eq("id", sourceId)
+    .maybeSingle();
+  if (fallback.error) throw new Error(`grant_sources lookup failed: ${fallback.error.message}`);
+  return fallback.data as GrantSourceRow | null;
+}
+
+export async function runClaimedGrantSource(input: {
+  sourceId: string;
+  claimToken?: string | null;
+}): Promise<{
+  sourceId: string;
+  sourceName?: string;
+  processed: number;
+  synced: number;
+  created: number;
+  updated: number;
+  failedExternal: number;
+  failedInternal: number;
+  skipped?: boolean;
+  status: string;
+  durationMs: number;
+}> {
+  const startedAt = Date.now();
+  const source = await getGrantSourceById(input.sourceId);
+  if (!source) {
+    return {
+      sourceId: input.sourceId,
+      processed: 0,
+      synced: 0,
+      created: 0,
+      updated: 0,
+      failedExternal: 0,
+      failedInternal: 0,
+      skipped: true,
+      status: "missing_source",
+      durationMs: Date.now() - startedAt,
+    };
+  }
+
+  if (!sourceClaimMatches(source, input.claimToken)) {
+    return {
+      sourceId: source.id,
+      sourceName: source.source_name,
+      processed: 0,
+      synced: 0,
+      created: 0,
+      updated: 0,
+      failedExternal: 0,
+      failedInternal: 0,
+      skipped: true,
+      status: "stale_claim",
+      durationMs: Date.now() - startedAt,
+    };
+  }
+
+  try {
+    const result = await runSourceAndUpsert(source);
+    return {
+      sourceId: source.id,
+      sourceName: source.source_name,
+      processed: 1,
+      synced: result.synced,
+      created: result.created,
+      updated: result.updated,
+      failedExternal: 0,
+      failedInternal: 0,
+      status: "success",
+      durationMs: Date.now() - startedAt,
+    };
+  } catch (error) {
+    const classification = classifyGrantSourceFailure(error);
+    await markSourceRunOutcome(source.id, classification.kind, {
+      error: classification.message,
+      result: {
+        failedExternal: classification.external ? 1 : 0,
+        failedInternal: classification.external ? 0 : 1,
+      },
+    }).catch((updateError) => {
+      console.warn(`[grant-source-crawler] failed to mark source outcome ${source.id}:`, updateError);
+    });
+
+    if (classification.external) {
+      return {
+        sourceId: source.id,
+        sourceName: source.source_name,
+        processed: 1,
+        synced: 0,
+        created: 0,
+        updated: 0,
+        failedExternal: 1,
+        failedInternal: 0,
+        status: classification.kind,
+        durationMs: Date.now() - startedAt,
+      };
+    }
+
+    console.error(`[grant-source-crawler] ${source.source_name} (${source.id}):`, error);
+    throw error;
+  }
 }
 
 /**
@@ -264,9 +591,20 @@ export async function runDueGrantSources(options?: { limit?: number }): Promise<
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      const classification = classifyGrantSourceFailure(err);
       failed++;
-      console.error(`[grant-source-crawler] ${source.source_name} (${source.id}):`, err);
-      await updateLastCrawled(source.id).catch((updateErr) => {
+      if (classification.external) {
+        console.warn(`[grant-source-crawler] external ${classification.kind} for ${source.source_name} (${source.id}): ${message}`);
+      } else {
+        console.error(`[grant-source-crawler] ${source.source_name} (${source.id}):`, err);
+      }
+      await markSourceRunOutcome(source.id, classification.kind, {
+        error: message,
+        result: {
+          failedExternal: classification.external ? 1 : 0,
+          failedInternal: classification.external ? 0 : 1,
+        },
+      }).catch((updateErr) => {
         console.error(`[grant-source-crawler] failed to mark attempted ${source.id}:`, updateErr);
       });
       results.push({

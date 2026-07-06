@@ -26,6 +26,7 @@ import { planAllowsForOrg } from "@/lib/plan-features";
 import { grantFinderLabel } from "@/lib/grant-source-policy";
 import { getConfidenceBand } from "@/lib/claude";
 import { markGrantUserState } from "@/lib/grant-user-state";
+import { clearEligibleMatchCaches } from "@/lib/eligible-match-cache";
 import { GrantStateActions } from "@/components/grants/grant-state-actions";
 import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
 import { applyOutcomeScoreAdjustment, deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
@@ -131,14 +132,17 @@ export default async function GrantDetailPage({
   const hasProfile = !!profile && (profile.completionScore ?? 0) >= 50;
   const profileId = profile?.id ?? null;
   if (profileId) {
-    await markGrantUserState(supabase, {
-      organisationId: orgId,
-      profileId,
-      grantId: grant.id,
-      status: "viewed",
-    }).catch((error) => {
+    try {
+      await markGrantUserState(supabase, {
+        organisationId: orgId,
+        profileId,
+        grantId: grant.id,
+        status: "viewed",
+      });
+      clearEligibleMatchCaches();
+    } catch (error) {
       console.warn("[grant-detail] could not mark viewed", error instanceof Error ? error.message : error);
-    });
+    }
   }
 
   const { data: existingApplication } = await supabase

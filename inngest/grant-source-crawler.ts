@@ -1,17 +1,31 @@
 import { inngest } from "./client";
-import { runDueGrantSources } from "@/lib/grant-sources";
+import { enqueueDueGrantSourceRuns, runClaimedGrantSource } from "@/lib/grant-sources";
 import { runWithCronLog } from "@/lib/cron-run-log";
 
 /**
- * Scheduler that runs grant sources from the registry when due.
- * Every 6 hours we query grant_sources for enabled rows where
- * last_crawled_at + crawl_frequency <= now, run each adapter, upsert grants, then update last_crawled_at.
+ * Scheduler only claims and enqueues due grant sources. The actual crawl work is
+ * one source per worker event so long source lists cannot timeout a cron route.
  */
 export const grantSourceCrawler = inngest.createFunction(
-  { id: "grant-source-crawler", name: "Grant Source Registry Crawler" },
-  { cron: "0 */6 * * *" }, // every 6 hours
-  async () => runWithCronLog(
-    { jobName: "Grant Source Registry Crawler", route: "inngest/grant-source-crawler", trigger: "inngest" },
-    () => runDueGrantSources()
-  )
+  { id: "grant-source-crawler", name: "Grant Source Registry Crawler Enqueue" },
+  { cron: "0 */6 * * *" },
+  async () =>
+    runWithCronLog(
+      { jobName: "Grant Source Registry Crawler Enqueue", route: "inngest/grant-source-crawler", trigger: "inngest" },
+      () => enqueueDueGrantSourceRuns({ source: "inngest.cron.grant-source-crawler" })
+    )
+);
+
+export const grantSourceRunRequested = inngest.createFunction(
+  { id: "grant-source-run-requested", name: "Grant Source Registry Source Worker" },
+  { event: "grant-source/run.requested" },
+  async ({ event }) =>
+    runWithCronLog(
+      { jobName: "Grant Source Registry Source Worker", route: "inngest/grant-source.run", trigger: "inngest" },
+      () =>
+        runClaimedGrantSource({
+          sourceId: String(event.data?.sourceId ?? ""),
+          claimToken: typeof event.data?.claimToken === "string" ? event.data.claimToken : null,
+        })
+    )
 );

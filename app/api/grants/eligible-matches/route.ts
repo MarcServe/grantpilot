@@ -13,6 +13,14 @@ import {
   finaliseEligibilityAssessment,
   resolveScoringSource,
 } from "@/lib/eligibility-final-score";
+import {
+  matchSectionAllowsCandidate,
+  normalizeEligibleMatchSection,
+  scoreBelongsToMatchSection,
+  sortEligibleMatchesForSection,
+  type EligibleMatchSection,
+  type GrantUserState,
+} from "@/lib/eligible-match-rules";
 import type { EligibleGrant } from "@/components/grants/eligible-grant-card";
 
 const MATCH_PAGE_SIZE_OPTIONS = [20, 30, 50] as const;
@@ -58,8 +66,6 @@ const GRANT_SELECT_BASE = [
   "regions",
 ].join(", ");
 
-type ScoreTier = "suggested" | "within_reach" | "other";
-type GrantUserState = "saved" | "viewed" | "deferred" | "applied" | "dismissed";
 type AssessmentRow = {
   grant_id: string;
   score: number;
@@ -125,34 +131,18 @@ function normalizePageSize(raw: string | null): number {
   return (MATCH_PAGE_SIZE_OPTIONS as readonly number[]).includes(parsed) ? parsed : DEFAULT_MATCH_PAGE_SIZE;
 }
 
-function normalizeTier(raw: string | null): ScoreTier {
-  if (raw === "within_reach" || raw === "other") return raw;
-  return "suggested";
-}
-
-function tierForScore(score: number): ScoreTier {
-  if (score >= 85) return "suggested";
-  if (score >= 50) return "within_reach";
-  return "other";
-}
-
-function applyTierFilter<T>(query: T, tier: ScoreTier): T {
+function applySectionScoreFilter<T>(query: T, section: EligibleMatchSection): T {
   type ScoreFilterChain = {
     gte: (column: string, value: number) => T;
     lt: (column: string, value: number) => T;
   };
   const chain = query as ScoreFilterChain;
-  if (tier === "suggested") return chain.gte("score", 85);
-  if (tier === "within_reach") {
+  if (section === "suggested") return chain.gte("score", 85);
+  if (section === "within_reach") {
     return (chain.gte("score", 50) as ScoreFilterChain).lt("score", 85);
   }
-  return chain.lt("score", 50);
-}
-
-function dateTime(value?: string | null): number {
-  if (!value) return 0;
-  const parsed = new Date(value).getTime();
-  return Number.isFinite(parsed) ? parsed : 0;
+  if (section === "other") return chain.lt("score", 50);
+  return chain.gte("score", 1);
 }
 
 function hashIds(ids: string[]): string {
@@ -208,28 +198,28 @@ async function fetchEligibleGrantRowsByIds(
 async function queryAssessmentBatch({
   orgId,
   profileId,
-  tier,
+  section,
   from,
   to,
 }: {
   orgId: string;
   profileId: string;
-  tier: ScoreTier;
+  section: EligibleMatchSection;
   from: number;
   to: number;
 }): Promise<AssessmentBatch> {
   const supabase = getSupabaseAdmin();
-  const cacheKey = `eligible-match-assessments:v6:${orgId}:${profileId}:${tier}:${from}:${to}`;
+  const cacheKey = `eligible-match-assessments:v7:${orgId}:${profileId}:${section}:${from}:${to}`;
   return getServerCache(cacheKey, { ttlMs: 30_000, maxEntries: 200 }, async () => {
-    let withProfile = applyTierFilter(
+    let withProfile = applySectionScoreFilter(
       supabase
         .from("EligibilityAssessment")
         .select(ASSESSMENT_SELECT, { count: "exact" })
         .eq("organisation_id", orgId)
         .eq("profile_id", profileId),
-      tier
+      section
     );
-    withProfile = tier === "within_reach"
+    withProfile = section === "within_reach"
       ? withProfile.order("updated_at", { ascending: false }).order("score", { ascending: false })
       : withProfile.order("score", { ascending: false }).order("updated_at", { ascending: false });
     withProfile = withProfile.range(from, to);
@@ -246,14 +236,14 @@ async function queryAssessmentBatch({
       };
     }
 
-    let orgOnly = applyTierFilter(
+    let orgOnly = applySectionScoreFilter(
       supabase
         .from("EligibilityAssessment")
         .select(ASSESSMENT_SELECT, { count: "exact" })
         .eq("organisation_id", orgId),
-      tier
+      section
     );
-    orgOnly = tier === "within_reach"
+    orgOnly = section === "within_reach"
       ? orgOnly.order("updated_at", { ascending: false }).order("score", { ascending: false })
       : orgOnly.order("score", { ascending: false }).order("updated_at", { ascending: false });
     orgOnly = orgOnly.range(from, to);
@@ -274,19 +264,19 @@ async function buildTierMatches({
   orgId,
   profile,
   profileId,
-  tier,
+  section,
   page,
   pageSize,
 }: {
   orgId: string;
   profile: Record<string, unknown>;
   profileId: string;
-  tier: ScoreTier;
+  section: EligibleMatchSection;
   page: number;
   pageSize: number;
 }): Promise<TierMatchResult> {
   const supabase = getSupabaseAdmin();
-  const cacheKey = `eligible-match-tier:v4:${orgId}:${profileId}:${tier}:${page}:${pageSize}`;
+  const cacheKey = `eligible-match-tier:v5:${orgId}:${profileId}:${section}:${page}:${pageSize}`;
 
   return getServerCache(cacheKey, { ttlMs: 30_000, maxEntries: 100 }, async () => {
     const outcomePromise = supabase
@@ -329,15 +319,14 @@ async function buildTierMatches({
     const outcomeAdvisory = deriveOutcomeLearningAdvisory(outcomeResult.data ?? []);
     const seenGrantIds = new Set<string>();
     const matches: EligibleGrant[] = [];
-    const targetMatchCount = page * pageSize + 1;
     let rawAssessmentCount = 0;
     let scannedAssessmentCount = 0;
     let usedProfileFallback = false;
 
-    while (scannedAssessmentCount < MAX_MATCH_ASSESSMENTS && matches.length < targetMatchCount) {
+    while (scannedAssessmentCount < MAX_MATCH_ASSESSMENTS) {
       const batchFrom = scannedAssessmentCount;
       const batchTo = Math.min(MAX_MATCH_ASSESSMENTS, batchFrom + GRANT_QUERY_BATCH_SIZE) - 1;
-      const assessmentBatch = await queryAssessmentBatch({ orgId, profileId, tier, from: batchFrom, to: batchTo });
+      const assessmentBatch = await queryAssessmentBatch({ orgId, profileId, section, from: batchFrom, to: batchTo });
       rawAssessmentCount = assessmentBatch.count;
       usedProfileFallback = usedProfileFallback || assessmentBatch.usedProfileFallback;
 
@@ -364,7 +353,9 @@ async function buildTierMatches({
         const scoringSource = resolveScoringSource(assessment);
         const guarded = finaliseEligibilityAssessment(profile, grant, assessment, outcomeAdvisory);
         const score = finalEligibilityScore(guarded);
-        if (tierForScore(score) !== tier) continue;
+        const userState = grantUserStateMap.get(assessment.grant_id) ?? null;
+        if (!scoreBelongsToMatchSection(section, score)) continue;
+        if (!matchSectionAllowsCandidate({ section, userState, scoringSource })) continue;
 
         seenGrantIds.add(assessment.grant_id);
         matches.push({
@@ -388,31 +379,14 @@ async function buildTierMatches({
           applicationUrlKind: grant.applicationUrlKind ?? null,
           applicationUrlQualityReason: grant.applicationUrlQualityReason ?? null,
           scoringSource,
-          userState: grantUserStateMap.get(assessment.grant_id) ?? null,
+          userState,
         });
-
-        if (matches.length >= targetMatchCount) break;
       }
 
       if (scannedAssessmentCount >= rawAssessmentCount) break;
     }
 
-    matches.sort((a, b) => {
-      if (tier === "within_reach") {
-        const bAddedTime = dateTime(b.addedAt);
-        const aAddedTime = dateTime(a.addedAt);
-        if (bAddedTime !== aAddedTime) return bAddedTime - aAddedTime;
-        if (b.score !== a.score) return b.score - a.score;
-        return dateTime(b.scoredAt) - dateTime(a.scoredAt);
-      }
-      if (b.score !== a.score) return b.score - a.score;
-      const bAddedTime = dateTime(b.addedAt);
-      const aAddedTime = dateTime(a.addedAt);
-      if (bAddedTime !== aAddedTime) return bAddedTime - aAddedTime;
-      const bScoredTime = dateTime(b.scoredAt);
-      const aScoredTime = dateTime(a.scoredAt);
-      return bScoredTime - aScoredTime;
-    });
+    matches.sort((a, b) => sortEligibleMatchesForSection(section, a, b));
 
     const pageEnd = page * pageSize;
     const scanComplete = scannedAssessmentCount >= rawAssessmentCount || scannedAssessmentCount >= MAX_MATCH_ASSESSMENTS;
@@ -432,7 +406,7 @@ async function buildTierMatches({
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
-    const tier = normalizeTier(url.searchParams.get("tier"));
+    const tier = normalizeEligibleMatchSection(url.searchParams.get("tier"));
     const page = normalizePage(url.searchParams.get("page"));
     const pageSize = normalizePageSize(url.searchParams.get("pageSize"));
     const { org, orgId } = await getActiveOrg();
@@ -447,7 +421,7 @@ export async function GET(request: Request) {
       orgId,
       profile: profile as Record<string, unknown>,
       profileId,
-      tier,
+      section: tier,
       page,
       pageSize,
     });

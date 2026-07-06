@@ -310,7 +310,7 @@ async function getDigestHiddenGrantIds(
   profileId: string,
   candidateGrantIds: string[]
 ): Promise<Set<string>> {
-  const hidden = await getSuppressedGrantIds(supabase, orgId, profileId);
+  const hidden = await getSuppressedGrantIds(supabase, orgId, profileId, { includeViewed: true });
   if (candidateGrantIds.length === 0) return hidden;
 
   const { data, error } = await supabase
@@ -381,10 +381,18 @@ function digestScoredTime(item: DigestGrantItem): number {
   return Number.isFinite(time) ? time : 0;
 }
 
+function digestGrantAddedTime(item: DigestGrantItem): number {
+  if (!item.grantAddedAt) return 0;
+  const time = new Date(item.grantAddedAt).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
 function sortDigestByFreshScore(a: DigestGrantItem, b: DigestGrantItem): number {
+  const addedDelta = digestGrantAddedTime(b) - digestGrantAddedTime(a);
+  if (addedDelta !== 0) return addedDelta;
+  if (b.score !== a.score) return b.score - a.score;
   const scoredDelta = digestScoredTime(b) - digestScoredTime(a);
   if (scoredDelta !== 0) return scoredDelta;
-  if (b.score !== a.score) return b.score - a.score;
   return a.grantName.localeCompare(b.grantName);
 }
 
@@ -507,6 +515,7 @@ async function buildCurrentDigestForProfile(
       .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, scoring_source, updated_at, notified_at")
       .eq("organisation_id", orgId)
       .eq("profile_id", profileId)
+      .in("scoring_source", ["openai", "intelligence"])
       .gte("score", 50)
       .lte("score", withinReachMax)
       .order("updated_at", { ascending: false })
@@ -519,6 +528,7 @@ async function buildCurrentDigestForProfile(
     .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, scoring_source, updated_at, notified_at")
     .eq("organisation_id", orgId)
     .eq("profile_id", profileId)
+    .in("scoring_source", ["openai", "intelligence"])
     .gte("score", 1)
     .lt("score", 50)
     .order("updated_at", { ascending: false })

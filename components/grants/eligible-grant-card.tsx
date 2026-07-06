@@ -66,6 +66,7 @@ function formatAddedAt(value?: string | null): string | null {
 
 function stateLabel(status?: GrantUserState | null): string | null {
   if (status === "saved") return "Saved";
+  if (status === "viewed") return "Viewed";
   if (status === "deferred") return "Deferred";
   if (status === "applied") return "In Applications";
   if (status === "dismissed") return "Dismissed";

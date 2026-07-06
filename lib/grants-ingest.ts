@@ -8,8 +8,7 @@ import { createHash } from "crypto";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { looksLikeGenericOrListUrl } from "@/lib/grant-url-validation";
 import { enqueueGrantForScoutIfProgrammeUrl } from "@/lib/enqueue-scout";
-import { generateAndStoreGrantEmbedding } from "@/lib/embeddings";
-import { checkUrlHealth } from "@/lib/url-health-check";
+import { requestGrantPostprocess } from "@/lib/grant-postprocess";
 import { getGrantFreshnessStatus, isPastGrantDeadline } from "@/lib/grant-freshness";
 import { verifyGrantActionable } from "@/lib/grant-actionability";
 import {
@@ -226,20 +225,14 @@ export async function upsertGrant(input: GrantInput): Promise<{ id: string; crea
 
     if (existing) {
       await supabase.from("Grant").update(data).eq("id", existing.id);
-      if (canonicalApplicationUrl) {
-        checkUrlHealth(canonicalApplicationUrl, verificationInput)
-          .then(async (result) => {
-            await getSupabaseAdmin()
-              .from("Grant")
-              .update({ url_status: result.status, url_checked_at: new Date().toISOString() })
-              .eq("id", existing.id);
-          })
-          .catch(() => {});
-      }
       if (!directApplicationUrl && detailClassification.quality === "needs_scout") {
         await enqueueGrantForScoutIfProgrammeUrl(existing.id).catch(() => {});
       }
-      generateAndStoreGrantEmbedding(existing.id).catch(() => {});
+      await requestGrantPostprocess({
+        grantId: existing.id,
+        applicationUrl: canonicalApplicationUrl,
+        context: verificationInput,
+      });
       return { id: existing.id, created: false };
     }
   }
@@ -257,18 +250,11 @@ export async function upsertGrant(input: GrantInput): Promise<{ id: string; crea
   if (!directApplicationUrl && detailClassification.quality === "needs_scout") {
     await enqueueGrantForScoutIfProgrammeUrl(grant.id).catch(() => {});
   }
-  generateAndStoreGrantEmbedding(grant.id).catch(() => {});
-
-  if (canonicalApplicationUrl) {
-    checkUrlHealth(canonicalApplicationUrl, verificationInput)
-      .then(async (result) => {
-        await getSupabaseAdmin()
-          .from("Grant")
-          .update({ url_status: result.status, url_checked_at: new Date().toISOString() })
-          .eq("id", grant.id);
-      })
-      .catch(() => {});
-  }
+  await requestGrantPostprocess({
+    grantId: grant.id,
+    applicationUrl: canonicalApplicationUrl,
+    context: verificationInput,
+  });
 
   return { id: grant.id, created: true };
 }

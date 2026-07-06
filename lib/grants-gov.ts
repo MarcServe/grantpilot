@@ -85,7 +85,7 @@ const MAX_TOTAL_US = 500;  // cap total US grants per sync
 /**
  * Fetch one page of open (posted) opportunities from Grants.gov.
  */
-async function fetchGrantsGovPage(startRecord: number, rows: number): Promise<{ hits: GrantsGovOppHit[]; hitCount: number }> {
+export async function fetchGrantsGovPage(startRecord: number, rows: number): Promise<{ grants: GrantInput[]; hitCount: number; rawHits: number }> {
   const res = await fetch(GRANTS_GOV_SEARCH_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -102,7 +102,11 @@ async function fetchGrantsGovPage(startRecord: number, rows: number): Promise<{ 
   if (json.errorcode !== 0) throw new Error("Grants.gov search returned an error.");
   const hits = json.data?.oppHits ?? [];
   const hitCount = json.data?.hitCount ?? 0;
-  return { hits, hitCount };
+  return {
+    grants: hits.map(mapGrantsGovHitToGrant).filter((grant): grant is GrantInput => Boolean(grant)),
+    hitCount,
+    rawHits: hits.length,
+  };
 }
 
 /**
@@ -114,13 +118,12 @@ export async function fetchGrantsFromGrantsGov(maxTotal = MAX_TOTAL_US): Promise
   const limit = Math.min(Math.max(maxTotal, 1), 1000);
 
   while (startRecord < limit) {
-    const { hits, hitCount } = await fetchGrantsGovPage(startRecord, ROWS_PER_PAGE);
-    for (const hit of hits) {
-      const g = mapGrantsGovHitToGrant(hit);
-      if (g) out.push(g);
+    const { grants, hitCount, rawHits } = await fetchGrantsGovPage(startRecord, ROWS_PER_PAGE);
+    for (const g of grants) {
+      out.push(g);
       if (out.length >= limit) break;
     }
-    if (hits.length === 0 || out.length >= limit) break;
+    if (rawHits === 0 || out.length >= limit) break;
     startRecord += ROWS_PER_PAGE;
     if (startRecord >= hitCount) break;
   }
