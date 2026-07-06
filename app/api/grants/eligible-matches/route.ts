@@ -102,6 +102,9 @@ type GrantRow = {
   applicationUrlKind?: string | null;
   applicationUrlQualityReason?: string | null;
 };
+type GrantWithAssessmentRow = GrantRow & {
+  EligibilityAssessment?: AssessmentRow[] | AssessmentRow | null;
+};
 type AssessmentBatch = {
   rows: AssessmentRow[];
   count: number;
@@ -131,18 +134,18 @@ function normalizePageSize(raw: string | null): number {
   return (MATCH_PAGE_SIZE_OPTIONS as readonly number[]).includes(parsed) ? parsed : DEFAULT_MATCH_PAGE_SIZE;
 }
 
-function applySectionScoreFilter<T>(query: T, section: EligibleMatchSection): T {
+function applySectionScoreFilter<T>(query: T, section: EligibleMatchSection, scoreColumn = "score"): T {
   type ScoreFilterChain = {
     gte: (column: string, value: number) => T;
     lt: (column: string, value: number) => T;
   };
   const chain = query as ScoreFilterChain;
-  if (section === "suggested") return chain.gte("score", 85);
+  if (section === "suggested") return chain.gte(scoreColumn, 85);
   if (section === "within_reach") {
-    return (chain.gte("score", 50) as ScoreFilterChain).lt("score", 85);
+    return (chain.gte(scoreColumn, 50) as ScoreFilterChain).lt(scoreColumn, 85);
   }
-  if (section === "other") return chain.lt("score", 50);
-  return chain.gte("score", 1);
+  if (section === "other") return chain.lt(scoreColumn, 50);
+  return chain.gte(scoreColumn, 1);
 }
 
 function hashIds(ids: string[]): string {
@@ -260,6 +263,85 @@ async function queryAssessmentBatch({
   });
 }
 
+function firstAssessment(row: GrantWithAssessmentRow): AssessmentRow | null {
+  const nested = row.EligibilityAssessment;
+  if (Array.isArray(nested)) return nested[0] ?? null;
+  return nested ?? null;
+}
+
+function grantOrderedSections(section: EligibleMatchSection): boolean {
+  return section !== "suggested";
+}
+
+async function queryGrantOrderedAssessmentBatch({
+  orgId,
+  profileId,
+  section,
+  from,
+  to,
+}: {
+  orgId: string;
+  profileId: string;
+  section: EligibleMatchSection;
+  from: number;
+  to: number;
+}): Promise<AssessmentBatch> {
+  const supabase = getSupabaseAdmin();
+  const cacheKey = `eligible-match-grant-ordered-assessments:v1:${orgId}:${profileId}:${section}:${from}:${to}`;
+
+  return getServerCache(cacheKey, { ttlMs: 30_000, maxEntries: 200 }, async () => {
+    const select = `${GRANT_SELECT_BASE}, EligibilityAssessment!inner(${ASSESSMENT_SELECT})`;
+    let withProfile = applySectionScoreFilter(
+      supabase
+        .from("Grant")
+        .select(select, { count: "exact" })
+        .eq("EligibilityAssessment.organisation_id", orgId)
+        .eq("EligibilityAssessment.profile_id", profileId),
+      section,
+      "EligibilityAssessment.score"
+    );
+    withProfile = withProfile.order("createdAt", { ascending: false }).range(from, to);
+
+    const primary = await withProfile;
+    if (primary.error) {
+      console.error("[eligible-matches] grant ordered assessment query error:", primary.error);
+    }
+
+    if ((primary.count ?? primary.data?.length ?? 0) > 0) {
+      return {
+        rows: ((primary.data ?? []) as unknown as GrantWithAssessmentRow[])
+          .map(firstAssessment)
+          .filter((row): row is AssessmentRow => Boolean(row)),
+        count: primary.count ?? primary.data?.length ?? 0,
+        usedProfileFallback: false,
+      };
+    }
+
+    let orgOnly = applySectionScoreFilter(
+      supabase
+        .from("Grant")
+        .select(select, { count: "exact" })
+        .eq("EligibilityAssessment.organisation_id", orgId),
+      section,
+      "EligibilityAssessment.score"
+    );
+    orgOnly = orgOnly.order("createdAt", { ascending: false }).range(from, to);
+
+    const fallback = await orgOnly;
+    if (fallback.error) {
+      console.error("[eligible-matches] grant ordered assessment fallback query error:", fallback.error);
+    }
+
+    return {
+      rows: ((fallback.data ?? []) as unknown as GrantWithAssessmentRow[])
+        .map(firstAssessment)
+        .filter((row): row is AssessmentRow => Boolean(row)),
+      count: fallback.count ?? fallback.data?.length ?? 0,
+      usedProfileFallback: Boolean(fallback.data?.length),
+    };
+  });
+}
+
 async function buildTierMatches({
   orgId,
   profile,
@@ -326,7 +408,9 @@ async function buildTierMatches({
     while (scannedAssessmentCount < MAX_MATCH_ASSESSMENTS) {
       const batchFrom = scannedAssessmentCount;
       const batchTo = Math.min(MAX_MATCH_ASSESSMENTS, batchFrom + GRANT_QUERY_BATCH_SIZE) - 1;
-      const assessmentBatch = await queryAssessmentBatch({ orgId, profileId, section, from: batchFrom, to: batchTo });
+      const assessmentBatch = grantOrderedSections(section)
+        ? await queryGrantOrderedAssessmentBatch({ orgId, profileId, section, from: batchFrom, to: batchTo })
+        : await queryAssessmentBatch({ orgId, profileId, section, from: batchFrom, to: batchTo });
       rawAssessmentCount = assessmentBatch.count;
       usedProfileFallback = usedProfileFallback || assessmentBatch.usedProfileFallback;
 
