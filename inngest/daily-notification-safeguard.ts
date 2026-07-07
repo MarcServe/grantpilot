@@ -327,7 +327,7 @@ async function getDigestHiddenGrantIds(
 
   for (const row of (data ?? []) as Array<{ grant_id?: string | null; status?: string | null }>) {
     if (!row.grant_id) continue;
-    if (row.status === "deferred" || row.status === "applied" || row.status === "dismissed") {
+    if (row.status === "viewed" || row.status === "deferred" || row.status === "applied" || row.status === "dismissed") {
       hidden.add(row.grant_id);
     }
   }
@@ -774,7 +774,8 @@ export async function runDailyNotificationSafeguardJob(options?: {
     if (primaryProfile?.id && canReceiveProactiveNotifications) {
       const digest = await buildCurrentDigestForProfile(supabase, orgId, primaryProfile, minScore, maxScore);
       if (digest.strong.length > 0 || digest.withinReach.length > 0 || digest.other.length > 0 || digest.previous.length > 0) {
-        const shouldSendEmail = sendEmail && !alreadyDelivered;
+        const hasUnnotifiedStrongMatches = digest.strong.length > 0;
+        const shouldSendEmail = sendEmail && (!alreadyDelivered || hasUnnotifiedStrongMatches);
         const shouldSendWhatsApp =
           sendWhatsApp &&
           !alreadySentWhatsApp &&
@@ -880,13 +881,13 @@ export async function enqueueDailyEligibilityDigests(options: {
 
   const checkedGrantsCount = await countUsableGrants(supabase);
   diagnostics.checkedGrantsCount = checkedGrantsCount;
-  const dateKey = new Date().toISOString().slice(0, 10);
+  const runKey = new Date().toISOString().slice(0, 13);
 
   for (let offset = 0; offset < dueOrgIds.length; offset += DIGEST_ENQUEUE_CHUNK_SIZE) {
     const chunk = dueOrgIds.slice(offset, offset + DIGEST_ENQUEUE_CHUNK_SIZE);
     try {
       await inngest.send(chunk.map((orgId) => ({
-        id: `eligibility-digest:${orgId}:${dateKey}`,
+        id: `eligibility-digest:${orgId}:${runKey}`,
         name: "eligibility/digest.requested",
         data: {
           orgId,

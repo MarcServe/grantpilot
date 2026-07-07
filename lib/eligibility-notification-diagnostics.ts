@@ -315,7 +315,7 @@ async function getActionableGrantTraceForGrantIds(
   const usable = rows.filter((grant) => isGrantActionableNow(grant));
   const [appliedGrantIds, suppressedGrantIds] = await Promise.all([
     getAppliedGrantIds(supabase, orgId, profile.id),
-    getSuppressedGrantIds(supabase, orgId, profile.id),
+    getSuppressedGrantIds(supabase, orgId, profile.id, { includeViewed: true }),
   ]);
   const actionable = usable.filter((grant) => !appliedGrantIds.has(grant.id) && !suppressedGrantIds.has(grant.id));
   const profileFunderLocations = Array.isArray(profile.funderLocations)

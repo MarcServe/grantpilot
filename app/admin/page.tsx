@@ -762,9 +762,7 @@ function suppressionChangedAt(row: SavedGrantSuppressionRow): string | null {
 function suppressionReason(row: SavedGrantSuppressionRow): string {
   switch (row.status) {
     case "viewed":
-      return row.suppress_notifications
-        ? "Legacy viewed row has suppression enabled; viewed grants no longer suppress eligibility alerts."
-        : "Viewed in detail; this does not suppress eligibility alerts.";
+      return "Viewed in detail; removed from active Suggested and proactive eligibility alerts, but still recoverable in reviewed history.";
     case "deferred":
       return "Deferred for later by the user.";
     case "applied":
@@ -2216,7 +2214,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
             <CardContent>
               <p className="text-sm text-muted-foreground">
                 Grants listed here are removed from repeated eligibility and deadline notifications for that profile.
-                Saved-only and viewed grants stay active; deferred, applied, and dismissed states suppress reminders.
+                Saved-only grants stay active. Viewed, deferred, applied, and dismissed grants are removed from active Suggested and proactive eligibility reminders.
               </p>
               <div className="mt-4">
                 <PaginationControls

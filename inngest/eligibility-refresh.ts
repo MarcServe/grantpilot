@@ -994,11 +994,11 @@ export async function runEligibilityRefreshJob(options?: {
             "whatsapp",
             recentWindow
           );
-          const shouldSendEmail = sendNotifyEmail && !alreadyUpdated;
           const maySendWhatsApp = sendWhatsApp && !alreadySentWhatsApp;
-          if (!shouldSendEmail && !maySendWhatsApp) return false;
+          if (!sendNotifyEmail && !maySendWhatsApp) return false;
 
           const currentStrongDigest = await getCurrentStrongDigest();
+          const shouldSendEmail = sendNotifyEmail && (!alreadyUpdated || currentStrongDigest.length > 0);
           const currentWithinReachDigest = shouldSendEmail ? await buildCurrentWithinReachDigest() : [];
           const currentOtherDigest = shouldSendEmail ? await buildCurrentOtherDigest() : [];
           const previousScanGrants = await buildPreviousScanDigest();
@@ -1273,16 +1273,18 @@ export async function runEligibilityRefreshJob(options?: {
           );
           const shouldSendEmail = sendNotifyEmail && !alreadyUpdated;
           const maySendWhatsApp = sendWhatsApp && !alreadySentWhatsApp;
-          const currentStrongDigest = shouldSendEmail || maySendWhatsApp ? await getCurrentStrongDigest() : [];
+          const currentStrongDigest = sendNotifyEmail || maySendWhatsApp ? await getCurrentStrongDigest() : [];
+          const shouldSendStrongEmail = sendNotifyEmail && currentStrongDigest.length > 0;
           const currentWithinReachDigest = shouldSendEmail ? await buildCurrentWithinReachDigest() : [];
           const currentOtherDigest = shouldSendEmail ? await buildCurrentOtherDigest() : [];
           const previousScanGrants = shouldSendEmail || maySendWhatsApp ? await buildPreviousScanDigest() : [];
           if (currentStrongDigest.length > 0 || currentWithinReachDigest.length > 0 || currentOtherDigest.length > 0 || previousScanGrants.length > 0) {
             const shouldSendWhatsApp = maySendWhatsApp && hasStrongWhatsAppMatches([...currentStrongDigest, ...previousScanGrants]);
+            const shouldSendDigestEmail = shouldSendEmail || shouldSendStrongEmail;
             console.info(
-              `[eligibility-refresh]   SENDING current-match digest for ${currentStrongDigest.length} strong, ${currentWithinReachDigest.length} within-reach, ${currentOtherDigest.length} other, and ${previousScanGrants.length} previous grants to org ${orgId} email=${shouldSendEmail} whatsapp=${shouldSendWhatsApp}`
+              `[eligibility-refresh]   SENDING current-match digest for ${currentStrongDigest.length} strong, ${currentWithinReachDigest.length} within-reach, ${currentOtherDigest.length} other, and ${previousScanGrants.length} previous grants to org ${orgId} email=${shouldSendDigestEmail} whatsapp=${shouldSendWhatsApp}`
             );
-            if (shouldSendEmail || shouldSendWhatsApp) {
+            if (shouldSendDigestEmail || shouldSendWhatsApp) {
               await notifyOrgMembers(orgId, "grant_scan_digest", {
                 grants: currentStrongDigest,
                 withinReachGrants: currentWithinReachDigest,
@@ -1290,12 +1292,12 @@ export async function runEligibilityRefreshJob(options?: {
                 previousScanGrants,
                 profileName,
               }, {
-                sendEmail: shouldSendEmail,
+                sendEmail: shouldSendDigestEmail,
                 sendWhatsApp: shouldSendWhatsApp,
               });
               diagnostics.dailyUpdates++;
               notifiedCount += currentStrongDigest.length;
-              const notifiedItems = shouldSendEmail
+              const notifiedItems = shouldSendDigestEmail
                 ? [...currentStrongDigest, ...currentWithinReachDigest, ...currentOtherDigest]
                 : currentStrongDigest;
               if (notifiedItems.length > 0) await markDigestItemsNotified(supabase, orgId, profileId, notifiedItems);

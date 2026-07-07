@@ -20,7 +20,7 @@ export function savedGrantSuppressesNotifications(
   options?: { includeViewed?: boolean }
 ): boolean {
   if (row.status && shouldSuppressGrantNotifications(row.status)) return true;
-  if (row.status === "viewed" && options?.includeViewed !== true) return false;
+  if (row.status === "viewed") return options?.includeViewed === true;
   return row.suppress_notifications === true;
 }
 

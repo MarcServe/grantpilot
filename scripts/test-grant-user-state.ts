@@ -7,6 +7,7 @@ assert.equal(savedGrantSuppressesNotifications({ status: "dismissed", suppress_n
 assert.equal(savedGrantSuppressesNotifications({ status: "saved", suppress_notifications: true }), true);
 assert.equal(savedGrantSuppressesNotifications({ status: "viewed", suppress_notifications: true }), false);
 assert.equal(savedGrantSuppressesNotifications({ status: "viewed", suppress_notifications: true }, { includeViewed: true }), true);
+assert.equal(savedGrantSuppressesNotifications({ status: "viewed", suppress_notifications: false }, { includeViewed: true }), true);
 assert.equal(savedGrantSuppressesNotifications({ status: "saved", suppress_notifications: false }), false);
 
 console.log("grant user-state suppression tests passed");

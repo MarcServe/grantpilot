@@ -17,6 +17,25 @@ assert.match(sourceCrawlerRoute, /enqueueDueGrantSourceRuns/, "grant-source craw
 assert.doesNotMatch(sourceCrawlerRoute, /runDueGrantSources/, "grant-source crawler cron should not run all sources inline");
 assert.match(sourceCrawlerRoute, /maxDuration\s*=\s*30/, "grant-source crawler cron should have a short maxDuration");
 
+const dailyDigestSafeguard = read("inngest/daily-notification-safeguard.ts");
+assert.match(
+  dailyDigestSafeguard,
+  /toISOString\(\)\.slice\(0,\s*13\)/,
+  "daily digest enqueue should use an hourly idempotency key so a pre-scoring no-match run cannot block later strong matches"
+);
+assert.match(
+  dailyDigestSafeguard,
+  /row\.status === "viewed"/,
+  "daily digest candidates should suppress viewed grants like the active Suggested list"
+);
+
+const eligibilityDiagnostics = read("lib/eligibility-notification-diagnostics.ts");
+assert.match(
+  eligibilityDiagnostics,
+  /getSuppressedGrantIds\(supabase,\s*orgId,\s*profile\.id,\s*\{\s*includeViewed:\s*true\s*\}\)/,
+  "eligibility notification diagnostics should count viewed grants the same way active alerts do"
+);
+
 const inngestRoute = read("app/api/inngest/route.ts");
 for (const fn of [
   "grantSyncSourceRequested",
