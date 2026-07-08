@@ -5,7 +5,6 @@ import { grantMatchesFunderLocations, inferFunderLocationsFromProfile } from "@/
 import { isGrantActionableNow } from "@/lib/grant-actionability";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { getSuppressedGrantIds } from "@/lib/grant-user-state";
-import { isOutsideDigestGrantRepeatCooldown } from "@/lib/eligibility-digest-cooldown";
 import { deriveOutcomeLearningAdvisory, type OutcomeLearningAdvisory } from "@/lib/outcome-learning";
 import { finalEligibilityScore, finaliseEligibilityAssessment } from "@/lib/eligibility-final-score";
 import type { EligibilityResult } from "@/lib/claude";
@@ -461,7 +460,7 @@ async function getAssessmentCounts(
 
   return {
     highMatchCandidates: high.length,
-    highMatchUnnotified: high.filter((item) => isOutsideDigestGrantRepeatCooldown(item.row.notified_at)).length,
+    highMatchUnnotified: high.length,
     storedHighMatchCandidates: storedHighMatchCandidates ?? 0,
     withinReachCandidates: withinReach.length,
     grantScope: actionables,

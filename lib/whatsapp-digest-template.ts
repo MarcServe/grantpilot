@@ -20,20 +20,26 @@ function sortDigestItems(a: DigestGrantItem, b: DigestGrantItem): number {
   return a.grantName.localeCompare(b.grantName);
 }
 
-function strongDigestItems(payload: NotificationPayload): DigestGrantItem[] {
+function dedupeStrongDigestItems(
+  items: DigestGrantItem[] | undefined,
+  excludedGrantIds = new Set<string>()
+): DigestGrantItem[] {
   const seen = new Set<string>();
-  const items = [
-    ...(payload.grants ?? []),
-    ...(payload.previousScanGrants ?? []).filter((item) => item.score >= 85),
-  ];
 
-  return items
+  return (items ?? [])
+    .filter((item) => item.score >= 85)
     .filter((item) => {
-      if (!item.grantId || seen.has(item.grantId)) return false;
+      if (!item.grantId || seen.has(item.grantId) || excludedGrantIds.has(item.grantId)) return false;
       seen.add(item.grantId);
       return true;
     })
     .sort(sortDigestItems);
+}
+
+function summarizeItems(items: DigestGrantItem[], limit: number): string {
+  const topNames = items.slice(0, limit).map((item) => compactText(item.grantName, 70));
+  const extra = items.length > topNames.length ? ` + ${items.length - topNames.length} more` : "";
+  return `${topNames.join("; ")}${extra}`;
 }
 
 export function buildDigestWhatsAppTemplateVariables(
@@ -46,13 +52,20 @@ export function buildDigestWhatsAppTemplateVariables(
 } {
   const profileName = compactText(payload.profileName ?? "your business", 80);
   const matchesUrl = `${appUrl}/grants/eligible`;
-  const strongItems = strongDigestItems(payload);
+  const freshItems = dedupeStrongDigestItems(payload.grants);
+  const freshIds = new Set(freshItems.map((item) => item.grantId));
+  const reminderItems = dedupeStrongDigestItems(payload.previousScanGrants, freshIds);
+  const strongItems = [...freshItems, ...reminderItems];
   const strongCount = strongItems.length;
-  const topNames = strongItems.slice(0, 3).map((item) => compactText(item.grantName, 70));
-  const summary =
-    strongCount > 0
-      ? `${strongCount} strong ${strongCount === 1 ? "match" : "matches"}: ${topNames.join("; ")}${strongCount > topNames.length ? ` + ${strongCount - topNames.length} more` : ""}`
-      : "Daily scan complete. Your GrantsCopilot opportunity page is up to date.";
+  let summary = "Daily scan complete. Your GrantsCopilot opportunity page is up to date.";
+
+  if (freshItems.length > 0 && reminderItems.length > 0) {
+    summary = `Fresh 85%+: ${summarizeItems(freshItems, 3)}. Still eligible reminders: ${summarizeItems(reminderItems, 3)}.`;
+  } else if (freshItems.length > 0) {
+    summary = `Fresh 85%+: ${summarizeItems(freshItems, 3)}.`;
+  } else if (reminderItems.length > 0) {
+    summary = `No new 85%+ today. Still eligible reminders: ${summarizeItems(reminderItems, 3)}.`;
+  }
 
   const top = strongItems[0];
   const topLabel = top

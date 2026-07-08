@@ -22,7 +22,6 @@ import {
   deriveOutcomeLearningAdvisory,
 } from "@/lib/outcome-learning";
 import { finalEligibilityScore, finaliseEligibilityAssessment } from "@/lib/eligibility-final-score";
-import { isOutsideDigestGrantRepeatCooldown } from "@/lib/eligibility-digest-cooldown";
 import { getMatchHealthReport } from "@/lib/match-health";
 import { isMissingGrantUrlQualityColumnsError } from "@/lib/grant-url-quality-columns";
 import {
@@ -120,12 +119,6 @@ function shouldNotifyForEligibility(score: number, decision?: string | null, sco
 
 function isTrustedEligibilitySource(scoringSource?: string | null): boolean {
   return scoringSource === "intelligence" || isOpenAIChecked(scoringSource);
-}
-
-function isOutsideNotificationCooldown(notifiedAt: string | null | undefined, cooldown: Date): boolean {
-  if (!notifiedAt) return true;
-  const notifiedAtTime = new Date(notifiedAt).getTime();
-  return !Number.isFinite(notifiedAtTime) || notifiedAtTime < cooldown.getTime();
 }
 
 const DIGEST_HIDDEN_SAVED_GRANT_STATES = new Set(["viewed", "deferred", "applied", "dismissed"]);
@@ -699,8 +692,6 @@ export async function runEligibilityRefreshJob(options?: {
         }> = [];
         console.info(`[eligibility-refresh]   LAYER 3 (OpenAI): scoring ${layer3Ids.length} grants`);
 
-        const cooldown = new Date();
-        cooldown.setHours(cooldown.getHours() - NOTIFY_COOLDOWN_HOURS);
         const digestGrants: DigestGrantItem[] = [];
 
         const { data: profileDocsData } = await supabase.from("Document").select("name, type, category").eq("profileId", profileId);
@@ -807,7 +798,7 @@ export async function runEligibilityRefreshJob(options?: {
           options?: { includeRecentlyNotified?: boolean }
         ): Promise<DigestGrantItem | null> => {
           if (appliedGrantIds.has(assessment.grant_id) || hiddenGrantIds.has(assessment.grant_id)) return null;
-          if (!options?.includeRecentlyNotified && !isOutsideDigestGrantRepeatCooldown(assessment.notified_at)) return null;
+          if (!options?.includeRecentlyNotified && assessment.notified_at) return null;
           const grant = grantsByIdForDigest.get(assessment.grant_id);
           if (!grant) return null;
           const actionability = await verifyGrantActionable(grant, { supabase });
@@ -949,7 +940,9 @@ export async function runEligibilityRefreshJob(options?: {
             .select("grant_id, updated_at, score, decision, summary, notified_at, missing_criteria, improvement_plan, scoring_source")
             .eq("organisation_id", orgId)
             .eq("profile_id", profileId)
-            .gte("score", 1)
+            .eq("decision", "likely_eligible")
+            .in("scoring_source", ["openai", "intelligence"])
+            .gte("score", suggestedThreshold)
             .lte("score", maxScore)
             .not("notified_at", "is", null)
             .order("notified_at", { ascending: false })
@@ -962,8 +955,7 @@ export async function runEligibilityRefreshJob(options?: {
 
           const items: DigestGrantItem[] = [];
           for (const row of (recentRows ?? []) as CachedEligibilityRow[]) {
-            if (isOutsideDigestGrantRepeatCooldown(row.notified_at)) continue;
-            const item = await buildDigestItem(row, { minScore: 1, maxScore }, { includeRecentlyNotified: true });
+            const item = await buildDigestItem(row, { minScore: suggestedThreshold, maxScore }, { includeRecentlyNotified: true });
             if (item) items.push(item);
           }
 
@@ -1022,8 +1014,8 @@ export async function runEligibilityRefreshJob(options?: {
           diagnostics.dailyUpdates++;
           notifiedCount += currentStrongDigest.length;
           const notifiedItems = shouldSendEmail
-            ? [...currentStrongDigest, ...currentWithinReachDigest, ...currentOtherDigest]
-            : currentStrongDigest;
+            ? [...currentStrongDigest, ...currentWithinReachDigest, ...currentOtherDigest, ...previousScanGrants]
+            : [...currentStrongDigest, ...previousScanGrants];
           if (notifiedItems.length > 0) await markDigestItemsNotified(supabase, orgId, profileId, notifiedItems);
           return true;
         };
@@ -1035,7 +1027,7 @@ export async function runEligibilityRefreshJob(options?: {
             score < suggestedThreshold ||
             score > maxScore ||
             !shouldNotifyForEligibility(score, cached.decision, cached.scoring_source) ||
-            !isOutsideNotificationCooldown(cached.notified_at, cooldown)
+            cached.notified_at
           ) {
             continue;
           }
@@ -1126,7 +1118,7 @@ export async function runEligibilityRefreshJob(options?: {
                 .single();
 
               const notifiedAt = (existing as { notified_at: string | null } | null)?.notified_at;
-              const includeInDigest = isOutsideNotificationCooldown(notifiedAt, cooldown);
+              const includeInDigest = !notifiedAt;
               if (includeInDigest) {
                 const digestItem = await buildDigestItem(
                   {
@@ -1251,8 +1243,8 @@ export async function runEligibilityRefreshJob(options?: {
               sendWhatsApp: shouldSendWhatsApp,
             });
             const notifiedItems = sendNotifyEmail
-              ? [...digestGrants, ...withinReachGrants, ...otherGrants]
-              : digestGrants;
+              ? [...digestGrants, ...withinReachGrants, ...otherGrants, ...previousScanGrants]
+              : [...digestGrants, ...previousScanGrants];
             if (notifiedItems.length > 0) await markDigestItemsNotified(supabase, orgId, profileId, notifiedItems);
             notifiedCount += digestGrants.length;
           }
@@ -1298,8 +1290,8 @@ export async function runEligibilityRefreshJob(options?: {
               diagnostics.dailyUpdates++;
               notifiedCount += currentStrongDigest.length;
               const notifiedItems = shouldSendDigestEmail
-                ? [...currentStrongDigest, ...currentWithinReachDigest, ...currentOtherDigest]
-                : currentStrongDigest;
+                ? [...currentStrongDigest, ...currentWithinReachDigest, ...currentOtherDigest, ...previousScanGrants]
+                : [...currentStrongDigest, ...previousScanGrants];
               if (notifiedItems.length > 0) await markDigestItemsNotified(supabase, orgId, profileId, notifiedItems);
             }
           } else {

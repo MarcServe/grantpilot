@@ -316,6 +316,9 @@ export function buildEmailHtml(
       const previousScanGrants = payload.previousScanGrants ?? [];
       const checked = Math.max(0, Math.round(Number(payload.checkedGrantsCount ?? 0)));
       const matched = Math.max(0, Math.round(Number(payload.matchedGrantsCount ?? grants.length)));
+      const todayCutoff = Date.now() - ONE_DAY_MS;
+      const addedTodayStrongGrants = grants.filter((item) => digestItemTime(item) >= todayCutoff);
+      const freshStrongGrants = grants.filter((item) => digestItemTime(item) < todayCutoff);
       const hasDirectApplicationStart = (item: DigestGrantItem) =>
         item.applicationUrlQuality === "verified_direct" || item.applicationUrlQuality === "verified_portal";
       const renderRows = (items: DigestGrantItem[], tone: "strong" | "withinReach" | "other" | "previous") => {
@@ -395,18 +398,23 @@ export function buildEmailHtml(
           : "";
         return `${directSection}${grantPageSection}`;
       };
-      const strongGroups = renderLinkGroups(grants, "strong");
+      const addedTodayGroups = renderLinkGroups(addedTodayStrongGrants, "strong");
+      const freshStrongGroups = renderLinkGroups(freshStrongGrants, "strong");
       const withinReachGroups = renderLinkGroups(withinReachGrants, "withinReach");
       const otherGroups = renderLinkGroups(otherGrants, "other");
-      const previousGroups = renderLinkGroups(previousScanGrants.slice(0, 3), "previous");
+      const previousGroups = renderLinkGroups(previousScanGrants, "previous");
       const hasDigestItems =
         grants.length > 0 ||
         withinReachGrants.length > 0 ||
         otherGrants.length > 0 ||
         previousScanGrants.length > 0;
-      const strongSection = strongGroups
-        ? `<h2 style="font-size:16px;color:#1e3a8a;margin:20px 0 4px;font-weight:700">Strong matches</h2>${strongGroups}`
+      const addedTodaySection = addedTodayGroups
+        ? `<h2 style="font-size:16px;color:#1e3a8a;margin:20px 0 4px;font-weight:700">Added today</h2><p style="margin:0 0 8px;color:#64748b;font-size:13px">Newly added grants that are already 85%+ matches.</p>${addedTodayGroups}`
         : "";
+      const freshStrongSection = freshStrongGroups
+        ? `<h2 style="font-size:16px;color:#1e3a8a;margin:20px 0 4px;font-weight:700">Fresh 85%+ matches</h2><p style="margin:0 0 8px;color:#64748b;font-size:13px">Strong matches newly ready for your business profile.</p>${freshStrongGroups}`
+        : "";
+      const strongSection = `${addedTodaySection}${freshStrongSection}`;
       const withinReachSection = withinReachGroups
         ? `<h2 style="font-size:16px;color:#92400e;margin:20px 0 4px;font-weight:700">Within reach</h2><p style="margin:0 0 8px;color:#64748b;font-size:13px">These may be worth reviewing, but check the listed gaps before applying.</p>${withinReachGroups}`
         : "";
@@ -414,7 +422,7 @@ export function buildEmailHtml(
         ? `<h2 style="font-size:15px;color:#374151;margin:20px 0 4px;font-weight:700">Other scored grants</h2><p style="margin:0 0 8px;color:#64748b;font-size:13px">Lower-fit grants kept visible for later review or profile improvements.</p>${otherGroups}`
         : "";
       const previousSection = previousGroups
-        ? `<h2 style="font-size:15px;color:#334155;margin:20px 0 4px;font-weight:700">Still available from previous scans</h2><p style="margin:0 0 8px;color:#64748b;font-size:13px">You may have seen these recently. They are still current if you missed them.</p>${previousGroups}`
+        ? `<h2 style="font-size:15px;color:#334155;margin:20px 0 4px;font-weight:700">Still eligible reminders</h2><p style="margin:0 0 8px;color:#64748b;font-size:13px">These 85%+ matches were sent before and are still current. They will keep appearing until you defer them or start/apply.</p>${previousGroups}`
         : "";
       const emptySection = !hasDigestItems
         ? `<div style="margin:18px 0;padding:14px 16px;border:1px solid #dbeafe;border-left:4px solid #2563eb;border-radius:10px;background:#f8fbff">
@@ -427,7 +435,7 @@ export function buildEmailHtml(
       const missingReminder = hasAnyMissing
         ? `<p style="margin-top:16px;padding:12px;background:#fef3c7;border-radius:8px;color:#92400e">Some grants may require documents you haven&apos;t uploaded yet. Add them in <a href="${appUrl}/profile" style="color:#1B3A6B;font-weight:600">Profile → Documents</a> before you apply.</p>`
         : "";
-      const body = `<p>Today&apos;s grant opportunities for <strong>${escapeHtml(profileName)}</strong> — review the fit, prepare your documents, and apply on the official funder site.</p>${emptySection}${strongSection}${withinReachSection}${otherSection}${previousSection}${missingReminder}<p style="margin-top:16px">You can also browse all your matches from the app.</p>`;
+      const body = `<p>Today&apos;s grant opportunities for <strong>${escapeHtml(profileName)}</strong> — new 85%+ matches appear first, followed by still-eligible reminders so you do not miss grants you have not actioned.</p>${emptySection}${strongSection}${withinReachSection}${otherSection}${previousSection}${missingReminder}<p style="margin-top:16px">You can also browse all your matches from the app.</p>`;
       return {
         subject: `[Grants-Copilot] Today's grant opportunities for ${profileName}`,
         html: baseLayout(
@@ -598,16 +606,17 @@ export function buildWhatsAppMessage(
       const now = Date.now();
       const todayCutoff = now - ONE_DAY_MS;
       const recentCutoff = now - SEVEN_DAYS_MS;
-      const strongItems = dedupeDigestItems([
-        ...(grants as DigestGrantItem[]),
-        ...(previousScanGrants as DigestGrantItem[]).filter((g) => g.score >= 85),
-      ]).sort(sortDigestItemsByFreshness);
-      const todayStrong = strongItems.filter((item) => digestItemTime(item) >= todayCutoff);
-      const recentStrong = strongItems.filter((item) => {
+      const freshItems = dedupeDigestItems(grants as DigestGrantItem[]).sort(sortDigestItemsByFreshness);
+      const freshIds = new Set(freshItems.map((item) => item.grantId));
+      const reminderItems = dedupeDigestItems(
+        (previousScanGrants as DigestGrantItem[]).filter((g) => g.score >= 85 && !freshIds.has(g.grantId))
+      ).sort(sortDigestItemsByFreshness);
+      const todayStrong = freshItems.filter((item) => digestItemTime(item) >= todayCutoff);
+      const recentStrong = freshItems.filter((item) => {
         const time = digestItemTime(item);
         return time < todayCutoff && time >= recentCutoff;
       });
-      const olderStrong = strongItems.filter((item) => {
+      const olderFreshStrong = freshItems.filter((item) => {
         const time = digestItemTime(item);
         return time === 0 || time < recentCutoff;
       });
@@ -620,16 +629,13 @@ export function buildWhatsAppMessage(
       };
 
       let msg = `Today's grant opportunities for ${profileName}\n\n`;
-      const anyMissing = strongItems
+      const anyMissing = [...freshItems, ...reminderItems]
         .some((g) => ((g as DigestGrantItem).missingDocuments?.length ?? 0) > 0);
-      msg += renderSection("Fresh strong matches today:", todayStrong, 8);
-      msg += renderSection("Last 7 days still available:", recentStrong, 8);
-      if (todayStrong.length === 0 && recentStrong.length === 0) {
-        msg += renderSection("Strong matches still available:", olderStrong, 8);
-      } else {
-        msg += renderSection("Other strong matches still available:", olderStrong, 4);
-      }
-      if (strongItems.length === 0) {
+      msg += renderSection("Added today:", todayStrong, 8);
+      msg += renderSection("Fresh 85%+ matches:", recentStrong, 8);
+      msg += renderSection("Older fresh 85%+ matches:", olderFreshStrong, 4);
+      msg += renderSection("Still eligible reminders:", reminderItems, 8);
+      if (freshItems.length === 0 && reminderItems.length === 0) {
         msg += "No new strong WhatsApp matches were ready, but your opportunity page is up to date.\n\n";
       }
       msg += `View all and start applications: ${appUrl}/grants/eligible`;

@@ -8,7 +8,6 @@ import { getSuppressedGrantIds } from "@/lib/grant-user-state";
 import { grantMatchesFunderLocations, inferFunderLocationsFromProfile } from "@/lib/constants";
 import { deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
 import { finalEligibilityScore, finaliseEligibilityAssessment, type EligibilityAssessmentLike } from "@/lib/eligibility-final-score";
-import { isOutsideDigestGrantRepeatCooldown } from "@/lib/eligibility-digest-cooldown";
 import { notifyOrgMembers, orgHasNotificationChannelSince, orgHasNotificationSince, type DigestGrantItem, type NotificationType } from "@/lib/notify";
 import { organisationAllowsCapability } from "@/lib/plan-check";
 import { createStartApplicationToken } from "@/lib/start-application-token";
@@ -474,7 +473,6 @@ async function countStrongEligibleForOrg(
   for (const row of rows) {
     const grantId = row.grant_id;
     if (!grantId || appliedGrantIds.has(grantId) || hiddenGrantIds.has(grantId)) continue;
-    if (!isOutsideDigestGrantRepeatCooldown(row.notified_at)) continue;
     const grant = grantById.get(grantId);
     if (!grant || !isGrantActionableNow(grant)) continue;
     if (!grantMatchesFunderLocations(grant.funderLocations ?? undefined, userFunderLocations)) continue;
@@ -540,7 +538,9 @@ async function buildCurrentDigestForProfile(
     .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, scoring_source, updated_at, notified_at")
     .eq("organisation_id", orgId)
     .eq("profile_id", profileId)
-    .gte("score", 1)
+    .eq("decision", "likely_eligible")
+    .in("scoring_source", ["openai", "intelligence"])
+    .gte("score", minStrongScore)
     .lte("score", maxScore)
     .not("notified_at", "is", null)
     .order("notified_at", { ascending: false })
@@ -586,19 +586,18 @@ async function buildCurrentDigestForProfile(
   };
 
   const currentStrongItems = strongRows
-    .filter((row) => isOutsideDigestGrantRepeatCooldown(row.notified_at))
+    .filter((row) => !row.notified_at)
     .map(buildItem)
     .filter((item): item is DigestGrantItem => Boolean(item));
   const currentWithinReachItems = withinReachRows
-    .filter((row) => isOutsideDigestGrantRepeatCooldown(row.notified_at))
+    .filter((row) => !row.notified_at)
     .map(buildItem)
     .filter((item): item is DigestGrantItem => Boolean(item));
   const currentOtherItems = otherRows
-    .filter((row) => isOutsideDigestGrantRepeatCooldown(row.notified_at))
+    .filter((row) => !row.notified_at)
     .map(buildItem)
     .filter((item): item is DigestGrantItem => Boolean(item));
   const previousItems = previousRows
-    .filter((row) => !isOutsideDigestGrantRepeatCooldown(row.notified_at))
     .map(buildItem)
     .filter((item): item is DigestGrantItem => Boolean(item));
 
@@ -618,6 +617,7 @@ async function buildCurrentDigestForProfile(
       .sort(sortDigestByFreshScore)
       .slice(0, DIGEST_OTHER_LIMIT),
     previous: dedupeDigestItems(previousItems)
+      .filter((item) => item.score >= minStrongScore)
       .sort(sortDigestByFreshScore)
       .slice(0, DIGEST_PREVIOUS_LIMIT),
   };
@@ -774,8 +774,8 @@ export async function runDailyNotificationSafeguardJob(options?: {
     if (primaryProfile?.id && canReceiveProactiveNotifications) {
       const digest = await buildCurrentDigestForProfile(supabase, orgId, primaryProfile, minScore, maxScore);
       if (digest.strong.length > 0 || digest.withinReach.length > 0 || digest.other.length > 0 || digest.previous.length > 0) {
-        const hasUnnotifiedStrongMatches = digest.strong.length > 0;
-        const shouldSendEmail = sendEmail && (!alreadyDelivered || hasUnnotifiedStrongMatches);
+        const hasFreshStrongMatches = digest.strong.length > 0;
+        const shouldSendEmail = sendEmail && (!alreadyDelivered || hasFreshStrongMatches);
         const shouldSendWhatsApp =
           sendWhatsApp &&
           !alreadySentWhatsApp &&
@@ -799,8 +799,8 @@ export async function runDailyNotificationSafeguardJob(options?: {
           { sendEmail: shouldSendEmail, sendWhatsApp: shouldSendWhatsApp }
         );
         const notifiedItems = shouldSendEmail
-          ? [...digest.strong, ...digest.withinReach, ...digest.other]
-          : digest.strong;
+          ? [...digest.strong, ...digest.withinReach, ...digest.other, ...digest.previous]
+          : [...digest.strong, ...digest.previous];
         if (notifiedItems.length > 0) await markDigestItemsNotified(supabase, orgId, primaryProfile.id, notifiedItems);
         diagnostics.dailyUpdates++;
         continue;

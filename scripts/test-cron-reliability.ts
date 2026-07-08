@@ -28,6 +28,38 @@ assert.match(
   /row\.status === "viewed"/,
   "daily digest candidates should suppress viewed grants like the active Suggested list"
 );
+assert.match(
+  dailyDigestSafeguard,
+  /\.filter\(\(row\) => !row\.notified_at\)/,
+  "daily digest should keep never-notified 85%+ matches in the fresh section"
+);
+assert.match(
+  dailyDigestSafeguard,
+  /\.not\("notified_at",\s*"is",\s*null\)/,
+  "daily digest should keep already-notified 85%+ matches as still-eligible reminders"
+);
+assert.doesNotMatch(
+  dailyDigestSafeguard,
+  /isOutsideDigestGrantRepeatCooldown/,
+  "daily digest should not suppress still-active 85%+ reminders just because they were sent recently"
+);
+
+const eligibilityRefresh = read("inngest/eligibility-refresh.ts");
+assert.match(
+  eligibilityRefresh,
+  /if \(!options\?\.includeRecentlyNotified && assessment\.notified_at\) return null;/,
+  "eligibility refresh should keep fresh digest items separate from reminder items"
+);
+assert.match(
+  eligibilityRefresh,
+  /\.not\("notified_at",\s*"is",\s*null\)/,
+  "eligibility refresh should include already-notified 85%+ matches in reminder digest"
+);
+assert.doesNotMatch(
+  eligibilityRefresh,
+  /isOutsideDigestGrantRepeatCooldown/,
+  "eligibility refresh should not skip still-active reminders due to a per-grant repeat cooldown"
+);
 
 const eligibilityDiagnostics = read("lib/eligibility-notification-diagnostics.ts");
 assert.match(
@@ -37,8 +69,13 @@ assert.match(
 );
 assert.match(
   eligibilityDiagnostics,
+  /highMatchUnnotified:\s*high\.length/,
+  "eligibility notification diagnostics should treat all active 85%+ matches as notify-ready reminders until actioned"
+);
+assert.doesNotMatch(
+  eligibilityDiagnostics,
   /isOutsideDigestGrantRepeatCooldown/,
-  "eligibility notification diagnostics should use the same repeat cooldown as the digest sender"
+  "eligibility notification diagnostics should not hide active 85%+ reminders due to a per-grant repeat cooldown"
 );
 assert.doesNotMatch(
   eligibilityDiagnostics,
