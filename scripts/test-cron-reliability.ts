@@ -35,6 +35,23 @@ assert.match(
   /getSuppressedGrantIds\(supabase,\s*orgId,\s*profile\.id,\s*\{\s*includeViewed:\s*true\s*\}\)/,
   "eligibility notification diagnostics should count viewed grants the same way active alerts do"
 );
+assert.match(
+  eligibilityDiagnostics,
+  /isOutsideDigestGrantRepeatCooldown/,
+  "eligibility notification diagnostics should use the same repeat cooldown as the digest sender"
+);
+assert.doesNotMatch(
+  eligibilityDiagnostics,
+  /WHATSAPP_COOLDOWN_HOURS|function isOutsideCooldown/,
+  "eligibility notification diagnostics should not use a separate WhatsApp-only cooldown"
+);
+
+const eligibleMatchCache = read("lib/eligible-match-cache.ts");
+assert.match(
+  eligibleMatchCache,
+  /eligible-match-grant-ordered-assessments:/,
+  "eligible match cache clearing should include grant-ordered assessment batches"
+);
 
 const inngestRoute = read("app/api/inngest/route.ts");
 for (const fn of [

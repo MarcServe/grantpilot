@@ -404,6 +404,9 @@ async function buildTierMatches({
     let rawAssessmentCount = 0;
     let scannedAssessmentCount = 0;
     let usedProfileFallback = false;
+    const pageEnd = page * pageSize;
+    const minimumMatchesForPage = pageEnd + 1;
+    let stoppedAfterPageWindow = false;
 
     while (scannedAssessmentCount < MAX_MATCH_ASSESSMENTS) {
       const batchFrom = scannedAssessmentCount;
@@ -468,17 +471,21 @@ async function buildTierMatches({
       }
 
       if (scannedAssessmentCount >= rawAssessmentCount) break;
+      if (section !== "suggested" && matches.length >= minimumMatchesForPage) {
+        stoppedAfterPageWindow = true;
+        break;
+      }
     }
 
     matches.sort((a, b) => sortEligibleMatchesForSection(section, a, b));
 
-    const pageEnd = page * pageSize;
-    const scanComplete = scannedAssessmentCount >= rawAssessmentCount || scannedAssessmentCount >= MAX_MATCH_ASSESSMENTS;
-    const hasMoreVisible = matches.length > pageEnd;
+    const scanComplete =
+      !stoppedAfterPageWindow &&
+      (scannedAssessmentCount >= rawAssessmentCount || scannedAssessmentCount >= MAX_MATCH_ASSESSMENTS);
 
     return {
       grants: matches,
-      availableCandidateCount: scanComplete ? matches.length : Math.max(matches.length, pageEnd + (hasMoreVisible ? 1 : 0)),
+      availableCandidateCount: scanComplete ? matches.length : Math.max(matches.length, minimumMatchesForPage),
       availableCandidateCountIsEstimate: !scanComplete,
       rawAssessmentCount,
       scannedAssessmentCount,

@@ -5,6 +5,7 @@ import { grantMatchesFunderLocations, inferFunderLocationsFromProfile } from "@/
 import { isGrantActionableNow } from "@/lib/grant-actionability";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { getSuppressedGrantIds } from "@/lib/grant-user-state";
+import { isOutsideDigestGrantRepeatCooldown } from "@/lib/eligibility-digest-cooldown";
 import { deriveOutcomeLearningAdvisory, type OutcomeLearningAdvisory } from "@/lib/outcome-learning";
 import { finalEligibilityScore, finaliseEligibilityAssessment } from "@/lib/eligibility-final-score";
 import type { EligibilityResult } from "@/lib/claude";
@@ -13,10 +14,9 @@ import { getMatchHealthReport, type MatchHealthReport } from "@/lib/match-health
 const DEFAULT_MIN_SCORE = 85;
 const DEFAULT_MAX_SCORE = 100;
 const DEFAULT_ELIGIBLE_THRESHOLD = 85;
-const WHATSAPP_COOLDOWN_HOURS = 20;
-const TRACE_BATCH_SIZE = 20;
-const MAX_GRANTS_FOR_TRACE = 200;
-const MAX_ASSESSMENTS_FOR_TRACE = 200;
+const TRACE_BATCH_SIZE = 80;
+const MAX_GRANTS_FOR_TRACE = 800;
+const MAX_ASSESSMENTS_FOR_TRACE = 800;
 const ELIGIBILITY_NOTIFICATION_TYPES = [
   "grant_scan_digest",
   "grant_match_high",
@@ -241,13 +241,6 @@ function isAdminTestLog(row: NotificationLogTraceRow): boolean {
   return (metadata as { source?: unknown }).source === "admin_test";
 }
 
-function isOutsideCooldown(value: string | null): boolean {
-  if (!value) return true;
-  const time = new Date(value).getTime();
-  if (!Number.isFinite(time)) return true;
-  return time < Date.now() - WHATSAPP_COOLDOWN_HOURS * 60 * 60 * 1000;
-}
-
 function toNotifyUser(raw: Record<string, unknown> | null | undefined): NotifyUserRow | null {
   if (!raw) return null;
   const id = typeof raw.id === "string" ? raw.id : "";
@@ -468,7 +461,7 @@ async function getAssessmentCounts(
 
   return {
     highMatchCandidates: high.length,
-    highMatchUnnotified: high.filter((item) => isOutsideCooldown(item.row.notified_at)).length,
+    highMatchUnnotified: high.filter((item) => isOutsideDigestGrantRepeatCooldown(item.row.notified_at)).length,
     storedHighMatchCandidates: storedHighMatchCandidates ?? 0,
     withinReachCandidates: withinReach.length,
     grantScope: actionables,
@@ -563,12 +556,12 @@ function buildBlockers(trace: Omit<EligibilityWhatsAppTrace, "blockers" | "final
       );
     }
   }
-  if (reason === "already_notified") blockers.push("85%+ matches exist, but they are still inside the notification cooldown or were already notified.");
+  if (reason === "already_notified") blockers.push("85%+ matches exist, but they are still inside the digest repeat cooldown or were already notified.");
   if (reason === "whatsapp_failed") blockers.push(trace.latestRunWhatsApp.latestError ?? "WhatsApp high-match send failed during the latest eligibility run.");
   if (reason === "missed_latest_run") {
-    blockers.push("85%+ unnotified actionable matches exist, but no WhatsApp send/skip/fail log was written after the latest eligibility run.");
+    blockers.push("85%+ notify-ready actionable matches exist, but no WhatsApp send/skip/fail log was written after the latest eligibility run.");
   }
-  if (reason === "ready_to_send_next_run") blockers.push("85%+ unnotified matches exist and WhatsApp appears configured; the next run should send.");
+  if (reason === "ready_to_send_next_run") blockers.push("85%+ notify-ready matches exist and WhatsApp appears configured; the next run should send.");
   return blockers;
 }
 

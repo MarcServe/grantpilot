@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   matchSectionAllowsCandidate,
   sortEligibleMatchesForSection,
@@ -47,5 +48,29 @@ const highFresh = { grantName: "Fresh high", score: 85, addedAt: "2026-06-01T00:
 const highHigherScore = { grantName: "Older higher score", score: 91, addedAt: "2026-04-01T00:00:00.000Z" };
 const suggested = [highFresh, highHigherScore].sort((a, b) => sortEligibleMatchesForSection("suggested", a, b));
 assert.equal(suggested[0].grantName, "Older higher score", "Suggested should keep score as primary ordering");
+
+const eligibleMatchesRoute = readFileSync("app/api/grants/eligible-matches/route.ts", "utf8");
+assert.match(
+  eligibleMatchesRoute,
+  /section !== "suggested" && matches\.length >= minimumMatchesForPage/,
+  "non-Suggested tiers should stop scanning once the requested page window is filled"
+);
+assert.match(
+  eligibleMatchesRoute,
+  /availableCandidateCountIsEstimate: !scanComplete/,
+  "early-stopped match tiers should return estimated counts"
+);
+
+const batchedList = readFileSync("components/grants/batched-eligible-grants-list.tsx", "utf8");
+assert.match(
+  batchedList,
+  /const firstTier = initialTier \?\? "suggested"/,
+  "opportunity page should load Suggested first by default"
+);
+assert.doesNotMatch(
+  batchedList,
+  /const sequence = activeTier \? \[activeTier\] : TIER_ORDER/,
+  "opportunity page should not clear and reload all sections sequentially on every tab change"
+);
 
 console.log("eligible match rule tests passed");

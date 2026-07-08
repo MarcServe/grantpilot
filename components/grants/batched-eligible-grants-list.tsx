@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, BrainCircuit, Eye, Loader2, Search, Sparkles, Target, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -154,10 +154,14 @@ export function BatchedEligibleGrantsList({
   const [activeTier, setActiveTier] = useState<MatchSection | null>(initialTier);
   const [query, setQuery] = useState("");
   const [sections, setSections] = useState<Record<MatchSection, TierState>>(() => emptySections());
+  const inFlightRequests = useRef<Set<string>>(new Set());
   const tiersToShow = useMemo(() => activeTier ? [activeTier] : TIER_ORDER, [activeTier]);
 
   const loadTier = useCallback(
     async (tier: MatchSection, page: number, mode: "replace" | "append") => {
+      const requestKey = `${tier}:${page}:${pageSize}:${mode}`;
+      if (inFlightRequests.current.has(requestKey)) return;
+      inFlightRequests.current.add(requestKey);
       setSections((current) => ({
         ...current,
         [tier]: {
@@ -190,6 +194,8 @@ export function BatchedEligibleGrantsList({
             error: error instanceof Error ? error.message : "Unable to load matches",
           },
         }));
+      } finally {
+        inFlightRequests.current.delete(requestKey);
       }
     },
     [pageSize]
@@ -197,19 +203,36 @@ export function BatchedEligibleGrantsList({
 
   useEffect(() => {
     let cancelled = false;
-    const loadSequence = async () => {
-      setSections(emptySections());
-      const sequence = activeTier ? [activeTier] : TIER_ORDER;
-      for (const tier of sequence) {
-        if (cancelled) return;
-        await loadTier(tier, activeTier ? initialPage : 1, "replace");
-      }
-    };
-    void loadSequence();
+    const timers: Array<ReturnType<typeof setTimeout>> = [];
+    const firstTier = initialTier ?? "suggested";
+    const remainingTiers = TIER_ORDER.filter((tier) => tier !== firstTier);
+
+    inFlightRequests.current.clear();
+    setSections(emptySections());
+    void loadTier(firstTier, initialTier ? initialPage : 1, "replace");
+
+    remainingTiers.forEach((tier, index) => {
+      const timer = setTimeout(() => {
+        if (!cancelled) {
+          void loadTier(tier, 1, "replace");
+        }
+      }, 120 + index * 140);
+      timers.push(timer);
+    });
+
     return () => {
       cancelled = true;
+      for (const timer of timers) {
+        clearTimeout(timer);
+      }
     };
-  }, [activeTier, initialPage, loadTier]);
+  }, [initialPage, initialTier, loadTier]);
+
+  useEffect(() => {
+    if (!activeTier) return;
+    if (sections[activeTier].status !== "idle") return;
+    void loadTier(activeTier, initialPage, "replace");
+  }, [activeTier, initialPage, loadTier, sections]);
 
   const visibleLoadedGrants = useMemo(
     () => tiersToShow.flatMap((tier) => sections[tier].grants).filter((grant) => matchesQuery(grant, query)),

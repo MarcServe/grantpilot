@@ -140,7 +140,7 @@ export function WhatsAppDiagnosticsPanel() {
                 <div className="text-lg font-semibold">{trace.highMatchCandidates}</div>
               </div>
               <div className="rounded border bg-muted/30 p-2">
-                <div className="text-muted-foreground">Unnotified</div>
+                <div className="text-muted-foreground">Notify-ready</div>
                 <div className="text-lg font-semibold">{trace.highMatchUnnotified}</div>
               </div>
               <div className="rounded border bg-muted/30 p-2">
