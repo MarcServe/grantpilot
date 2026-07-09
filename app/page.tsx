@@ -183,9 +183,12 @@ export default async function LandingPage() {
       <main>
         <section className="mx-auto flex max-w-[1480px] flex-col gap-8 px-4 pb-10 pt-6 sm:px-6 lg:flex-row lg:items-start lg:gap-10 lg:px-10 lg:pb-12 lg:pt-10">
           <div className="order-2 w-full max-w-[610px] shrink-0 lg:order-1 lg:max-w-[min(100%,610px)] lg:basis-[min(610px,44%)]">
-            <div className="inline-flex min-h-8 max-w-full items-center gap-2 rounded-full bg-[#e8f0ff] px-3 py-1.5 text-[13px] font-bold text-[#105fdf] sm:px-4 sm:text-[14px]">
-              <Sparkles className="h-4 w-4" />
-              <span className="truncate">What if grants came to you? That is GrantsCopilot.</span>
+            <div className="inline-flex max-w-full items-start gap-2 rounded-xl bg-[#e8f0ff] px-3 py-2 text-[13px] font-bold leading-snug text-[#105fdf] sm:px-4 sm:text-[14px]">
+              <Sparkles className="mt-0.5 h-4 w-4 shrink-0" />
+              <span className="flex min-w-0 flex-col">
+                <span>Instead of searching, what if grants came to you?</span>
+                <span>That is GrantsCopilot.</span>
+              </span>
             </div>
 
             <h1 className="mt-7 text-[clamp(2.55rem,11vw,4.4rem)] font-black leading-[1.06] tracking-normal text-[#071a3a] sm:mt-8 lg:text-[72px]">
