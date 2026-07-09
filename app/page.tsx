@@ -143,7 +143,7 @@ export default async function LandingPage() {
               Grants<span className="text-[#2468e8]">Copilot</span>
             </div>
             <div className="mt-1 hidden text-[12px] font-semibold text-[#071a3a] min-[430px]:block sm:text-[13px]">
-              Grants that find you. <span className="text-[#2fbf84]">Applications prepared faster.</span>
+              Find it. Fill it. Fund it. <span className="text-[#2fbf84]">Apply on autopilot.</span>
             </div>
           </div>
         </Link>
@@ -185,20 +185,20 @@ export default async function LandingPage() {
           <div className="order-2 w-full max-w-[610px] shrink-0 lg:order-1 lg:max-w-[min(100%,610px)] lg:basis-[min(610px,44%)]">
             <div className="inline-flex min-h-8 max-w-full items-center gap-2 rounded-full bg-[#e8f0ff] px-3 py-1.5 text-[13px] font-bold text-[#105fdf] sm:px-4 sm:text-[14px]">
               <Sparkles className="h-4 w-4" />
-              <span className="truncate">Instead of searching for grants, let the right grants come to you</span>
+              <span className="truncate">What if grants came to you? That is GrantsCopilot.</span>
             </div>
 
             <h1 className="mt-7 text-[clamp(2.55rem,11vw,4.4rem)] font-black leading-[1.06] tracking-normal text-[#071a3a] sm:mt-8 lg:text-[72px]">
-              What if grants
+              Find Grants.
               <br />
-              <span className="text-[#2167e8]">came to you?</span>
+              <span className="text-[#2167e8]">Check Eligibility.</span>
               <br />
-              <span className="text-[#35c386]">That is GrantsCopilot.</span>
+              <span className="text-[#35c386]">Get Funded.</span>
             </h1>
 
             <p className="mt-5 max-w-[560px] text-[18px] font-medium leading-[1.55] text-[#09224a] sm:mt-6 sm:text-[20px]">
-              GrantsCopilot watches the funding market for your business, checks each opportunity against your Business DNA,
-              separates direct application links from grant pages, and sends the strongest matches before deadlines disappear.
+              Instead of spending hours searching, GrantsCopilot brings matched opportunities to you, checks each grant
+              against your Business DNA, separates direct application links from grant pages, and prepares the next step.
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:mt-9 sm:flex-row sm:gap-4">
@@ -206,7 +206,7 @@ export default async function LandingPage() {
                 href={isSignedIn ? "/dashboard" : "/sign-up"}
                 className="inline-flex h-[52px] min-h-[52px] items-center justify-center gap-3 rounded-lg bg-[#2167e8] px-5 text-[16px] font-extrabold text-white shadow-[0_14px_26px_rgba(33,103,232,0.24)] transition hover:bg-[#1858cf] sm:h-14 sm:px-7 sm:text-[17px]"
               >
-                {isSignedIn ? "Return to dashboard" : "Let grants find me"}
+                {isSignedIn ? "Return to dashboard" : "Get Started Free"}
                 {isSignedIn ? <LayoutDashboard className="h-5 w-5" /> : <ArrowRight className="h-5 w-5" />}
               </Link>
               <a
@@ -221,9 +221,9 @@ export default async function LandingPage() {
             </div>
 
             <div className="mt-8 grid max-w-[640px] grid-cols-2 gap-4 text-[14px] font-bold text-[#09224a] min-[560px]:grid-cols-4 sm:mt-10 sm:gap-5">
-              <Feature icon={Search} title="Daily grant" detail="radar" />
+              <Feature icon={Search} title="Fresh grant" detail="discovery" />
               <Feature icon={Target} title="Eligibility" detail="scoring" />
-              <Feature icon={FileCheck2} title="Application" detail="prep" />
+              <Feature icon={FileCheck2} title="Automated" detail="prep" />
               <Feature icon={Bell} title="Deadline" detail="reminders" />
             </div>
           </div>

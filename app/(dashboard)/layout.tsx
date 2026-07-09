@@ -95,10 +95,10 @@ export default function DashboardLayout({
               </Link>
               <div className="hidden lg:block">
                 <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#6f7f96]">
-                  Grants That Come To You
+                  Autonomous Funding Infrastructure
                 </p>
                 <p className="mt-1 text-sm font-semibold text-[#243a5a]">
-                  GrantsCopilot scans, scores, and prepares the next best opportunity.
+                  What if grants came to you? Find it. Fill it. Fund it.
                 </p>
               </div>
             </div>
