@@ -67,4 +67,32 @@ assert.equal(
   "Real sector/purpose mismatch should still cap the score."
 );
 
+const genericProfile = {
+  ...profile,
+  fundingPurposes: [],
+};
+
+const weakGenericHighScore = applyEligibilityScoreGuards(genericProfile, {
+  name: "Good Local Business Award",
+  eligibility: "Open to small businesses based in the UK.",
+  description: "Recognises local trading businesses with a positive community story.",
+  objectives: "Celebrate local business resilience and community contribution.",
+  applicantTypes: ["Business", "SME"],
+  sectors: [],
+  regions: ["UK"],
+}, {
+  ...strongBase,
+  score: 85,
+  confidence: 85,
+  reason: "Biz Boosters is a strong candidate because it is a UK SME.",
+  summary: "Biz Boosters is a strong candidate because it is a UK SME.",
+  reasons: ["UK based", "SME"],
+  met: ["UK based", "SME"],
+});
+assert.equal(
+  weakGenericHighScore.score,
+  70,
+  "Generic UK SME eligibility alone should not stay in Suggested without clear sector or funding-purpose alignment."
+);
+
 console.log("Eligibility score guard tests passed");

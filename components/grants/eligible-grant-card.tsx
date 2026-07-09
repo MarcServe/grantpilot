@@ -1,9 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, AlertTriangle, CheckCircle2, FileText, LinkIcon } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ArrowRight, AlertTriangle, CheckCircle2, FileText, LinkIcon, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 type GrantUserState = "saved" | "viewed" | "deferred" | "applied" | "dismissed";
 
@@ -82,11 +85,27 @@ function applicationLinkLabel(quality?: string | null): string {
   return "Grant page link";
 }
 
-export function EligibleGrantCard({ grant }: { grant: EligibleGrant }) {
+function stateToast(status: GrantUserState): string {
+  if (status === "saved") return "Saved. This grant stays available in your active matches.";
+  if (status === "viewed") return "Marked as reviewed. It will move out of active Suggested.";
+  if (status === "deferred") return "Deferred for later. It will no longer clog active Suggested or proactive reminders.";
+  if (status === "applied") return "Added to Applications. It will no longer appear in active Suggested.";
+  return "Dismissed. It will no longer appear in active matches.";
+}
+
+export function EligibleGrantCard({
+  grant,
+  onStateChanged,
+}: {
+  grant: EligibleGrant;
+  onStateChanged?: (grant: EligibleGrant, status: GrantUserState) => void;
+}) {
   const detailHref = `/grants/${grant.grantId}?from=matches`;
   const deadlineStr = formatDeadline(grant.deadline);
   const addedAt = formatAddedAt(grant.addedAt);
-  const state = stateLabel(grant.userState);
+  const [currentState, setCurrentState] = useState<GrantUserState | null>(grant.userState ?? null);
+  const [loadingState, setLoadingState] = useState<GrantUserState | null>(null);
+  const state = stateLabel(currentState);
   const isDeadlineSoon =
     grant.deadline && new Date(grant.deadline).getTime() - pageLoadedAt < ONE_WEEK_MS;
   const verifiedApplicationStart = hasVerifiedApplicationStart(grant.applicationUrlQuality);
@@ -100,6 +119,33 @@ export function EligibleGrantCard({ grant }: { grant: EligibleGrant }) {
   if (grant.improvementPlan?.gaps?.length) actions.push(...grant.improvementPlan.gaps);
   if (grant.missingCriteria?.length) actions.push(...grant.missingCriteria);
   const uniqueActions = [...new Set(actions)].slice(0, 3);
+
+  useEffect(() => {
+    setCurrentState(grant.userState ?? null);
+  }, [grant.userState]);
+
+  async function markGrantState(status: GrantUserState) {
+    if (loadingState || status === currentState) return;
+    setLoadingState(status);
+    try {
+      const response = await fetch("/api/grants/user-state", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ grantId: grant.grantId, status }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(typeof body.error === "string" ? body.error : "Could not update grant status");
+      }
+      setCurrentState(status);
+      toast.success(stateToast(status));
+      onStateChanged?.({ ...grant, userState: status }, status);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not update grant status");
+    } finally {
+      setLoadingState(null);
+    }
+  }
 
   return (
     <div className="min-w-0 rounded-lg border p-4 transition-colors hover:bg-muted/50">
@@ -186,6 +232,32 @@ export function EligibleGrantCard({ grant }: { grant: EligibleGrant }) {
       )}
 
       <div className="mt-2 flex flex-wrap items-center gap-2 pt-1">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-muted-foreground">Status</span>
+          <Select
+            value={currentState ?? "active"}
+            onValueChange={(value) => {
+              if (value === "active") return;
+              void markGrantState(value as GrantUserState);
+            }}
+            disabled={loadingState != null}
+          >
+            <SelectTrigger className="h-8 w-[172px] text-xs">
+              <SelectValue placeholder="Set status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="active" disabled>
+                Set status
+              </SelectItem>
+              <SelectItem value="saved">Save / keep active</SelectItem>
+              <SelectItem value="viewed">Reviewed / seen before</SelectItem>
+              <SelectItem value="deferred">Defer for later</SelectItem>
+              <SelectItem value="applied">Add to Applications</SelectItem>
+              <SelectItem value="dismissed">Dismiss</SelectItem>
+            </SelectContent>
+          </Select>
+          {loadingState && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+        </div>
         <Button asChild variant="outline" size="sm" className="gap-1.5">
           <Link href={detailHref}>
             <FileText className="h-3.5 w-3.5" />

@@ -29,6 +29,9 @@ export interface HealthCheckContext {
 }
 
 const TIMEOUT_MS = 10_000;
+const MAX_PAGE_TEXT_CHARS = 250_000;
+const DEAD_PAGE_SCAN_CHARS = 12_000;
+const MAX_CONTEXT_WINDOWS = 8;
 
 const DEAD_PAGE_PATTERNS = [
   /page\s*not\s*found/i,
@@ -61,24 +64,84 @@ function normalisePageText(html: string): string {
     .replace(/<script[\s\S]*?<\/script>/gi, "")
     .replace(/<style[\s\S]*?<\/style>/gi, "")
     .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&pound;/gi, "£")
+    .replace(/&#(\d+);/g, (_match, code) => {
+      const parsed = Number(code);
+      return Number.isFinite(parsed) ? String.fromCharCode(parsed) : " ";
+    })
     .replace(/\s+/g, " ")
     .trim();
 }
 
+const TITLE_STOP_WORDS = new Set([
+  "and",
+  "the",
+  "for",
+  "with",
+  "from",
+  "grant",
+  "grants",
+  "fund",
+  "funding",
+  "programme",
+  "program",
+  "scheme",
+  "award",
+  "awards",
+  "application",
+  "applications",
+]);
+
+function grantTitleTokens(value: string): string[] {
+  return [...new Set(
+    value
+      .toLowerCase()
+      .replace(/&/g, " and ")
+      .replace(/[^a-z0-9]+/g, " ")
+      .split(/\s+/)
+      .filter((token) => token.length > 3 && !TITLE_STOP_WORDS.has(token))
+  )];
+}
+
 function relevantWindowsForGrant(bodyText: string, context?: HealthCheckContext): string[] {
-  const name = context?.name?.trim().toLowerCase();
+  const name = context?.name?.trim();
   if (!name || name.length < 4) return [];
 
   const lower = bodyText.toLowerCase();
   const windows: string[] = [];
   let cursor = 0;
-  while (windows.length < 3) {
-    const index = lower.indexOf(name, cursor);
+  const exactName = name.toLowerCase();
+  while (windows.length < MAX_CONTEXT_WINDOWS) {
+    const index = lower.indexOf(exactName, cursor);
     if (index < 0) break;
     const start = Math.max(0, index - 800);
     const end = Math.min(bodyText.length, index + Math.max(2500, name.length + 1800));
     windows.push(bodyText.slice(start, end));
-    cursor = index + name.length;
+    cursor = index + exactName.length;
+  }
+
+  const tokens = grantTitleTokens(name);
+  if (tokens.length === 0) return windows;
+
+  const requiredMatches = Math.max(2, Math.ceil(tokens.length * 0.55));
+  for (const token of tokens) {
+    cursor = 0;
+    while (windows.length < MAX_CONTEXT_WINDOWS) {
+      const index = lower.indexOf(token, cursor);
+      if (index < 0) break;
+      const start = Math.max(0, index - 1200);
+      const end = Math.min(bodyText.length, index + 3200);
+      const window = bodyText.slice(start, end);
+      const windowLower = window.toLowerCase();
+      const matchedTokens = tokens.filter((candidate) => windowLower.includes(candidate)).length;
+      if (matchedTokens >= requiredMatches && !windows.includes(window)) {
+        windows.push(window);
+      }
+      cursor = index + token.length;
+    }
+    if (windows.length >= MAX_CONTEXT_WINDOWS) break;
   }
   return windows;
 }
@@ -167,8 +230,8 @@ export async function checkUrlHealth(url: string, context?: HealthCheckContext):
       clearTimeout(getTimeout);
 
       const html = await getRes.text();
-      const fullBodyText = normalisePageText(html).slice(0, 80_000);
-      const bodyText = fullBodyText.slice(0, 8000);
+      const fullBodyText = normalisePageText(html).slice(0, MAX_PAGE_TEXT_CHARS);
+      const bodyText = fullBodyText.slice(0, DEAD_PAGE_SCAN_CHARS);
 
       if (DEAD_PAGE_PATTERNS.some((p) => p.test(bodyText))) {
         return { status: "dead", httpStatus: getRes.status, reason: "Soft 404 detected in page content" };
@@ -250,6 +313,8 @@ export async function sweepGrantUrls(maxAge: number = 7, batchSize: number = 50)
     .from("Grant")
     .select("id, applicationUrl, name, funder, deadline, eligibility, description, objectives, url_status")
     .or(`url_checked_at.is.null,url_checked_at.lt.${cutoff.toISOString()},url_status.eq.unknown`)
+    .order("url_checked_at", { ascending: true, nullsFirst: true })
+    .order("createdAt", { ascending: false })
     .limit(batchSize);
 
   const stats = { checked: 0, live: 0, dead: 0, expired: 0, recovered: 0 };

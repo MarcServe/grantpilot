@@ -1,12 +1,21 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { getGrantFreshnessStatus } from "../lib/grant-freshness";
 import {
   getGrantActionabilityStatus,
   verifyGrantActionable,
   type GrantActionabilityInput,
 } from "../lib/grant-actionability";
+import { checkUrlHealth } from "../lib/url-health-check";
 
 const now = new Date("2026-06-01T12:00:00Z");
+
+const urlHealthSource = readFileSync("lib/url-health-check.ts", "utf8");
+assert.match(
+  urlHealthSource,
+  /\.order\("url_checked_at", \{ ascending: true, nullsFirst: true \}\)/,
+  "URL sweep should prioritize never-checked and oldest-checked grants."
+);
 
 function freshness(grant: GrantActionabilityInput) {
   return getGrantFreshnessStatus(grant, now);
@@ -118,6 +127,33 @@ async function main() {
   );
   assert.equal(futureDeadline.usable, true, "future deadline grant should stay actionable");
   assert.equal(liveCheckCount, 0, "future deadline grant should not spend live preflight");
+
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if ((init?.method ?? "GET").toUpperCase() === "HEAD") {
+        return new Response("", { status: 200 });
+      }
+      const filler = " current guidance ".repeat(7000);
+      return new Response(
+        `<html><body>${filler}<main><h1>Technology Grants | Innovation & Development</h1><p>Apply to the Technology Grants: Innovation and Development fund by 5pm 9th December 2019. Applications are now closed.</p></main></body></html>`,
+        { status: 200, headers: { "content-type": "text/html" } }
+      );
+    }) as typeof fetch;
+
+    const deepExpiredPage = await checkUrlHealth("https://example.com/technology-grants", {
+      name: "Technology Grants Innovation and Development",
+      funder: "Example Funder",
+      eligibility: "Open to UK technology SMEs.",
+    });
+    assert.equal(
+      deepExpiredPage.status,
+      "expired",
+      "URL health should detect grant-specific expired wording even when it appears deep in the page and the title is not an exact string match."
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 
   console.log("grant actionability checks passed");
 }

@@ -1,7 +1,7 @@
 import { inngest } from "./client";
 import { runWithCronLog } from "@/lib/cron-run-log";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { isEligibilityNotificationTime } from "@/lib/timezone";
+import { isEligibilityNotificationCatchUpTime } from "@/lib/timezone";
 import { isGrantActionableNow } from "@/lib/grant-actionability";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { getSuppressedGrantIds } from "@/lib/grant-user-state";
@@ -693,7 +693,7 @@ export async function runDailyNotificationSafeguardJob(options?: {
   for (const orgId of orgIds) {
     const org = orgs.get(orgId);
     const timezone = org?.preferredTimezone ?? org?.preferred_timezone ?? "UTC";
-    if (respectLocalTime && !isEligibilityNotificationTime(timezone)) continue;
+    if (respectLocalTime && !isEligibilityNotificationCatchUpTime(timezone)) continue;
     diagnostics.orgsAtLocalTime++;
     const recentWindow = notificationCooldownStart(timezone);
 
@@ -873,7 +873,7 @@ export async function enqueueDailyEligibilityDigests(options: {
   if (orgError) throw orgError;
 
   const dueOrgIds = ((orgRows ?? []) as OrgRow[])
-    .filter((org) => !respectLocalTime || isEligibilityNotificationTime(org.preferredTimezone ?? org.preferred_timezone ?? "UTC"))
+    .filter((org) => !respectLocalTime || isEligibilityNotificationCatchUpTime(org.preferredTimezone ?? org.preferred_timezone ?? "UTC"))
     .map((org) => org.id);
   diagnostics.orgsAtLocalTime = dueOrgIds.length;
 

@@ -16,6 +16,7 @@
     "test:plan-gating": "tsx scripts/test-plan-gating.ts",
     "test:deep-score-profile-priority": "tsx scripts/test-deep-score-profile-priority.ts",
     "test:cron-reliability": "tsx scripts/test-cron-reliability.ts",
+    "test:notification-timezone": "tsx scripts/test-notification-timezone.ts",
     "test:grant-user-state": "tsx scripts/test-grant-user-state.ts",
     "test:whatsapp-digest-template": "tsx scripts/test-whatsapp-digest-template.ts",
     "test:eligible-match-rules": "tsx scripts/test-eligible-match-rules.ts",

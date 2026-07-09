@@ -7,6 +7,9 @@ interface GuardProfile {
   location: string;
   sector: string;
   fundingPurposes: string[];
+  description?: string | null;
+  missionStatement?: string | null;
+  fundingDetails?: string | null;
   employeeCount?: number | null;
   annualRevenue?: number | null;
   yearEstablished?: number | null;
@@ -77,6 +80,76 @@ function purposeLooksAligned(profilePurposes: string[], grant: GuardGrant): bool
 
 function grantCriteriaText(grant: GuardGrant): string {
   return [grant.eligibility ?? "", grant.description ?? "", grant.objectives ?? ""].join(" ").toLowerCase();
+}
+
+const RELEVANCE_STOP_WORDS = new Set([
+  "and",
+  "the",
+  "for",
+  "with",
+  "from",
+  "that",
+  "this",
+  "your",
+  "business",
+  "businesses",
+  "company",
+  "companies",
+  "organisation",
+  "organisations",
+  "startup",
+  "startups",
+  "start",
+  "sme",
+  "smes",
+  "grant",
+  "fund",
+  "funding",
+  "support",
+  "local",
+  "community",
+  "growth",
+]);
+
+function relevanceTerms(value: string): string[] {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/)
+    .filter((term) => term.length > 2 && !RELEVANCE_STOP_WORDS.has(term));
+}
+
+function hasCoreRelevanceEvidence(profile: GuardProfile, grant: GuardGrant): boolean {
+  const profileTerms = [
+    profile.sector,
+    ...(profile.fundingPurposes ?? []),
+    profile.description ?? "",
+    profile.missionStatement ?? "",
+    profile.fundingDetails ?? "",
+  ].flatMap(relevanceTerms);
+
+  const uniqueTerms = [...new Set(profileTerms)];
+  if (uniqueTerms.length === 0) return true;
+
+  const grantText = [
+    ...(grant.sectors ?? []),
+    grant.eligibility ?? "",
+    grant.description ?? "",
+    grant.objectives ?? "",
+  ].join(" ").toLowerCase();
+
+  const synonymGroups: Record<string, string[]> = {
+    ai: ["ai", "artificial intelligence", "machine learning", "automation"],
+    technology: ["technology", "technologies", "digital", "software", "data", "ai", "innovation", "tech"],
+    tech: ["technology", "technologies", "digital", "software", "data", "ai", "innovation", "tech"],
+    software: ["software", "platform", "digital", "saas", "automation"],
+    digital: ["digital", "software", "technology", "online", "data"],
+  };
+
+  return uniqueTerms.some((term) => {
+    if (grantText.includes(term)) return true;
+    return (synonymGroups[term] ?? []).some((synonym) => grantText.includes(synonym));
+  });
 }
 
 function hasExplicitMeasurableProfileCriteria(grant: GuardGrant): boolean {
@@ -157,6 +230,9 @@ export function applyEligibilityScoreGuards(
   }
   if (!purposeLooksAligned(profile.fundingPurposes, grant)) {
     guarded = capResult(guarded, 60, "Funding purpose does not clearly match the grant objectives");
+  }
+  if ((guarded.score ?? guarded.confidence ?? 0) >= 85 && !hasCoreRelevanceEvidence(profile, grant)) {
+    guarded = capResult(guarded, 70, "Core relevance is generic; the grant does not clearly evidence the company sector or funding priorities");
   }
 
   const preScreen = evaluateEligibilityPreScreen(profile, grant);

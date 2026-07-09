@@ -11,6 +11,7 @@ import { EligibleGrantCard, hasVerifiedApplicationStart, type EligibleGrant } fr
 
 type MatchSection = "suggested" | "within_reach" | "other" | "needs_review" | "reviewed";
 type TierStatus = "idle" | "loading" | "loaded" | "error";
+type GrantUserState = "saved" | "viewed" | "deferred" | "applied" | "dismissed";
 
 type TierState = {
   grants: EligibleGrant[];
@@ -142,6 +143,16 @@ function formatCount(state: TierState): string | null {
   return `${state.availableCandidateCount}${state.availableCandidateCountIsEstimate ? "+" : ""}`;
 }
 
+function countAfterRemoval(state: TierState): number | null {
+  if (state.availableCandidateCount == null) return null;
+  return Math.max(0, state.availableCandidateCount - 1);
+}
+
+function countAfterAddition(state: TierState): number | null {
+  if (state.availableCandidateCount == null) return state.grants.length + 1;
+  return state.availableCandidateCount + 1;
+}
+
 export function BatchedEligibleGrantsList({
   initialTier,
   initialPage,
@@ -242,6 +253,48 @@ export function BatchedEligibleGrantsList({
   const isAnyLoading = TIER_ORDER.some((tier) => sections[tier].status === "loading");
   const allVisibleDone = tiersToShow.every((tier) => sections[tier].status === "loaded" || sections[tier].status === "error");
 
+  const handleGrantStateChanged = useCallback((grant: EligibleGrant, status: GrantUserState) => {
+    setSections((current) => {
+      const updated: Record<MatchSection, TierState> = { ...current };
+      const shouldLeaveActive = status === "viewed" || status === "deferred" || status === "applied" || status === "dismissed";
+
+      for (const tier of TIER_ORDER) {
+        const state = current[tier];
+        const existing = state.grants.find((item) => item.grantId === grant.grantId);
+        if (!existing) continue;
+
+        if (!shouldLeaveActive || (status === "viewed" && tier === "reviewed")) {
+          updated[tier] = {
+            ...state,
+            grants: state.grants.map((item) =>
+              item.grantId === grant.grantId ? { ...item, userState: status } : item
+            ),
+          };
+          continue;
+        }
+
+        updated[tier] = {
+          ...state,
+          grants: state.grants.filter((item) => item.grantId !== grant.grantId),
+          availableCandidateCount: countAfterRemoval(state),
+        };
+      }
+
+      if (status === "viewed") {
+        const reviewed = updated.reviewed;
+        if (!reviewed.grants.some((item) => item.grantId === grant.grantId)) {
+          updated.reviewed = {
+            ...reviewed,
+            grants: [{ ...grant, userState: "viewed" }, ...reviewed.grants],
+            availableCandidateCount: countAfterAddition(reviewed),
+          };
+        }
+      }
+
+      return updated;
+    });
+  }, []);
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -307,6 +360,7 @@ export function BatchedEligibleGrantsList({
             state={state}
             query={query}
             onLoadMore={() => loadTier(tier, state.page + 1, "append")}
+            onGrantStateChanged={handleGrantStateChanged}
           />
         );
       })}
@@ -334,11 +388,13 @@ function MatchTierSection({
   state,
   query,
   onLoadMore,
+  onGrantStateChanged,
 }: {
   tier: MatchSection;
   state: TierState;
   query: string;
   onLoadMore: () => void;
+  onGrantStateChanged: (grant: EligibleGrant, status: GrantUserState) => void;
 }) {
   const meta = TIER_META[tier];
   const grants = state.grants.filter((grant) => matchesQuery(grant, query));
@@ -407,6 +463,7 @@ function MatchTierSection({
                 title="Direct grant form links"
                 description="These have a verified direct application form or official application portal."
                 grants={directFormGrants}
+                onGrantStateChanged={onGrantStateChanged}
               />
             )}
             {grantPageGrants.length > 0 && (
@@ -414,11 +471,18 @@ function MatchTierSection({
                 title="Grant page links"
                 description="These are strong matches, but the direct form has not been verified yet."
                 grants={grantPageGrants}
+                onGrantStateChanged={onGrantStateChanged}
               />
             )}
           </div>
         ) : (
-          grants.map((grant) => <EligibleGrantCard key={grant.grantId} grant={grant} />)
+          grants.map((grant) => (
+            <EligibleGrantCard
+              key={grant.grantId}
+              grant={grant}
+              onStateChanged={onGrantStateChanged}
+            />
+          ))
         )}
         {(state.hasMore || state.status === "loading") && (
           <div className="pt-2">
@@ -457,10 +521,12 @@ function GrantLinkGroup({
   title,
   description,
   grants,
+  onGrantStateChanged,
 }: {
   title: string;
   description: string;
   grants: EligibleGrant[];
+  onGrantStateChanged: (grant: EligibleGrant, status: GrantUserState) => void;
 }) {
   return (
     <div className="space-y-3">
@@ -471,7 +537,13 @@ function GrantLinkGroup({
         <p className="text-xs text-muted-foreground">{description}</p>
       </div>
       <div className="space-y-3">
-        {grants.map((grant) => <EligibleGrantCard key={grant.grantId} grant={grant} />)}
+        {grants.map((grant) => (
+          <EligibleGrantCard
+            key={grant.grantId}
+            grant={grant}
+            onStateChanged={onGrantStateChanged}
+          />
+        ))}
       </div>
     </div>
   );

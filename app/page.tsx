@@ -143,7 +143,7 @@ export default async function LandingPage() {
               Grants<span className="text-[#2468e8]">Copilot</span>
             </div>
             <div className="mt-1 hidden text-[12px] font-semibold text-[#071a3a] min-[430px]:block sm:text-[13px]">
-              Find it. Fill it. Fund it. <span className="text-[#2fbf84]">Apply on autopilot.</span>
+              Grants that find you. <span className="text-[#2fbf84]">Applications prepared faster.</span>
             </div>
           </div>
         </Link>
@@ -185,21 +185,20 @@ export default async function LandingPage() {
           <div className="order-2 w-full max-w-[610px] shrink-0 lg:order-1 lg:max-w-[min(100%,610px)] lg:basis-[min(610px,44%)]">
             <div className="inline-flex min-h-8 max-w-full items-center gap-2 rounded-full bg-[#e8f0ff] px-3 py-1.5 text-[13px] font-bold text-[#105fdf] sm:px-4 sm:text-[14px]">
               <Sparkles className="h-4 w-4" />
-              <span className="truncate">Automated grant discovery, eligibility scoring & application prep</span>
+              <span className="truncate">Instead of searching for grants, let the right grants come to you</span>
             </div>
 
             <h1 className="mt-7 text-[clamp(2.55rem,11vw,4.4rem)] font-black leading-[1.06] tracking-normal text-[#071a3a] sm:mt-8 lg:text-[72px]">
-              Find Grants.
+              What if grants
               <br />
-              <span className="text-[#2167e8]">Check Eligibility.</span>
+              <span className="text-[#2167e8]">came to you?</span>
               <br />
-              <span className="text-[#35c386]">Get Funded.</span>
+              <span className="text-[#35c386]">That is GrantsCopilot.</span>
             </h1>
 
             <p className="mt-5 max-w-[560px] text-[18px] font-medium leading-[1.55] text-[#09224a] sm:mt-6 sm:text-[20px]">
-              GrantsCopilot is an AI funding workspace for startups and SMEs. It automatically finds fresh grants,
-              scores each opportunity against your Business DNA, prepares funder-ready answers and documents, and keeps
-              deadlines in view.
+              GrantsCopilot watches the funding market for your business, checks each opportunity against your Business DNA,
+              separates direct application links from grant pages, and sends the strongest matches before deadlines disappear.
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:mt-9 sm:flex-row sm:gap-4">
@@ -207,7 +206,7 @@ export default async function LandingPage() {
                 href={isSignedIn ? "/dashboard" : "/sign-up"}
                 className="inline-flex h-[52px] min-h-[52px] items-center justify-center gap-3 rounded-lg bg-[#2167e8] px-5 text-[16px] font-extrabold text-white shadow-[0_14px_26px_rgba(33,103,232,0.24)] transition hover:bg-[#1858cf] sm:h-14 sm:px-7 sm:text-[17px]"
               >
-                {isSignedIn ? "Return to dashboard" : "Get Started Free"}
+                {isSignedIn ? "Return to dashboard" : "Let grants find me"}
                 {isSignedIn ? <LayoutDashboard className="h-5 w-5" /> : <ArrowRight className="h-5 w-5" />}
               </Link>
               <a
@@ -222,9 +221,9 @@ export default async function LandingPage() {
             </div>
 
             <div className="mt-8 grid max-w-[640px] grid-cols-2 gap-4 text-[14px] font-bold text-[#09224a] min-[560px]:grid-cols-4 sm:mt-10 sm:gap-5">
-              <Feature icon={Search} title="Fresh grant" detail="discovery" />
+              <Feature icon={Search} title="Daily grant" detail="radar" />
               <Feature icon={Target} title="Eligibility" detail="scoring" />
-              <Feature icon={FileCheck2} title="Automated" detail="prep" />
+              <Feature icon={FileCheck2} title="Application" detail="prep" />
               <Feature icon={Bell} title="Deadline" detail="reminders" />
             </div>
           </div>
@@ -250,11 +249,11 @@ export default async function LandingPage() {
             <div>
               <p className="text-sm font-black uppercase tracking-[0.14em] text-[#2167e8]">Features</p>
               <h2 className="mt-4 max-w-[560px] text-[32px] font-black leading-tight tracking-normal text-[#071a3a] sm:text-[42px]">
-                Funding intelligence built around your company DNA.
+                From grant search to grant flow.
               </h2>
               <p className="mt-5 max-w-[560px] text-lg font-medium leading-8 text-[#334766]">
-              GrantsCopilot is not just a searchable grant list. It learns what your business is, scores the right
-                opportunities, and turns funding work into a structured application preparation pipeline.
+                GrantsCopilot is not another grant directory. It learns what your business does, brings the right
+                opportunities forward, and turns funding work into a structured application preparation pipeline.
               </p>
               <div className="mt-7 flex flex-col gap-3 sm:flex-row">
                 <Link
@@ -304,7 +303,7 @@ export default async function LandingPage() {
             </div>
 
             <div className="grid items-center gap-6 lg:grid-cols-[1fr_0.36fr_1fr_0.36fr_1fr_0.36fr_1.5fr]">
-              <Step icon={Search} title="1. Find" text="We scan grant feeds, databases, and web sources to find relevant opportunities for your business." />
+              <Step icon={Search} title="1. Watch" text="Your funding radar scans grant feeds, databases, and web sources so you do not have to keep searching." />
               <ArrowDivider />
               <Step icon={Target} title="2. Match" text="Our AI checks eligibility signals and ranks opportunities by fit, gaps, and readiness." accent="green" />
               <ArrowDivider />
@@ -319,7 +318,7 @@ export default async function LandingPage() {
                 <div>
                   <h3 className="text-[22px] font-black">Apply Faster</h3>
                   <p className="mt-2 text-[14px] font-medium leading-6 text-white/90">
-                    Stop searching, guessing, and missing deadlines. Full auto-filing is planned for V2.
+                    Review the grants that matter, prepare faster, and stop losing time to stale funding pages. Full auto-filing is planned for V2.
                   </p>
                 </div>
               </div>
@@ -473,11 +472,11 @@ export default async function LandingPage() {
             <div>
               <p className="text-sm font-black uppercase tracking-[0.14em] text-[#2167e8]">Get started</p>
               <h2 className="mt-3 text-[30px] font-black leading-tight text-[#071a3a] sm:text-[36px]">
-                Run your funding workflow in GrantsCopilot.
+                Let your next grant opportunity come to you.
               </h2>
               <p className="mt-4 max-w-3xl text-base font-medium leading-7 text-[#51627d]">
-                Create an account to explore the workspace and get started with grant matching, application tasks,
-                and founder funding pack generation.
+                Create your Business DNA profile once. GrantsCopilot keeps scanning, scoring, reminding, and preparing
+                applications around what your company actually qualifies for.
               </p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
@@ -647,9 +646,9 @@ function DashboardPreview() {
           <div className="mt-4 overflow-hidden rounded-lg bg-[#eaf3ff] px-8 py-5">
             <div className="flex items-center justify-between gap-5">
               <div>
-                <p className="text-[17px] font-black text-[#071a3a]">Save time. Apply smarter. Stay deadline-ready.</p>
+                <p className="text-[17px] font-black text-[#071a3a]">Stop searching. Let the right grants surface.</p>
                 <p className="mt-2 text-[12px] font-medium text-[#2a4065]">
-                  GrantsCopilot handles the heavy lifting, so you can focus on growing your business.
+                  GrantsCopilot keeps watch, ranks the best fits, and prepares the next step.
                 </p>
               </div>
               <div className="hidden h-16 w-16 shrink-0 items-center justify-center rounded-full bg-[#d7e8ff] text-[#2167e8] sm:flex">

@@ -32,6 +32,10 @@ export type EligibilityGuardGrant = {
 
 export function profileForEligibilityGuards(profile: Record<string, unknown>) {
   return {
+    businessName: String(profile.businessName ?? profile.business_name ?? ""),
+    description: String(profile.description ?? ""),
+    missionStatement: String(profile.missionStatement ?? profile.mission_statement ?? ""),
+    fundingDetails: String(profile.fundingDetails ?? profile.funding_details ?? ""),
     location: String(profile.location ?? ""),
     sector: String(profile.sector ?? ""),
     fundingPurposes: Array.isArray(profile.fundingPurposes)

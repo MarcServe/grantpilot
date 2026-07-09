@@ -15,9 +15,9 @@ export const VALID_TIMEZONES = [
  * Return the current hour (0-23) in the given IANA timezone.
  * Uses Intl; invalid tz falls back to UTC.
  */
-export function getHourInTimezone(timezone: string): number {
+export function getHourInTimezone(timezone: string, date = new Date()): number {
   try {
-    const s = new Date().toLocaleString("en-GB", {
+    const s = date.toLocaleString("en-GB", {
       timeZone: timezone || "UTC",
       hour: "numeric",
       hour12: false,
@@ -47,8 +47,16 @@ export function isMondayLocal(timezone: string): boolean {
   }
 }
 
-/** Return true if it's 8am (8:00–8:59) in the given timezone.
- *  Cron runs at :30 past each hour, so hour=8 means it's ~8:30 AM local. */
-export function isEligibilityNotificationTime(timezone: string): boolean {
-  return getHourInTimezone(timezone || "UTC") === 8;
+export function isEligibilityNotificationTime(timezone: string, date = new Date()): boolean {
+  return getHourInTimezone(timezone || "UTC", date) === 8;
+}
+
+/**
+ * Return true during the daytime digest delivery window.
+ * The first run at 08:30 local is preferred; later hourly runs provide
+ * same-day recovery when a scheduler invocation is missed.
+ */
+export function isEligibilityNotificationCatchUpTime(timezone: string, date = new Date()): boolean {
+  const hour = getHourInTimezone(timezone || "UTC", date);
+  return hour >= 8 && hour < 18;
 }
