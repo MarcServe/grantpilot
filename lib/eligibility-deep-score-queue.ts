@@ -79,6 +79,8 @@ const MAX_QUEUE_SCAN_LIMIT = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_QUEUE_SC
 const FRESH_DEEP_SCORE_WINDOW_DAYS = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_FRESH_DAYS", 31);
 const FRESH_DEEP_SCORE_PRIORITY_BONUS = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_FRESH_PRIORITY_BONUS", 500);
 const STALE_RUNNING_LOCK_MINUTES = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_STALE_LOCK_MINUTES", 20);
+const QUEUE_LOOKUP_BATCH_SIZE = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_QUEUE_LOOKUP_BATCH_SIZE", 50);
+const QUEUE_INSERT_BATCH_SIZE = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_QUEUE_INSERT_BATCH_SIZE", 10);
 
 function valueAsString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -259,41 +261,82 @@ export async function enqueueDeepScoreCandidates(options: {
         updated_at: now,
       };
     });
+    const dedupedRowsByKey = new Map<string, (typeof rows)[number]>();
+    for (const row of rows) {
+      const key = `${row.grant_id}:${row.profile_hash}:${row.grant_content_hash}`;
+      const existing = dedupedRowsByKey.get(key);
+      if (!existing || row.priority > existing.priority) {
+        dedupedRowsByKey.set(key, row);
+      }
+    }
+    const dedupedRows = Array.from(dedupedRowsByKey.values());
 
-    const profileHash = rows[0]?.profile_hash;
-    const grantIds = rows.map((row) => row.grant_id);
-    const existingResult = profileHash && grantIds.length > 0
-      ? await supabase
-        .from("eligibility_deep_score_queue")
-        .select("grant_id, profile_hash, grant_content_hash, status")
-        .eq("organisation_id", options.organisationId)
-        .eq("profile_id", options.profileId)
-        .eq("profile_hash", profileHash)
-        .in("grant_id", grantIds)
-      : { data: [], error: null };
-    if (existingResult.error) throw existingResult.error;
+    const profileHash = dedupedRows[0]?.profile_hash;
+    const grantIds = Array.from(new Set(dedupedRows.map((row) => row.grant_id)));
+    const existingRows: Array<{
+      grant_id: string;
+      profile_hash: string | null;
+      grant_content_hash: string | null;
+      status: string | null;
+    }> = [];
+    if (profileHash && grantIds.length > 0) {
+      for (let offset = 0; offset < grantIds.length; offset += QUEUE_LOOKUP_BATCH_SIZE) {
+        const grantIdBatch = grantIds.slice(offset, offset + QUEUE_LOOKUP_BATCH_SIZE);
+        const existingResult = await supabase
+          .from("eligibility_deep_score_queue")
+          .select("grant_id, profile_hash, grant_content_hash, status")
+          .eq("organisation_id", options.organisationId)
+          .eq("profile_id", options.profileId)
+          .eq("profile_hash", profileHash)
+          .in("grant_id", grantIdBatch);
+        if (existingResult.error) throw existingResult.error;
+        existingRows.push(...((existingResult.data ?? []) as typeof existingRows));
+      }
+    }
 
     const existingByKey = new Map(
-      ((existingResult.data ?? []) as Array<{
-        grant_id: string;
-        profile_hash: string | null;
-        grant_content_hash: string | null;
-        status: string | null;
-      }>).map((row) => [`${row.grant_id}:${row.profile_hash ?? ""}:${row.grant_content_hash ?? ""}`, row])
+      existingRows.map((row) => [`${row.grant_id}:${row.profile_hash ?? ""}:${row.grant_content_hash ?? ""}`, row])
     );
-    const rowsToUpsert = rows.filter((row) => {
+    const rowsToInsert = dedupedRows.filter((row) => {
       const existing = existingByKey.get(`${row.grant_id}:${row.profile_hash}:${row.grant_content_hash}`);
-      return !existing || existing.status === "pending";
+      return !existing;
     });
-    if (rowsToUpsert.length === 0) return { requested, enqueued: 0 };
+    if (rowsToInsert.length === 0) return { requested, enqueued: 0 };
 
-    const { data, error } = await supabase.from("eligibility_deep_score_queue").upsert(rowsToUpsert, {
-      onConflict: "organisation_id,profile_id,grant_id,profile_hash,grant_content_hash",
-    }).select("id");
-    if (error) throw error;
-    return { requested, enqueued: data?.length ?? 0 };
+    let enqueued = 0;
+    for (let offset = 0; offset < rowsToInsert.length; offset += QUEUE_INSERT_BATCH_SIZE) {
+      const batch = rowsToInsert.slice(offset, offset + QUEUE_INSERT_BATCH_SIZE);
+      const { data, error } = await supabase.from("eligibility_deep_score_queue").insert(batch).select("id");
+      if (!error) {
+        enqueued += data?.length ?? 0;
+        continue;
+      }
+
+      if (batch.length === 1) throw error;
+
+      for (const row of batch) {
+        const single = await supabase.from("eligibility_deep_score_queue").insert(row).select("id");
+        if (single.error) {
+          console.warn(
+            "[eligibility-deep-score-queue] single-row enqueue skipped:",
+            JSON.stringify({
+              grantId: row.grant_id,
+              source: row.source,
+              error: single.error,
+            })
+          );
+          continue;
+        }
+        enqueued += single.data?.length ?? 0;
+      }
+    }
+    return { requested, enqueued };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = error instanceof Error
+      ? error.message
+      : typeof error === "object" && error
+        ? JSON.stringify(error)
+        : String(error);
     console.warn("[eligibility-deep-score-queue] enqueue skipped:", message);
     return { requested, enqueued: 0, error: message };
   }

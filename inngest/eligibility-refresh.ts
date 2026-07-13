@@ -47,7 +47,7 @@ function positiveIntFromEnv(name: string, fallback: number): number {
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
 }
 
-const LAYER3_TOP_N = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_TOP_N", 50);
+const LAYER3_TOP_N = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_TOP_N", 10);
 const LAYER2_TOP_N = Math.max(LAYER3_TOP_N, positiveIntFromEnv("ELIGIBILITY_EMBEDDING_TOP_N", 75));
 const GRANT_FETCH_BATCH_SIZE = 1000;
 const MAX_GRANTS_PER_REFRESH = 10000;
@@ -56,7 +56,7 @@ const MIN_NOTIFICATION_SCORE_FLOOR = 75;
 const NOTIFY_COOLDOWN_HOURS = 20;
 const CACHE_DAYS = 1;
 const REFRESH_ENQUEUE_CHUNK_SIZE = positiveIntFromEnv("ELIGIBILITY_REFRESH_ENQUEUE_CHUNK_SIZE", 100);
-const REFRESH_WORKER_CONCURRENCY = positiveIntFromEnv("ELIGIBILITY_REFRESH_WORKER_CONCURRENCY", 8);
+const REFRESH_WORKER_CONCURRENCY = positiveIntFromEnv("ELIGIBILITY_REFRESH_WORKER_CONCURRENCY", 2);
 const DEEP_SCORE_WORKER_CONCURRENCY = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_WORKER_CONCURRENCY", 3);
 const DIGEST_STRONG_LIMIT = positiveIntFromEnv("ELIGIBILITY_DIGEST_STRONG_LIMIT", 20);
 const DIGEST_PREVIOUS_LIMIT = positiveIntFromEnv("ELIGIBILITY_DIGEST_PREVIOUS_LIMIT", 12);
@@ -269,11 +269,12 @@ async function enqueueEligibilityRefreshForOrgIds(
 
   for (let offset = 0; offset < uniqueOrgIds.length; offset += REFRESH_ENQUEUE_CHUNK_SIZE) {
     const chunk = uniqueOrgIds.slice(offset, offset + REFRESH_ENQUEUE_CHUNK_SIZE);
-    const dateKey = new Date().toISOString().slice(0, 10);
+    const hourKey = new Date().toISOString().slice(0, 13);
     const useDailyIdempotency = /overnight_precompute|scheduled\.local_830|vercel\.cron/i.test(source);
+    const safeSource = source.replace(/[^a-z0-9_.-]+/gi, "_").slice(0, 80);
     try {
       await inngest.send(chunk.map((orgId) => ({
-        id: useDailyIdempotency ? `eligibility-refresh:${orgId}:${dateKey}` : undefined,
+        id: useDailyIdempotency ? `eligibility-refresh:${safeSource}:${orgId}:${hourKey}` : undefined,
         name: "eligibility/refresh.requested",
         data: { orgId, source, sendNotifications },
       })));
@@ -1341,19 +1342,25 @@ export const eligibilityRefreshRequested = inngest.createFunction(
     const source = typeof event.data?.source === "string" ? event.data.source : "manual";
     const sendNotifications = event.data?.sendNotifications !== false;
     const bypassCache = /^(application\.outcome|profile\.)/.test(source);
-    if (!orgId) {
-      return enqueueEligibilityRefreshes({
-        source: `${source}.fallback_enqueue`,
-        dueOnly: false,
-        sendNotifications,
-      });
-    }
-    return runEligibilityRefreshJob({
-      orgIdsFilter: new Set([orgId]),
-      bypassCache,
-      refreshReason: source,
-      sendNotifications,
-    });
+    return runWithCronLog(
+      { jobName: "Eligibility Refresh Scoped Worker", route: "inngest/eligibility-refresh.requested", trigger: "inngest" },
+      async () => {
+        if (!orgId) {
+          return enqueueEligibilityRefreshes({
+            source: `${source}.fallback_enqueue`,
+            dueOnly: false,
+            sendNotifications,
+          });
+        }
+        const result = await runEligibilityRefreshJob({
+          orgIdsFilter: new Set([orgId]),
+          bypassCache,
+          refreshReason: source,
+          sendNotifications,
+        });
+        return { orgId, source, sendNotifications, bypassCache, ...result };
+      }
+    );
   }
 );
 

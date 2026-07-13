@@ -47,6 +47,31 @@ assert.doesNotMatch(
 const eligibilityRefresh = read("inngest/eligibility-refresh.ts");
 assert.match(
   eligibilityRefresh,
+  /const LAYER3_TOP_N = positiveIntFromEnv\("ELIGIBILITY_DEEP_SCORE_TOP_N",\s*10\)/,
+  "eligibility refresh should keep inline OpenAI scoring bounded so scoped workers finish before serverless timeouts"
+);
+assert.match(
+  eligibilityRefresh,
+  /const REFRESH_WORKER_CONCURRENCY = positiveIntFromEnv\("ELIGIBILITY_REFRESH_WORKER_CONCURRENCY",\s*2\)/,
+  "eligibility refresh should avoid high concurrent org workers that can OOM /api/inngest"
+);
+assert.match(
+  eligibilityRefresh,
+  /toISOString\(\)\.slice\(0,\s*13\)/,
+  "eligibility refresh enqueue should use hourly idempotency so a killed precompute can retry later the same day"
+);
+assert.match(
+  eligibilityRefresh,
+  /eligibility-refresh:\$\{safeSource\}:\$\{orgId\}:\$\{hourKey\}/,
+  "eligibility refresh idempotency should include source and org so duplicate schedulers do not block each other"
+);
+assert.match(
+  eligibilityRefresh,
+  /jobName:\s*"Eligibility Refresh Scoped Worker"/,
+  "eligibility refresh scoped workers should write CronRunLog entries"
+);
+assert.match(
+  eligibilityRefresh,
   /if \(!options\?\.includeRecentlyNotified && assessment\.notified_at\) return null;/,
   "eligibility refresh should keep fresh digest items separate from reminder items"
 );
@@ -88,6 +113,48 @@ assert.match(
   eligibleMatchCache,
   /eligible-match-grant-ordered-assessments:/,
   "eligible match cache clearing should include grant-ordered assessment batches"
+);
+
+const deepScoreQueue = read("lib/eligibility-deep-score-queue.ts");
+assert.match(
+  deepScoreQueue,
+  /QUEUE_LOOKUP_BATCH_SIZE/,
+  "deep-score enqueue should chunk existing-row lookups to avoid long Supabase filter URLs"
+);
+assert.match(
+  deepScoreQueue,
+  /grantIdBatch/,
+  "deep-score enqueue should query existing queue rows in grant-id batches"
+);
+assert.match(
+  deepScoreQueue,
+  /QUEUE_INSERT_BATCH_SIZE/,
+  "deep-score enqueue should chunk backlog inserts to avoid Supabase request-size failures"
+);
+assert.match(
+  deepScoreQueue,
+  /dedupedRowsByKey/,
+  "deep-score enqueue should dedupe repeated grant candidates before inserting queue rows"
+);
+assert.match(
+  deepScoreQueue,
+  /\.from\("eligibility_deep_score_queue"\)\.insert\(batch\)/,
+  "deep-score enqueue should insert pre-filtered new rows in batches instead of relying on fragile upsert conflict targets"
+);
+assert.match(
+  deepScoreQueue,
+  /\.insert\(row\)\.select\("id"\)/,
+  "deep-score enqueue should fall back to single-row inserts when one batch is rejected"
+);
+assert.doesNotMatch(
+  deepScoreQueue,
+  /onConflict:\s*"organisation_id,profile_id,grant_id,profile_hash,grant_content_hash"/,
+  "deep-score enqueue should not require a plain-column ON CONFLICT target that may not exist in production"
+);
+assert.match(
+  deepScoreQueue,
+  /JSON\.stringify\(error\)/,
+  "deep-score enqueue should log Supabase error objects with useful details"
 );
 
 const inngestRoute = read("app/api/inngest/route.ts");

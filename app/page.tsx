@@ -186,8 +186,7 @@ export default async function LandingPage() {
             <div className="inline-flex max-w-full items-start gap-2 rounded-xl bg-[#e8f0ff] px-3 py-2 text-[13px] font-bold leading-snug text-[#105fdf] sm:px-4 sm:text-[14px]">
               <Sparkles className="mt-0.5 h-4 w-4 shrink-0" />
               <span className="flex min-w-0 flex-col">
-                <span>Instead of searching, what if grants came to you?</span>
-                <span>That is GrantsCopilot.</span>
+                <span>Instead of searching ... What if grants came to you?</span>
               </span>
             </div>
 
@@ -201,7 +200,7 @@ export default async function LandingPage() {
 
             <p className="mt-5 max-w-[560px] text-[18px] font-medium leading-[1.55] text-[#09224a] sm:mt-6 sm:text-[20px]">
               Instead of spending hours searching, GrantsCopilot brings matched opportunities to you, checks each grant
-              against your Business DNA, separates direct application links from grant pages, and prepares the next step.
+              against your Business DNA, explains your fit and evidence gaps, and prepares the next step.
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:mt-9 sm:flex-row sm:gap-4">
