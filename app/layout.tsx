@@ -10,6 +10,7 @@ const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://www.grantscopilot.com
 const title = "GrantsCopilot — AI-Powered Grant Discovery & Preparation";
 const description =
   "Find fresh grants, check eligibility against your company DNA, and prepare funder-ready documents and application tasks.";
+const siteIcon = "/logogc.png";
 const shareImage = "/grantscopilot-social-preview.png";
 
 const geistSans = Geist({
@@ -28,9 +29,9 @@ export const metadata: Metadata = {
   description,
   applicationName: "GrantsCopilot",
   icons: {
-    icon: "/icon.png",
-    shortcut: "/icon.png",
-    apple: "/icon.png",
+    icon: [{ url: siteIcon, type: "image/png" }],
+    shortcut: [{ url: siteIcon, type: "image/png" }],
+    apple: [{ url: siteIcon, type: "image/png" }],
   },
   openGraph: {
     title,
