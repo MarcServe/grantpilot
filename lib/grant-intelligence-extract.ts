@@ -27,6 +27,7 @@ export type GrantForIntelligence = {
   sectors?: string[] | null;
   regions?: string[] | null;
   url_status?: string | null;
+  createdAt?: string | null;
 };
 
 const GRANT_INTELLIGENCE_MODEL = process.env.OPENAI_GRANT_INTELLIGENCE_MODEL || process.env.OPENAI_MODEL || "gpt-4o-mini";

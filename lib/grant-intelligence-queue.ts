@@ -27,6 +27,8 @@ function positiveIntFromEnv(name: string, fallback: number): number {
 }
 
 export const GRANT_INTELLIGENCE_BATCH_SIZE = positiveIntFromEnv("GRANT_INTELLIGENCE_BATCH_SIZE", 25);
+const GRANT_INTELLIGENCE_RECENT_WINDOW_DAYS = positiveIntFromEnv("GRANT_INTELLIGENCE_RECENT_WINDOW_DAYS", 31);
+const GRANT_INTELLIGENCE_RECENCY_BONUS = positiveIntFromEnv("GRANT_INTELLIGENCE_RECENCY_BONUS", 300);
 
 type IntelligenceCacheRow = {
   grant_id: string;
@@ -38,8 +40,14 @@ type IntelligenceCacheRow = {
 function priorityForGrant(grant: GrantForIntelligence): number {
   const deadline = grant.deadline ? new Date(grant.deadline).getTime() : 0;
   const deadlineBonus = Number.isFinite(deadline) && deadline > Date.now() ? 100 : 0;
-  const createdBonus = grant.applicationUrl ? 20 : 0;
-  return deadlineBonus + createdBonus;
+  const applicationUrlBonus = grant.applicationUrl ? 20 : 0;
+  const createdAt = grant.createdAt ? new Date(grant.createdAt).getTime() : 0;
+  const ageMs = Number.isFinite(createdAt) && createdAt > 0 ? Math.max(0, Date.now() - createdAt) : Infinity;
+  const recentWindowMs = GRANT_INTELLIGENCE_RECENT_WINDOW_DAYS * 86_400_000;
+  const recencyBonus = ageMs <= recentWindowMs
+    ? Math.round(GRANT_INTELLIGENCE_RECENCY_BONUS * (1 - ageMs / recentWindowMs))
+    : 0;
+  return deadlineBonus + applicationUrlBonus + recencyBonus;
 }
 
 async function markQueueRow(supabase: SupabaseAdmin, id: string, values: Record<string, unknown>): Promise<void> {

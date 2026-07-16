@@ -16,6 +16,13 @@ import {
   isVerifiedApplicationQuality,
   type ApplicationUrlClassification,
 } from "@/lib/grant-application-url-quality";
+import {
+  canonicalizeGrantUrl,
+  grantCandidateTextKey,
+  grantCandidateUrlCandidates,
+} from "@/lib/grant-candidate-quality";
+
+type SupabaseAdmin = ReturnType<typeof getSupabaseAdmin>;
 
 /** Normalize string for hashing: lowercase, trim, collapse whitespace. */
 function normalizeForHash(s: string): string {
@@ -73,6 +80,78 @@ function parseDeadline(v: unknown): Date | null {
     const d = new Date(v);
     return isNaN(d.getTime()) ? null : d;
   }
+  return null;
+}
+
+async function findExistingByUrl(supabase: SupabaseAdmin, url: string): Promise<{ id: string } | null> {
+  for (const column of ["applicationUrl", "detailUrl", "directApplicationUrl"] as const) {
+    const { data, error } = await supabase
+      .from("Grant")
+      .select("id")
+      .eq(column, url)
+      .limit(1);
+    if (error) continue;
+    const row = Array.isArray(data) ? data[0] : null;
+    if (row?.id) return row as { id: string };
+  }
+  return null;
+}
+
+export async function findExistingGrantCandidate(
+  supabase: SupabaseAdmin,
+  input: GrantInput,
+  options?: { externalId?: string | null; deadline?: Date | null }
+): Promise<{ id: string } | null> {
+  const fallbackExternalId = computeGrantHash(input.name, input.funder, input.deadline);
+  const externalIds = Array.from(new Set([
+    options?.externalId?.trim(),
+    input.externalId?.trim(),
+    fallbackExternalId,
+  ].filter((value): value is string => Boolean(value))));
+
+  for (const externalId of externalIds) {
+    const { data, error } = await supabase
+      .from("Grant")
+      .select("id")
+      .eq("externalId", externalId)
+      .maybeSingle();
+    if (!error && data?.id) return data as { id: string };
+  }
+
+  const rawUrls = [
+    input.directApplicationUrl,
+    input.applicationUrl,
+    input.detailUrl,
+  ]
+    .map((url) => String(url ?? "").trim())
+    .filter(Boolean);
+  const urlCandidates = Array.from(new Set([
+    ...grantCandidateUrlCandidates(input),
+    ...rawUrls,
+    ...rawUrls.map(canonicalizeGrantUrl).filter((url): url is string => Boolean(url)),
+  ]));
+
+  for (const url of urlCandidates) {
+    const existing = await findExistingByUrl(supabase, url);
+    if (existing) return existing;
+  }
+
+  const candidateTextKey = grantCandidateTextKey({
+    name: input.name,
+    funder: input.funder,
+    deadline: options?.deadline ?? input.deadline,
+  });
+  const { data: textMatches } = await supabase
+    .from("Grant")
+    .select("id, name, funder, deadline")
+    .eq("name", input.name)
+    .eq("funder", input.funder)
+    .limit(10);
+
+  for (const row of (textMatches ?? []) as Array<{ id: string; name?: string | null; funder?: string | null; deadline?: string | null }>) {
+    if (grantCandidateTextKey(row) === candidateTextKey) return { id: row.id };
+  }
+
   return null;
 }
 
@@ -179,10 +258,6 @@ export async function upsertGrant(input: GrantInput): Promise<{ id: string; crea
   const canonicalApplicationUrl = directApplicationUrl ?? detailUrl;
   const verificationInput = { ...input, applicationUrl: canonicalApplicationUrl, detailUrl, directApplicationUrl };
 
-  const verified = await verifyGrantActionable(verificationInput);
-  if (!verified.usable) {
-    throw new Error(verified.message ?? `Grant appears closed: ${input.name}`);
-  }
   const sectors = input.sectors?.length ? input.sectors : ["Other"];
   const regions = input.regions?.length ? input.regions : ["England"];
   const funderLocations = input.funderLocations?.length ? input.funderLocations : [];
@@ -216,25 +291,23 @@ export async function upsertGrant(input: GrantInput): Promise<{ id: string; crea
     input.externalId?.trim() ||
     computeGrantHash(input.name, input.funder, input.deadline);
 
-  if (externalId) {
-    const { data: existing } = await supabase
-      .from("Grant")
-      .select("id")
-      .eq("externalId", externalId)
-      .maybeSingle();
-
-    if (existing) {
-      await supabase.from("Grant").update(data).eq("id", existing.id);
-      if (!directApplicationUrl && detailClassification.quality === "needs_scout") {
-        await enqueueGrantForScoutIfProgrammeUrl(existing.id).catch(() => {});
-      }
-      await requestGrantPostprocess({
-        grantId: existing.id,
-        applicationUrl: canonicalApplicationUrl,
-        context: verificationInput,
-      });
-      return { id: existing.id, created: false };
+  const existing = await findExistingGrantCandidate(supabase, verificationInput, { externalId, deadline });
+  if (existing) {
+    await supabase.from("Grant").update(data).eq("id", existing.id);
+    if (!directApplicationUrl && detailClassification.quality === "needs_scout") {
+      await enqueueGrantForScoutIfProgrammeUrl(existing.id).catch(() => {});
     }
+    await requestGrantPostprocess({
+      grantId: existing.id,
+      applicationUrl: canonicalApplicationUrl,
+      context: verificationInput,
+    });
+    return { id: existing.id, created: false };
+  }
+
+  const verified = await verifyGrantActionable(verificationInput);
+  if (!verified.usable) {
+    throw new Error(verified.message ?? `Grant appears closed: ${input.name}`);
   }
 
   const { data: grant, error } = await supabase

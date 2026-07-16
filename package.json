@@ -21,6 +21,8 @@
     "test:whatsapp-digest-template": "tsx scripts/test-whatsapp-digest-template.ts",
     "test:eligible-match-rules": "tsx scripts/test-eligible-match-rules.ts",
     "test:whatsapp-template-selection": "tsx scripts/test-whatsapp-template-selection.ts",
+    "test:grant-intake-quality": "tsx scripts/test-grant-intake-quality.ts",
+    "simulate:grant-scale": "tsx scripts/simulate-grant-scale-capacity.ts",
     "video:studio": "remotion studio",
     "video:render": "remotion render GrantsCopilotLaunch out/grantscopilot-launch.mp4 --concurrency=1",
     "video:poster": "remotion still GrantsCopilotPoster out/grantscopilot-poster.png",

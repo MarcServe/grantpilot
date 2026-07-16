@@ -170,9 +170,14 @@ function findExplicitClosureSignal(grant: GrantFreshnessInput, now = new Date())
 
   const closurePatterns = [
     /\bapplications?\s+(?:are|is|have|has|were|was)\s+(?:now\s+)?(?:been\s+)?(?:closed|ended|finished)\b/i,
+    /\bapplications?\s+(?:are|is)\s+(?:not\s+)?currently\s+(?:closed|paused|not\s+open|not\s+being\s+accepted)\b/i,
     /\bapplications?\s+(?:closed|ended)\s+(?:on|in|from|after)\b/i,
+    /\bclosed\s+(?:to|for)\s+applications?\b/i,
+    /\bnot\s+currently\s+(?:open|accepting)\s+applications?\b/i,
     /\bsubmissions?\s+(?:are|have|were)\s+(?:now\s+)?(?:been\s+)?(?:closed|ended)\b/i,
     /\b(?:deadline|closing date|submission deadline|application deadline)\s+(?:has\s+)?(?:passed|expired)\b/i,
+    /\b(?:deadline|closing date|submission deadline|application deadline)\s+(?:was|were)\b/i,
+    /\b(?:this|the)\s+(?:round|funding round|competition|call)\s+(?:is|has|was)\s+(?:now\s+)?(?:closed|ended|finished)\b/i,
     /\bno\s+longer\s+(?:accepting|open|available)\b/i,
     /\bwe\s+are\s+no\s+longer\s+accepting\b/i,
     /\b(?:programme|program|scheme|grant|fund|competition)\s+(?:is\s+)?currently\s+paused\b/i,
@@ -213,8 +218,10 @@ function findProgrammeWindowPassed(grant: GrantFreshnessInput, now = new Date())
       || /\b(by|before|no later than)\b.{0,40}\b(end|finish|complete|completion|announce|announced|award|awarded)\b/.test(sentence);
     const applicationDeadline =
       /\b(deadline|closing date|applications? close|applications? closed|submission deadline|closes)\b/.test(sentence) ||
-      /\bapply\b.{0,140}\b(?:by|before)\b/.test(sentence) ||
-      /\bsubmit\b.{0,140}\b(?:by|before)\b/.test(sentence);
+      /\b(deadline|closing date|submission deadline|application deadline)\b.{0,40}\b(?:was|passed|expired|by|before|on)\b/.test(sentence) ||
+      /\bapply\b.{0,160}\b(?:by|before|no later than)\b/.test(sentence) ||
+      /\bsubmit\b.{0,160}\b(?:by|before|no later than)\b/.test(sentence) ||
+      /\bapplications?\b.{0,120}\b(?:due|received|submitted)\b.{0,80}\b(?:by|before|no later than)\b/.test(sentence);
 
     if (!mentionsProgramme && !applicationDeadline) continue;
 

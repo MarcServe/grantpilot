@@ -78,6 +78,7 @@ const MIN_DEEP_SCORE_PROFILE_COMPLETION = positiveIntFromEnv("ELIGIBILITY_DEEP_S
 const MAX_QUEUE_SCAN_LIMIT = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_QUEUE_SCAN_LIMIT", 10000);
 const FRESH_DEEP_SCORE_WINDOW_DAYS = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_FRESH_DAYS", 31);
 const FRESH_DEEP_SCORE_PRIORITY_BONUS = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_FRESH_PRIORITY_BONUS", 500);
+const FRESH_DEEP_SCORE_RECENCY_BONUS = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_RECENCY_BONUS", 300);
 const STALE_RUNNING_LOCK_MINUTES = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_STALE_LOCK_MINUTES", 20);
 const QUEUE_LOOKUP_BATCH_SIZE = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_QUEUE_LOOKUP_BATCH_SIZE", 50);
 const QUEUE_INSERT_BATCH_SIZE = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_QUEUE_INSERT_BATCH_SIZE", 10);
@@ -186,12 +187,21 @@ function isFreshDeepScoreGrant(grant: Pick<GrantRow, "createdAt">): boolean {
   return addedAt >= Date.now() - FRESH_DEEP_SCORE_WINDOW_DAYS * 86_400_000;
 }
 
+function freshDeepScoreRecencyBonus(grant: Pick<GrantRow, "createdAt">): number {
+  const addedAt = dateTime(grant.createdAt);
+  if (!addedAt) return 0;
+  const ageMs = Math.max(0, Date.now() - addedAt);
+  const windowMs = FRESH_DEEP_SCORE_WINDOW_DAYS * 86_400_000;
+  if (ageMs > windowMs) return 0;
+  return Math.round(FRESH_DEEP_SCORE_RECENCY_BONUS * (1 - ageMs / windowMs));
+}
+
 function priorityForCandidate(candidate: DeepScoreCandidate): number {
   const score = Math.max(0, Math.min(100, Number(candidate.heuristicScore) || 0));
   const deadline = candidate.grant.deadline ? new Date(candidate.grant.deadline).getTime() : 0;
   const deadlineBonus = Number.isFinite(deadline) && deadline > Date.now() ? 10 : 0;
   const freshnessBonus = isFreshDeepScoreGrant(candidate.grant) ? FRESH_DEEP_SCORE_PRIORITY_BONUS : 0;
-  return Math.round(score * 10 + deadlineBonus + freshnessBonus);
+  return Math.round(score * 10 + deadlineBonus + freshnessBonus + freshDeepScoreRecencyBonus(candidate.grant));
 }
 
 function selectFairRows<T extends { organisation_id: string | null; profile_id: string | null }>(
@@ -438,11 +448,15 @@ export async function enqueueExistingHeuristicAssessments(options?: {
         return {
           ...assessment,
           _freshGrant: isFreshDeepScoreGrant(grant),
+          _grantCreatedAt: dateTime(grant.createdAt),
         };
       })
       .filter((assessment): assessment is NonNullable<typeof assessment> => assessment != null)
       .sort((a, b) => {
         if (a._freshGrant !== b._freshGrant) return a._freshGrant ? -1 : 1;
+        if ((b._grantCreatedAt ?? 0) !== (a._grantCreatedAt ?? 0)) {
+          return (b._grantCreatedAt ?? 0) - (a._grantCreatedAt ?? 0);
+        }
         if ((b._selectionPriority ?? 0) !== (a._selectionPriority ?? 0)) {
           return (b._selectionPriority ?? 0) - (a._selectionPriority ?? 0);
         }

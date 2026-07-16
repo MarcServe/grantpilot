@@ -26,6 +26,29 @@ function sourceIdForEndpoint(endpoint: string): string {
   return `auto-${hash}`;
 }
 
+async function shouldWriteImportLog(supabase: SupabaseAdmin, values: {
+  runSource: string;
+  added: number;
+  duplicates: number;
+  rejected: number;
+}): Promise<boolean> {
+  if (values.added > 0 || values.rejected > 0 || values.duplicates === 0) return true;
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from("grant_source_import_runs")
+    .select("id")
+    .eq("run_source", values.runSource)
+    .eq("added_count", 0)
+    .eq("rejected_count", 0)
+    .gte("created_at", cutoff)
+    .limit(1);
+  if (error) {
+    console.warn("[grant-sources/auto-seed] duplicate log throttle lookup failed:", error.message);
+    return true;
+  }
+  return (data ?? []).length === 0;
+}
+
 export async function autoSeedDefaultGrantSources(options?: {
   supabase?: SupabaseAdmin;
   runSource?: string;
@@ -112,18 +135,22 @@ export async function autoSeedDefaultGrantSources(options?: {
   const duplicates = results.filter((row) => row.status === "duplicate").length;
   const rejected = results.filter((row) => row.status === "rejected").length;
 
-  const logResult = await supabase.from("grant_source_import_runs").insert({
-    run_source: options?.runSource ?? "app_default_seed",
-    created_by: options?.createdBy ?? "grant-source-crawler",
-    requested_count: seeds.length,
-    added_count: added,
-    skipped_duplicate_count: duplicates,
-    rejected_count: rejected,
-    manual_review_count: 0,
-    results,
-  });
-  if (logResult.error) {
-    console.warn("[grant-sources/auto-seed] failed to write import log:", logResult.error.message);
+  const runSource = options?.runSource ?? "app_default_seed";
+  const writeImportLog = await shouldWriteImportLog(supabase, { runSource, added, duplicates, rejected });
+  if (writeImportLog) {
+    const logResult = await supabase.from("grant_source_import_runs").insert({
+      run_source: runSource,
+      created_by: options?.createdBy ?? "grant-source-crawler",
+      requested_count: seeds.length,
+      added_count: added,
+      skipped_duplicate_count: duplicates,
+      rejected_count: rejected,
+      manual_review_count: 0,
+      results,
+    });
+    if (logResult.error) {
+      console.warn("[grant-sources/auto-seed] failed to write import log:", logResult.error.message);
+    }
   }
 
   return {

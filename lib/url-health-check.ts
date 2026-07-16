@@ -48,10 +48,14 @@ const DEAD_PAGE_PATTERNS = [
 
 const EXPIRED_PATTERNS = [
   /applications?\s*(are|is|have|has)\s*(now\s*)?(been\s*)?closed/i,
+  /applications?\s*(are|is)\s*(not\s*)?currently\s*(not\s*open|not\s*being\s*accepted|paused|closed)/i,
+  /closed\s*(to|for)\s*applications?/i,
+  /not\s*currently\s*(open|accepting)\s*applications?/i,
   /this\s*(scheme|programme|program|grant|fund|competition)\s*(has|is)\s*(now\s*)?(been\s*)?(closed|ended|expired|finished|concluded)/i,
   /no\s*longer\s*(accepting|open|available)/i,
-  /deadline\s*(has\s*)?passed/i,
-  /this\s*(call|round)\s*(has\s*)?closed/i,
+  /(deadline|closing\s*date|application\s*deadline|submission\s*deadline)\s*(has\s*)?(passed|expired)/i,
+  /(deadline|closing\s*date|application\s*deadline|submission\s*deadline)\s*(was|were)\s/i,
+  /this\s*(call|round|funding\s*round)\s*(is|has|was)\s*(now\s*)?(closed|ended|finished)/i,
   /applications?\s*(closed|ended)\s*(on|in)\s/i,
   /funding\s*(has\s*)?ended/i,
   /this\s*(opportunity|competition)\s*(is|has)\s*(now\s*)?closed/i,

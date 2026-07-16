@@ -199,6 +199,32 @@ type GrantSourceCountRow = {
   today: number;
 };
 
+type GrantQualityRow = {
+  id: string;
+  source: string | null;
+  createdAt: string | null;
+  url_status?: string | null;
+  applicationUrlQuality?: string | null;
+  applicationUrlConfidence?: number | null;
+};
+
+type IntakeQualityMetrics = {
+  requested: number;
+  inserted: number;
+  duplicates: number;
+  rejected: number;
+  manualReview: number;
+  needsScout: number;
+  unknownUrl: number;
+  grantRows: number;
+  avgActionabilityConfidence: number | null;
+  duplicateRate: number;
+  acceptedRate: number;
+  rejectedRate: number;
+  needsScoutRate: number;
+  unknownUrlRate: number;
+};
+
 type DiscoveryProviderStatus = {
   label: string;
   configured: boolean;
@@ -578,6 +604,62 @@ function discoveryProviderStatuses(): DiscoveryProviderStatus[] {
 
 function readNumber(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function ratio(numerator: number, denominator: number): number {
+  if (denominator <= 0) return 0;
+  return numerator / denominator;
+}
+
+function formatPercentValue(value: number): string {
+  return `${Math.round(Math.max(0, value) * 100)}%`;
+}
+
+function buildIntakeQualityMetrics(
+  sourceImportRows: GrantSourceImportRunRow[],
+  aiDiscoveryActivity: AiDiscoveryActivity,
+  grantRows: GrantQualityRow[]
+): IntakeQualityMetrics {
+  const providerStats = Object.values(aiDiscoveryActivity.providerStats);
+  const aiRequested = providerStats.reduce((sum, stats) => sum + stats.raw, 0);
+  const aiDuplicates = providerStats.reduce((sum, stats) => sum + stats.duplicate, 0);
+  const aiRejected = providerStats.reduce((sum, stats) => sum + stats.rejected, 0);
+  const sourceRequested = sourceImportRows.reduce((sum, row) => sum + readNumber(row.requested_count), 0);
+  const sourceInserted = sourceImportRows.reduce((sum, row) => sum + readNumber(row.added_count), 0);
+  const sourceDuplicates = sourceImportRows.reduce((sum, row) => sum + readNumber(row.skipped_duplicate_count), 0);
+  const sourceRejected = sourceImportRows.reduce((sum, row) => sum + readNumber(row.rejected_count), 0);
+  const sourceManualReview = sourceImportRows.reduce((sum, row) => sum + readNumber(row.manual_review_count), 0);
+
+  const requested = sourceRequested + aiRequested;
+  const inserted = sourceInserted + aiDiscoveryActivity.created;
+  const duplicates = sourceDuplicates + aiDuplicates;
+  const rejected = sourceRejected + aiRejected;
+  const manualReview = sourceManualReview;
+  const needsScout = grantRows.filter((row) => row.applicationUrlQuality === "needs_scout").length;
+  const unknownUrl = grantRows.filter((row) => !row.url_status || row.url_status === "unknown").length;
+  const confidenceValues = grantRows
+    .map((row) => readNumber(row.applicationUrlConfidence))
+    .filter((value) => value > 0);
+  const avgActionabilityConfidence = confidenceValues.length > 0
+    ? Math.round(confidenceValues.reduce((sum, value) => sum + value, 0) / confidenceValues.length)
+    : null;
+
+  return {
+    requested,
+    inserted,
+    duplicates,
+    rejected,
+    manualReview,
+    needsScout,
+    unknownUrl,
+    grantRows: grantRows.length,
+    avgActionabilityConfidence,
+    duplicateRate: ratio(duplicates, requested),
+    acceptedRate: ratio(inserted, requested),
+    rejectedRate: ratio(rejected, requested),
+    needsScoutRate: ratio(needsScout, grantRows.length),
+    unknownUrlRate: ratio(unknownUrl, grantRows.length),
+  };
 }
 
 function emptyAiDiscoveryProviderStats(): AiDiscoveryProviderStats {
@@ -1109,6 +1191,17 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
     ])
   );
 
+  const grantQualityTodayResult = await getServerCache(
+    `${adminOverviewCacheKey}:intake-quality:v1`,
+    { ttlMs: ADMIN_OVERVIEW_CACHE_TTL_MS, maxEntries: 30 },
+    async () => await supabase
+        .from("Grant")
+        .select("id, source, createdAt, url_status, applicationUrlQuality, applicationUrlConfidence")
+        .gte("createdAt", todayStart.toISOString())
+        .order("createdAt", { ascending: false })
+        .limit(1000)
+  );
+
   const notificationRows = (notificationResult.data ?? []) as NotificationLogRow[];
   const notificationDeliveryRows = (notificationDeliveryResult.data ?? []) as NotificationLogRow[];
   const sentUsersToday = distinctSentUsers(notificationRows, todayStart);
@@ -1150,6 +1243,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
   const deepScoreRows = (deepScoreRowsResult.data ?? []) as DeepScoreQueueRow[];
   const grantSourceAttributionRows = (grantSourceAttributionResult.data ?? []) as GrantSourceAttributionRow[];
   const grantSourceCounts = (grantSourceCountRows ?? []) as GrantSourceCountRow[];
+  const grantQualityRows = (grantQualityTodayResult.data ?? []) as GrantQualityRow[];
   const suppressedGrantRows = (suppressedGrantsResult.data ?? []) as SavedGrantSuppressionRow[];
   if (sourceImportRunsResult.error) {
     console.warn("[admin] Grant source import run query failed:", sourceImportRunsResult.error.message);
@@ -1162,6 +1256,9 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
   }
   if (grantSourceAttributionResult.error) {
     console.warn("[admin] Grant source attribution query failed:", grantSourceAttributionResult.error.message);
+  }
+  if (grantQualityTodayResult.error) {
+    console.warn("[admin] Grant intake quality query failed:", grantQualityTodayResult.error.message);
   }
   if (suppressedGrantsResult.error) {
     console.warn("[admin] SavedGrant suppression query failed:", suppressedGrantsResult.error.message);
@@ -1273,6 +1370,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
   const cronRuns = (cronRunsResult.data ?? []) as CronRunLogRow[];
   const aiDiscoveryActivity = discoveryActivityFromCronRuns(grantDiscoveryRuns);
   const sourceImportSummaryRows = summarizeSourceImportRuns(sourceImportRunsToday);
+  const intakeQuality = buildIntakeQualityMetrics(sourceImportRunsToday, aiDiscoveryActivity, grantQualityRows);
   const latestCronRun = ((latestCronRunResult.data ?? []) as CronRunLogRow[])[0] ?? null;
   const failedCronRunsTodayCount = failedCronRunsTodayResult.count ?? 0;
   const recentFailedCronRuns = (recentFailedCronRunsResult.data ?? []) as CronRunLogRow[];
@@ -1713,6 +1811,69 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                 </p>
                 <p className="text-xs text-muted-foreground">
                   Discovery failed: {discoveryQueue.failed}. Link scout found: {linkScout.found ?? 0}, pending: {linkScout.pending}, failed: {linkScout.failed}.
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="min-w-0 overflow-hidden">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <SearchCheck className="h-4 w-4 text-blue-600" />
+                  Intake quality
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="max-h-[28rem] space-y-3 overflow-y-auto pr-2 text-sm">
+                <p className="text-sm text-muted-foreground">
+                  Daily source quality across crawler imports and AI discovery. Use this to find duplicate-heavy or stale sources before crawling harder.
+                </p>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="rounded border bg-muted/30 p-2">
+                    <div className="text-muted-foreground">Requested</div>
+                    <div className="text-lg font-semibold">{intakeQuality.requested}</div>
+                  </div>
+                  <div className="rounded border bg-muted/30 p-2">
+                    <div className="text-muted-foreground">New grants</div>
+                    <div className="text-lg font-semibold text-emerald-700">{intakeQuality.inserted}</div>
+                  </div>
+                  <div className="rounded border bg-muted/30 p-2">
+                    <div className="text-muted-foreground">Duplicate rate</div>
+                    <div className="text-lg font-semibold">{formatPercentValue(intakeQuality.duplicateRate)}</div>
+                  </div>
+                  <div className="rounded border bg-muted/30 p-2">
+                    <div className="text-muted-foreground">Accepted rate</div>
+                    <div className="text-lg font-semibold text-emerald-700">{formatPercentValue(intakeQuality.acceptedRate)}</div>
+                  </div>
+                  <div className="rounded border bg-muted/30 p-2">
+                    <div className="text-muted-foreground">Expired/rejected</div>
+                    <div className="text-lg font-semibold text-amber-700">{intakeQuality.rejected}</div>
+                  </div>
+                  <div className="rounded border bg-muted/30 p-2">
+                    <div className="text-muted-foreground">Needs scout</div>
+                    <div className="text-lg font-semibold">{intakeQuality.needsScout}</div>
+                  </div>
+                </div>
+                <div className="rounded-md border bg-muted/20 p-3 text-xs">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <span className="text-muted-foreground">Manual review:</span>{" "}
+                      <span className="font-medium">{intakeQuality.manualReview}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Unknown URL:</span>{" "}
+                      <span className="font-medium">{formatPercentValue(intakeQuality.unknownUrlRate)}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Needs scout rate:</span>{" "}
+                      <span className="font-medium">{formatPercentValue(intakeQuality.needsScoutRate)}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Avg actionability:</span>{" "}
+                      <span className="font-medium">{intakeQuality.avgActionabilityConfidence ?? "n/a"}</span>
+                    </div>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {intakeQuality.grantRows} grants inserted today are included in URL/actionability checks. Rejected source candidates are counted from import and discovery logs.
                 </p>
               </CardContent>
             </Card>

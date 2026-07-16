@@ -10,9 +10,11 @@ import { discoverGrantsWithOpenAI } from "./grants-discovery-openai";
 import { discoverGrantsWithPerplexity } from "./grants-discovery-perplexity";
 import { discoverGrantsWithClaude } from "./grants-discovery-claude";
 import { discoverGrantsWithGemini } from "./grants-discovery-gemini";
-import { upsertGrant, type GrantInput } from "./grants-ingest";
+import { findExistingGrantCandidate, upsertGrant, type GrantInput } from "./grants-ingest";
 import { checkUrlHealth } from "./url-health-check";
 import { inferFunderLocationsFromProfile } from "@/lib/constants";
+import { getSupabaseAdmin } from "@/lib/supabase";
+import { grantCandidateFingerprint } from "@/lib/grant-candidate-quality";
 
 export const DISCOVERY_PROVIDER_NAMES = ["openai", "perplexity", "claude", "gemini"] as const;
 export type DiscoveryProviderName = (typeof DISCOVERY_PROVIDER_NAMES)[number];
@@ -77,12 +79,11 @@ export function mergeDiscoveryProviderStats(
 }
 
 function normaliseKey(g: GrantInput): string {
-  return `${(g.name ?? "").toLowerCase().trim()}|${(g.funder ?? "").toLowerCase().trim()}`;
+  return grantCandidateFingerprint(g);
 }
 
 function discoveryExternalId(key: string): string {
-  const slug = key.replace(/\|/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 80);
-  return `discovery-${slug}`;
+  return `discovery-${key.slice(0, 32)}`;
 }
 
 const LOGIN_PAGE_PATTERNS = [
@@ -131,6 +132,10 @@ function errorMessage(error: unknown): string {
   } catch {
     return "Unknown provider error";
   }
+}
+
+function isExpectedGrantRejection(message: string): boolean {
+  return /deadline has passed|appears closed|not actionable|grant url is not actionable|link appears to be broken|programme appears to be closed/i.test(message);
 }
 
 /**
@@ -193,6 +198,7 @@ export async function runDiscoveryAndUpsert(profile: DiscoveryProfile): Promise<
   let created = 0;
   let updated = 0;
   let rejected = 0;
+  const supabase = getSupabaseAdmin();
 
   for (const g of byKey.values()) {
     const source = DISCOVERY_PROVIDER_NAMES.includes(g.source as DiscoveryProviderName)
@@ -200,6 +206,22 @@ export async function runDiscoveryAndUpsert(profile: DiscoveryProfile): Promise<
       : "openai";
 
     try {
+      const existingCandidate = await findExistingGrantCandidate(supabase, g, { externalId: g.externalId });
+      if (existingCandidate) {
+        const { created: c } = await upsertGrant(g);
+        providerStats[source].accepted += 1;
+        providerStats[source].duplicate += 1;
+        if (c) {
+          created++;
+          providerStats[source].created += 1;
+        } else {
+          updated++;
+          providerStats[source].updated += 1;
+        }
+        console.log(`[grants-discovery] KNOWN ${c ? "CREATED" : "UPDATED"}: ${g.name} (${g.source}) — ${g.applicationUrl}`);
+        continue;
+      }
+
       const health = await checkUrlHealth(g.applicationUrl, g);
       if (health.status === "dead") {
         console.warn(`[grants-discovery] REJECTED (dead URL): ${g.name} — ${g.applicationUrl} (${health.reason})`);
@@ -230,8 +252,15 @@ export async function runDiscoveryAndUpsert(profile: DiscoveryProfile): Promise<
       }
       console.log(`[grants-discovery] ${c ? "CREATED" : "UPDATED"}: ${g.name} (${g.source}) — ${g.applicationUrl}`);
     } catch (e) {
+      const message = errorMessage(e);
+      if (isExpectedGrantRejection(message)) {
+        providerStats[source].rejected += 1;
+        rejected++;
+        console.warn("[grants-discovery] rejected", g.externalId, message);
+        continue;
+      }
       providerStats[source].errors += 1;
-      providerStats[source].errorSamples.push(errorMessage(e));
+      providerStats[source].errorSamples.push(message);
       providerStats[source].errorSamples = providerStats[source].errorSamples.slice(0, 5);
       console.warn("[grants-discovery] upsert skip", g.externalId, e);
     }
