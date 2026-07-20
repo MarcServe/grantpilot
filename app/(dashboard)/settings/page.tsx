@@ -38,7 +38,7 @@ export default async function SettingsPage() {
   const phoneNumber = userRow.phoneNumber ?? userRow.phone_number ?? "";
   const whatsappOptIn = Boolean(userRow.whatsappOptIn ?? userRow.whatsapp_opt_in);
   const whatsappAlertsEnabled = planAllowsForOrg(
-    orgRow as { plan?: string | null; createdAt?: string | Date | null },
+    orgRow,
     "whatsapp_opportunity_alerts"
   );
 

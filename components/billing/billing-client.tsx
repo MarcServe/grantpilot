@@ -19,6 +19,7 @@ import {
 import { Loader2, Check, RefreshCw, X } from "lucide-react";
 import { toast } from "sonner";
 import { PLAN_CATALOG, comparePlans, getPublicStripePriceId, type PlanKey } from "@/lib/plans";
+import { formatCommunityAccessExpiry } from "@/lib/community-access-shared";
 
 interface BillingClientProps {
   currentPlan: string;
@@ -30,6 +31,11 @@ interface BillingClientProps {
   };
   /** Set when user returns from Stripe success_url (e.g. /billing?billing=success) */
   billingSuccessFromRedirect?: boolean;
+  communityAccess?: {
+    partnerName: string;
+    expiresAt: string;
+    plan: string;
+  };
 }
 
 const PLANS = PLAN_CATALOG.map((plan) => ({
@@ -68,6 +74,7 @@ export function BillingClient({
   matchCount,
   limits,
   billingSuccessFromRedirect = false,
+  communityAccess,
 }: BillingClientProps) {
   const router = useRouter();
   const [loading, setLoading] = useState<string | null>(null);
@@ -200,6 +207,27 @@ export function BillingClient({
 
   return (
     <div className="space-y-8">
+      {communityAccess && (
+        <Card className="border-emerald-200 bg-emerald-50/80">
+          <CardHeader>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <CardTitle className="text-base text-emerald-950">Community pilot access</CardTitle>
+                <p className="mt-1 text-sm text-emerald-900">
+                  Community pilot access via {communityAccess.partnerName} until{" "}
+                  {formatCommunityAccessExpiry(communityAccess.expiresAt)}.
+                </p>
+              </div>
+              <Badge className="w-fit bg-emerald-700 text-white hover:bg-emerald-700">
+                {communityAccess.plan.toUpperCase()} access
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="text-sm text-emerald-900">
+            No card is required for this pilot entitlement. Paid Stripe subscriptions still take precedence if you upgrade.
+          </CardContent>
+        </Card>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         <Button
           variant="outline"

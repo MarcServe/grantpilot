@@ -217,7 +217,7 @@ export default async function DashboardPage() {
   const hasPhone = Boolean(phoneNumber && String(phoneNumber).trim().length >= 10);
   const whatsappOptIn = Boolean(rawUser?.whatsappOptIn ?? rawUser?.whatsapp_opt_in);
   const whatsappAlertsEnabled = planAllowsForOrg(
-    org as { plan?: string; createdAt?: string | Date | null },
+    org,
     "whatsapp_opportunity_alerts"
   );
 

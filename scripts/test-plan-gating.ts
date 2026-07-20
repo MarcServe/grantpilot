@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { planAllowsForOrg } from "../lib/plan-features";
+import { planAllowsForOrg, resolveEffectivePlanForOrg } from "../lib/plan-features";
 
 const now = new Date();
 const activeTrialCreatedAt = new Date(now);
@@ -60,6 +60,31 @@ assert.equal(
   planAllowsForOrg({ plan: "BUSINESS", createdAt: expiredTrialCreatedAt }, "proactive_notifications"),
   true,
   "paid organisations should keep proactive notifications"
+);
+
+assert.equal(
+  resolveEffectivePlanForOrg({
+    plan: "FREE_TRIAL",
+    createdAt: expiredTrialCreatedAt,
+    communityAccessPlan: "GROWTH",
+    communityAccessExpiresAt: new Date(Date.now() + 90 * 86_400_000),
+  }),
+  "GROWTH",
+  "active community access should produce an effective Growth plan"
+);
+
+assert.equal(
+  planAllowsForOrg(
+    {
+      plan: "FREE_TRIAL",
+      createdAt: expiredTrialCreatedAt,
+      communityAccessPlan: "GROWTH",
+      communityAccessExpiresAt: new Date(Date.now() + 90 * 86_400_000),
+    },
+    "whatsapp_opportunity_alerts"
+  ),
+  true,
+  "active community Growth access should include WhatsApp opportunity alerts"
 );
 
 console.log("plan gating tests passed");

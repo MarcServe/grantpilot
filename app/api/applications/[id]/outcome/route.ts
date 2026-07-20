@@ -58,7 +58,7 @@ export async function POST(
     ].filter(Boolean).join("\n\n");
 
     let insight: OutcomeLearningInsight;
-    if (planAllowsForOrg(org as { plan?: string; createdAt?: string | Date | null }, "outcome_learning_ai")) {
+    if (planAllowsForOrg(org, "outcome_learning_ai")) {
       insight = await generateOutcomeLearningInsight({
         outcome,
         grantName: String((grant as { name?: string } | null)?.name ?? "Grant"),

@@ -3,7 +3,7 @@ import { getActiveOrg } from "@/lib/auth";
 import { ProfileForm } from "@/components/profile/profile-form";
 import { NotificationPreferences } from "@/components/profile/notification-preferences";
 import { BusinessProfilesManager } from "@/components/profile/business-profiles-manager";
-import { planAllowsForOrg, resolvePlanKey } from "@/lib/plan-features";
+import { planAllowsForOrg, resolveEffectivePlanForOrg } from "@/lib/plan-features";
 import { PLAN_LIMITS, planNotifyDisplayName } from "@/lib/plans";
 
 function getFirstIncompleteStep(profile: {
@@ -38,7 +38,7 @@ export default async function ProfilePage({
 
   const activeOrg = await getActiveOrg();
   const profile = await getProfile();
-  const plan = resolvePlanKey(activeOrg.org.plan);
+  const plan = resolveEffectivePlanForOrg(activeOrg.org);
   const profileLimit = PLAN_LIMITS[plan].profiles;
   const rawProfiles = activeOrg.org.profiles?.length ? activeOrg.org.profiles : [profile];
   const businessProfiles = rawProfiles.map((item) => ({
@@ -49,11 +49,11 @@ export default async function ProfilePage({
     completionScore: Number(item.completionScore ?? item.completion_score ?? 0),
   }));
   const companyDnaAutofillEnabled = planAllowsForOrg(
-    activeOrg.org as { plan?: string; createdAt?: string | Date | null },
+    activeOrg.org,
     "website_intelligence_refresh"
   );
   const whatsappAlertsEnabled = planAllowsForOrg(
-    activeOrg.org as { plan?: string; createdAt?: string | Date | null },
+    activeOrg.org,
     "whatsapp_opportunity_alerts"
   );
 

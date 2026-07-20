@@ -14,6 +14,7 @@
     "audit:grant-links": "tsx scripts/audit-grant-application-links.ts",
     "test:grant-intelligence": "tsx scripts/test-grant-intelligence.ts",
     "test:plan-gating": "tsx scripts/test-plan-gating.ts",
+    "test:community-access": "tsx scripts/test-community-access.ts",
     "test:deep-score-profile-priority": "tsx scripts/test-deep-score-profile-priority.ts",
     "test:cron-reliability": "tsx scripts/test-cron-reliability.ts",
     "test:notification-timezone": "tsx scripts/test-notification-timezone.ts",

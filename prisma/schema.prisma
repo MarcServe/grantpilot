@@ -50,6 +50,7 @@ model User {
   whatsappOptInAt DateTime?
   memberships     OrganisationMember[]
   notifications   NotificationLog[]
+  communityRedemptions CommunityAccessRedemption[]
   createdAt       DateTime             @default(now())
   updatedAt       DateTime             @updatedAt
 }
@@ -60,6 +61,11 @@ model Organisation {
   type               OrgType              @default(FOUNDER)
   plan               Plan                 @default(FREE_TRIAL)
   stripeId           String?
+  communityAccessPlan String?
+  communityAccessExpiresAt DateTime?
+  communityPartnerSlug String?
+  communityAccessCodeId String?
+  communityAccessCode CommunityAccessCode? @relation(fields: [communityAccessCodeId], references: [id])
   preferredTimezone  String?              // IANA e.g. Europe/London for 9am local reminders
   members            OrganisationMember[]
   profiles           BusinessProfile[]
@@ -68,8 +74,45 @@ model Organisation {
   portalCredentials  PortalCredential[]
   founderFundingPacks FounderFundingPack[]
   applicationOutcomes ApplicationOutcome[]
+  communityRedemptions CommunityAccessRedemption[]
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
+}
+
+model CommunityAccessCode {
+  id             String   @id @default(cuid())
+  partnerName    String
+  slug           String   @unique
+  tokenHash      String   @unique
+  accessPlan     String   @default("GROWTH")
+  durationDays   Int      @default(90)
+  maxRedemptions Int      @default(250)
+  redeemBy       DateTime?
+  active         Boolean  @default(true)
+  createdBy      String?
+  organisations  Organisation[]
+  redemptions    CommunityAccessRedemption[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model CommunityAccessRedemption {
+  id              String   @id @default(cuid())
+  codeId          String
+  code            CommunityAccessCode @relation(fields: [codeId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organisationId  String
+  organisation    Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  email           String
+  accessPlan      String
+  accessExpiresAt DateTime
+  redeemedAt      DateTime @default(now())
+
+  @@unique([codeId, organisationId])
+  @@unique([codeId, userId])
+  @@index([codeId])
+  @@index([organisationId])
 }
 
 model OrganisationMember {

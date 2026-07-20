@@ -166,7 +166,7 @@ function assembleGrantContext(
 export async function POST(req: Request): Promise<NextResponse> {
   try {
     const { org, orgId, user } = await getActiveOrg();
-    if (!planAllowsForOrg(org as { plan?: string; createdAt?: string | Date | null }, "founder_pack")) {
+    if (!planAllowsForOrg(org, "founder_pack")) {
       return NextResponse.json(
         { error: PLAN_CAPABILITY_MESSAGES.founder_pack },
         { status: 402 }

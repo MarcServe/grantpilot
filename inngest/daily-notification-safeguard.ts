@@ -307,9 +307,11 @@ async function getDigestHiddenGrantIds(
   supabase: ReturnType<typeof getSupabaseAdmin>,
   orgId: string,
   profileId: string,
-  candidateGrantIds: string[]
+  candidateGrantIds: string[],
+  options?: { includeViewed?: boolean }
 ): Promise<Set<string>> {
-  const hidden = await getSuppressedGrantIds(supabase, orgId, profileId, { includeViewed: true });
+  const includeViewed = options?.includeViewed !== false;
+  const hidden = await getSuppressedGrantIds(supabase, orgId, profileId, { includeViewed });
   if (candidateGrantIds.length === 0) return hidden;
 
   const { data, error } = await supabase
@@ -326,7 +328,12 @@ async function getDigestHiddenGrantIds(
 
   for (const row of (data ?? []) as Array<{ grant_id?: string | null; status?: string | null }>) {
     if (!row.grant_id) continue;
-    if (row.status === "viewed" || row.status === "deferred" || row.status === "applied" || row.status === "dismissed") {
+    if (
+      row.status === "deferred" ||
+      row.status === "applied" ||
+      row.status === "dismissed" ||
+      (includeViewed && row.status === "viewed")
+    ) {
       hidden.add(row.grant_id);
     }
   }
@@ -462,7 +469,7 @@ async function countStrongEligibleForOrg(
 
   const [appliedGrantIds, hiddenGrantIds, outcomeAdvisory, grants] = await Promise.all([
     getAppliedGrantIds(supabase, orgId, profileId),
-    getDigestHiddenGrantIds(supabase, orgId, profileId, grantIds),
+    getDigestHiddenGrantIds(supabase, orgId, profileId, grantIds, { includeViewed: true }),
     getOutcomeAdvisoryForProfile(supabase, orgId, profileId),
     fetchDigestGrantRowsByIds(supabase, grantIds, "strong-count"),
   ]);
@@ -567,18 +574,22 @@ async function buildCurrentDigestForProfile(
   const grantIds = [...new Set(assessments.map((row) => row.grant_id).filter((id): id is string => Boolean(id)))];
   if (grantIds.length === 0) return { strong: [], withinReach: [], other: [], previous: [] };
 
-  const [appliedGrantIds, hiddenGrantIds, outcomeAdvisory, grants] = await Promise.all([
+  const [appliedGrantIds, hiddenGrantIds, reminderHiddenGrantIds, outcomeAdvisory, grants] = await Promise.all([
     getAppliedGrantIds(supabase, orgId, profileId),
-    getDigestHiddenGrantIds(supabase, orgId, profileId, grantIds),
+    getDigestHiddenGrantIds(supabase, orgId, profileId, grantIds, { includeViewed: true }),
+    getDigestHiddenGrantIds(supabase, orgId, profileId, grantIds, { includeViewed: false }),
     getOutcomeAdvisoryForProfile(supabase, orgId, profileId),
     fetchDigestGrantRowsByIds(supabase, grantIds, "digest"),
   ]);
 
   const userFunderLocations = profileFunderLocations(profile);
   const grantById = new Map(grants.map((grant) => [grant.id, grant]));
-  const buildItem = (row: AssessmentDigestRow): DigestGrantItem | null => {
+  const viewedReminderGrantIds = new Set(
+    Array.from(hiddenGrantIds).filter((grantId) => !reminderHiddenGrantIds.has(grantId))
+  );
+  const buildItem = (row: AssessmentDigestRow, hiddenIds = hiddenGrantIds): DigestGrantItem | null => {
     const grantId = row.grant_id;
-    if (!grantId || appliedGrantIds.has(grantId) || hiddenGrantIds.has(grantId)) return null;
+    if (!grantId || appliedGrantIds.has(grantId) || hiddenIds.has(grantId)) return null;
     const grant = grantById.get(grantId);
     if (!grant || !isGrantActionableNow(grant)) return null;
     if (!grantMatchesFunderLocations(grant.funderLocations ?? undefined, userFunderLocations)) return null;
@@ -587,18 +598,18 @@ async function buildCurrentDigestForProfile(
 
   const currentStrongItems = strongRows
     .filter((row) => !row.notified_at)
-    .map(buildItem)
+    .map((row) => buildItem(row))
     .filter((item): item is DigestGrantItem => Boolean(item));
   const currentWithinReachItems = withinReachRows
     .filter((row) => !row.notified_at)
-    .map(buildItem)
+    .map((row) => buildItem(row))
     .filter((item): item is DigestGrantItem => Boolean(item));
   const currentOtherItems = otherRows
     .filter((row) => !row.notified_at)
-    .map(buildItem)
+    .map((row) => buildItem(row))
     .filter((item): item is DigestGrantItem => Boolean(item));
-  const previousItems = previousRows
-    .map(buildItem)
+  const previousItems = [...previousRows, ...strongRows.filter((row) => row.grant_id && viewedReminderGrantIds.has(row.grant_id))]
+    .map((row) => buildItem(row, reminderHiddenGrantIds))
     .filter((item): item is DigestGrantItem => Boolean(item));
 
   return {

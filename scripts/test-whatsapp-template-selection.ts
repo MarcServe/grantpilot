@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { resolveWhatsAppTemplateForType } from "../lib/whatsapp-template-config";
 
 const baseEnv: NodeJS.ProcessEnv = {
@@ -25,5 +26,12 @@ assert.equal(digestWithDedicated.contentSid, "HX_DIGEST");
 const grantMatch = resolveWhatsAppTemplateForType("grant_match_high", baseEnv);
 assert.equal(grantMatch.kind, "grant_match");
 assert.equal(grantMatch.contentSid, "HX_GRANT");
+
+const diagnosticsPanel = readFileSync("components/admin/whatsapp-diagnostics-panel.tsx", "utf8");
+assert.match(
+  diagnosticsPanel,
+  /using single-grant fallback/,
+  "admin WhatsApp diagnostics should explicitly warn when the dedicated digest template is missing"
+);
 
 console.log("whatsapp template selection tests passed");

@@ -18,7 +18,7 @@ async function getProfileForOrg(orgId: string, profileId: string): Promise<Recor
 export async function POST(): Promise<NextResponse> {
   try {
     const { orgId, org, profile: activeProfile } = await getActiveOrg();
-    if (!planAllowsForOrg(org as { plan?: string; createdAt?: string | Date | null }, "company_dna_ai")) {
+    if (!planAllowsForOrg(org, "company_dna_ai")) {
       return NextResponse.json(
         { error: PLAN_CAPABILITY_MESSAGES.company_dna_ai, code: "FEATURE_FORBIDDEN" },
         { status: 402 }

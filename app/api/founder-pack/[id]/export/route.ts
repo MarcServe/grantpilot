@@ -25,7 +25,7 @@ export async function GET(req: Request, context: RouteContext): Promise<NextResp
     const includePitchDeckNotes = url.searchParams.get("includePitchDeckNotes") === "true";
 
     const { org, orgId } = await getActiveOrg();
-    if (!planAllowsForOrg(org as { plan?: string; createdAt?: string | Date | null }, "founder_pack")) {
+    if (!planAllowsForOrg(org, "founder_pack")) {
       return NextResponse.json(
         { error: PLAN_CAPABILITY_MESSAGES.founder_pack, code: "FEATURE_FORBIDDEN" },
         { status: 402 }

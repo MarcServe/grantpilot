@@ -25,8 +25,8 @@ assert.match(
 );
 assert.match(
   dailyDigestSafeguard,
-  /row\.status === "viewed"/,
-  "daily digest candidates should suppress viewed grants like the active Suggested list"
+  /\{\s*includeViewed:\s*false\s*\}/,
+  "daily digest reminder candidates should keep viewed grants available until actioned"
 );
 assert.match(
   dailyDigestSafeguard,
@@ -89,13 +89,23 @@ assert.doesNotMatch(
 const eligibilityDiagnostics = read("lib/eligibility-notification-diagnostics.ts");
 assert.match(
   eligibilityDiagnostics,
-  /getSuppressedGrantIds\(supabase,\s*orgId,\s*profile\.id,\s*\{\s*includeViewed:\s*true\s*\}\)/,
-  "eligibility notification diagnostics should count viewed grants the same way active alerts do"
+  /viewedHighMatchCandidates:\s*high\.filter/,
+  "eligibility notification diagnostics should expose viewed-but-available 85%+ matches separately"
 );
 assert.match(
   eligibilityDiagnostics,
-  /highMatchUnnotified:\s*high\.length/,
-  "eligibility notification diagnostics should treat all active 85%+ matches as notify-ready reminders until actioned"
+  /highMatchUnnotified:\s*freshHigh\.length/,
+  "eligibility notification diagnostics should count only fresh unnotified 85%+ matches as unnotified"
+);
+assert.match(
+  eligibilityDiagnostics,
+  /stillEligibleReminderCandidates:\s*reminderHigh\.length/,
+  "eligibility notification diagnostics should count already-notified or viewed 85%+ matches as reminder candidates"
+);
+assert.match(
+  eligibilityDiagnostics,
+  /whatsappDigestTemplateMode/,
+  "eligibility notification diagnostics should expose whether WhatsApp is using a digest template or single-grant fallback"
 );
 assert.doesNotMatch(
   eligibilityDiagnostics,

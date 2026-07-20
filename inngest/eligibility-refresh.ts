@@ -121,15 +121,17 @@ function isTrustedEligibilitySource(scoringSource?: string | null): boolean {
   return scoringSource === "intelligence" || isOpenAIChecked(scoringSource);
 }
 
-const DIGEST_HIDDEN_SAVED_GRANT_STATES = new Set(["viewed", "deferred", "applied", "dismissed"]);
+const DIGEST_ACTIONED_SAVED_GRANT_STATES = new Set(["deferred", "applied", "dismissed"]);
 
 async function getDigestHiddenGrantIds(
   supabase: ReturnType<typeof getSupabaseAdmin>,
   orgId: string,
   profileId: string,
-  candidateGrantIds?: string[]
+  candidateGrantIds?: string[],
+  options?: { includeViewed?: boolean }
 ): Promise<Set<string>> {
-  const hidden = await getSuppressedGrantIds(supabase, orgId, profileId, { includeViewed: true });
+  const includeViewed = options?.includeViewed !== false;
+  const hidden = await getSuppressedGrantIds(supabase, orgId, profileId, { includeViewed });
 
   let query = supabase
     .from("SavedGrant")
@@ -148,7 +150,11 @@ async function getDigestHiddenGrantIds(
   }
 
   for (const row of (data ?? []) as Array<{ grant_id?: string | null; status?: string | null }>) {
-    if (row.grant_id && row.status && DIGEST_HIDDEN_SAVED_GRANT_STATES.has(row.status)) {
+    if (
+      row.grant_id &&
+      row.status &&
+      (DIGEST_ACTIONED_SAVED_GRANT_STATES.has(row.status) || (includeViewed && row.status === "viewed"))
+    ) {
       hidden.add(row.grant_id);
     }
   }
@@ -565,7 +571,8 @@ export async function runEligibilityRefreshJob(options?: {
         };
 
         const appliedGrantIds = await getAppliedGrantIds(supabase, orgId, profileId);
-        const hiddenGrantIds = await getDigestHiddenGrantIds(supabase, orgId, profileId);
+        const hiddenGrantIds = await getDigestHiddenGrantIds(supabase, orgId, profileId, undefined, { includeViewed: true });
+        const reminderHiddenGrantIds = await getDigestHiddenGrantIds(supabase, orgId, profileId, undefined, { includeViewed: false });
         const actionableGrants = grantsList.filter(
           (g) => !appliedGrantIds.has(g.id) && !hiddenGrantIds.has(g.id)
         );
@@ -796,9 +803,10 @@ export async function runEligibilityRefreshJob(options?: {
         const buildDigestItem = async (
           assessment: CachedEligibilityRow,
           range?: { minScore?: number; maxScore?: number },
-          options?: { includeRecentlyNotified?: boolean }
+          options?: { includeRecentlyNotified?: boolean; hiddenGrantIds?: Set<string> }
         ): Promise<DigestGrantItem | null> => {
-          if (appliedGrantIds.has(assessment.grant_id) || hiddenGrantIds.has(assessment.grant_id)) return null;
+          const scopedHiddenGrantIds = options?.hiddenGrantIds ?? hiddenGrantIds;
+          if (appliedGrantIds.has(assessment.grant_id) || scopedHiddenGrantIds.has(assessment.grant_id)) return null;
           if (!options?.includeRecentlyNotified && assessment.notified_at) return null;
           const grant = grantsByIdForDigest.get(assessment.grant_id);
           if (!grant) return null;
@@ -936,7 +944,10 @@ export async function runEligibilityRefreshJob(options?: {
             .slice(0, limit);
         };
         const buildPreviousScanDigest = async (limit = DIGEST_PREVIOUS_LIMIT): Promise<DigestGrantItem[]> => {
-          const { data: recentRows, error: recentErr } = await supabase
+          const viewedReminderGrantIds = Array.from(hiddenGrantIds)
+            .filter((grantId) => !reminderHiddenGrantIds.has(grantId))
+            .slice(0, 80);
+          const recentQuery = supabase
             .from("EligibilityAssessment")
             .select("grant_id, updated_at, score, decision, summary, notified_at, missing_criteria, improvement_plan, scoring_source")
             .eq("organisation_id", orgId)
@@ -948,6 +959,21 @@ export async function runEligibilityRefreshJob(options?: {
             .not("notified_at", "is", null)
             .order("notified_at", { ascending: false })
             .limit(60);
+          const viewedQuery = viewedReminderGrantIds.length > 0
+            ? supabase
+              .from("EligibilityAssessment")
+              .select("grant_id, updated_at, score, decision, summary, notified_at, missing_criteria, improvement_plan, scoring_source")
+              .eq("organisation_id", orgId)
+              .eq("profile_id", profileId)
+              .eq("decision", "likely_eligible")
+              .in("scoring_source", ["openai", "intelligence"])
+              .in("grant_id", viewedReminderGrantIds)
+              .gte("score", suggestedThreshold)
+              .lte("score", maxScore)
+            : Promise.resolve({ data: [], error: null });
+
+          const [recentResult, viewedResult] = await Promise.all([recentQuery, viewedQuery]);
+          const recentErr = recentResult.error ?? viewedResult.error;
 
           if (recentErr) {
             console.error("[eligibility-refresh] previous scan digest query", recentErr);
@@ -955,8 +981,11 @@ export async function runEligibilityRefreshJob(options?: {
           }
 
           const items: DigestGrantItem[] = [];
-          for (const row of (recentRows ?? []) as CachedEligibilityRow[]) {
-            const item = await buildDigestItem(row, { minScore: suggestedThreshold, maxScore }, { includeRecentlyNotified: true });
+          for (const row of ([...(recentResult.data ?? []), ...(viewedResult.data ?? [])] as CachedEligibilityRow[])) {
+            const item = await buildDigestItem(row, { minScore: suggestedThreshold, maxScore }, {
+              includeRecentlyNotified: true,
+              hiddenGrantIds: reminderHiddenGrantIds,
+            });
             if (item) items.push(item);
           }
 

@@ -6,7 +6,7 @@ import { UserNav } from "@/components/layout/user-nav";
 import { DashboardNav } from "@/components/layout/dashboard-nav";
 import { getActiveOrg } from "@/lib/auth";
 import { PLAN_LIMITS } from "@/lib/plans";
-import { resolvePlanKey } from "@/lib/plan-features";
+import { resolveEffectivePlanForOrg } from "@/lib/plan-features";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +17,7 @@ function preferredAccountName(org: Awaited<ReturnType<typeof getActiveOrg>>["org
 
 async function loadAccountNavData() {
   const { org, activeProfileId } = await getActiveOrg();
-  const plan = resolvePlanKey(org.plan);
+  const plan = resolveEffectivePlanForOrg(org);
   return {
     accountName: preferredAccountName(org),
     activeProfileId,

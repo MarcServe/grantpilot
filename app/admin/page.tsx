@@ -30,6 +30,7 @@ import { DeepScoreQueueActions } from "@/components/admin/deep-score-queue-actio
 import { GrantIntelligenceActions } from "@/components/admin/grant-intelligence-actions";
 import { ReviewQueueActions } from "@/components/admin/review-queue-actions";
 import { WhatsAppDiagnosticsPanel } from "@/components/admin/whatsapp-diagnostics-panel";
+import { CommunityAccessManager } from "@/components/admin/community-access-manager";
 import { getServerCache } from "@/lib/server-cache";
 import {
   CLAUDE_DISCOVERY_ENABLE_ENV,
@@ -1707,6 +1708,8 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                 <GrantIntelligenceActions />
               </CardContent>
             </Card>
+
+            <CommunityAccessManager />
 
             <Card className="min-w-0 overflow-hidden">
               <CardHeader>

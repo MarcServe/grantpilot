@@ -150,7 +150,7 @@ async function getProfileForOrg(orgId: string, profileId: string): Promise<Recor
 export async function POST(): Promise<NextResponse> {
   try {
     const { orgId, org, profile: activeProfile } = await getActiveOrg();
-    if (!planAllowsForOrg(org as { plan?: string; createdAt?: string | Date | null }, "website_intelligence_refresh")) {
+    if (!planAllowsForOrg(org, "website_intelligence_refresh")) {
       return NextResponse.json(
         { error: PLAN_CAPABILITY_MESSAGES.website_intelligence_refresh, code: "FEATURE_FORBIDDEN" },
         { status: 402 }
@@ -240,7 +240,7 @@ Return 5-12 high-value suggestions. Avoid fields where the current profile alrea
 export async function PATCH(req: Request): Promise<NextResponse> {
   try {
     const { orgId, org, profile: activeProfile } = await getActiveOrg();
-    if (!planAllowsForOrg(org as { plan?: string; createdAt?: string | Date | null }, "website_intelligence_refresh")) {
+    if (!planAllowsForOrg(org, "website_intelligence_refresh")) {
       return NextResponse.json(
         { error: PLAN_CAPABILITY_MESSAGES.website_intelligence_refresh, code: "FEATURE_FORBIDDEN" },
         { status: 402 }

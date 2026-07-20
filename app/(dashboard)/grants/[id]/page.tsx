@@ -126,7 +126,7 @@ export default async function GrantDetailPage({
   const applicationStartUrl = canOpenApplication ? directApplicationUrl ?? grant.applicationUrl ?? "" : null;
   const profile = org.profiles?.[0];
   const grantAutoImproveEnabled = planAllowsForOrg(
-    org as { plan?: string; createdAt?: string | Date | null },
+    org,
     "grant_auto_improve"
   );
   const hasProfile = !!profile && (profile.completionScore ?? 0) >= 50;

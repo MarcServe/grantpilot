@@ -102,7 +102,7 @@ export default async function FounderPackPage({
   const initialApplicationId = params?.applicationId?.trim() || "";
   const { org, orgId } = await getActiveOrg();
   const supabase = getSupabaseAdmin();
-  const allowed = planAllowsForOrg(org as { plan?: string; createdAt?: string | Date | null }, "founder_pack");
+  const allowed = planAllowsForOrg(org, "founder_pack");
 
   const [{ data: profiles }, { data: packs }, { data: applicationsData }, { data: eligibilityData }] = await Promise.all([
     supabase

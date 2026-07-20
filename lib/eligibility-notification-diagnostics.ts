@@ -1,10 +1,9 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getEligibilityNotifyMinCompletion } from "@/lib/eligibility-notify-config";
-import { planAllowsForOrg, resolvePlanKey } from "@/lib/plan-features";
+import { planAllowsForOrg, resolveEffectivePlanForOrg } from "@/lib/plan-features";
 import { grantMatchesFunderLocations, inferFunderLocationsFromProfile } from "@/lib/constants";
 import { isGrantActionableNow } from "@/lib/grant-actionability";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
-import { getSuppressedGrantIds } from "@/lib/grant-user-state";
 import { deriveOutcomeLearningAdvisory, type OutcomeLearningAdvisory } from "@/lib/outcome-learning";
 import { finalEligibilityScore, finaliseEligibilityAssessment } from "@/lib/eligibility-final-score";
 import type { EligibilityResult } from "@/lib/claude";
@@ -33,6 +32,10 @@ type OrganisationRow = {
   plan: string | null;
   createdAt?: string | null;
   created_at?: string | null;
+  communityAccessPlan?: string | null;
+  community_access_plan?: string | null;
+  communityAccessExpiresAt?: string | null;
+  community_access_expires_at?: string | null;
   preferredTimezone?: string | null;
 };
 
@@ -116,11 +119,14 @@ type GrantTraceRow = {
 type ActionableGrantTrace = {
   ids: Set<string>;
   grantsById: Map<string, GrantTraceRow>;
+  stateById: Map<string, string>;
   totalFetched: number;
   usableCurrent: number;
   locationMatched: number;
   applied: number;
   suppressed: number;
+  viewedButAvailable: number;
+  suppressedActioned: number;
 };
 
 export type EligibilityWhatsAppReason =
@@ -164,6 +170,8 @@ export type EligibilityWhatsAppTrace = {
     whatsappOptIn: boolean;
   }>;
   twilioGrantTemplateConfigured: boolean;
+  twilioDigestTemplateConfigured: boolean;
+  whatsappDigestTemplateMode: "digest_template" | "single_match_fallback" | "missing";
   latestEligibilityRun: {
     name: string;
     status: string;
@@ -173,6 +181,9 @@ export type EligibilityWhatsAppTrace = {
   } | null;
   highMatchCandidates: number;
   highMatchUnnotified: number;
+  stillEligibleReminderCandidates: number;
+  viewedHighMatchCandidates: number;
+  suppressedHighMatchCandidates: number;
   storedHighMatchCandidates: number;
   withinReachCandidates: number;
   grantScope: {
@@ -181,6 +192,8 @@ export type EligibilityWhatsAppTrace = {
     locationMatched: number;
     applied: number;
     suppressed: number;
+    viewedButAvailable: number;
+    suppressedActioned: number;
   } | null;
   latestRunWhatsApp: {
     sent: number;
@@ -256,12 +269,26 @@ function toNotifyUser(raw: Record<string, unknown> | null | undefined): NotifyUs
 }
 
 async function getOrganisation(supabase: SupabaseAdmin, orgId: string): Promise<OrganisationRow | null> {
-  const { data } = await supabase
+  const modern = await supabase
+    .from("Organisation")
+    .select("id, name, plan, createdAt, communityAccessPlan, communityAccessExpiresAt, preferredTimezone")
+    .eq("id", orgId)
+    .maybeSingle();
+  if (!modern.error) return (modern.data as OrganisationRow | null) ?? null;
+
+  const fallback = await supabase
     .from("Organisation")
     .select("id, name, plan, createdAt, preferredTimezone")
     .eq("id", orgId)
     .maybeSingle();
-  return (data as OrganisationRow | null) ?? null;
+  if (fallback.error) {
+    console.error("[eligibility_notification_diagnostics] Organisation lookup failed", {
+      orgId,
+      error: fallback.error.message,
+    });
+    return null;
+  }
+  return (fallback.data as OrganisationRow | null) ?? null;
 }
 
 async function getLatestProfile(supabase: SupabaseAdmin, orgId: string): Promise<ProfileRow | null> {
@@ -305,11 +332,34 @@ async function getActionableGrantTraceForGrantIds(
 
   const rows = (data ?? []) as GrantTraceRow[];
   const usable = rows.filter((grant) => isGrantActionableNow(grant));
-  const [appliedGrantIds, suppressedGrantIds] = await Promise.all([
+  const [appliedGrantIds, savedStateResult] = await Promise.all([
     getAppliedGrantIds(supabase, orgId, profile.id),
-    getSuppressedGrantIds(supabase, orgId, profile.id, { includeViewed: true }),
+    supabase
+      .from("SavedGrant")
+      .select("grant_id, status")
+      .eq("organisation_id", orgId)
+      .eq("profile_id", profile.id),
   ]);
-  const actionable = usable.filter((grant) => !appliedGrantIds.has(grant.id) && !suppressedGrantIds.has(grant.id));
+  if (savedStateResult.error) {
+    console.warn("[eligibility-diagnostics] saved grant trace lookup failed", savedStateResult.error.message);
+  }
+
+  const stateById = new Map(
+    ((savedStateResult.data ?? []) as Array<{ grant_id?: string | null; status?: string | null }>)
+      .filter((row) => Boolean(row.grant_id))
+      .map((row) => [row.grant_id as string, row.status ?? "saved"])
+  );
+  const viewedGrantIds = new Set(
+    Array.from(stateById.entries())
+      .filter(([, status]) => status === "viewed")
+      .map(([grantId]) => grantId)
+  );
+  const actionSuppressedGrantIds = new Set(
+    Array.from(stateById.entries())
+      .filter(([, status]) => status === "deferred" || status === "applied" || status === "dismissed")
+      .map(([grantId]) => grantId)
+  );
+  const actionable = usable.filter((grant) => !appliedGrantIds.has(grant.id) && !actionSuppressedGrantIds.has(grant.id));
   const profileFunderLocations = Array.isArray(profile.funderLocations)
     ? profile.funderLocations
     : Array.isArray(profile.funder_locations)
@@ -328,11 +378,14 @@ async function getActionableGrantTraceForGrantIds(
   return {
     ids: new Set(locationMatched.map((grant) => grant.id)),
     grantsById: new Map(locationMatched.map((grant) => [grant.id, grant])),
+    stateById,
     totalFetched: uniqueGrantIds.length,
     usableCurrent: usable.length,
     locationMatched: locationMatched.length,
     applied: appliedGrantIds.size,
-    suppressed: suppressedGrantIds.size,
+    suppressed: actionSuppressedGrantIds.size,
+    viewedButAvailable: viewedGrantIds.size,
+    suppressedActioned: actionSuppressedGrantIds.size,
   };
 }
 
@@ -452,15 +505,21 @@ async function getAssessmentCounts(
       return {
         row,
         score: finalEligibilityScore(finalResult),
+        state: actionables.stateById.get(row.grant_id) ?? null,
       };
     })
-    .filter((item): item is { row: EligibilityRow; score: number } => item != null);
+    .filter((item): item is { row: EligibilityRow; score: number; state: string | null } => item != null);
   const high = finalRows.filter((item) => item.score >= thresholds.eligibleThreshold && item.score <= thresholds.maxScore);
+  const freshHigh = high.filter((item) => !item.row.notified_at && item.state !== "viewed");
+  const reminderHigh = high.filter((item) => Boolean(item.row.notified_at) || item.state === "viewed");
   const withinReach = finalRows.filter((item) => item.score >= 50 && item.score < thresholds.eligibleThreshold);
 
   return {
     highMatchCandidates: high.length,
-    highMatchUnnotified: high.length,
+    highMatchUnnotified: freshHigh.length,
+    stillEligibleReminderCandidates: reminderHigh.length,
+    viewedHighMatchCandidates: high.filter((item) => item.state === "viewed").length,
+    suppressedHighMatchCandidates: Math.max(0, (storedHighMatchCandidates ?? 0) - high.length),
     storedHighMatchCandidates: storedHighMatchCandidates ?? 0,
     withinReachCandidates: withinReach.length,
     grantScope: actionables,
@@ -498,8 +557,10 @@ function decideFinalReason(params: {
   notifyWhatsApp: boolean;
   users: NotifyUserRow[];
   twilioGrantTemplateConfigured: boolean;
+  twilioDigestTemplateConfigured: boolean;
   highMatchCandidates: number;
   highMatchUnnotified: number;
+  stillEligibleReminderCandidates: number;
   latestEligibilityRunStartedAt: string | null;
   latestRunWhatsApp: EligibilityWhatsAppTrace["latestRunWhatsApp"];
   recentWhatsApp: EligibilityWhatsAppTrace["recentWhatsApp"];
@@ -512,11 +573,11 @@ function decideFinalReason(params: {
   if (!params.notifyWhatsApp) return "whatsapp_disabled";
   if (!params.users.some((user) => user.phoneNumber)) return "no_phone";
   if (!params.users.some((user) => user.phoneNumber && user.whatsappOptIn)) return "not_opted_in";
-  if (!params.twilioGrantTemplateConfigured) return "template_missing";
+  if (!params.twilioGrantTemplateConfigured && !params.twilioDigestTemplateConfigured) return "template_missing";
   if (params.highMatchCandidates === 0) return "no_85_plus_candidates";
-  if (params.highMatchUnnotified === 0) return "already_notified";
   if (params.latestRunWhatsApp.failed > 0) return "whatsapp_failed";
   if (params.latestRunWhatsApp.sent > 0) return "whatsapp_sent";
+  if (params.highMatchUnnotified === 0 && params.stillEligibleReminderCandidates === 0) return "already_notified";
   if (params.latestEligibilityRunStartedAt) return "missed_latest_run";
   return "ready_to_send_next_run";
 }
@@ -540,7 +601,7 @@ function buildBlockers(trace: Omit<EligibilityWhatsAppTrace, "blockers" | "final
   if (reason === "whatsapp_disabled") blockers.push("Eligibility WhatsApp notifications are disabled.");
   if (reason === "no_phone") blockers.push("No non-viewer organisation member has a phone number.");
   if (reason === "not_opted_in") blockers.push("No non-viewer organisation member with a phone number has opted into WhatsApp.");
-  if (reason === "template_missing") blockers.push("TWILIO_WHATSAPP_GRANT_MATCH_CONTENT_SID is not configured.");
+  if (reason === "template_missing") blockers.push("No WhatsApp opportunity template is configured.");
   if (reason === "no_85_plus_candidates") {
     const stored = trace.storedHighMatchCandidates;
     const scoped = trace.grantScope;
@@ -555,7 +616,7 @@ function buildBlockers(trace: Omit<EligibilityWhatsAppTrace, "blockers" | "final
       );
     }
   }
-  if (reason === "already_notified") blockers.push("85%+ matches exist, but they are still inside the digest repeat cooldown or were already notified.");
+  if (reason === "already_notified") blockers.push("85%+ matches exist, but there are no fresh unnotified or still-eligible reminder candidates after saved-state filters.");
   if (reason === "whatsapp_failed") blockers.push(trace.latestRunWhatsApp.latestError ?? "WhatsApp high-match send failed during the latest eligibility run.");
   if (reason === "missed_latest_run") {
     blockers.push("85%+ notify-ready actionable matches exist, but no WhatsApp send/skip/fail log was written after the latest eligibility run.");
@@ -581,13 +642,13 @@ export async function getEligibilityWhatsAppTraceForOrg(
   ]);
   if (!org) return null;
 
-  const plan = resolvePlanKey(org.plan);
+  const plan = resolveEffectivePlanForOrg(org);
   const proactiveNotificationsAllowed = planAllowsForOrg(
-    { plan, createdAt: org.createdAt ?? org.created_at ?? null },
+    org,
     "proactive_notifications"
   );
   const whatsappOpportunityAlertsAllowed = planAllowsForOrg(
-    { plan, createdAt: org.createdAt ?? org.created_at ?? null },
+    org,
     "whatsapp_opportunity_alerts"
   );
   const minScore = Math.max(Number(prefs?.min_score ?? DEFAULT_MIN_SCORE), 75);
@@ -610,7 +671,16 @@ export async function getEligibilityWhatsAppTraceForOrg(
         profile,
         outcomeAdvisory
       )
-    : { highMatchCandidates: 0, highMatchUnnotified: 0, storedHighMatchCandidates: 0, withinReachCandidates: 0, grantScope: null };
+    : {
+        highMatchCandidates: 0,
+        highMatchUnnotified: 0,
+        stillEligibleReminderCandidates: 0,
+        viewedHighMatchCandidates: 0,
+        suppressedHighMatchCandidates: 0,
+        storedHighMatchCandidates: 0,
+        withinReachCandidates: 0,
+        grantScope: null,
+      };
   const logs = await getNotificationLogs(supabase, users.map((user) => user.id), since);
   const latestRunSince = latestRun?.started_at ? new Date(latestRun.started_at) : null;
   const logsSinceLatestRun = latestRunSince && Number.isFinite(latestRunSince.getTime())
@@ -638,6 +708,15 @@ export async function getEligibilityWhatsAppTraceForOrg(
   const notifyMinCompletion = getEligibilityNotifyMinCompletion();
   const profileCompletion = completionScore(profile);
   const twilioGrantTemplateConfigured = Boolean((process.env.TWILIO_WHATSAPP_GRANT_MATCH_CONTENT_SID ?? "").trim());
+  const twilioDigestTemplateConfigured = Boolean(
+    (process.env.TWILIO_WHATSAPP_DIGEST_CONTENT_SID ?? "").trim() ||
+      (process.env.TWILIO_WHATSAPP_GRANT_DIGEST_CONTENT_SID ?? "").trim()
+  );
+  const whatsappDigestTemplateMode: EligibilityWhatsAppTrace["whatsappDigestTemplateMode"] = twilioDigestTemplateConfigured
+    ? "digest_template"
+    : twilioGrantTemplateConfigured
+      ? "single_match_fallback"
+      : "missing";
 
   const baseTrace = {
     orgId,
@@ -666,6 +745,8 @@ export async function getEligibilityWhatsAppTraceForOrg(
       whatsappOptIn: user.whatsappOptIn,
     })),
     twilioGrantTemplateConfigured,
+    twilioDigestTemplateConfigured,
+    whatsappDigestTemplateMode,
     latestEligibilityRun: latestRun
       ? {
           name: latestRun.job_name ?? latestRun.route ?? "Eligibility refresh",
@@ -683,6 +764,8 @@ export async function getEligibilityWhatsAppTraceForOrg(
           locationMatched: counts.grantScope.locationMatched,
           applied: counts.grantScope.applied,
           suppressed: counts.grantScope.suppressed,
+          viewedButAvailable: counts.grantScope.viewedButAvailable,
+          suppressedActioned: counts.grantScope.suppressedActioned,
         }
       : null,
     latestRunWhatsApp,
@@ -701,8 +784,10 @@ export async function getEligibilityWhatsAppTraceForOrg(
     notifyWhatsApp,
     users,
     twilioGrantTemplateConfigured,
+    twilioDigestTemplateConfigured,
     highMatchCandidates: counts.highMatchCandidates,
     highMatchUnnotified: counts.highMatchUnnotified,
+    stillEligibleReminderCandidates: counts.stillEligibleReminderCandidates,
     latestEligibilityRunStartedAt: latestRun?.started_at ?? null,
     latestRunWhatsApp,
     recentWhatsApp,

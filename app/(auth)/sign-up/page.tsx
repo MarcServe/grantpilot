@@ -1,18 +1,31 @@
 "use client";
 
 import Image from "next/image";
+import { Suspense } from "react";
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
+import { normaliseCommunitySlug, partnerNameFromSlug } from "@/lib/community-access-shared";
 
-export default function SignUpPage() {
+function SignUpForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const communitySlug = normaliseCommunitySlug(searchParams?.get("community") ?? "");
+  const communityCode = searchParams?.get("code")?.trim() ?? "";
+  const hasCommunityAccess = Boolean(communitySlug && communityCode);
+  const partnerName = hasCommunityAccess ? partnerNameFromSlug(communitySlug) : "";
+  const claimPath = hasCommunityAccess
+    ? `/community/claim?community=${encodeURIComponent(communitySlug)}&code=${encodeURIComponent(communityCode)}`
+    : "/dashboard";
+  const signInHref = hasCommunityAccess
+    ? `/sign-in?redirect=${encodeURIComponent(claimPath)}`
+    : "/sign-in";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +42,9 @@ export default function SignUpPage() {
       email,
       password,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        emailRedirectTo: hasCommunityAccess
+          ? `${window.location.origin}/auth/callback?next=${encodeURIComponent(claimPath)}`
+          : `${window.location.origin}/auth/callback`,
       },
     });
 
@@ -93,7 +108,11 @@ export default function SignUpPage() {
               </div>
           </div>
           <CardTitle className="text-2xl">Create your account</CardTitle>
-          <CardDescription>Start your Grants-Copilot journey today</CardDescription>
+          <CardDescription>
+            {hasCommunityAccess
+              ? `${partnerName} members get 90 days of GrantsCopilot pilot access. No card required.`
+              : "Start your Grants-Copilot journey today"}
+          </CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
@@ -133,7 +152,7 @@ export default function SignUpPage() {
             </Button>
             <p className="text-sm text-muted-foreground">
               Already have an account?{" "}
-              <Link href="/sign-in" className="font-medium text-primary hover:underline">
+              <Link href={signInHref} className="font-medium text-primary hover:underline">
                 Sign in
               </Link>
             </p>
@@ -141,5 +160,19 @@ export default function SignUpPage() {
         </form>
       </Card>
     </div>
+  );
+}
+
+export default function SignUpPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-background">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+        </div>
+      }
+    >
+      <SignUpForm />
+    </Suspense>
   );
 }

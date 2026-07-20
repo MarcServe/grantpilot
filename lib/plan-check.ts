@@ -1,6 +1,13 @@
 import { getSupabaseAdmin } from "./supabase";
 import { PLAN_LIMITS, type PlanKey } from "./plans";
-import { isFreeTrialActive, planAllowsForOrg, resolvePlanKey, type PlanCapability, type PlanAccessSource } from "./plan-features";
+import {
+  isFreeTrialActive,
+  planAllowsForOrg,
+  resolveEffectivePlanForOrg,
+  resolvePlanKey,
+  type PlanCapability,
+  type PlanAccessSource,
+} from "./plan-features";
 import { getPlanFromPriceId, getStripe } from "./stripe";
 
 type OrganisationPlanRow = {
@@ -9,22 +16,42 @@ type OrganisationPlanRow = {
   created_at?: string | Date | null;
   stripeId?: string | null;
   stripe_id?: string | null;
+  communityAccessPlan?: string | null;
+  community_access_plan?: string | null;
+  communityAccessExpiresAt?: string | Date | null;
+  community_access_expires_at?: string | Date | null;
 };
 
-export async function getOrganisationPlanKey(organisationId: string): Promise<PlanKey> {
+async function selectOrganisationPlanAccess(organisationId: string): Promise<OrganisationPlanRow | null> {
   const supabase = getSupabaseAdmin();
-  const { data } = await supabase.from("Organisation").select("plan").eq("id", organisationId).maybeSingle();
-  return resolvePlanKey(data?.plan);
-}
+  const modern = await supabase
+    .from("Organisation")
+    .select("plan, createdAt, stripeId, communityAccessPlan, communityAccessExpiresAt")
+    .eq("id", organisationId)
+    .maybeSingle();
+  if (!modern.error) return (modern.data as OrganisationPlanRow | null) ?? null;
 
-async function getOrganisationPlanAccess(organisationId: string): Promise<OrganisationPlanRow | null> {
-  const supabase = getSupabaseAdmin();
-  const { data } = await supabase
+  const fallback = await supabase
     .from("Organisation")
     .select("plan, createdAt, stripeId")
     .eq("id", organisationId)
     .maybeSingle();
-  return (data as OrganisationPlanRow | null) ?? null;
+  if (fallback.error) {
+    console.error("[PLAN_CHECK] Organisation plan lookup failed", {
+      organisationId,
+      error: fallback.error.message,
+    });
+    return null;
+  }
+  return (fallback.data as OrganisationPlanRow | null) ?? null;
+}
+
+export async function getOrganisationPlanKey(organisationId: string): Promise<PlanKey> {
+  return resolveEffectivePlanForOrg(await selectOrganisationPlanAccess(organisationId));
+}
+
+async function getOrganisationPlanAccess(organisationId: string): Promise<OrganisationPlanRow | null> {
+  return selectOrganisationPlanAccess(organisationId);
 }
 
 async function syncActiveStripePlan(
@@ -80,6 +107,8 @@ export async function organisationAllowsCapability(
     {
       plan: stripePlan,
       createdAt: org?.createdAt ?? org?.created_at ?? null,
+      communityAccessPlan: org?.communityAccessPlan ?? org?.community_access_plan ?? null,
+      communityAccessExpiresAt: org?.communityAccessExpiresAt ?? org?.community_access_expires_at ?? null,
     },
     capability
   );
@@ -90,17 +119,19 @@ export async function checkUsageLimit(
   type: "autofill" | "match"
 ): Promise<{ allowed: boolean; remaining: number }> {
   const supabase = getSupabaseAdmin();
-  const { data: org } = await supabase
-    .from("Organisation")
-    .select("plan, createdAt, stripeId")
-    .eq("id", organisationId)
-    .single();
+  const org = await selectOrganisationPlanAccess(organisationId);
   if (!org) return { allowed: false, remaining: 0 };
 
-  const orgAccess = org as OrganisationPlanRow;
-  let plan = resolvePlanKey(orgAccess.plan);
-  if (plan === "FREE_TRIAL") {
-    plan = (await syncActiveStripePlan(organisationId, orgAccess)) ?? plan;
+  const orgAccess = org;
+  let plan = resolveEffectivePlanForOrg(orgAccess);
+  if (resolvePlanKey(orgAccess.plan) === "FREE_TRIAL") {
+    const stripePlan = await syncActiveStripePlan(organisationId, orgAccess);
+    if (stripePlan) {
+      plan = resolveEffectivePlanForOrg({
+        ...orgAccess,
+        plan: stripePlan,
+      });
+    }
   }
   if (plan === "FREE_TRIAL" && !isFreeTrialActive(orgAccess)) {
     return { allowed: false, remaining: 0 };

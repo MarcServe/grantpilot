@@ -7,7 +7,7 @@ import {
 import { finalEligibilityScore, finaliseEligibilityAssessment } from "@/lib/eligibility-final-score";
 import { isGrantActionableNow, verifyGrantActionable } from "@/lib/grant-actionability";
 import { buildFundingOutcomeSignals, deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
-import { isFreeTrialActive, resolvePlanKey, type PlanAccessSource } from "@/lib/plan-features";
+import { isFreeTrialActive, resolveEffectivePlanForOrg, resolvePlanKey, type PlanAccessSource } from "@/lib/plan-features";
 import { PLAN_RANK } from "@/lib/plans";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
@@ -110,9 +110,48 @@ function hasUsefulProfileIdentity(profile: Record<string, unknown> | null | unde
 
 function orgPlanPriority(org: OrganisationPlanRow | null | undefined): number | null {
   if (!org) return null;
-  const plan = resolvePlanKey(org.plan);
+  const plan = resolveEffectivePlanForOrg(org);
   if (plan === "FREE_TRIAL") return isFreeTrialActive(org) ? 1000 : null;
   return 2000 + PLAN_RANK[plan] * 1000;
+}
+
+async function fetchOrganisationPlanRows(
+  supabase: SupabaseAdmin,
+  orgIds: string[]
+): Promise<{ data: OrganisationPlanRow[]; error: Error | null }> {
+  if (orgIds.length === 0) return { data: [], error: null };
+  const modern = await supabase
+    .from("Organisation")
+    .select("id, plan, createdAt, communityAccessPlan, communityAccessExpiresAt")
+    .in("id", orgIds);
+  if (!modern.error) return { data: (modern.data ?? []) as OrganisationPlanRow[], error: null };
+
+  const fallback = await supabase
+    .from("Organisation")
+    .select("id, plan, createdAt")
+    .in("id", orgIds);
+  if (fallback.error) return { data: [], error: fallback.error as Error };
+  return { data: (fallback.data ?? []) as OrganisationPlanRow[], error: null };
+}
+
+async function fetchOrganisationPlanRow(
+  supabase: SupabaseAdmin,
+  orgId: string
+): Promise<{ data: OrganisationPlanRow | null; error: Error | null }> {
+  const modern = await supabase
+    .from("Organisation")
+    .select("id, plan, createdAt, communityAccessPlan, communityAccessExpiresAt")
+    .eq("id", orgId)
+    .maybeSingle();
+  if (!modern.error) return { data: (modern.data as OrganisationPlanRow | null) ?? null, error: null };
+
+  const fallback = await supabase
+    .from("Organisation")
+    .select("id, plan, createdAt")
+    .eq("id", orgId)
+    .maybeSingle();
+  if (fallback.error) return { data: null, error: fallback.error as Error };
+  return { data: (fallback.data as OrganisationPlanRow | null) ?? null, error: null };
 }
 
 export function deepScoreProfilePriority(
@@ -242,11 +281,7 @@ export async function enqueueDeepScoreCandidates(options: {
 
   try {
     const supabase = options.supabase ?? getSupabaseAdmin();
-    const orgResult = await supabase
-      .from("Organisation")
-      .select("id, plan, createdAt")
-      .eq("id", options.organisationId)
-      .maybeSingle();
+    const orgResult = await fetchOrganisationPlanRow(supabase, options.organisationId);
     if (orgResult.error) throw orgResult.error;
 
     if (deepScoreProfilePriority(options.profile, orgResult.data as OrganisationPlanRow | null) == null) {
@@ -395,9 +430,7 @@ export async function enqueueExistingHeuristicAssessments(options?: {
       ...scannedAssessments.map((row) => row.organisation_id),
       ...((profilesResult.data ?? []) as ProfileRow[]).map((profile) => orgIdFromProfile(profile)),
     ].filter(Boolean))) as string[];
-    const orgsResult = orgIds.length > 0
-      ? await supabase.from("Organisation").select("id, plan, createdAt").in("id", orgIds)
-      : { data: [], error: null };
+    const orgsResult = await fetchOrganisationPlanRows(supabase, orgIds);
     if (orgsResult.error) throw orgsResult.error;
     const orgsById = new Map(((orgsResult.data ?? []) as OrganisationPlanRow[]).map((org) => [String(org.id), org]));
 
@@ -652,7 +685,7 @@ export async function processEligibilityDeepScoreQueue(options?: {
     ...((profilesResult.data ?? []) as ProfileRow[]).map((profile) => orgIdFromProfile(profile)),
   ].filter(Boolean))) as string[];
   const orgsResult = rawOrgIds.length > 0
-    ? await supabase.from("Organisation").select("id, plan, createdAt").in("id", rawOrgIds)
+    ? await fetchOrganisationPlanRows(supabase, rawOrgIds)
     : { data: [], error: null };
   if (orgsResult.error) throw orgsResult.error;
   const orgsById = new Map(((orgsResult.data ?? []) as OrganisationPlanRow[]).map((org) => [String(org.id), org]));

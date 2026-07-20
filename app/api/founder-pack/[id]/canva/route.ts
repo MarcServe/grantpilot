@@ -18,7 +18,7 @@ const CANVA_API_BASE = process.env.CANVA_API_BASE ?? "https://api.canva.com/rest
 export async function POST(_req: Request, context: RouteContext): Promise<NextResponse> {
   try {
     const { org, orgId } = await getActiveOrg();
-    if (!planAllowsForOrg(org as { plan?: string; createdAt?: string | Date | null }, "founder_pack")) {
+    if (!planAllowsForOrg(org, "founder_pack")) {
       return NextResponse.json(
         { error: PLAN_CAPABILITY_MESSAGES.founder_pack, code: "FEATURE_FORBIDDEN" },
         { status: 402 }

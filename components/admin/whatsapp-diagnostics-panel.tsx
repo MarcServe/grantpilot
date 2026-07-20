@@ -57,6 +57,12 @@ function formatRelative(value?: string | null): string {
   return `${Math.round(hours / 24)}d ago`;
 }
 
+function templateModeLabel(mode: EligibilityWhatsAppTrace["whatsappDigestTemplateMode"]): string {
+  if (mode === "digest_template") return "digest template";
+  if (mode === "single_match_fallback") return "using single-grant fallback";
+  return "missing";
+}
+
 export function WhatsAppDiagnosticsPanel() {
   const [traces, setTraces] = useState<EligibilityWhatsAppTrace[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -84,7 +90,7 @@ export function WhatsAppDiagnosticsPanel() {
       <div className="space-y-3 text-sm">
         <p className="text-sm text-muted-foreground">
           WhatsApp remains 85%+ only. This trace separates no high-match candidates from preference,
-          plan, phone, template, cooldown, or send failures.
+          plan, phone, template, or send failures.
         </p>
         <div className="rounded-md border bg-muted/20 p-3">
           <p className="text-sm text-muted-foreground">
@@ -134,14 +140,22 @@ export function WhatsAppDiagnosticsPanel() {
                 {WHATSAPP_REASON_LABELS[trace.finalReason]}
               </span>
             </div>
-            <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+            <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3 lg:grid-cols-6">
               <div className="rounded border bg-muted/30 p-2">
                 <div className="text-muted-foreground">Current 85%+</div>
                 <div className="text-lg font-semibold">{trace.highMatchCandidates}</div>
               </div>
               <div className="rounded border bg-muted/30 p-2">
-                <div className="text-muted-foreground">Notify-ready</div>
+                <div className="text-muted-foreground">Fresh unnotified</div>
                 <div className="text-lg font-semibold">{trace.highMatchUnnotified}</div>
+              </div>
+              <div className="rounded border bg-muted/30 p-2">
+                <div className="text-muted-foreground">Reminders</div>
+                <div className="text-lg font-semibold">{trace.stillEligibleReminderCandidates}</div>
+              </div>
+              <div className="rounded border bg-muted/30 p-2">
+                <div className="text-muted-foreground">Viewed</div>
+                <div className="text-lg font-semibold">{trace.viewedHighMatchCandidates}</div>
               </div>
               <div className="rounded border bg-muted/30 p-2">
                 <div className="text-muted-foreground">Within reach</div>
@@ -171,14 +185,25 @@ export function WhatsAppDiagnosticsPanel() {
                 Twilio template: {trace.twilioGrantTemplateConfigured ? "configured" : "missing"}
               </div>
               <div>
-                Stored 85%+ rows: {trace.storedHighMatchCandidates}; WA sent daily: {trace.recentWhatsApp.sent}
+                Digest template: {templateModeLabel(trace.whatsappDigestTemplateMode)}
+              </div>
+              <div>
+                Stored 85%+ rows: {trace.storedHighMatchCandidates}; suppressed/actioned: {trace.suppressedHighMatchCandidates}
               </div>
               {trace.grantScope ? (
                 <div>
                   Latest grant sample: {trace.grantScope.locationMatched} location matched / {trace.grantScope.usableCurrent} usable
                 </div>
               ) : null}
+              <div>
+                WA sent daily: {trace.recentWhatsApp.sent}
+              </div>
             </div>
+            {trace.whatsappDigestTemplateMode === "single_match_fallback" ? (
+              <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                WhatsApp is sending, but the dedicated digest template SID is missing, so it is using the single-grant fallback template.
+              </div>
+            ) : null}
             {trace.blockers.length > 0 ? (
               <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
                 <ul className="space-y-1">

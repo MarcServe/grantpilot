@@ -6,7 +6,7 @@ import { planAllowsForOrg, PLAN_CAPABILITY_MESSAGES } from "@/lib/plan-features"
 
 export async function POST() {
   const { orgId, org, profile: activeProfile } = await getActiveOrg();
-  if (!planAllowsForOrg(org as { plan?: string; createdAt?: string | Date | null }, "website_intelligence_refresh")) {
+  if (!planAllowsForOrg(org, "website_intelligence_refresh")) {
     return NextResponse.json(
       { error: PLAN_CAPABILITY_MESSAGES.website_intelligence_refresh, code: "FEATURE_FORBIDDEN" },
       { status: 402 }
