@@ -8,6 +8,7 @@ import { deriveOutcomeLearningAdvisory, type OutcomeLearningAdvisory } from "@/l
 import { finalEligibilityScore, finaliseEligibilityAssessment } from "@/lib/eligibility-final-score";
 import type { EligibilityResult } from "@/lib/claude";
 import { getMatchHealthReport, type MatchHealthReport } from "@/lib/match-health";
+import { resolveWhatsAppTemplateForType } from "@/lib/whatsapp-template-config";
 
 const DEFAULT_MIN_SCORE = 85;
 const DEFAULT_MAX_SCORE = 100;
@@ -171,7 +172,7 @@ export type EligibilityWhatsAppTrace = {
   }>;
   twilioGrantTemplateConfigured: boolean;
   twilioDigestTemplateConfigured: boolean;
-  whatsappDigestTemplateMode: "digest_template" | "single_match_fallback" | "missing";
+  whatsappDigestTemplateMode: "digest_template" | "rich_body_trial" | "single_match_fallback" | "missing";
   latestEligibilityRun: {
     name: string;
     status: string;
@@ -712,11 +713,15 @@ export async function getEligibilityWhatsAppTraceForOrg(
     (process.env.TWILIO_WHATSAPP_DIGEST_CONTENT_SID ?? "").trim() ||
       (process.env.TWILIO_WHATSAPP_GRANT_DIGEST_CONTENT_SID ?? "").trim()
   );
-  const whatsappDigestTemplateMode: EligibilityWhatsAppTrace["whatsappDigestTemplateMode"] = twilioDigestTemplateConfigured
-    ? "digest_template"
-    : twilioGrantTemplateConfigured
-      ? "single_match_fallback"
-      : "missing";
+  const whatsappTemplate = resolveWhatsAppTemplateForType("grant_scan_digest");
+  const whatsappDigestTemplateMode: EligibilityWhatsAppTrace["whatsappDigestTemplateMode"] =
+    whatsappTemplate.kind === "digest"
+      ? "digest_template"
+      : whatsappTemplate.kind === "digest_body_trial"
+        ? "rich_body_trial"
+        : whatsappTemplate.kind === "digest_single_match"
+          ? "single_match_fallback"
+          : "missing";
 
   const baseTrace = {
     orgId,

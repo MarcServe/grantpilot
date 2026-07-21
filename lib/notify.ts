@@ -226,6 +226,23 @@ export async function notifyUser(
         logPayload.metadata = { twilioSid: result.twilioSid ?? null, twilioStatus: result.twilioStatus ?? null };
       }
       await supabase.from("NotificationLog").insert(logPayload);
+    } else if (template.kind === "digest_body_trial" && type === "grant_scan_digest") {
+      const digestVariables = buildDigestWhatsAppTemplateVariables(payload, appUrl);
+      const result = await sendWhatsApp(user.phoneNumber, buildWhatsAppMessage(type, payload, appUrl));
+      const logPayload: Record<string, unknown> = {
+        userId: user.id,
+        channel: "whatsapp",
+        type,
+        status: result.success ? "sent" : "failed",
+        error: result.error ?? null,
+        metadata: {
+          twilioSid: result.twilioSid ?? null,
+          twilioStatus: result.twilioStatus ?? null,
+          fallback: "rich_digest_body_trial",
+          strongCount: digestVariables.strongCount,
+        },
+      };
+      await supabase.from("NotificationLog").insert(logPayload);
     } else if ((template.kind === "digest" || template.kind === "digest_single_match") && template.contentSid) {
       const digestVariables = buildDigestWhatsAppTemplateVariables(payload, appUrl);
       const result = await sendWhatsAppWithTemplate(
@@ -241,15 +258,14 @@ export async function notifyUser(
         type,
         status: result.success ? "sent" : "failed",
         error: result.error ?? null,
-      };
-      if (result.twilioSid ?? result.twilioStatus) {
-        logPayload.metadata = {
+        metadata: {
           twilioSid: result.twilioSid ?? null,
           twilioStatus: result.twilioStatus ?? null,
           fallback: template.kind === "digest" ? "digest_template" : "grant_match_template",
           strongCount: digestVariables.strongCount,
-        };
-      }
+          ...(template.fallbackExpired ? { fallbackExpired: true } : {}),
+        },
+      };
       await supabase.from("NotificationLog").insert(logPayload);
     } else if (template.kind === "deadline" && template.contentSid) {
       const startUrl = payload.startApplicationToken
@@ -313,13 +329,17 @@ export async function notifyUser(
       }
       await supabase.from("NotificationLog").insert(logPayload);
     } else {
-      await supabase.from("NotificationLog").insert({
+      const logPayload: Record<string, unknown> = {
         userId: user.id,
         channel: "whatsapp",
         type,
         status: "skipped",
         error: template.error ?? "whatsapp_requires_template",
-      });
+      };
+      if (type === "grant_scan_digest" && template.fallbackExpired) {
+        logPayload.metadata = { fallbackExpired: true };
+      }
+      await supabase.from("NotificationLog").insert(logPayload);
     }
   } else if (user.whatsappOptIn && !user.phoneNumber) {
     await supabase.from("NotificationLog").insert({

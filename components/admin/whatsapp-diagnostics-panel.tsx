@@ -59,6 +59,7 @@ function formatRelative(value?: string | null): string {
 
 function templateModeLabel(mode: EligibilityWhatsAppTrace["whatsappDigestTemplateMode"]): string {
   if (mode === "digest_template") return "digest template";
+  if (mode === "rich_body_trial") return "rich body trial";
   if (mode === "single_match_fallback") return "using single-grant fallback";
   return "missing";
 }
@@ -202,6 +203,11 @@ export function WhatsAppDiagnosticsPanel() {
             {trace.whatsappDigestTemplateMode === "single_match_fallback" ? (
               <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
                 WhatsApp is sending, but the dedicated digest template SID is missing, so it is using the single-grant fallback template.
+              </div>
+            ) : null}
+            {trace.whatsappDigestTemplateMode === "rich_body_trial" ? (
+              <div className="mt-2 rounded border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-900">
+                WhatsApp digest is using the temporary rich multi-grant body trial. Disable the rich-body fallback env flag to return to the single-grant template.
               </div>
             ) : null}
             {trace.blockers.length > 0 ? (

@@ -1,6 +1,7 @@
 export type WhatsAppTemplateKind =
   | "grant_match"
   | "digest"
+  | "digest_body_trial"
   | "digest_single_match"
   | "deadline"
   | "needs_info"
@@ -10,6 +11,7 @@ export type WhatsAppTemplateResolution = {
   kind: WhatsAppTemplateKind;
   contentSid: string | null;
   error?: string;
+  fallbackExpired?: boolean;
 };
 
 function envValue(env: NodeJS.ProcessEnv, key: string): string {
@@ -30,9 +32,26 @@ export function getWhatsAppTemplateSids(env: NodeJS.ProcessEnv = process.env) {
   };
 }
 
+function envFlagEnabled(env: NodeJS.ProcessEnv, key: string): boolean {
+  return ["1", "true", "yes", "on", "enabled"].includes(envValue(env, key).toLowerCase());
+}
+
+function richDigestBodyFallbackState(env: NodeJS.ProcessEnv, now: Date) {
+  const enabled = envFlagEnabled(env, "WHATSAPP_DIGEST_RICH_BODY_FALLBACK_ENABLED");
+  const untilRaw = envValue(env, "WHATSAPP_DIGEST_RICH_BODY_FALLBACK_UNTIL");
+  if (!enabled) return { active: false, expired: false };
+  if (!untilRaw) return { active: false, expired: true };
+
+  const until = new Date(untilRaw);
+  if (Number.isNaN(until.getTime())) return { active: false, expired: true };
+  const expired = until.getTime() < now.getTime();
+  return { active: !expired, expired };
+}
+
 export function resolveWhatsAppTemplateForType(
   type: string,
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  now = new Date()
 ): WhatsAppTemplateResolution {
   const { grantMatchSid, digestSid, deadlineSid, needsInfoSid } = getWhatsAppTemplateSids(env);
 
@@ -41,8 +60,21 @@ export function resolveWhatsAppTemplateForType(
   }
   if (type === "grant_scan_digest") {
     if (digestSid) return { kind: "digest", contentSid: digestSid };
-    if (grantMatchSid) return { kind: "digest_single_match", contentSid: grantMatchSid };
-    return { kind: "none", contentSid: null, error: "whatsapp_requires_digest_template" };
+    const richBodyFallback = richDigestBodyFallbackState(env, now);
+    if (richBodyFallback.active) return { kind: "digest_body_trial", contentSid: null };
+    if (grantMatchSid) {
+      return {
+        kind: "digest_single_match",
+        contentSid: grantMatchSid,
+        fallbackExpired: richBodyFallback.expired,
+      };
+    }
+    return {
+      kind: "none",
+      contentSid: null,
+      error: "whatsapp_requires_digest_template",
+      fallbackExpired: richBodyFallback.expired,
+    };
   }
   if (type === "deadline_reminder" && deadlineSid) {
     return { kind: "deadline", contentSid: deadlineSid };
