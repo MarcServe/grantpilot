@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { GrantCard } from "./grant-card";
 import { toast } from "sonner";
 import { grantMatchesFunderLocations } from "@/lib/constants";
+import type { GrantFitPreview } from "@/lib/grant-fit-preview";
 
 const PAGE_SIZE_OPTIONS = [20, 30, 50] as const;
 const DEFAULT_PAGE_SIZE = 30;
@@ -63,6 +64,7 @@ interface GrantsListClientProps {
   hasProfile: boolean;
   profileComplete: boolean;
   cachedScores?: Record<string, CachedScore>;
+  fitPreviews?: Record<string, GrantFitPreview>;
   savedGrantIds?: string[];
   grantUserStates?: Record<string, GrantUserState>;
   funderOptions?: string[];
@@ -117,6 +119,7 @@ export function GrantsListClient({
   hasProfile,
   profileComplete,
   cachedScores = {},
+  fitPreviews = {},
   savedGrantIds = [],
   grantUserStates = {},
   funderOptions,
@@ -402,6 +405,7 @@ export function GrantsListClient({
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {displayGrants.map((grant) => {
           const cached = cachedScores[grant.id];
+          const fitPreview = fitPreviews[grant.id];
           const isSaved = savedSet.has(grant.id);
           const userState = stateMap[grant.id] ?? null;
           return (
@@ -428,6 +432,11 @@ export function GrantsListClient({
               verificationWarning={grant.verificationWarning}
               source={grant.source}
               scoringSource={cached?.scoringSource}
+              showUnscoredState={profileComplete && (!cached || fitPreview?.matchSection === "unscored")}
+              targetSummary={fitPreview?.targetSummary ?? null}
+              tagExplanations={fitPreview?.tagExplanations ?? []}
+              whyNotSuggested={profileComplete ? fitPreview?.whyNotSuggested ?? [] : []}
+              matchSection={fitPreview?.matchSection}
             />
           );
           })}

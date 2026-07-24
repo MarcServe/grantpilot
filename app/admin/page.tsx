@@ -31,6 +31,7 @@ import { GrantIntelligenceActions } from "@/components/admin/grant-intelligence-
 import { ReviewQueueActions } from "@/components/admin/review-queue-actions";
 import { WhatsAppDiagnosticsPanel } from "@/components/admin/whatsapp-diagnostics-panel";
 import { CommunityAccessManager } from "@/components/admin/community-access-manager";
+import { ProfileMatchAuditPanel } from "@/components/admin/profile-match-audit-panel";
 import { getServerCache } from "@/lib/server-cache";
 import {
   CLAUDE_DISCOVERY_ENABLE_ENV,
@@ -1677,6 +1678,17 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                 <p className="text-sm text-muted-foreground">
                   Reusable AI extraction for grant criteria, hard gates, regions, applicant types, and semantic tags.
                 </p>
+                <div className="rounded-md border border-blue-100 bg-blue-50/70 p-3 text-xs text-blue-950 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-100">
+                  <div className="font-semibold">Day-1 profile bootstrap</div>
+                  <p className="mt-1">
+                    New and newly completed profiles use ready grant intelligence first, then queue bounded OpenAI
+                    eligibility scoring waves without sending immediate notifications.
+                  </p>
+                  <p className="mt-2 text-blue-800 dark:text-blue-200">
+                    Deep-score queue: {deepScoreQueue.pending} pending, {deepScoreQueue.running} running,{" "}
+                    {deepScoreQueue.completedToday} completed today.
+                  </p>
+                </div>
                 <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
                   <div className="rounded border bg-muted/30 p-2">
                     <div className="text-muted-foreground">Ready</div>
@@ -1710,6 +1722,8 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
             </Card>
 
             <CommunityAccessManager />
+
+            <ProfileMatchAuditPanel />
 
             <Card className="min-w-0 overflow-hidden">
               <CardHeader>

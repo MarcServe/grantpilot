@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { ArrowLeft, ArrowRight, Building2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Brain, Building2 } from "lucide-react";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { Card, CardContent } from "@/components/ui/card";
@@ -9,6 +9,7 @@ import { BatchedEligibleGrantsList } from "@/components/grants/batched-eligible-
 import { BusinessDnaMatchHealth } from "@/components/profile/business-dna-match-health";
 import { getMatchHealthReport } from "@/lib/match-health";
 import { optionalEligibleMatchSection, type EligibleMatchSection } from "@/lib/eligible-match-rules";
+import { getProfileBootstrapStatus } from "@/lib/profile-bootstrap-status";
 
 const MATCH_PAGE_SIZE_OPTIONS = [20, 30, 50] as const;
 const DEFAULT_MATCH_PAGE_SIZE = 20;
@@ -84,6 +85,12 @@ export default async function EligibleGrantsPage({
     profile: profile as Record<string, unknown> & { id: string },
     assessmentLimit: MATCH_HEALTH_ASSESSMENT_LIMIT,
   });
+  const bootstrapStatusPromise = getProfileBootstrapStatus({
+    supabase,
+    organisationId: orgId,
+    profileId,
+    completionScore,
+  });
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-6 sm:p-6">
@@ -99,8 +106,8 @@ export default async function EligibleGrantsPage({
         <div>
           <h1 className="text-2xl font-bold">My Matches</h1>
           <p className="mt-1 max-w-2xl text-muted-foreground">
-            Suggested 85%+ matches load first. Fresh sub-85% grants appear at the top of Within reach, followed by
-            older near-matches and other scored grants in smaller batches.
+            My Matches shows grants scored against your Business DNA. Suggested 85%+ matches load first; fresh
+            sub-85% grants appear at the top of Within reach, followed by older near-matches in smaller batches.
           </p>
         </div>
         <Link
@@ -140,6 +147,10 @@ export default async function EligibleGrantsPage({
         </Card>
       )}
 
+      <Suspense fallback={<ProfileBootstrapStatusSkeleton />}>
+        <ProfileBootstrapStatusPanel bootstrapStatusPromise={bootstrapStatusPromise} />
+      </Suspense>
+
       <BatchedEligibleGrantsList
         initialTier={activeTier}
         initialPage={initialPage}
@@ -152,6 +163,62 @@ export default async function EligibleGrantsPage({
           profile={profile as Record<string, unknown>}
         />
       </Suspense>
+    </div>
+  );
+}
+
+async function ProfileBootstrapStatusPanel({
+  bootstrapStatusPromise,
+}: {
+  bootstrapStatusPromise: Promise<Awaited<ReturnType<typeof getProfileBootstrapStatus>>>;
+}) {
+  const status = await bootstrapStatusPromise;
+  if (!status.profileReady || !status.showStatus) return null;
+
+  const activeQueue = status.pending + status.running;
+  return (
+    <Card className="mb-6 border-blue-100 bg-blue-50/70 dark:border-blue-900 dark:bg-blue-950/30">
+      <CardContent className="py-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex gap-3">
+            <Brain className="mt-0.5 h-5 w-5 shrink-0 text-blue-600" />
+            <div>
+              <p className="text-sm font-semibold text-blue-950 dark:text-blue-100">
+                GrantsCopilot is scoring your Business DNA against current grant intelligence.
+              </p>
+              <p className="mt-1 text-sm text-blue-800 dark:text-blue-200">
+                {activeQueue > 0
+                  ? "Your first AI-scored matches are being processed in priority waves. Daily notifications wait for completed trusted scores."
+                  : "Trusted scores are being prepared from the reusable grant intelligence corpus, then relevant grants move into Suggested or Within reach."}
+              </p>
+            </div>
+          </div>
+          <div className="grid min-w-0 grid-cols-2 gap-2 text-xs sm:min-w-[22rem] sm:grid-cols-4">
+            <StatusMetric label="Queued" value={status.pending + status.running} />
+            <StatusMetric label="Completed" value={status.completed} />
+            <StatusMetric label="Strong 85%+" value={status.strongMatches} />
+            <StatusMetric label="Within reach" value={status.withinReach} />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function StatusMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-md border border-blue-100 bg-background/80 p-2 dark:border-blue-900">
+      <div className="text-muted-foreground">{label}</div>
+      <div className="text-base font-semibold text-blue-950 dark:text-blue-100">{value}</div>
+    </div>
+  );
+}
+
+function ProfileBootstrapStatusSkeleton() {
+  return (
+    <div className="mb-6 rounded-xl border border-blue-100 bg-blue-50/50 p-4">
+      <div className="h-4 w-80 max-w-full animate-pulse rounded bg-blue-100" />
+      <div className="mt-2 h-4 w-full max-w-2xl animate-pulse rounded bg-blue-100" />
     </div>
   );
 }

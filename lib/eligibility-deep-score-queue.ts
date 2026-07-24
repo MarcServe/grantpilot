@@ -7,11 +7,13 @@ import {
 import { finalEligibilityScore, finaliseEligibilityAssessment } from "@/lib/eligibility-final-score";
 import { isGrantActionableNow, verifyGrantActionable } from "@/lib/grant-actionability";
 import { buildFundingOutcomeSignals, deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
-import { isFreeTrialActive, resolveEffectivePlanForOrg, resolvePlanKey, type PlanAccessSource } from "@/lib/plan-features";
+import { isFreeTrialActive, resolveEffectivePlanForOrg, type PlanAccessSource } from "@/lib/plan-features";
 import { PLAN_RANK } from "@/lib/plans";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { grantMatchesFunderLocations, inferFunderLocationsFromProfile } from "@/lib/constants";
 import { preFilterGrants } from "@/lib/heuristic-scorer";
+import { grantIntelligenceFromDb, isReadyGrantIntelligence, type GrantIntelligenceDbRow } from "@/lib/grant-intelligence-schema";
+import { matchProfileToGrantIntelligence } from "@/lib/grant-intelligence-match";
 
 type SupabaseAdmin = ReturnType<typeof getSupabaseAdmin>;
 
@@ -85,12 +87,17 @@ const FRESH_DEEP_SCORE_RECENCY_BONUS = positiveIntFromEnv("ELIGIBILITY_DEEP_SCOR
 const STALE_RUNNING_LOCK_MINUTES = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_STALE_LOCK_MINUTES", 20);
 const QUEUE_LOOKUP_BATCH_SIZE = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_QUEUE_LOOKUP_BATCH_SIZE", 50);
 const QUEUE_INSERT_BATCH_SIZE = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_QUEUE_INSERT_BATCH_SIZE", 10);
-export const PROFILE_BACKFILL_CANDIDATE_LIMIT = positiveIntFromEnv("ELIGIBILITY_PROFILE_BACKFILL_CANDIDATE_LIMIT", 120);
-export const PROFILE_BACKFILL_PROCESS_LIMIT = positiveIntFromEnv("ELIGIBILITY_PROFILE_BACKFILL_PROCESS_LIMIT", 20);
+export const PROFILE_BACKFILL_CANDIDATE_LIMIT = positiveIntFromEnv("ELIGIBILITY_PROFILE_BACKFILL_CANDIDATE_LIMIT", 300);
+export const PROFILE_BACKFILL_PROCESS_LIMIT = positiveIntFromEnv("ELIGIBILITY_PROFILE_BACKFILL_PROCESS_LIMIT", 50);
 const PROFILE_BACKFILL_SCAN_LIMIT = positiveIntFromEnv("ELIGIBILITY_PROFILE_BACKFILL_SCAN_LIMIT", 2500);
 const PROFILE_BACKFILL_MIN_HEURISTIC_SCORE = positiveIntFromEnv("ELIGIBILITY_PROFILE_BACKFILL_MIN_HEURISTIC_SCORE", 30);
+export const PROFILE_BOOTSTRAP_MIN_INTELLIGENCE_SCORE = positiveIntFromEnv("ELIGIBILITY_PROFILE_BOOTSTRAP_MIN_INTELLIGENCE_SCORE", 40);
+const PROFILE_BOOTSTRAP_INTELLIGENCE_SCAN_LIMIT = positiveIntFromEnv("ELIGIBILITY_PROFILE_BOOTSTRAP_INTELLIGENCE_SCAN_LIMIT", 5000);
+const PROFILE_BOOTSTRAP_INTELLIGENCE_PAGE_SIZE = 1000;
 const GRANT_BACKFILL_SELECT =
   "id, name, funder, amount, deadline, applicationUrl, createdAt, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, url_status";
+const GRANT_INTELLIGENCE_SELECT =
+  "grant_id, content_hash, status, model, confidence, reusable_summary, extracted_criteria, eligibility_criteria, hard_gates, applicant_types, sectors, regions, funding_purposes, semantic_tags, measurable_requirements, exclusions, freshness, scoring_hints, reusable_prompt, extraction_error";
 
 function valueAsString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -423,27 +430,57 @@ function profileToHeuristic(profile: Record<string, unknown>) {
   };
 }
 
-async function fetchReadyGrantIntelligenceIds(
+async function fetchReadyGrantIntelligenceRows(
   supabase: SupabaseAdmin,
-  grantIds: string[]
-): Promise<Set<string>> {
-  const ready = new Set<string>();
-  for (let offset = 0; offset < grantIds.length; offset += QUEUE_LOOKUP_BATCH_SIZE) {
-    const batch = grantIds.slice(offset, offset + QUEUE_LOOKUP_BATCH_SIZE);
+  limit: number
+): Promise<GrantIntelligenceDbRow[]> {
+  const rows: GrantIntelligenceDbRow[] = [];
+  const pageSize = Math.min(PROFILE_BOOTSTRAP_INTELLIGENCE_PAGE_SIZE, Math.max(1, limit));
+
+  for (let from = 0; from < limit; from += pageSize) {
+    const to = Math.min(limit - 1, from + pageSize - 1);
     const { data, error } = await supabase
       .from("grant_ai_intelligence")
-      .select("grant_id")
+      .select(GRANT_INTELLIGENCE_SELECT)
       .eq("status", "ready")
-      .in("grant_id", batch);
+      .order("updated_at", { ascending: false })
+      .range(from, to);
+
     if (error) {
-      console.warn("[eligibility-deep-score-queue] grant intelligence lookup skipped:", error.message);
-      return ready;
+      console.warn("[eligibility-deep-score-queue] grant intelligence bootstrap lookup skipped:", error.message);
+      return rows;
     }
-    for (const row of (data ?? []) as Array<{ grant_id?: string | null }>) {
-      if (row.grant_id) ready.add(row.grant_id);
+
+    const page = (data ?? []) as GrantIntelligenceDbRow[];
+    rows.push(...page);
+    if (page.length < pageSize) break;
+  }
+
+  return rows;
+}
+
+async function fetchBackfillGrantRowsByIds(
+  supabase: SupabaseAdmin,
+  grantIds: string[]
+): Promise<Map<string, GrantRow>> {
+  const grantsById = new Map<string, GrantRow>();
+  const uniqueGrantIds = Array.from(new Set(grantIds.filter(Boolean)));
+
+  for (let offset = 0; offset < uniqueGrantIds.length; offset += QUEUE_LOOKUP_BATCH_SIZE) {
+    const batch = uniqueGrantIds.slice(offset, offset + QUEUE_LOOKUP_BATCH_SIZE);
+    const { data, error } = await supabase
+      .from("Grant")
+      .select(GRANT_BACKFILL_SELECT)
+      .in("id", batch);
+
+    if (error) throw error;
+
+    for (const grant of (data ?? []) as GrantRow[]) {
+      grantsById.set(grant.id, grant);
     }
   }
-  return ready;
+
+  return grantsById;
 }
 
 async function fetchExistingTrustedAssessmentIds(
@@ -485,6 +522,10 @@ export async function enqueueRecentGrantsForProfileBackfill(options: {
   actionable: number;
   locationMatched: number;
   heuristicMatched: number;
+  intelligenceScanned: number;
+  intelligenceActionable: number;
+  intelligenceLocationMatched: number;
+  intelligenceMatched: number;
   alreadyTrusted: number;
   requested: number;
   enqueued: number;
@@ -492,8 +533,10 @@ export async function enqueueRecentGrantsForProfileBackfill(options: {
 }> {
   const supabase = options.supabase ?? getSupabaseAdmin();
   const scanLimit = Math.max(1, Math.min(10000, options.scanLimit ?? PROFILE_BACKFILL_SCAN_LIMIT));
+  const intelligenceScanLimit = Math.max(1, Math.min(10000, options.scanLimit ?? PROFILE_BOOTSTRAP_INTELLIGENCE_SCAN_LIMIT));
   const candidateLimit = Math.max(1, Math.min(500, options.candidateLimit ?? PROFILE_BACKFILL_CANDIDATE_LIMIT));
   const minHeuristicScore = Math.max(0, Math.min(100, options.minHeuristicScore ?? PROFILE_BACKFILL_MIN_HEURISTIC_SCORE));
+  const minIntelligenceScore = Math.max(PROFILE_BOOTSTRAP_MIN_INTELLIGENCE_SCORE, minHeuristicScore);
 
   try {
     const [{ data: profile, error: profileError }, orgResult] = await Promise.all([
@@ -516,10 +559,64 @@ export async function enqueueRecentGrantsForProfileBackfill(options: {
         actionable: 0,
         locationMatched: 0,
         heuristicMatched: 0,
+        intelligenceScanned: 0,
+        intelligenceActionable: 0,
+        intelligenceLocationMatched: 0,
+        intelligenceMatched: 0,
         alreadyTrusted: 0,
         requested: 0,
         enqueued: 0,
       };
+    }
+
+    const userFunderLocations = inferFunderLocationsFromProfile(profileRow as {
+      funderLocations?: string[] | null;
+      location?: string | null;
+      country?: string | null;
+      region?: string | null;
+    });
+
+    const sourcePrefix = options.source ?? "profile_backfill";
+    const intelligenceRows = await fetchReadyGrantIntelligenceRows(supabase, intelligenceScanLimit);
+    const intelligenceGrantIds = Array.from(new Set(intelligenceRows.map((row) => row.grant_id).filter(Boolean)));
+    const intelligenceGrantsById = await fetchBackfillGrantRowsByIds(supabase, intelligenceGrantIds);
+    const intelligenceGrantIdSet = new Set(intelligenceGrantIds);
+    let intelligenceActionable = 0;
+    let intelligenceLocationMatched = 0;
+    let intelligenceMatched = 0;
+
+    type RankedCandidate = DeepScoreCandidate & {
+      _createdAt: number;
+      _score: number;
+      _sourceRank: number;
+    };
+
+    const intelligenceCandidates: RankedCandidate[] = [];
+    for (const row of intelligenceRows) {
+      const grant = intelligenceGrantsById.get(row.grant_id);
+      if (!grant) continue;
+
+      const intelligence = grantIntelligenceFromDb(row);
+      if (!isReadyGrantIntelligence(intelligence)) continue;
+      if (!isGrantActionableNow(grant)) continue;
+      intelligenceActionable++;
+
+      if (!grantMatchesFunderLocations(grant.funderLocations ?? undefined, userFunderLocations)) continue;
+      intelligenceLocationMatched++;
+
+      const match = matchProfileToGrantIntelligence(profileRow, grant, intelligence);
+      if (match.score < minIntelligenceScore) continue;
+      intelligenceMatched++;
+
+      intelligenceCandidates.push({
+        grant,
+        heuristicScore: match.score,
+        reason: match.reason,
+        source: `${sourcePrefix}.grant_intelligence_bootstrap`,
+        _createdAt: dateTime(grant.createdAt),
+        _score: match.score,
+        _sourceRank: 0,
+      });
     }
 
     const { data: grantsData, error: grantsError } = await supabase
@@ -529,14 +626,8 @@ export async function enqueueRecentGrantsForProfileBackfill(options: {
       .limit(scanLimit);
     if (grantsError) throw grantsError;
 
-    const grants = (grantsData ?? []) as GrantRow[];
+    const grants = ((grantsData ?? []) as GrantRow[]).filter((grant) => !intelligenceGrantIdSet.has(grant.id));
     const actionable = grants.filter((grant) => isGrantActionableNow(grant));
-    const userFunderLocations = inferFunderLocationsFromProfile(profileRow as {
-      funderLocations?: string[] | null;
-      location?: string | null;
-      country?: string | null;
-      region?: string | null;
-    });
     const locationMatched = actionable.filter((grant) =>
       grantMatchesFunderLocations(grant.funderLocations ?? undefined, userFunderLocations)
     );
@@ -556,44 +647,54 @@ export async function enqueueRecentGrantsForProfileBackfill(options: {
       }))
     ).filter((result) => result.score >= minHeuristicScore);
 
-    const candidateGrantIds = heuristicResults.map((result) => result.grantId);
-    const [readyIntelligenceIds, existingTrustedIds] = await Promise.all([
-      fetchReadyGrantIntelligenceIds(supabase, candidateGrantIds),
-      fetchExistingTrustedAssessmentIds(supabase, {
-        organisationId: options.organisationId,
-        profileId: options.profileId,
-        grantIds: candidateGrantIds,
-      }),
-    ]);
-
     const grantsById = new Map(locationMatched.map((grant) => [grant.id, grant]));
-    const heuristicByGrantId = new Map(heuristicResults.map((result) => [result.grantId, result]));
-    const candidates = heuristicResults
-      .filter((result) => !existingTrustedIds.has(result.grantId))
-      .map((result) => {
+    const fallbackCandidates: RankedCandidate[] = heuristicResults
+      .map((result): RankedCandidate | null => {
         const grant = grantsById.get(result.grantId);
         if (!grant) return null;
         return {
           grant,
           heuristicScore: result.score,
-          source: readyIntelligenceIds.has(result.grantId)
-            ? `${options.source ?? "profile_backfill"}.grant_intelligence_ready`
-            : `${options.source ?? "profile_backfill"}.recent_current`,
-          _readyIntelligence: readyIntelligenceIds.has(result.grantId),
+          source: `${sourcePrefix}.recent_current`,
           _createdAt: dateTime(grant.createdAt),
-          _heuristicScore: heuristicByGrantId.get(result.grantId)?.score ?? result.score,
+          _score: result.score,
+          _sourceRank: 1,
         };
       })
-      .filter((candidate): candidate is NonNullable<typeof candidate> => candidate != null)
+      .filter((candidate): candidate is RankedCandidate => candidate != null);
+
+    const combinedCandidates = [...intelligenceCandidates, ...fallbackCandidates];
+    const candidateGrantIds = Array.from(new Set(combinedCandidates.map((candidate) => candidate.grant.id)));
+    const existingTrustedIds = await fetchExistingTrustedAssessmentIds(supabase, {
+      organisationId: options.organisationId,
+      profileId: options.profileId,
+      grantIds: candidateGrantIds,
+    });
+
+    const candidatesByGrantId = new Map<string, RankedCandidate>();
+    for (const candidate of combinedCandidates) {
+      if (existingTrustedIds.has(candidate.grant.id)) continue;
+      const existing = candidatesByGrantId.get(candidate.grant.id);
+      if (
+        !existing ||
+        candidate._sourceRank < existing._sourceRank ||
+        (candidate._sourceRank === existing._sourceRank && candidate._score > existing._score)
+      ) {
+        candidatesByGrantId.set(candidate.grant.id, candidate);
+      }
+    }
+
+    const candidates = Array.from(candidatesByGrantId.values())
       .sort((a, b) => {
-        if (a._readyIntelligence !== b._readyIntelligence) return a._readyIntelligence ? -1 : 1;
+        if (a._sourceRank !== b._sourceRank) return a._sourceRank - b._sourceRank;
         if (b._createdAt !== a._createdAt) return b._createdAt - a._createdAt;
-        return b._heuristicScore - a._heuristicScore;
+        return b._score - a._score;
       })
       .slice(0, candidateLimit)
       .map((candidate) => ({
         grant: candidate.grant,
         heuristicScore: candidate.heuristicScore,
+        reason: candidate.reason,
         source: candidate.source,
       }));
 
@@ -612,6 +713,10 @@ export async function enqueueRecentGrantsForProfileBackfill(options: {
       actionable: actionable.length,
       locationMatched: locationMatched.length,
       heuristicMatched: heuristicResults.length,
+      intelligenceScanned: intelligenceRows.length,
+      intelligenceActionable,
+      intelligenceLocationMatched,
+      intelligenceMatched,
       alreadyTrusted: existingTrustedIds.size,
       requested: enqueue.requested,
       enqueued: enqueue.enqueued,
@@ -630,6 +735,10 @@ export async function enqueueRecentGrantsForProfileBackfill(options: {
       actionable: 0,
       locationMatched: 0,
       heuristicMatched: 0,
+      intelligenceScanned: 0,
+      intelligenceActionable: 0,
+      intelligenceLocationMatched: 0,
+      intelligenceMatched: 0,
       alreadyTrusted: 0,
       requested: 0,
       enqueued: 0,

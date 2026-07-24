@@ -30,6 +30,8 @@ import { clearEligibleMatchCaches } from "@/lib/eligible-match-cache";
 import { GrantStateActions } from "@/components/grants/grant-state-actions";
 import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
 import { applyOutcomeScoreAdjustment, deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
+import { getGrantFitPreviews } from "@/lib/grant-fit-preview";
+import type { GrantUserState } from "@/lib/eligible-match-rules";
 import {
   getGrantFreshnessStatus,
   getGrantVerificationWarning,
@@ -53,7 +55,7 @@ const BACK_LINKS = {
   matches: { href: "/grants/eligible", label: "Back to My Matches" },
   dashboard: { href: "/dashboard", label: "Back to Dashboard" },
   applications: { href: "/applications", label: "Back to Applications" },
-  grants: { href: "/grants", label: "Back to Grants" },
+  grants: { href: "/grants", label: "Back to Grant Library" },
 } as const;
 
 function resolveBackLink(searchParams?: Record<string, string | string[] | undefined>) {
@@ -131,8 +133,17 @@ export default async function GrantDetailPage({
   );
   const hasProfile = !!profile && (profile.completionScore ?? 0) >= 50;
   const profileId = profile?.id ?? null;
+  let currentGrantUserState: GrantUserState | null = null;
   if (profileId) {
     try {
+      const { data: savedState } = await supabase
+        .from("SavedGrant")
+        .select("status")
+        .eq("organisation_id", orgId)
+        .eq("profile_id", profileId)
+        .eq("grant_id", grant.id)
+        .maybeSingle();
+      currentGrantUserState = ((savedState as { status?: GrantUserState | null } | null)?.status ?? null);
       await markGrantUserState(supabase, {
         organisationId: orgId,
         profileId,
@@ -276,6 +287,17 @@ export default async function GrantDetailPage({
       missingDocLabels = missing.map((r) => r.label);
     }
   }
+
+  const fitPreview = hasProfile && profileId
+    ? (await getGrantFitPreviews({
+        supabase,
+        organisationId: orgId,
+        profile: profile as Record<string, unknown>,
+        grants: [grant],
+        grantUserStates: currentGrantUserState ? { [grant.id]: currentGrantUserState } : {},
+        appliedGrantIds: existingApplication ? new Set([grant.id]) : new Set<string>(),
+      }))[grant.id] ?? null
+    : null;
 
   return (
     <div className="mx-auto max-w-4xl min-w-0 overflow-hidden px-4 py-6 sm:p-6">
@@ -432,6 +454,26 @@ export default async function GrantDetailPage({
           </div>
 
           <Separator />
+
+          {fitPreview?.targetSummary && (
+            <div className="rounded-lg border bg-muted/20 p-4">
+              <h3 className="mb-2 font-semibold">What this grant is targeting</h3>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                {fitPreview.targetSummary}
+              </p>
+            </div>
+          )}
+
+          {fitPreview?.whyNotSuggested?.length ? (
+            <div className="rounded-lg border border-blue-100 bg-blue-50/70 p-4 text-sm text-blue-950 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-100">
+              <h3 className="font-semibold">Why not in My Matches?</h3>
+              <ul className="mt-2 space-y-1">
+                {fitPreview.whyNotSuggested.slice(0, 6).map((reason) => (
+                  <li key={reason}>{reason}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
 
           <div>
             <div className="mb-2 flex items-center gap-2">

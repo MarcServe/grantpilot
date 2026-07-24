@@ -1,9 +1,15 @@
 import assert from "node:assert/strict";
 
 process.env.ELIGIBILITY_DEEP_SCORE_MIN_PROFILE_COMPLETION = "50";
+delete process.env.ELIGIBILITY_PROFILE_BACKFILL_CANDIDATE_LIMIT;
+delete process.env.ELIGIBILITY_PROFILE_BACKFILL_PROCESS_LIMIT;
+delete process.env.ELIGIBILITY_PROFILE_BOOTSTRAP_MIN_INTELLIGENCE_SCORE;
 
 async function main() {
   const {
+    PROFILE_BACKFILL_CANDIDATE_LIMIT,
+    PROFILE_BACKFILL_PROCESS_LIMIT,
+    PROFILE_BOOTSTRAP_MIN_INTELLIGENCE_SCORE,
     deepScoreProfilePriority,
     enqueueDeepScoreCandidates,
     enqueueRecentGrantsForProfileBackfill,
@@ -40,6 +46,22 @@ async function main() {
 
   const expiredTrialCreatedAt = new Date(now);
   expiredTrialCreatedAt.setDate(expiredTrialCreatedAt.getDate() - 12);
+
+  assert.equal(
+    PROFILE_BACKFILL_PROCESS_LIMIT,
+    50,
+    "new-profile bootstrap should process a bounded first wave of 50 candidates"
+  );
+  assert.equal(
+    PROFILE_BACKFILL_CANDIDATE_LIMIT,
+    300,
+    "new-profile bootstrap should queue the same-day follow-up wave by default"
+  );
+  assert.equal(
+    PROFILE_BOOTSTRAP_MIN_INTELLIGENCE_SCORE,
+    40,
+    "intelligence bootstrap should cheaply prefilter candidates before OpenAI scoring"
+  );
 
   assert.equal(
     profileQualifiesForDeepScoring(completeProfile, { plan: "BUSINESS", createdAt: now }),

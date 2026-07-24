@@ -7,10 +7,8 @@ import { getGrantVerificationWarning } from "@/lib/grant-freshness";
 import { isGrantActionableNow } from "@/lib/grant-actionability";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { grantMatchesFunderLocations, inferFunderLocationsFromProfile } from "@/lib/constants";
-import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
-import { applyOutcomeScoreAdjustment, deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
 import { getServerCache } from "@/lib/server-cache";
-import type { EligibilityResult } from "@/lib/claude";
+import { getGrantFitPreviews } from "@/lib/grant-fit-preview";
 
 const GRANT_PAGE_SIZE_OPTIONS = [20, 30, 50] as const;
 const DEFAULT_GRANT_PAGE_SIZE = 20;
@@ -52,18 +50,6 @@ function latestDate(values: (string | null)[]): string | null {
     if (!latest) return value;
     return new Date(value).getTime() > new Date(latest).getTime() ? value : latest;
   }, null);
-}
-
-function profileForEligibilityGuards(profile: Record<string, unknown>) {
-  return {
-    location: String(profile.location ?? ""),
-    sector: String(profile.sector ?? ""),
-    fundingPurposes: Array.isArray(profile.fundingPurposes) ? profile.fundingPurposes as string[] : (Array.isArray(profile.funding_purposes) ? profile.funding_purposes as string[] : []),
-    businessType: String(profile.businessType ?? profile.business_type ?? "") || null,
-    employeeCount: profile.employeeCount != null ? Number(profile.employeeCount) : (profile.employee_count != null ? Number(profile.employee_count) : null),
-    annualRevenue: profile.annualRevenue != null ? Number(profile.annualRevenue) : (profile.annual_revenue != null ? Number(profile.annual_revenue) : null),
-    yearEstablished: profile.yearEstablished != null ? Number(profile.yearEstablished) : (profile.year_established != null ? Number(profile.year_established) : null),
-  };
 }
 
 function firstParam(value: string | string[] | undefined): string | undefined {
@@ -264,76 +250,39 @@ export default async function GrantsPage({
     new Set((funderOptionsResult.data ?? []).map((row: { funder?: string | null }) => row.funder).filter((value): value is string => Boolean(value)))
   );
 
-  const cachedScores: Record<string, { score: number; summary?: string; scoringSource?: string }> = {};
-  if (profileComplete && profile && grants.length > 0) {
-    const pageGrantIds = grants.map((grant) => grant.id);
-    const { data: rowsData } = await supabase
-      .from("EligibilityAssessment")
-      .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, scoring_source")
-      .eq("organisation_id", orgId)
-      .eq("profile_id", profile.id)
-      .in("grant_id", pageGrantIds);
-    const { data: outcomeRows } = await supabase
-      .from("ApplicationOutcome")
-      .select("outcome, awardedAmount, funderFeedback, learningNotes, Grant(name, funder)")
-      .eq("organisationId", orgId)
-      .eq("profileId", profile.id)
-      .order("reportedAt", { ascending: false })
-      .limit(8);
-    const outcomeAdvisory = deriveOutcomeLearningAdvisory(outcomeRows ?? []);
-    const grantById = new Map(grants.map((grant) => [grant.id, grant]));
-    const rows = Array.isArray(rowsData) ? rowsData : [];
-    for (const row of rows as { grant_id: string; score: number; decision?: string | null; summary: string | null; missing_criteria?: string[] | null; improvement_plan?: { gaps?: string[]; actions?: string[]; timeline?: string } | null; scoring_source?: string | null }[]) {
-      if (appliedGrantIds.has(row.grant_id)) continue;
-      const scoringSource = row.scoring_source ?? (row.summary?.startsWith("Preliminary fit") ? "heuristic" : "openai");
-      const baseScore = scoringSource === "heuristic" ? Math.min(row.score, 69) : row.score;
-      const grant = grantById.get(row.grant_id);
-      const guardGrant = grant
-        ? {
-            ...grant,
-            applicantTypes: grant.applicantTypes ?? [],
-            sectors: grant.sectors ?? [],
-            regions: grant.regions ?? [],
-            funderLocations: grant.funderLocations ?? [],
-          }
-        : null;
-      const guarded = guardGrant
-        ? applyOutcomeScoreAdjustment(applyEligibilityScoreGuards(
-            profileForEligibilityGuards(profile as Record<string, unknown>),
-            guardGrant,
-            {
-              decision: row.decision === "likely_eligible" || row.decision === "review" || row.decision === "unlikely" ? row.decision : "review",
-              reason: row.summary ?? "",
-              confidence: baseScore,
-              score: baseScore,
-              summary: row.summary ?? undefined,
-              reasons: [],
-              improvementPlan: row.improvement_plan as EligibilityResult["improvementPlan"],
-              met: [],
-              missing: row.missing_criteria ?? [],
-              winProbability: baseScore,
-              evidenceStrength: baseScore >= 80 ? "strong" : baseScore >= 55 ? "medium" : "weak",
-            }
-          ), outcomeAdvisory)
-        : null;
-      const score = guarded ? (guarded.score ?? guarded.confidence) : baseScore;
-      cachedScores[row.grant_id] = {
-        score,
-        summary: guarded?.summary ?? row.summary ?? undefined,
-        scoringSource,
-      };
-    }
-  }
+  const fitPreviews = grants.length > 0
+    ? await getGrantFitPreviews({
+        supabase,
+        organisationId: orgId,
+        profile: profileComplete ? profile as Record<string, unknown> : null,
+        grants,
+        userFunderLocations,
+        grantUserStates,
+        appliedGrantIds,
+      })
+    : {};
+  const cachedScores = Object.fromEntries(
+    Object.entries(fitPreviews)
+      .filter(([, preview]) => preview.score != null)
+      .map(([grantId, preview]) => [
+        grantId,
+        {
+          score: preview.score as number,
+          summary: preview.summary ?? undefined,
+          scoringSource: preview.scoringSource ?? undefined,
+        },
+      ])
+  );
 
   return (
     <div className="mx-auto max-w-7xl min-w-0 px-4 py-6 sm:p-6">
       <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Available Grants</h1>
+          <h1 className="text-2xl font-bold">Grant Library</h1>
           <p className="mt-1 text-muted-foreground">
             {shelf === "expired"
               ? "Review expired or unavailable opportunities separately from current grants."
-              : "Browse current grants or use GrantsCopilot matching to find the best fit for your business."}
+              : "Browse all current grants. For personalised AI-scored recommendations, use My Matches."}
           </p>
           <div className="mt-2 space-y-1 text-xs font-medium text-muted-foreground">
             {latestCreatedAt && (
@@ -356,6 +305,12 @@ export default async function GrantsPage({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href="/grants/eligible"
+            className="shrink-0 rounded-md border bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            View My Matches
+          </Link>
           <Link
             href={buildShelfHref("active")}
             className={`shrink-0 rounded-md border px-4 py-2 text-sm font-medium ${
@@ -411,6 +366,7 @@ export default async function GrantsPage({
         hasProfile={hasProfile}
         profileComplete={profileComplete}
         cachedScores={cachedScores}
+        fitPreviews={fitPreviews}
         savedGrantIds={savedGrantIds}
         grantUserStates={grantUserStates}
         funderOptions={funderOptions}

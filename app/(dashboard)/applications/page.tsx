@@ -226,10 +226,10 @@ export default async function ApplicationsPage({
             <FileText className="h-12 w-12 text-muted-foreground" />
             <h3 className="mt-4 text-lg font-medium">No applications yet</h3>
             <p className="mt-2 text-sm text-muted-foreground">
-              Browse available grants and click Apply to get started.
+              Open the Grant Library to browse all current grants, or use My Matches for personalised AI-scored recommendations.
             </p>
             <Link href="/grants" className="mt-4">
-              <Button>Browse Grants</Button>
+              <Button>Open Grant Library</Button>
             </Link>
           </CardContent>
         </Card>

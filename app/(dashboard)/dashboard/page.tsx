@@ -558,10 +558,10 @@ export default async function DashboardPage() {
               <FileText className="h-10 w-10 text-muted-foreground" />
               <h3 className="mt-4 font-medium">No applications yet</h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                Browse grants and click Apply to get started.
+                Open the Grant Library to browse all current grants, or use My Matches for personalised AI-scored recommendations.
               </p>
               <Link href="/grants" className="mt-4">
-                <Button size="sm">Browse Grants</Button>
+                <Button size="sm">Open Grant Library</Button>
               </Link>
             </CardContent>
           </Card>
@@ -668,7 +668,7 @@ async function TopMatchedOpportunities({ matchesPromise }: { matchesPromise: Pro
             </p>
             <Link href="/grants">
               <Button size="sm" className="gap-2 rounded-lg bg-[#2167e8]">
-                Browse Grants <ArrowRight className="h-4 w-4" />
+                Open Grant Library <ArrowRight className="h-4 w-4" />
               </Button>
             </Link>
           </div>

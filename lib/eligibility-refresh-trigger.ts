@@ -28,7 +28,7 @@ export async function requestEligibilityRefresh(
 }
 
 /**
- * Queue a profile-specific first-pass backfill against recent current grants.
+ * Queue a profile-specific first-pass backfill against reusable grant intelligence.
  * This is scoring-only: it does not send email or WhatsApp immediately.
  */
 export async function requestProfileEligibilityBackfill(
