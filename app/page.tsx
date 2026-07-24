@@ -186,21 +186,23 @@ export default async function LandingPage() {
             <div className="inline-flex max-w-full items-start gap-2 rounded-xl bg-[#e8f0ff] px-3 py-2 text-[13px] font-bold leading-snug text-[#105fdf] sm:px-4 sm:text-[14px]">
               <Sparkles className="mt-0.5 h-4 w-4 shrink-0" />
               <span className="flex min-w-0 flex-col">
-                <span>Instead of searching ... What if grants came to you?</span>
+                <span>Stop searching for grants. Let grants find you.</span>
               </span>
             </div>
 
             <h1 className="mt-7 text-[clamp(2.55rem,11vw,4.4rem)] font-black leading-[1.06] tracking-normal text-[#071a3a] sm:mt-8 lg:text-[72px]">
               Find Grants.
               <br />
-              <span className="text-[#2167e8]">Check Eligibility.</span>
+              <span className="text-[#2167e8]">Prove Eligibility.</span>
               <br />
               <span className="text-[#35c386]">Get Funded.</span>
             </h1>
 
             <p className="mt-5 max-w-[560px] text-[18px] font-medium leading-[1.55] text-[#09224a] sm:mt-6 sm:text-[20px]">
-              Instead of spending hours searching, GrantsCopilot brings matched opportunities to you, checks each grant
-              against your Business DNA, explains your fit and evidence gaps, and prepares the next step.
+              Complete your Business DNA once, and GrantsCopilot's AI works for you 24/7, continuously finding relevant
+              grants, assessing your eligibility, explaining your strongest opportunities, identifying missing evidence,
+              preparing application-ready documents, and sending you a personalised email or WhatsApp every morning with
+              the latest grants you're likely to qualify for.
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:mt-9 sm:flex-row sm:gap-4">
@@ -222,11 +224,14 @@ export default async function LandingPage() {
               </a>
             </div>
 
-            <div className="mt-8 grid max-w-[640px] grid-cols-2 gap-4 text-[14px] font-bold text-[#09224a] min-[560px]:grid-cols-4 sm:mt-10 sm:gap-5">
-              <Feature icon={Search} title="Fresh grant" detail="discovery" />
-              <Feature icon={Target} title="Eligibility" detail="scoring" />
-              <Feature icon={FileCheck2} title="Automated" detail="prep" />
-              <Feature icon={Bell} title="Deadline" detail="reminders" />
+            <div className="mt-8 grid max-w-[720px] grid-cols-2 gap-4 text-[13px] font-bold text-[#09224a] min-[560px]:grid-cols-3 sm:mt-10 sm:gap-5">
+              <Feature icon={Bot} title="Business" detail="DNA" />
+              <Feature icon={Search} title="AI Grant" detail="Discovery" />
+              <Feature icon={Target} title="Eligibility" detail="Scoring" />
+              <Feature icon={Sparkles} title="AI Match" detail="Insights" />
+              <Feature icon={FileCheck2} title="Application" detail="Preparation" />
+              <Feature icon={Send} title="Daily Email" detail="& WhatsApp" />
+              <Feature icon={Bell} title="Deadline" detail="Reminders" />
             </div>
           </div>
 
