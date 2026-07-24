@@ -17,7 +17,7 @@ import {
   NotificationPreferencesData,
 } from "@/lib/validations/profile";
 import { syncGrantMemoryFromProfile } from "@/lib/grant-memory";
-import { requestEligibilityRefresh } from "@/lib/eligibility-refresh-trigger";
+import { requestEligibilityRefresh, requestProfileEligibilityBackfill } from "@/lib/eligibility-refresh-trigger";
 import { analyseWebsite } from "@/lib/website-intelligence";
 import { generateAndStoreProfileEmbedding } from "@/lib/embeddings";
 import { PLAN_LIMITS } from "@/lib/plans";
@@ -96,8 +96,9 @@ async function refreshProfileEmbedding(profileId: string): Promise<void> {
   );
 }
 
-async function triggerEligibilityForOrg(organisationId: string, source: string): Promise<void> {
+async function triggerEligibilityForProfile(organisationId: string, profileId: string, source: string): Promise<void> {
   await requestEligibilityRefresh(organisationId, source);
+  await requestProfileEligibilityBackfill(organisationId, profileId, source);
 }
 
 function optionalNumber(value: unknown): number | null {
@@ -316,7 +317,7 @@ export async function saveStep1(data: Step1Data) {
 
   await recalcAndSaveCompletionScore(profile.id);
   await syncGrantMemoryForProfile(profile.id);
-  await triggerEligibilityForOrg(orgId, "profile.step1.saved");
+  await triggerEligibilityForProfile(orgId, profile.id, "profile.step1.saved");
 
   const previousUrl = (profile as Record<string, unknown>).websiteUrl as string | null;
   if (newUrl && newUrl !== previousUrl) {
@@ -373,7 +374,7 @@ export async function saveStep2(data: Step2Data) {
   await recalcAndSaveCompletionScore(profile.id);
   await syncGrantMemoryForProfile(profile.id);
   await refreshProfileEmbedding(profile.id);
-  await triggerEligibilityForOrg(orgId, "profile.step2.saved");
+  await triggerEligibilityForProfile(orgId, profile.id, "profile.step2.saved");
 
   return { success: true };
 }
@@ -405,7 +406,7 @@ export async function saveStep3(data: Step3Data) {
 
   await recalcAndSaveCompletionScore(profile.id);
   await syncGrantMemoryForProfile(profile.id);
-  await triggerEligibilityForOrg(orgId, "profile.step3.saved");
+  await triggerEligibilityForProfile(orgId, profile.id, "profile.step3.saved");
 
   return { success: true };
 }
@@ -437,7 +438,7 @@ export async function saveStep4(data: Step4Data) {
   await recalcAndSaveCompletionScore(profile.id);
   await syncGrantMemoryForProfile(profile.id);
   await refreshProfileEmbedding(profile.id);
-  await triggerEligibilityForOrg(orgId, "profile.step4.saved");
+  await triggerEligibilityForProfile(orgId, profile.id, "profile.step4.saved");
 
   return { success: true };
 }
@@ -497,7 +498,7 @@ export async function saveStep6(data: Step6Data) {
   await recalcAndSaveCompletionScore(profile.id);
   await syncGrantMemoryForProfile(profile.id);
   await refreshProfileEmbedding(profile.id);
-  await triggerEligibilityForOrg(orgId, "profile.step6.saved");
+  await triggerEligibilityForProfile(orgId, profile.id, "profile.step6.saved");
 
   return { success: true };
 }
@@ -539,7 +540,7 @@ export async function saveTeamVault(data: Pick<
   await recalcAndSaveCompletionScore(profile.id);
   await syncGrantMemoryForProfile(profile.id);
   await refreshProfileEmbedding(profile.id);
-  await triggerEligibilityForOrg(orgId, "data-vault.team.saved");
+  await triggerEligibilityForProfile(orgId, profile.id, "data-vault.team.saved");
 
   return { success: true };
 }
@@ -570,7 +571,7 @@ export async function saveDocument(doc: {
   if (error) return { error: error.message };
   await recalcAndSaveCompletionScore(profile.id);
   await syncGrantMemoryForProfile(profile.id);
-  await triggerEligibilityForOrg(orgId, "profile.document.saved");
+  await triggerEligibilityForProfile(orgId, profile.id, "profile.document.saved");
   return { success: true };
 }
 
@@ -587,7 +588,7 @@ export async function removeDocument(documentId: string) {
 
   await recalcAndSaveCompletionScore(profile.id);
   await syncGrantMemoryForProfile(profile.id);
-  await triggerEligibilityForOrg(orgId, "profile.document.removed");
+  await triggerEligibilityForProfile(orgId, profile.id, "profile.document.removed");
   return { success: true };
 }
 

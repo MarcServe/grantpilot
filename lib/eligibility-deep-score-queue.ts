@@ -10,6 +10,8 @@ import { buildFundingOutcomeSignals, deriveOutcomeLearningAdvisory } from "@/lib
 import { isFreeTrialActive, resolveEffectivePlanForOrg, resolvePlanKey, type PlanAccessSource } from "@/lib/plan-features";
 import { PLAN_RANK } from "@/lib/plans";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { grantMatchesFunderLocations, inferFunderLocationsFromProfile } from "@/lib/constants";
+import { preFilterGrants } from "@/lib/heuristic-scorer";
 
 type SupabaseAdmin = ReturnType<typeof getSupabaseAdmin>;
 
@@ -33,6 +35,7 @@ type GrantRow = {
   applicantTypes?: string[] | null;
   sectors?: string[] | null;
   regions?: string[] | null;
+  funderLocations?: string[] | null;
   url_status?: string | null;
 };
 
@@ -82,6 +85,12 @@ const FRESH_DEEP_SCORE_RECENCY_BONUS = positiveIntFromEnv("ELIGIBILITY_DEEP_SCOR
 const STALE_RUNNING_LOCK_MINUTES = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_STALE_LOCK_MINUTES", 20);
 const QUEUE_LOOKUP_BATCH_SIZE = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_QUEUE_LOOKUP_BATCH_SIZE", 50);
 const QUEUE_INSERT_BATCH_SIZE = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_QUEUE_INSERT_BATCH_SIZE", 10);
+export const PROFILE_BACKFILL_CANDIDATE_LIMIT = positiveIntFromEnv("ELIGIBILITY_PROFILE_BACKFILL_CANDIDATE_LIMIT", 120);
+export const PROFILE_BACKFILL_PROCESS_LIMIT = positiveIntFromEnv("ELIGIBILITY_PROFILE_BACKFILL_PROCESS_LIMIT", 20);
+const PROFILE_BACKFILL_SCAN_LIMIT = positiveIntFromEnv("ELIGIBILITY_PROFILE_BACKFILL_SCAN_LIMIT", 2500);
+const PROFILE_BACKFILL_MIN_HEURISTIC_SCORE = positiveIntFromEnv("ELIGIBILITY_PROFILE_BACKFILL_MIN_HEURISTIC_SCORE", 30);
+const GRANT_BACKFILL_SELECT =
+  "id, name, funder, amount, deadline, applicationUrl, createdAt, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, url_status";
 
 function valueAsString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -212,6 +221,10 @@ function grantToMatching(grant: GrantRow) {
     sectors: grant.sectors ?? [],
     regions: grant.regions ?? [],
   };
+}
+
+function trustedEligibilitySource(scoringSource?: string | null): boolean {
+  return scoringSource === "openai" || scoringSource === "intelligence";
 }
 
 function dateTime(value?: string | null): number {
@@ -384,6 +397,244 @@ export async function enqueueDeepScoreCandidates(options: {
         : String(error);
     console.warn("[eligibility-deep-score-queue] enqueue skipped:", message);
     return { requested, enqueued: 0, error: message };
+  }
+}
+
+function profileToHeuristic(profile: Record<string, unknown>) {
+  const get = (key: string) => profile[key] ?? profile[key.replace(/([A-Z])/g, "_$1").toLowerCase()];
+  return {
+    location: String(get("location") ?? ""),
+    sector: String(get("sector") ?? ""),
+    fundingMin: Number(get("fundingMin") ?? get("funding_min") ?? 0),
+    fundingMax: Number(get("fundingMax") ?? get("funding_max") ?? 0),
+    fundingPurposes: Array.isArray(profile.fundingPurposes)
+      ? profile.fundingPurposes as string[]
+      : (Array.isArray(profile.funding_purposes) ? profile.funding_purposes as string[] : []),
+    employeeCount: profile.employeeCount != null
+      ? Number(profile.employeeCount)
+      : (profile.employee_count != null ? Number(profile.employee_count) : null),
+    annualRevenue: profile.annualRevenue != null
+      ? Number(profile.annualRevenue)
+      : (profile.annual_revenue != null ? Number(profile.annual_revenue) : null),
+    yearEstablished: profile.yearEstablished != null
+      ? Number(profile.yearEstablished)
+      : (profile.year_established != null ? Number(profile.year_established) : null),
+    businessType: String(get("businessType") ?? get("business_type") ?? "") || null,
+  };
+}
+
+async function fetchReadyGrantIntelligenceIds(
+  supabase: SupabaseAdmin,
+  grantIds: string[]
+): Promise<Set<string>> {
+  const ready = new Set<string>();
+  for (let offset = 0; offset < grantIds.length; offset += QUEUE_LOOKUP_BATCH_SIZE) {
+    const batch = grantIds.slice(offset, offset + QUEUE_LOOKUP_BATCH_SIZE);
+    const { data, error } = await supabase
+      .from("grant_ai_intelligence")
+      .select("grant_id")
+      .eq("status", "ready")
+      .in("grant_id", batch);
+    if (error) {
+      console.warn("[eligibility-deep-score-queue] grant intelligence lookup skipped:", error.message);
+      return ready;
+    }
+    for (const row of (data ?? []) as Array<{ grant_id?: string | null }>) {
+      if (row.grant_id) ready.add(row.grant_id);
+    }
+  }
+  return ready;
+}
+
+async function fetchExistingTrustedAssessmentIds(
+  supabase: SupabaseAdmin,
+  options: {
+    organisationId: string;
+    profileId: string;
+    grantIds: string[];
+  }
+): Promise<Set<string>> {
+  const trusted = new Set<string>();
+  for (let offset = 0; offset < options.grantIds.length; offset += QUEUE_LOOKUP_BATCH_SIZE) {
+    const batch = options.grantIds.slice(offset, offset + QUEUE_LOOKUP_BATCH_SIZE);
+    const { data, error } = await supabase
+      .from("EligibilityAssessment")
+      .select("grant_id, scoring_source")
+      .eq("organisation_id", options.organisationId)
+      .eq("profile_id", options.profileId)
+      .in("grant_id", batch);
+    if (error) throw error;
+    for (const row of (data ?? []) as Array<{ grant_id?: string | null; scoring_source?: string | null }>) {
+      if (row.grant_id && trustedEligibilitySource(row.scoring_source)) trusted.add(row.grant_id);
+    }
+  }
+  return trusted;
+}
+
+export async function enqueueRecentGrantsForProfileBackfill(options: {
+  supabase?: SupabaseAdmin;
+  organisationId: string;
+  profileId: string;
+  source?: string;
+  scanLimit?: number;
+  candidateLimit?: number;
+  minHeuristicScore?: number;
+}): Promise<{
+  profileReady: boolean;
+  scanned: number;
+  actionable: number;
+  locationMatched: number;
+  heuristicMatched: number;
+  alreadyTrusted: number;
+  requested: number;
+  enqueued: number;
+  error?: string;
+}> {
+  const supabase = options.supabase ?? getSupabaseAdmin();
+  const scanLimit = Math.max(1, Math.min(10000, options.scanLimit ?? PROFILE_BACKFILL_SCAN_LIMIT));
+  const candidateLimit = Math.max(1, Math.min(500, options.candidateLimit ?? PROFILE_BACKFILL_CANDIDATE_LIMIT));
+  const minHeuristicScore = Math.max(0, Math.min(100, options.minHeuristicScore ?? PROFILE_BACKFILL_MIN_HEURISTIC_SCORE));
+
+  try {
+    const [{ data: profile, error: profileError }, orgResult] = await Promise.all([
+      supabase
+        .from("BusinessProfile")
+        .select("*")
+        .eq("id", options.profileId)
+        .eq("organisationId", options.organisationId)
+        .maybeSingle(),
+      fetchOrganisationPlanRow(supabase, options.organisationId),
+    ]);
+    if (profileError) throw profileError;
+    if (orgResult.error) throw orgResult.error;
+
+    const profileRow = profile as ProfileRow | null;
+    if (!profileRow || deepScoreProfilePriority(profileRow, orgResult.data) == null) {
+      return {
+        profileReady: false,
+        scanned: 0,
+        actionable: 0,
+        locationMatched: 0,
+        heuristicMatched: 0,
+        alreadyTrusted: 0,
+        requested: 0,
+        enqueued: 0,
+      };
+    }
+
+    const { data: grantsData, error: grantsError } = await supabase
+      .from("Grant")
+      .select(GRANT_BACKFILL_SELECT)
+      .order("createdAt", { ascending: false })
+      .limit(scanLimit);
+    if (grantsError) throw grantsError;
+
+    const grants = (grantsData ?? []) as GrantRow[];
+    const actionable = grants.filter((grant) => isGrantActionableNow(grant));
+    const userFunderLocations = inferFunderLocationsFromProfile(profileRow as {
+      funderLocations?: string[] | null;
+      location?: string | null;
+      country?: string | null;
+      region?: string | null;
+    });
+    const locationMatched = actionable.filter((grant) =>
+      grantMatchesFunderLocations(grant.funderLocations ?? undefined, userFunderLocations)
+    );
+
+    const heuristicResults = preFilterGrants(
+      profileToHeuristic(profileRow),
+      locationMatched.map((grant) => ({
+        id: grant.id,
+        amount: grant.amount,
+        deadline: grant.deadline,
+        eligibility: grant.eligibility,
+        sectors: grant.sectors ?? [],
+        regions: grant.regions ?? [],
+        applicantTypes: grant.applicantTypes ?? [],
+        description: grant.description,
+        objectives: grant.objectives,
+      }))
+    ).filter((result) => result.score >= minHeuristicScore);
+
+    const candidateGrantIds = heuristicResults.map((result) => result.grantId);
+    const [readyIntelligenceIds, existingTrustedIds] = await Promise.all([
+      fetchReadyGrantIntelligenceIds(supabase, candidateGrantIds),
+      fetchExistingTrustedAssessmentIds(supabase, {
+        organisationId: options.organisationId,
+        profileId: options.profileId,
+        grantIds: candidateGrantIds,
+      }),
+    ]);
+
+    const grantsById = new Map(locationMatched.map((grant) => [grant.id, grant]));
+    const heuristicByGrantId = new Map(heuristicResults.map((result) => [result.grantId, result]));
+    const candidates = heuristicResults
+      .filter((result) => !existingTrustedIds.has(result.grantId))
+      .map((result) => {
+        const grant = grantsById.get(result.grantId);
+        if (!grant) return null;
+        return {
+          grant,
+          heuristicScore: result.score,
+          source: readyIntelligenceIds.has(result.grantId)
+            ? `${options.source ?? "profile_backfill"}.grant_intelligence_ready`
+            : `${options.source ?? "profile_backfill"}.recent_current`,
+          _readyIntelligence: readyIntelligenceIds.has(result.grantId),
+          _createdAt: dateTime(grant.createdAt),
+          _heuristicScore: heuristicByGrantId.get(result.grantId)?.score ?? result.score,
+        };
+      })
+      .filter((candidate): candidate is NonNullable<typeof candidate> => candidate != null)
+      .sort((a, b) => {
+        if (a._readyIntelligence !== b._readyIntelligence) return a._readyIntelligence ? -1 : 1;
+        if (b._createdAt !== a._createdAt) return b._createdAt - a._createdAt;
+        return b._heuristicScore - a._heuristicScore;
+      })
+      .slice(0, candidateLimit)
+      .map((candidate) => ({
+        grant: candidate.grant,
+        heuristicScore: candidate.heuristicScore,
+        source: candidate.source,
+      }));
+
+    const enqueue = await enqueueDeepScoreCandidates({
+      supabase,
+      organisationId: options.organisationId,
+      profileId: options.profileId,
+      profile: profileRow,
+      candidates,
+      source: options.source ?? "profile_backfill",
+    });
+
+    return {
+      profileReady: true,
+      scanned: grants.length,
+      actionable: actionable.length,
+      locationMatched: locationMatched.length,
+      heuristicMatched: heuristicResults.length,
+      alreadyTrusted: existingTrustedIds.size,
+      requested: enqueue.requested,
+      enqueued: enqueue.enqueued,
+      error: enqueue.error,
+    };
+  } catch (error) {
+    const message = error instanceof Error
+      ? error.message
+      : typeof error === "object" && error
+        ? JSON.stringify(error)
+        : String(error);
+    console.warn("[eligibility-deep-score-queue] profile backfill enqueue failed:", message);
+    return {
+      profileReady: false,
+      scanned: 0,
+      actionable: 0,
+      locationMatched: 0,
+      heuristicMatched: 0,
+      alreadyTrusted: 0,
+      requested: 0,
+      enqueued: 0,
+      error: message,
+    };
   }
 }
 

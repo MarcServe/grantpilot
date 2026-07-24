@@ -5,7 +5,7 @@ import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { analyseWebsite } from "@/lib/website-intelligence";
 import { syncGrantMemoryFromProfile } from "@/lib/grant-memory";
-import { requestEligibilityRefresh } from "@/lib/eligibility-refresh-trigger";
+import { requestEligibilityRefresh, requestProfileEligibilityBackfill } from "@/lib/eligibility-refresh-trigger";
 import { generateAndStoreProfileEmbedding } from "@/lib/embeddings";
 import { planAllowsForOrg, PLAN_CAPABILITY_MESSAGES } from "@/lib/plan-features";
 
@@ -284,6 +284,7 @@ export async function PATCH(req: Request): Promise<NextResponse> {
     await syncGrantMemoryFromProfile(profile.id as string, orgId).catch(() => {});
     generateAndStoreProfileEmbedding(profile.id as string).catch(() => {});
     await requestEligibilityRefresh(orgId, "profile.company_dna.applied");
+    await requestProfileEligibilityBackfill(orgId, profile.id as string, "profile.company_dna.applied");
 
     return NextResponse.json({ ok: true, applied: Object.keys(updates) });
   } catch (e) {

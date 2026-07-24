@@ -6,6 +6,7 @@ async function main() {
   const {
     deepScoreProfilePriority,
     enqueueDeepScoreCandidates,
+    enqueueRecentGrantsForProfileBackfill,
     profileQualifiesForDeepScoring,
   } = await import("../lib/eligibility-deep-score-queue");
 
@@ -136,6 +137,44 @@ async function main() {
     "direct queue insertion should quietly skip incomplete profiles"
   );
   assert.equal(queueUpsertCalled, false, "incomplete profiles should not write queue rows");
+
+  let grantBackfillQueried = false;
+  const fakeBackfillSupabase = {
+    from(table: string) {
+      if (table === "Organisation") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "org-test", plan: "BUSINESS", createdAt: now }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "BusinessProfile") {
+        return {
+          select: () => ({
+            eq: () => ({
+              eq: () => ({
+                maybeSingle: async () => ({ data: blankProfile, error: null }),
+              }),
+            }),
+          }),
+        };
+      }
+      if (table === "Grant") {
+        grantBackfillQueried = true;
+      }
+      throw new Error(`Unexpected table ${table}`);
+    },
+  };
+
+  const backfillResult = await enqueueRecentGrantsForProfileBackfill({
+    supabase: fakeBackfillSupabase as never,
+    organisationId: "org-test",
+    profileId: "profile-blank",
+  });
+  assert.equal(backfillResult.profileReady, false, "profile backfill should skip blank profiles");
+  assert.equal(grantBackfillQueried, false, "profile backfill should not scan grants for unready profiles");
 
   console.log("deep-score profile priority tests passed");
 }

@@ -6,6 +6,7 @@ import { outcomeFeedbackReminder } from "@/inngest/outcome-feedback-reminder";
 import { monitorSession } from "@/inngest/monitor-session";
 import {
   eligibilityDeepScoreProcessRequested,
+  eligibilityProfileBackfillRequested,
   eligibilityRefresh,
   eligibilityRefreshEnqueueRequested,
   eligibilityRefreshRequested,
@@ -35,6 +36,7 @@ export const { GET, POST, PUT } = serve({
     eligibilityRefresh,
     eligibilityRefreshEnqueueRequested,
     eligibilityRefreshRequested,
+    eligibilityProfileBackfillRequested,
     eligibilityDeepScoreProcessRequested,
     grantDiscovery,
     grantFormUrlScout,

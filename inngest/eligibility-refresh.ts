@@ -28,6 +28,8 @@ import {
   DEEP_SCORE_BATCH_SIZE,
   enqueueDeepScoreCandidates,
   processEligibilityDeepScoreQueue,
+  enqueueRecentGrantsForProfileBackfill,
+  PROFILE_BACKFILL_PROCESS_LIMIT,
 } from "@/lib/eligibility-deep-score-queue";
 import { fetchGrantIntelligenceForGrantIds } from "@/lib/grant-intelligence-extract";
 import { matchProfileToGrantIntelligence } from "@/lib/grant-intelligence-match";
@@ -1403,6 +1405,52 @@ export const eligibilityRefreshEnqueueRequested = inngest.createFunction(
     return runWithCronLog(
       { jobName: "Eligibility Refresh Enqueue", route: "inngest/eligibility-refresh.enqueue", trigger: "inngest" },
       () => enqueueEligibilityRefreshes({ source, dueOnly, sendNotifications })
+    );
+  }
+);
+
+export const eligibilityProfileBackfillRequested = inngest.createFunction(
+  {
+    id: "eligibility-profile-backfill-requested",
+    name: "Eligibility profile initial backfill",
+    concurrency: REFRESH_WORKER_CONCURRENCY,
+  },
+  { event: "eligibility/profile-backfill.requested" },
+  async ({ event }) => {
+    const orgId = typeof event.data?.orgId === "string" ? event.data.orgId.trim() : "";
+    const profileId = typeof event.data?.profileId === "string" ? event.data.profileId.trim() : "";
+    const source = typeof event.data?.source === "string" ? event.data.source : "profile.backfill";
+
+    return runWithCronLog(
+      { jobName: "Eligibility Profile Backfill", route: "inngest/eligibility-profile-backfill.requested", trigger: "inngest" },
+      async () => {
+        if (!orgId || !profileId) {
+          return { skipped: true, reason: "Missing organisation or profile id.", orgId, profileId, source };
+        }
+
+        const enqueued = await enqueueRecentGrantsForProfileBackfill({
+          organisationId: orgId,
+          profileId,
+          source,
+        });
+        const processed = enqueued.enqueued > 0
+          ? await processEligibilityDeepScoreQueue({
+            organisationId: orgId,
+            profileId,
+            limit: PROFILE_BACKFILL_PROCESS_LIMIT,
+            respectUsageLimits: false,
+          })
+          : { requested: 0, completed: 0, failed: 0, skipped: 0, highestScore: 0, eligible85Plus: 0 };
+
+        return {
+          orgId,
+          profileId,
+          source,
+          enqueued,
+          processed,
+          notificationsSent: false,
+        };
+      }
     );
   }
 );
