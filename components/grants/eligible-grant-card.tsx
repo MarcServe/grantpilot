@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowRight, AlertTriangle, CheckCircle2, FileText, LinkIcon, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import type { GrantEffortSignal } from "@/lib/grant-effort";
 
 type GrantUserState = "saved" | "viewed" | "deferred" | "applied" | "dismissed";
 
@@ -14,6 +15,7 @@ export interface EligibleGrant {
   grantId: string;
   grantName: string;
   funder: string;
+  amount?: number | null;
   deadline: string | null;
   addedAt?: string | null;
   scoredAt?: string | null;
@@ -32,6 +34,7 @@ export interface EligibleGrant {
   applicationUrlQualityReason?: string | null;
   scoringSource?: string | null;
   userState?: GrantUserState | null;
+  effort?: GrantEffortSignal | null;
 }
 
 const ONE_WEEK_MS = 7 * 86_400_000;
@@ -65,6 +68,15 @@ function formatAddedAt(value?: string | null): string | null {
     month: "short",
     year: "numeric",
   });
+}
+
+function formatFundingValue(amount?: number | null): string {
+  if (amount == null || !Number.isFinite(amount)) return "Funding varies";
+  return `Up to ${amount.toLocaleString("en-GB", {
+    style: "currency",
+    currency: "GBP",
+    maximumFractionDigits: 0,
+  })}`;
 }
 
 function stateLabel(status?: GrantUserState | null): string | null {
@@ -203,6 +215,27 @@ export function EligibleGrantCard({
         {verifiedApplicationStart ? <CheckCircle2 className="h-3.5 w-3.5" /> : <LinkIcon className="h-3.5 w-3.5" />}
         {linkLabel}
       </Badge>
+
+      {grant.effort && (
+        <div className="grid gap-2 rounded-md border border-blue-100 bg-blue-50/60 px-3 py-2 text-xs text-blue-950 sm:grid-cols-4">
+          <div>
+            <span className="block font-semibold">Value</span>
+            <span className="text-blue-900/80">{formatFundingValue(grant.amount ?? grant.effort.amount)}</span>
+          </div>
+          <div>
+            <span className="block font-semibold">Time</span>
+            <span className="text-blue-900/80">{grant.effort.estimatedTimeLabel} · {grant.effort.effortBand}</span>
+          </div>
+          <div>
+            <span className="block font-semibold">ROAT</span>
+            <span className="text-blue-900/80">{grant.effort.roatLabel}</span>
+          </div>
+          <div>
+            <span className="block font-semibold">Priority</span>
+            <span className="text-blue-900/80">{grant.effort.priorityLabel}</span>
+          </div>
+        </div>
+      )}
 
       {grant.summary && (
         <p className="text-sm text-muted-foreground line-clamp-2">{grant.summary}</p>

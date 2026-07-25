@@ -139,10 +139,27 @@ export function GrantCard({
   targetSummary,
   tagExplanations,
   whyNotSuggested,
+  matchSection,
 }: GrantCardProps) {
   const scoreLabel = scoringSource === "heuristic" ? "Prelim" : "Match";
   const sourceLabel = grantFinderLabel(source);
   const state = stateLabel(userState, isSaved);
+  const adviceTitle =
+    matchSection === "suggested"
+      ? "For stronger positioning"
+      : matchSection === "within_reach"
+        ? "Why this is within reach"
+        : matchSection === "needs_review"
+          ? "Needs full AI review"
+          : matchSection === "reviewed"
+            ? "Reviewed before"
+            : "Why not in My Matches?";
+  const adviceClass =
+    matchSection === "suggested"
+      ? "border-emerald-100 bg-emerald-50/70 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100"
+      : matchSection === "within_reach"
+        ? "border-amber-100 bg-amber-50/70 text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100"
+        : "border-blue-100 bg-blue-50/70 text-blue-950 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-100";
   return (
     <TooltipProvider>
     <Card className="min-w-0 transition-shadow hover:shadow-md">
@@ -309,8 +326,8 @@ export function GrantCard({
         )}
 
         {whyNotSuggested && whyNotSuggested.length > 0 && (
-          <div className="rounded-md border border-blue-100 bg-blue-50/70 px-3 py-2 text-xs text-blue-950 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-100">
-            <p className="font-semibold">Why not in My Matches?</p>
+          <div className={cn("rounded-md border px-3 py-2 text-xs", adviceClass)}>
+            <p className="font-semibold">{adviceTitle}</p>
             <ul className="mt-1 space-y-1">
               {whyNotSuggested.slice(0, 4).map((reason) => (
                 <li key={reason}>{reason}</li>

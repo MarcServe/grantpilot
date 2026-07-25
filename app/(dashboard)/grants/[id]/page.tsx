@@ -465,8 +465,26 @@ export default async function GrantDetailPage({
           )}
 
           {fitPreview?.whyNotSuggested?.length ? (
-            <div className="rounded-lg border border-blue-100 bg-blue-50/70 p-4 text-sm text-blue-950 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-100">
-              <h3 className="font-semibold">Why not in My Matches?</h3>
+            <div
+              className={
+                fitPreview.matchSection === "suggested"
+                  ? "rounded-lg border border-emerald-100 bg-emerald-50/70 p-4 text-sm text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100"
+                  : fitPreview.matchSection === "within_reach"
+                    ? "rounded-lg border border-amber-100 bg-amber-50/70 p-4 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100"
+                    : "rounded-lg border border-blue-100 bg-blue-50/70 p-4 text-sm text-blue-950 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-100"
+              }
+            >
+              <h3 className="font-semibold">
+                {fitPreview.matchSection === "suggested"
+                  ? "For stronger positioning"
+                  : fitPreview.matchSection === "within_reach"
+                    ? "Why this is within reach"
+                    : fitPreview.matchSection === "needs_review"
+                      ? "Needs full AI review"
+                      : fitPreview.matchSection === "reviewed"
+                        ? "Reviewed before"
+                        : "Why not in My Matches?"}
+              </h3>
               <ul className="mt-2 space-y-1">
                 {fitPreview.whyNotSuggested.slice(0, 6).map((reason) => (
                   <li key={reason}>{reason}</li>

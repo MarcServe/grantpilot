@@ -285,7 +285,7 @@ async function buildAudit(profileId: string) {
   const promisingLibraryNotSuggested = recentGrants
     .map((grant) => recentPreviews[grant.id] ? auditGrantFromPreview(grant, recentPreviews[grant.id]) : null)
     .filter((grant): grant is AuditGrant => Boolean(grant))
-    .filter((grant) => grant.matchSection !== "suggested" || grant.whyNotSuggested.length > 0)
+    .filter((grant) => grant.matchSection !== "suggested")
     .slice(0, 10);
 
   const assessedCount = ((assessmentsResult.data ?? []) as AssessmentRow[]).length;

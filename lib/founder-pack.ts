@@ -20,6 +20,38 @@ export interface FounderPackInputs {
   grantRequirementsNotes?: string;
 }
 
+export type FounderPackQuestionAssistantMode =
+  | "draft_answer"
+  | "evidence_check"
+  | "improve_existing_answer";
+
+export interface FounderPackQuestionInput {
+  question: string;
+  wordLimit?: number;
+  guidance?: string;
+}
+
+export interface FounderPackQuestionAssistantInputs {
+  questions: FounderPackQuestionInput[];
+  outputMode?: FounderPackQuestionAssistantMode;
+  existingAnswer?: string;
+  pastedGrantContext?: string;
+}
+
+export type FounderPackAnswerConfidence = "high" | "medium" | "low";
+export type FounderPackEvidenceStrength = "strong" | "medium" | "weak";
+
+export interface FounderPackQuestionAnswer {
+  question: string;
+  draftAnswer: string;
+  rationale: string;
+  confidence: FounderPackAnswerConfidence;
+  evidenceStrength: FounderPackEvidenceStrength;
+  missingEvidence: string[];
+  suggestedProfileUpdates: string[];
+  warnings: string[];
+}
+
 export type FounderPackDocumentType =
   | "executive_summary"
   | "business_plan"
@@ -458,6 +490,177 @@ function filterFounderPackContent(
 
 function parseFounderPackResponse(raw: string): FounderPackContent {
   return normaliseContent(JSON.parse(cleanJsonResponse(raw)) as unknown);
+}
+
+function normaliseConfidence(value: unknown): FounderPackAnswerConfidence {
+  const textValue = String(value ?? "").toLowerCase();
+  if (textValue === "high" || textValue === "medium" || textValue === "low") return textValue;
+  return "medium";
+}
+
+function normaliseEvidenceStrength(value: unknown): FounderPackEvidenceStrength {
+  const textValue = String(value ?? "").toLowerCase();
+  if (textValue === "strong" || textValue === "medium" || textValue === "weak") return textValue;
+  return "medium";
+}
+
+function normaliseQuestionAssistantAnswers(
+  raw: unknown,
+  questions: FounderPackQuestionInput[],
+  context: FounderPackSanitiseContext
+): FounderPackQuestionAnswer[] {
+  const data = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const rows = Array.isArray(data.answers) ? data.answers : [];
+  const fallbackQuestions = questions.map((item) => item.question.trim()).filter(Boolean);
+
+  return rows
+    .map((item, index) => {
+      if (!item || typeof item !== "object") return null;
+      const row = item as Record<string, unknown>;
+      const question = sanitiseText(
+        String(row.question ?? fallbackQuestions[index] ?? "").trim(),
+        context
+      );
+      const draftAnswer = sanitiseText(String(row.draftAnswer ?? row.answer ?? "").trim(), context);
+      const rationale = sanitiseText(String(row.rationale ?? "").trim(), context);
+      if (!question || !draftAnswer) return null;
+      return {
+        question,
+        draftAnswer,
+        rationale,
+        confidence: normaliseConfidence(row.confidence),
+        evidenceStrength: normaliseEvidenceStrength(row.evidenceStrength),
+        missingEvidence: sanitiseList(
+          Array.isArray(row.missingEvidence) ? row.missingEvidence.map((value) => String(value ?? "")) : [],
+          context
+        ).slice(0, 8),
+        suggestedProfileUpdates: sanitiseList(
+          Array.isArray(row.suggestedProfileUpdates)
+            ? row.suggestedProfileUpdates.map((value) => String(value ?? ""))
+            : [],
+          context
+        ).slice(0, 8),
+        warnings: sanitiseList(
+          Array.isArray(row.warnings) ? row.warnings.map((value) => String(value ?? "")) : [],
+          context
+        ).slice(0, 6),
+      } satisfies FounderPackQuestionAnswer;
+    })
+    .filter((item): item is FounderPackQuestionAnswer => Boolean(item))
+    .slice(0, questions.length || 8);
+}
+
+function formatQuestionList(questions: FounderPackQuestionInput[]): string {
+  return questions
+    .map((item, index) => {
+      const details = [
+        `Question ${index + 1}: ${item.question.trim()}`,
+        item.wordLimit ? `Word limit: ${item.wordLimit}` : "",
+        item.guidance?.trim() ? `User guidance: ${item.guidance.trim()}` : "",
+      ].filter(Boolean);
+      return details.join("\n");
+    })
+    .join("\n\n");
+}
+
+export async function generateFounderPackQuestionAnswers(
+  profile: BusinessProfileLike,
+  inputs: FounderPackQuestionAssistantInputs,
+  grantContextBlock?: string
+): Promise<{ answers: FounderPackQuestionAnswer[] }> {
+  const questions = inputs.questions
+    .map((item) => ({
+      question: item.question.trim(),
+      wordLimit: item.wordLimit,
+      guidance: item.guidance?.trim() || undefined,
+    }))
+    .filter((item) => item.question);
+
+  if (questions.length === 0) {
+    throw new Error("Add at least one grant form question.");
+  }
+
+  const mode = inputs.outputMode ?? "draft_answer";
+  const businessName = text(profile.businessName);
+  const context = { businessName };
+  const modeInstruction =
+    mode === "evidence_check"
+      ? "Focus on evidence strength, missing proof, and what the founder should add before answering. Still provide a short draft answer when possible."
+      : mode === "improve_existing_answer"
+        ? "Improve the existing answer while preserving truthful claims. Explain what changed and what evidence is still weak."
+        : "Draft a funder-ready answer that is specific, concise, and usable in a grant form.";
+
+  const prompt = `You are GrantsCopilot's AI Grant Question Assistant. You help founders answer real grant application questions using their Business DNA and selected grant context.
+
+Business profile:
+${buildFounderPackProfileContext(profile)}
+
+Selected grant, application, eligibility, and pasted funder context:
+${grantContextBlock?.trim() ? grantContextBlock.trim() : "No selected grant context. Use the Business DNA and any pasted criteria only."}
+
+Mode:
+${mode}
+${modeInstruction}
+
+Existing answer to improve, if supplied:
+${inputs.existingAnswer?.trim() ? inputs.existingAnswer.trim() : "None"}
+
+Questions:
+${formatQuestionList(questions)}
+
+Rules:
+- Write in polished UK business English.
+- Never invent customers, awards, revenue, partnerships, accreditations, patents, or funding history.
+- If evidence is missing, use cautious language and list the missing proof.
+- Respect each word limit if provided.
+- Tie the answer to the selected grant criteria, funder objectives, region, applicant type, impact goals, and eligibility gaps when available.
+- Do not claim funding is guaranteed or give a probability of success.
+- Return answer copy that can be pasted into a funder form, not a generic explanation.
+
+Return ONLY valid JSON with this exact shape:
+{
+  "answers": [
+    {
+      "question": "original question",
+      "draftAnswer": "editable funder-ready answer",
+      "rationale": "why the answer is positioned this way",
+      "confidence": "high | medium | low",
+      "evidenceStrength": "strong | medium | weak",
+      "missingEvidence": ["specific evidence gap"],
+      "suggestedProfileUpdates": ["specific Business DNA improvement"],
+      "warnings": ["truthfulness, eligibility, deadline, or evidence caution"]
+    }
+  ]
+}`;
+
+  const maxTokens = Math.min(7000, 1800 + questions.length * 850);
+
+  try {
+    const raw = await completeJson(prompt, maxTokens);
+    const answers = normaliseQuestionAssistantAnswers(
+      JSON.parse(cleanJsonResponse(raw)) as unknown,
+      questions,
+      context
+    );
+    if (answers.length > 0) return { answers };
+  } catch (err) {
+    console.warn("[founder-pack-question-assistant] Initial JSON generation failed, retrying", err);
+  }
+
+  const retryPrompt = `${prompt}
+
+The previous response was invalid or empty. Regenerate concise valid JSON only.
+Keep each draft answer under the requested word limit, or under 220 words where no limit is supplied.`;
+  const raw = await completeJson(retryPrompt, Math.min(5000, maxTokens));
+  const answers = normaliseQuestionAssistantAnswers(
+    JSON.parse(cleanJsonResponse(raw)) as unknown,
+    questions,
+    context
+  );
+  if (answers.length === 0) {
+    throw new Error("The AI could not return usable question answers. Add more grant context and try again.");
+  }
+  return { answers };
 }
 
 export async function generateFounderPack(

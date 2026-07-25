@@ -6,6 +6,7 @@ import { grantMatchesFunderLocations, inferFunderLocationsFromProfile } from "@/
 import { getServerCache } from "@/lib/server-cache";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { isGrantActionableNow } from "@/lib/grant-actionability";
+import { estimateGrantEffort } from "@/lib/grant-effort";
 import { getGrantVerificationWarning } from "@/lib/grant-freshness";
 import { deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
 import {
@@ -32,6 +33,7 @@ const GRANT_SELECT_WITH_URL_QUALITY = [
   "id",
   "name",
   "funder",
+  "amount",
   "deadline",
   "funderLocations",
   "url_status",
@@ -53,6 +55,7 @@ const GRANT_SELECT_BASE = [
   "id",
   "name",
   "funder",
+  "amount",
   "deadline",
   "funderLocations",
   "url_status",
@@ -85,6 +88,7 @@ type GrantRow = {
   id: string;
   name: string;
   funder: string;
+  amount?: number | null;
   deadline: string | null;
   funderLocations?: string[];
   url_status?: string | null;
@@ -358,7 +362,7 @@ async function buildTierMatches({
   pageSize: number;
 }): Promise<TierMatchResult> {
   const supabase = getSupabaseAdmin();
-  const cacheKey = `eligible-match-tier:v5:${orgId}:${profileId}:${section}:${page}:${pageSize}`;
+  const cacheKey = `eligible-match-tier:v6:${orgId}:${profileId}:${section}:${page}:${pageSize}`;
 
   return getServerCache(cacheKey, { ttlMs: 30_000, maxEntries: 100 }, async () => {
     const outcomePromise = supabase
@@ -443,12 +447,26 @@ async function buildTierMatches({
         const userState = grantUserStateMap.get(assessment.grant_id) ?? null;
         if (!scoreBelongsToMatchSection(section, score)) continue;
         if (!matchSectionAllowsCandidate({ section, userState, scoringSource })) continue;
+        const effortSignal = estimateGrantEffort({
+          amount: grant.amount ?? null,
+          deadline: grant.deadline,
+          applicationUrlQuality: grant.applicationUrlQuality ?? null,
+          applicationUrlKind: grant.applicationUrlKind ?? null,
+          eligibility: grant.eligibility ?? null,
+          description: grant.description ?? null,
+          objectives: grant.objectives ?? null,
+          score,
+          scoringSource,
+          missingCriteria: guarded.missing ?? assessment.missing_criteria,
+          improvementPlan: guarded.improvementPlan ?? assessment.improvement_plan,
+        });
 
         seenGrantIds.add(assessment.grant_id);
         matches.push({
           grantId: assessment.grant_id,
           grantName: grant.name,
           funder: grant.funder,
+          amount: grant.amount ?? null,
           deadline: grant.deadline,
           addedAt: grant.createdAt ?? null,
           scoredAt: assessment.updated_at ?? null,
@@ -467,6 +485,7 @@ async function buildTierMatches({
           applicationUrlQualityReason: grant.applicationUrlQualityReason ?? null,
           scoringSource,
           userState,
+          effort: effortSignal,
         });
       }
 

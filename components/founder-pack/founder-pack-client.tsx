@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Copy,
   Download,
   ExternalLink,
   FileJson,
@@ -16,8 +17,10 @@ import {
   FileType2,
   Loader2,
   Lock,
+  PlusCircle,
   Presentation,
   Sparkles,
+  Wand2,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -76,6 +79,17 @@ interface EligibleGrantOption {
   addedAt?: string | null;
 }
 
+interface QuestionAssistantAnswer {
+  question: string;
+  draftAnswer: string;
+  rationale: string;
+  confidence: "high" | "medium" | "low";
+  evidenceStrength: "strong" | "medium" | "weak";
+  missingEvidence: string[];
+  suggestedProfileUpdates: string[];
+  warnings: string[];
+}
+
 function contentIsReady(content?: FounderPackContent | null): content is FounderPackContent {
   return Boolean(
     content?.executiveSummary ||
@@ -132,6 +146,21 @@ function formatAddedAt(value?: string | null): string | null {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
   return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function parseQuestionBlocks(value: string): string[] {
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  const blankLineBlocks = trimmed
+    .split(/\n{2,}/)
+    .map((item) => item.replace(/^[-*\d.)\s]+/, "").trim())
+    .filter(Boolean);
+  if (blankLineBlocks.length > 1) return blankLineBlocks.slice(0, 8);
+  return trimmed
+    .split("\n")
+    .map((item) => item.replace(/^[-*\d.)\s]+/, "").trim())
+    .filter(Boolean)
+    .slice(0, 8);
 }
 
 function inferLegacyDocumentTypes(content: FounderPackContent): FounderPackDocumentType[] {
@@ -687,6 +716,15 @@ export function FounderPackClient({
     selectedEligibleGrantIds: initialGrantId ? [initialGrantId] : [],
     grantRequirementsNotes: "",
   });
+  const [questionAssistantMode, setQuestionAssistantMode] = useState<
+    "draft_answer" | "evidence_check" | "improve_existing_answer"
+  >("draft_answer");
+  const [questionAssistantText, setQuestionAssistantText] = useState("");
+  const [questionAssistantGuidance, setQuestionAssistantGuidance] = useState("");
+  const [questionAssistantWordLimit, setQuestionAssistantWordLimit] = useState("");
+  const [questionAssistantExistingAnswer, setQuestionAssistantExistingAnswer] = useState("");
+  const [questionAssistantLoading, setQuestionAssistantLoading] = useState(false);
+  const [questionAssistantAnswers, setQuestionAssistantAnswers] = useState<QuestionAssistantAnswer[]>([]);
 
   const selectedPack = useMemo(
     () => history.find((pack) => pack.id === selectedPackId) ?? history[0] ?? null,
@@ -815,6 +853,84 @@ export function FounderPackClient({
       setLoading(false);
       window.setTimeout(() => setGenerationStatus(""), 2400);
     }
+  }
+
+  async function generateQuestionAnswers() {
+    if (!allowed) {
+      toast.error("Upgrade to Growth, Pro, or Business to use the AI Grant Question Assistant.");
+      return;
+    }
+    const questions = parseQuestionBlocks(questionAssistantText);
+    if (questions.length === 0) {
+      toast.error("Paste at least one grant form question.");
+      return;
+    }
+    const parsedWordLimit = Number(questionAssistantWordLimit);
+    const wordLimit = Number.isFinite(parsedWordLimit) && parsedWordLimit > 0
+      ? Math.floor(parsedWordLimit)
+      : undefined;
+
+    setQuestionAssistantLoading(true);
+    try {
+      const res = await fetch("/api/founder-pack/question-assistant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          profileId: form.profileId,
+          selectedApplicationIds: form.selectedApplicationIds?.length ? form.selectedApplicationIds : undefined,
+          selectedEligibleGrantIds: form.selectedEligibleGrantIds?.length ? form.selectedEligibleGrantIds : undefined,
+          pastedGrantContext: form.grantRequirementsNotes?.trim() || undefined,
+          questions: questions.map((question) => ({
+            question,
+            wordLimit,
+            guidance: questionAssistantGuidance.trim() || undefined,
+          })),
+          outputMode: questionAssistantMode,
+          existingAnswer: questionAssistantExistingAnswer.trim() || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data.error ?? "Could not generate answers");
+        return;
+      }
+      const answers = Array.isArray(data.answers) ? (data.answers as QuestionAssistantAnswer[]) : [];
+      setQuestionAssistantAnswers(answers);
+      if (answers.length) {
+        toast.success("Grant answers generated");
+      } else {
+        toast.error("No answers returned. Add more grant context and try again.");
+      }
+    } catch {
+      toast.error("Could not generate answers");
+    } finally {
+      setQuestionAssistantLoading(false);
+    }
+  }
+
+  async function copyQuestionAnswer(answer: QuestionAssistantAnswer) {
+    try {
+      await navigator.clipboard.writeText(answer.draftAnswer);
+      toast.success("Draft answer copied");
+    } catch {
+      toast.error("Could not copy answer");
+    }
+  }
+
+  function addAnswerToPackNotes(answer: QuestionAssistantAnswer) {
+    const block = [
+      "Grant form answer draft:",
+      `Question: ${answer.question}`,
+      `Answer: ${answer.draftAnswer}`,
+      answer.missingEvidence.length ? `Missing evidence: ${answer.missingEvidence.join("; ")}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    setForm((prev) => ({
+      ...prev,
+      grantRequirementsNotes: [prev.grantRequirementsNotes?.trim(), block].filter(Boolean).join("\n\n---\n\n"),
+    }));
+    toast.success("Added to pack notes");
   }
 
   if (profiles.length === 0) {
@@ -1041,6 +1157,166 @@ export function FounderPackClient({
                   className="text-sm"
                 />
               </div>
+            </div>
+
+            <div className="space-y-4 rounded-lg border border-blue-100 bg-blue-50/50 p-3">
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
+                  <Wand2 className="h-4 w-4" />
+                </div>
+                <div>
+                  <Label className="text-base">AI Grant Question Assistant</Label>
+                  <p className="mt-1 text-xs leading-5 text-blue-950/75">
+                    Paste funder form questions and get editable answers using the selected Business DNA, chosen grants,
+                    eligibility reasoning, and any criteria pasted above.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+                <div className="space-y-2">
+                  <Label htmlFor="questionAssistantMode">Assistant mode</Label>
+                  <select
+                    id="questionAssistantMode"
+                    value={questionAssistantMode}
+                    onChange={(event) =>
+                      setQuestionAssistantMode(
+                        event.target.value as "draft_answer" | "evidence_check" | "improve_existing_answer"
+                      )
+                    }
+                    className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                  >
+                    <option value="draft_answer">Draft answer</option>
+                    <option value="evidence_check">Evidence check</option>
+                    <option value="improve_existing_answer">Improve existing answer</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="questionAssistantWordLimit">Word limit (optional)</Label>
+                  <Input
+                    id="questionAssistantWordLimit"
+                    inputMode="numeric"
+                    placeholder="e.g. 500"
+                    value={questionAssistantWordLimit}
+                    onChange={(event) => setQuestionAssistantWordLimit(event.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="questionAssistantText">Grant form question(s)</Label>
+                <Textarea
+                  id="questionAssistantText"
+                  rows={5}
+                  placeholder="Paste one or more questions, for example: Describe the innovation and commercial potential of your project."
+                  value={questionAssistantText}
+                  onChange={(event) => setQuestionAssistantText(event.target.value)}
+                  className="bg-white text-sm"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="questionAssistantGuidance">Extra answer guidance (optional)</Label>
+                <Textarea
+                  id="questionAssistantGuidance"
+                  rows={3}
+                  placeholder="Add tone, funder priorities, scoring guidance, or points you want included."
+                  value={questionAssistantGuidance}
+                  onChange={(event) => setQuestionAssistantGuidance(event.target.value)}
+                  className="bg-white text-sm"
+                />
+              </div>
+              {questionAssistantMode === "improve_existing_answer" && (
+                <div className="space-y-2">
+                  <Label htmlFor="questionAssistantExistingAnswer">Existing answer to improve</Label>
+                  <Textarea
+                    id="questionAssistantExistingAnswer"
+                    rows={4}
+                    placeholder="Paste the draft you already wrote."
+                    value={questionAssistantExistingAnswer}
+                    onChange={(event) => setQuestionAssistantExistingAnswer(event.target.value)}
+                    className="bg-white text-sm"
+                  />
+                </div>
+              )}
+
+              <Button
+                type="button"
+                className="w-full gap-2"
+                disabled={questionAssistantLoading || !allowed || !questionAssistantText.trim()}
+                onClick={generateQuestionAnswers}
+              >
+                {questionAssistantLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                Generate answer
+              </Button>
+
+              {questionAssistantAnswers.length > 0 && (
+                <div className="space-y-3">
+                  {questionAssistantAnswers.map((answer, index) => (
+                    <div key={`${answer.question}-${index}`} className="rounded-md border bg-white p-3">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-[#071a3a]">{answer.question}</p>
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            <Badge variant="secondary">Confidence: {answer.confidence}</Badge>
+                            <Badge variant="outline">Evidence: {answer.evidenceStrength}</Badge>
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="xs"
+                            className="gap-1"
+                            onClick={() => copyQuestionAnswer(answer)}
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                            Copy
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="xs"
+                            className="gap-1"
+                            onClick={() => addAnswerToPackNotes(answer)}
+                          >
+                            <PlusCircle className="h-3.5 w-3.5" />
+                            Add to pack
+                          </Button>
+                        </div>
+                      </div>
+                      <p className="mt-3 whitespace-pre-line text-sm leading-6 text-muted-foreground">{answer.draftAnswer}</p>
+                      {answer.rationale && (
+                        <p className="mt-3 rounded-md bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-950">
+                          <span className="font-semibold">Why this positioning: </span>
+                          {answer.rationale}
+                        </p>
+                      )}
+                      {(answer.missingEvidence.length > 0 || answer.suggestedProfileUpdates.length > 0 || answer.warnings.length > 0) && (
+                        <div className="mt-3 grid gap-2 text-xs leading-5 text-muted-foreground">
+                          {answer.missingEvidence.length > 0 && (
+                            <p>
+                              <span className="font-semibold text-foreground">Missing evidence: </span>
+                              {answer.missingEvidence.join("; ")}
+                            </p>
+                          )}
+                          {answer.suggestedProfileUpdates.length > 0 && (
+                            <p>
+                              <span className="font-semibold text-foreground">Business DNA updates: </span>
+                              {answer.suggestedProfileUpdates.join("; ")}
+                            </p>
+                          )}
+                          {answer.warnings.length > 0 && (
+                            <p>
+                              <span className="font-semibold text-foreground">Warnings: </span>
+                              {answer.warnings.join("; ")}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
