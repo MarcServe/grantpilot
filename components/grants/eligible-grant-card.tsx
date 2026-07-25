@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ArrowRight, AlertTriangle, CheckCircle2, FileText, LinkIcon, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import type { GrantEffortSignal } from "@/lib/grant-effort";
+import { formatGrantValue } from "@/lib/grant-value";
 
 type GrantUserState = "saved" | "viewed" | "deferred" | "applied" | "dismissed";
 
@@ -68,15 +69,6 @@ function formatAddedAt(value?: string | null): string | null {
     month: "short",
     year: "numeric",
   });
-}
-
-function formatFundingValue(amount?: number | null): string {
-  if (amount == null || !Number.isFinite(amount)) return "Funding varies";
-  return `Up to ${amount.toLocaleString("en-GB", {
-    style: "currency",
-    currency: "GBP",
-    maximumFractionDigits: 0,
-  })}`;
 }
 
 function stateLabel(status?: GrantUserState | null): string | null {
@@ -220,7 +212,7 @@ export function EligibleGrantCard({
         <div className="grid gap-2 rounded-md border border-blue-100 bg-blue-50/60 px-3 py-2 text-xs text-blue-950 sm:grid-cols-4">
           <div>
             <span className="block font-semibold">Value</span>
-            <span className="text-blue-900/80">{formatFundingValue(grant.amount ?? grant.effort.amount)}</span>
+            <span className="text-blue-900/80">{formatGrantValue(grant.amount ?? grant.effort.amount)}</span>
           </div>
           <div>
             <span className="block font-semibold">Time</span>

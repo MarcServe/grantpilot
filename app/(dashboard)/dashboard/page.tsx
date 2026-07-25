@@ -33,14 +33,28 @@ import { applyOutcomeScoreAdjustment, deriveOutcomeLearningAdvisory } from "@/li
 import { getMatchHealthReport } from "@/lib/match-health";
 import { fetchCachedGrantRowsByIds } from "@/lib/grant-record-cache";
 import { planAllowsForOrg } from "@/lib/plan-features";
+import {
+  formatGrantValue,
+  formatGrantValueSummary,
+  grantValueSummaryDetail,
+  summarizeGrantValues,
+  type GrantValueSummary,
+} from "@/lib/grant-value";
 import type { EligibilityResult } from "@/lib/claude";
 
-const DASHBOARD_MATCH_PREVIEW_LIMIT = 12;
+const DASHBOARD_MATCH_PREVIEW_LIMIT = 80;
 const GRANT_QUERY_BATCH_SIZE = 24;
 const DASHBOARD_MATCH_HEALTH_LIMIT = 80;
 
 type SupabaseAdmin = ReturnType<typeof getSupabaseAdmin>;
-type DashboardMatchGrant = { grantId: string; grantName: string; score: number; summary?: string; addedAt?: string | null };
+type DashboardMatchGrant = {
+  grantId: string;
+  grantName: string;
+  score: number;
+  amount?: number | null;
+  summary?: string;
+  addedAt?: string | null;
+};
 type DeferredGrant = { grantId: string; grantName: string; funder: string; score?: number; updatedAt?: string | null };
 type DashboardMatchesData = {
   suggestedGrants: DashboardMatchGrant[];
@@ -112,6 +126,7 @@ async function loadDashboardMatches({
       id: string;
       name: string;
       funderLocations?: string[];
+      amount?: number | null;
       createdAt?: string | null;
       eligibility?: string | null;
       description?: string | null;
@@ -122,7 +137,7 @@ async function loadDashboardMatches({
     }>({
       supabase,
       ids: grantIds,
-      select: "id, name, funderLocations, createdAt, eligibility, description, objectives, applicantTypes, sectors, regions",
+      select: "id, name, amount, funderLocations, createdAt, eligibility, description, objectives, applicantTypes, sectors, regions",
       batchSize: GRANT_QUERY_BATCH_SIZE,
       ttlMs: 60_000,
       cacheNamespace: "dashboard-grants",
@@ -164,8 +179,24 @@ async function loadDashboardMatches({
           ), outcomeAdvisory)
         : null;
       const score = guarded ? (guarded.score ?? guarded.confidence) : baseScore;
-      if (isOpenAIChecked(source) && score >= 85) suggestedGrants.push({ grantId: a.grant_id, grantName: name, score, addedAt: grant?.createdAt ?? null });
-      else if (score >= 50) withinReachGrants.push({ grantId: a.grant_id, grantName: name, score, summary: guarded?.summary ?? a.summary ?? undefined, addedAt: grant?.createdAt ?? null });
+      if (isOpenAIChecked(source) && score >= 85) {
+        suggestedGrants.push({
+          grantId: a.grant_id,
+          grantName: name,
+          score,
+          amount: grant?.amount ?? null,
+          addedAt: grant?.createdAt ?? null,
+        });
+      } else if (score >= 50) {
+        withinReachGrants.push({
+          grantId: a.grant_id,
+          grantName: name,
+          score,
+          amount: grant?.amount ?? null,
+          summary: guarded?.summary ?? a.summary ?? undefined,
+          addedAt: grant?.createdAt ?? null,
+        });
+      }
     }
   }
 
@@ -418,6 +449,12 @@ export default async function DashboardPage() {
               />
             </div>
 
+            <div className="mt-5">
+              <Suspense fallback={<DashboardFundingSnapshotSkeleton />}>
+                <DashboardFundingSnapshot matchesPromise={matchesPromise} />
+              </Suspense>
+            </div>
+
             <div className="mt-5 grid min-w-0 grid-cols-1 gap-5 @min-[680px]/main:grid-cols-2">
               <Suspense fallback={<TopMatchedOpportunitiesSkeleton />}>
                 <TopMatchedOpportunities matchesPromise={matchesPromise} />
@@ -619,6 +656,80 @@ async function DashboardBusinessDnaPrompt({
   return <BusinessDnaMatchHealth report={matchHealth} profile={profile} />;
 }
 
+async function DashboardFundingSnapshot({ matchesPromise }: { matchesPromise: Promise<DashboardMatchesData> }) {
+  const { suggestedGrants, withinReachGrants } = await matchesPromise;
+  const suggestedValue = summarizeGrantValues(suggestedGrants);
+  const withinReachValue = summarizeGrantValues(withinReachGrants);
+  const totalValue = summarizeGrantValues([...suggestedGrants, ...withinReachGrants]);
+
+  return (
+    <div className="grid min-w-0 gap-3 lg:grid-cols-3">
+      <FundingSnapshotCard
+        label="Matched funding value"
+        summary={totalValue}
+        detail="Strong + within-reach opportunities"
+        tone="blue"
+      />
+      <FundingSnapshotCard
+        label="Strong match value"
+        summary={suggestedValue}
+        detail="85%+ AI-scored matches"
+        tone="green"
+      />
+      <FundingSnapshotCard
+        label="Within reach value"
+        summary={withinReachValue}
+        detail="Near matches worth reviewing"
+        tone="amber"
+      />
+    </div>
+  );
+}
+
+function FundingSnapshotCard({
+  label,
+  summary,
+  detail,
+  tone,
+}: {
+  label: string;
+  summary: GrantValueSummary;
+  detail: string;
+  tone: "blue" | "green" | "amber";
+}) {
+  const toneClass = {
+    blue: "border-[#cfe1ff] bg-[#f2f7ff]",
+    green: "border-[#cbeedc] bg-[#effcf6]",
+    amber: "border-[#f5dfad] bg-[#fff8e8]",
+  }[tone];
+
+  return (
+    <div className={`rounded-2xl border px-4 py-3 ${toneClass}`}>
+      <p className="text-xs font-black uppercase tracking-[0.08em] text-[#51627d]">{label}</p>
+      <p className="mt-1 break-words text-3xl font-black leading-none tracking-tight text-[#071a3a]">
+        {formatGrantValueSummary(summary)}
+      </p>
+      <p className="mt-2 text-xs font-bold text-[#51627d]">
+        {detail} · {grantValueSummaryDetail(summary)}
+      </p>
+    </div>
+  );
+}
+
+function DashboardFundingSnapshotSkeleton() {
+  return (
+    <div className="grid min-w-0 gap-3 lg:grid-cols-3" aria-hidden="true">
+      {[0, 1, 2].map((item) => (
+        <div key={item} className="rounded-2xl border border-[#e7edf6] bg-white px-4 py-3">
+          <div className="h-3 w-32 animate-pulse rounded bg-[#eef3f8]" />
+          <div className="mt-3 h-8 w-36 animate-pulse rounded bg-[#eef3f8]" />
+          <div className="mt-3 h-3 w-48 max-w-full animate-pulse rounded bg-[#eef3f8]" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 async function TopMatchedOpportunities({ matchesPromise }: { matchesPromise: Promise<DashboardMatchesData> }) {
   const { suggestedGrants, withinReachGrants } = await matchesPromise;
   const topMatches = [...suggestedGrants, ...withinReachGrants].slice(0, 3);
@@ -651,6 +762,9 @@ async function TopMatchedOpportunities({ matchesPromise }: { matchesPromise: Pro
                   {grant.addedAt
                     ? ` · Added ${new Date(grant.addedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`
                     : ""}
+                </span>
+                <span className="mt-1 block text-xs font-black text-[#2167e8]">
+                  {formatGrantValue(grant.amount)}
                 </span>
               </span>
               <span className="shrink-0 rounded-lg bg-[#dff8ed] px-2.5 py-2 text-center text-xs font-black leading-none text-[#087f59] sm:px-3">
@@ -705,6 +819,8 @@ function TopMatchedOpportunitiesSkeleton() {
 
 async function DashboardMatchSections({ matchesPromise }: { matchesPromise: Promise<DashboardMatchesData> }) {
   const { suggestedGrants, withinReachGrants, deferredGrants } = await matchesPromise;
+  const suggestedValue = summarizeGrantValues(suggestedGrants);
+  const withinReachValue = summarizeGrantValues(withinReachGrants);
 
   return (
     <>
@@ -713,13 +829,18 @@ async function DashboardMatchSections({ matchesPromise }: { matchesPromise: Prom
           {suggestedGrants.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Sparkles className="h-4 w-4 text-primary" />
-                  Suggested for you
-                </CardTitle>
-                <p className="text-sm font-normal text-muted-foreground">
-                  High eligibility based on your profile. We&apos;ve notified you about these.
-                </p>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <Sparkles className="h-4 w-4 text-primary" />
+                      Suggested for you
+                    </CardTitle>
+                    <p className="text-sm font-normal text-muted-foreground">
+                      High eligibility based on your profile. We&apos;ve notified you about these.
+                    </p>
+                  </div>
+                  <MatchValueBadge summary={suggestedValue} />
+                </div>
               </CardHeader>
               <CardContent>
                 <ul className="space-y-2">
@@ -744,13 +865,18 @@ async function DashboardMatchSections({ matchesPromise }: { matchesPromise: Prom
           {withinReachGrants.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Target className="h-4 w-4 text-amber-600" />
-                  Within reach
-                </CardTitle>
-                <p className="text-sm font-normal text-muted-foreground">
-                  Partial fit. Open a grant to see how to improve your eligibility.
-                </p>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <Target className="h-4 w-4 text-amber-600" />
+                      Within reach
+                    </CardTitle>
+                    <p className="text-sm font-normal text-muted-foreground">
+                      Partial fit. Open a grant to see how to improve your eligibility.
+                    </p>
+                  </div>
+                  <MatchValueBadge summary={withinReachValue} />
+                </div>
               </CardHeader>
               <CardContent>
                 <ul className="space-y-2">
@@ -810,6 +936,16 @@ async function DashboardMatchSections({ matchesPromise }: { matchesPromise: Prom
         </Card>
       )}
     </>
+  );
+}
+
+function MatchValueBadge({ summary }: { summary: GrantValueSummary }) {
+  return (
+    <div className="rounded-lg border border-blue-100 bg-blue-50/70 px-3 py-2 text-left sm:text-right">
+      <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-blue-700">Estimated value</p>
+      <p className="text-lg font-black leading-tight text-[#071a3a]">{formatGrantValueSummary(summary)}</p>
+      <p className="text-[11px] font-medium text-muted-foreground">{grantValueSummaryDetail(summary)}</p>
+    </div>
   );
 }
 

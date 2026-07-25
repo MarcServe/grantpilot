@@ -8,6 +8,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { EligibleGrantCard, hasVerifiedApplicationStart, type EligibleGrant } from "./eligible-grant-card";
+import {
+  formatGrantValueSummary,
+  grantValueSummaryDetail,
+  summarizeGrantValues,
+  type GrantValueSummary,
+} from "@/lib/grant-value";
 
 type MatchSection = "suggested" | "within_reach" | "other" | "needs_review" | "reviewed";
 type TierStatus = "idle" | "loading" | "loaded" | "error";
@@ -249,6 +255,12 @@ export function BatchedEligibleGrantsList({
     () => tiersToShow.flatMap((tier) => sections[tier].grants).filter((grant) => matchesQuery(grant, query)),
     [query, sections, tiersToShow]
   );
+  const valueSummaries = useMemo(
+    () => Object.fromEntries(
+      TIER_ORDER.map((tier) => [tier, summarizeGrantValues(sections[tier].grants)])
+    ) as Record<MatchSection, GrantValueSummary>,
+    [sections]
+  );
   const hasLoadedAny = TIER_ORDER.some((tier) => sections[tier].grants.length > 0);
   const isAnyLoading = TIER_ORDER.some((tier) => sections[tier].status === "loading");
   const allVisibleDone = tiersToShow.every((tier) => sections[tier].status === "loaded" || sections[tier].status === "error");
@@ -348,6 +360,12 @@ export function BatchedEligibleGrantsList({
         </p>
       )}
 
+      <FundingValueSummaryStrip
+        tiers={tiersToShow}
+        sections={sections}
+        summaries={valueSummaries}
+      />
+
       {tiersToShow.map((tier, index) => {
         const state = sections[tier];
         if (!activeTier && state.status === "idle" && index > 0) {
@@ -359,6 +377,7 @@ export function BatchedEligibleGrantsList({
             tier={tier}
             state={state}
             query={query}
+            valueSummary={valueSummaries[tier]}
             onLoadMore={() => loadTier(tier, state.page + 1, "append")}
             onGrantStateChanged={handleGrantStateChanged}
           />
@@ -387,12 +406,14 @@ function MatchTierSection({
   tier,
   state,
   query,
+  valueSummary,
   onLoadMore,
   onGrantStateChanged,
 }: {
   tier: MatchSection;
   state: TierState;
   query: string;
+  valueSummary: GrantValueSummary;
   onLoadMore: () => void;
   onGrantStateChanged: (grant: EligibleGrant, status: GrantUserState) => void;
 }) {
@@ -421,11 +442,16 @@ function MatchTierSection({
     return (
       <Card>
         <CardHeader>
-          <CardTitle className={`flex items-center gap-2 text-base ${meta.muted ? "text-muted-foreground" : ""}`}>
-            {meta.icon}
-            {meta.title}
-          </CardTitle>
-          <p className="text-sm font-normal text-muted-foreground">{meta.subtitle}</p>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <CardTitle className={`flex items-center gap-2 text-base ${meta.muted ? "text-muted-foreground" : ""}`}>
+                {meta.icon}
+                {meta.title}
+              </CardTitle>
+              <p className="text-sm font-normal text-muted-foreground">{meta.subtitle}</p>
+            </div>
+            <SectionValuePill summary={valueSummary} />
+          </div>
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">{meta.emptyLabel}</CardContent>
       </Card>
@@ -442,14 +468,19 @@ function MatchTierSection({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className={`flex items-center gap-2 text-base ${meta.muted ? "text-muted-foreground" : ""}`}>
-          {meta.icon}
-          {meta.title}
-          <span className="ml-1 text-xs font-normal text-muted-foreground">
-            ({formatCount(state) ?? state.grants.length})
-          </span>
-        </CardTitle>
-        <p className="text-sm font-normal text-muted-foreground">{meta.subtitle}</p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <CardTitle className={`flex items-center gap-2 text-base ${meta.muted ? "text-muted-foreground" : ""}`}>
+              {meta.icon}
+              {meta.title}
+              <span className="ml-1 text-xs font-normal text-muted-foreground">
+                ({formatCount(state) ?? state.grants.length})
+              </span>
+            </CardTitle>
+            <p className="text-sm font-normal text-muted-foreground">{meta.subtitle}</p>
+          </div>
+          <SectionValuePill summary={valueSummary} />
+        </div>
       </CardHeader>
       <CardContent className="space-y-3">
         {grants.length === 0 ? (
@@ -501,6 +532,58 @@ function MatchTierSection({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function FundingValueSummaryStrip({
+  tiers,
+  sections,
+  summaries,
+}: {
+  tiers: MatchSection[];
+  sections: Record<MatchSection, TierState>;
+  summaries: Record<MatchSection, GrantValueSummary>;
+}) {
+  const displayTiers = tiers.filter((tier) => tier !== "reviewed" || sections[tier].grants.length > 0);
+
+  if (displayTiers.length === 0) return null;
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {displayTiers.slice(0, 4).map((tier) => {
+        const summary = summaries[tier];
+        const state = sections[tier];
+        return (
+          <div
+            key={tier}
+            className="rounded-xl border border-blue-100 bg-white px-4 py-3 shadow-[0_10px_28px_rgba(7,26,58,0.05)]"
+          >
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.08em] text-muted-foreground">
+              {TIER_META[tier].icon}
+              {tier === "suggested" ? "Strong match value" : `${TIER_META[tier].badgeLabel} value`}
+            </div>
+            <div className="mt-2 text-2xl font-black tracking-tight text-[#071a3a]">
+              {state.status === "loading" && summary.totalCount === 0
+                ? "Loading..."
+                : formatGrantValueSummary(summary)}
+            </div>
+            <div className="mt-1 text-xs font-medium text-muted-foreground">
+              {grantValueSummaryDetail(summary)}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function SectionValuePill({ summary }: { summary: GrantValueSummary }) {
+  return (
+    <div className="rounded-lg border border-blue-100 bg-blue-50/70 px-3 py-2 text-left sm:text-right">
+      <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-blue-700">Estimated value</div>
+      <div className="text-lg font-black leading-tight text-[#071a3a]">{formatGrantValueSummary(summary)}</div>
+      <div className="text-[11px] font-medium text-muted-foreground">{grantValueSummaryDetail(summary)}</div>
+    </div>
   );
 }
 

@@ -29,7 +29,7 @@ import { PLAN_CATALOG } from "@/lib/plans";
 import { createClient } from "@/lib/supabase/server";
 import { HeroMotionVideo } from "@/components/marketing/hero-motion-video";
 
-const navItems = ["Features", "How It Works", "Pricing", "Resources", "About Us"];
+const navItems = ["Pricing", "Features", "How It Works", "Resources", "About Us"];
 
 const stats = [
   { label: "Opportunities", value: "12", detail: "New matches", icon: BriefcaseBusiness, tone: "blue" },
@@ -199,10 +199,8 @@ export default async function LandingPage() {
             </h1>
 
             <p className="mt-5 max-w-[560px] text-[18px] font-medium leading-[1.55] text-[#09224a] sm:mt-6 sm:text-[20px]">
-              Complete your Business DNA once, and GrantsCopilot's AI works for you 24/7, continuously finding relevant
-              grants, assessing your eligibility, explaining your strongest opportunities, identifying missing evidence,
-              preparing application-ready documents, and sending you a personalised email or WhatsApp every morning with
-              the latest grants you're likely to qualify for.
+              Create your Business DNA once. GrantsCopilot AI finds relevant grants, scores your fit, flags missing
+              evidence, and helps you prepare stronger applications.
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:mt-9 sm:flex-row sm:gap-4">
@@ -242,94 +240,37 @@ export default async function LandingPage() {
           </div>
         </section>
 
+        <section id="get-started" className="mx-auto max-w-[1480px] px-4 py-8 sm:px-6 sm:py-10 lg:px-10">
+          <div className="grid items-center gap-6 rounded-[24px] bg-[linear-gradient(115deg,#e7f1ff,#ffffff)] p-6 shadow-[0_18px_50px_rgba(7,26,58,0.08)] sm:p-8 lg:grid-cols-[1fr_auto] lg:p-10">
+            <div>
+              <p className="text-sm font-black uppercase tracking-[0.14em] text-[#2167e8]">Get started</p>
+              <h2 className="mt-3 text-[30px] font-black leading-tight text-[#071a3a] sm:text-[36px]">
+                Let your next grant opportunity come to you.
+              </h2>
+              <p className="mt-4 max-w-3xl text-base font-medium leading-7 text-[#51627d]">
+                Create your Business DNA profile once. GrantsCopilot keeps scanning, scoring, reminding, and preparing
+                applications around what your company actually qualifies for.
+              </p>
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Link href={isSignedIn ? "/dashboard" : "/sign-up"} className="inline-flex h-12 items-center justify-center rounded-lg bg-[#2167e8] px-7 text-sm font-black text-white">
+                {isSignedIn ? "Return to dashboard" : "Get started"}
+              </Link>
+              {!isSignedIn && (
+                <Link href="/sign-in" className="inline-flex h-12 items-center justify-center rounded-lg border border-[#d8e2f2] bg-white px-7 text-sm font-black text-[#071a3a]">
+                  Log in
+                </Link>
+              )}
+            </div>
+          </div>
+        </section>
+
         <section
           className="mx-auto max-w-[1480px] px-4 pb-12 pt-2 sm:px-6 lg:px-10 lg:pb-16"
           aria-label="Workspace preview"
         >
           <div className="flex justify-center lg:justify-end">
             <DashboardPreview />
-          </div>
-        </section>
-
-        <section id="features" className="mx-auto max-w-[1480px] px-4 py-10 sm:px-6 sm:py-12 lg:px-10">
-          <div className="grid gap-8 lg:grid-cols-[0.85fr_1.15fr]">
-            <div>
-              <p className="text-sm font-black uppercase tracking-[0.14em] text-[#2167e8]">Features</p>
-              <h2 className="mt-4 max-w-[560px] text-[32px] font-black leading-tight tracking-normal text-[#071a3a] sm:text-[42px]">
-                From grant search to grant flow.
-              </h2>
-              <p className="mt-5 max-w-[560px] text-lg font-medium leading-8 text-[#334766]">
-                GrantsCopilot is not another grant directory. It learns what your business does, brings the right
-                opportunities forward, and turns funding work into a structured application preparation pipeline.
-              </p>
-              <div className="mt-7 flex flex-col gap-3 sm:flex-row">
-                <Link
-                  href={isSignedIn ? "/dashboard" : "/sign-up"}
-                  className="inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-[#2167e8] px-6 text-sm font-black text-white shadow-[0_12px_24px_rgba(33,103,232,0.22)]"
-                >
-                  {isSignedIn ? "Open dashboard" : "Build My DNA Profile"}{" "}
-                  {isSignedIn ? <LayoutDashboard className="h-4 w-4" /> : <ArrowRight className="h-4 w-4" />}
-                </Link>
-                {!isSignedIn && (
-                  <Link
-                    href="/sign-in"
-                    className="inline-flex h-12 items-center justify-center rounded-lg border border-[#d8e2f2] bg-white px-6 text-sm font-black text-[#071a3a]"
-                  >
-                    Log in
-                  </Link>
-                )}
-              </div>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              {featureCards.map((feature) => {
-                const Icon = feature.icon;
-                return (
-                  <div
-                    key={feature.title}
-                    className="rounded-2xl border border-[#e2ebf6] bg-white p-6 shadow-[0_18px_45px_rgba(7,26,58,0.07)]"
-                  >
-                    <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[#e7f1ff] text-[#2167e8]">
-                      <Icon className="h-6 w-6" />
-                    </span>
-                    <h3 className="mt-5 text-xl font-black text-[#071a3a]">{feature.title}</h3>
-                    <p className="mt-3 text-sm font-medium leading-6 text-[#51627d]">{feature.text}</p>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </section>
-
-        <section id="how-it-works" className="mx-auto max-w-[1480px] px-4 pb-8 pt-2 sm:px-6 lg:px-10">
-          <div className="rounded-[18px] bg-[linear-gradient(115deg,#123577_0%,#0d3e95_52%,#2468e8_100%)] px-5 py-7 text-white shadow-[0_22px_55px_rgba(10,50,120,0.16)] sm:px-9 lg:px-10">
-            <div className="mb-5 flex items-center justify-center gap-7">
-              <span className="hidden h-px w-20 bg-white/25 sm:block" />
-              <h2 className="text-center text-[26px] font-black tracking-normal sm:text-[30px]">How GrantsCopilot Works</h2>
-              <span className="hidden h-px w-20 bg-white/25 sm:block" />
-            </div>
-
-            <div className="grid items-center gap-6 lg:grid-cols-[1fr_0.36fr_1fr_0.36fr_1fr_0.36fr_1.5fr]">
-              <Step icon={Search} title="1. Watch" text="Your funding radar scans grant feeds, databases, and web sources so you do not have to keep searching." />
-              <ArrowDivider />
-              <Step icon={Target} title="2. Match" text="Our AI checks eligibility signals and ranks opportunities by fit, gaps, and readiness." accent="green" />
-              <ArrowDivider />
-              <Step icon={Send} title="3. Prepare" text="Generate funder-ready answers, document checklists, pitch decks, and application tasks." accent="purple" />
-              <ArrowDivider />
-              <div className="flex min-h-[126px] items-center gap-6 rounded-xl border border-white/22 bg-white/8 px-7 py-5">
-                <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-[#35c386]/20">
-                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#35c386] text-white shadow-[0_0_0_8px_rgba(53,195,134,0.18)]">
-                    <Trophy className="h-8 w-8" />
-                  </div>
-                </div>
-                <div>
-                  <h3 className="text-[22px] font-black">Apply Faster</h3>
-                  <p className="mt-2 text-[14px] font-medium leading-6 text-white/90">
-                    Review the grants that matter, prepare faster, and stop losing time to stale funding pages. Full auto-filing is planned for V2.
-                  </p>
-                </div>
-              </div>
-            </div>
           </div>
         </section>
 
@@ -424,6 +365,88 @@ export default async function LandingPage() {
           </div>
         </section>
 
+        <section id="features" className="mx-auto max-w-[1480px] px-4 py-10 sm:px-6 sm:py-12 lg:px-10">
+          <div className="grid gap-8 lg:grid-cols-[0.85fr_1.15fr]">
+            <div>
+              <p className="text-sm font-black uppercase tracking-[0.14em] text-[#2167e8]">Features</p>
+              <h2 className="mt-4 max-w-[560px] text-[32px] font-black leading-tight tracking-normal text-[#071a3a] sm:text-[42px]">
+                From grant search to grant flow.
+              </h2>
+              <p className="mt-5 max-w-[560px] text-lg font-medium leading-8 text-[#334766]">
+                GrantsCopilot is not another grant directory. It learns what your business does, brings the right
+                opportunities forward, and turns funding work into a structured application preparation pipeline.
+              </p>
+              <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+                <Link
+                  href={isSignedIn ? "/dashboard" : "/sign-up"}
+                  className="inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-[#2167e8] px-6 text-sm font-black text-white shadow-[0_12px_24px_rgba(33,103,232,0.22)]"
+                >
+                  {isSignedIn ? "Open dashboard" : "Build My DNA Profile"}{" "}
+                  {isSignedIn ? <LayoutDashboard className="h-4 w-4" /> : <ArrowRight className="h-4 w-4" />}
+                </Link>
+                {!isSignedIn && (
+                  <Link
+                    href="/sign-in"
+                    className="inline-flex h-12 items-center justify-center rounded-lg border border-[#d8e2f2] bg-white px-6 text-sm font-black text-[#071a3a]"
+                  >
+                    Log in
+                  </Link>
+                )}
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              {featureCards.map((feature) => {
+                const Icon = feature.icon;
+                return (
+                  <div
+                    key={feature.title}
+                    className="rounded-2xl border border-[#e2ebf6] bg-white p-6 shadow-[0_18px_45px_rgba(7,26,58,0.07)]"
+                  >
+                    <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[#e7f1ff] text-[#2167e8]">
+                      <Icon className="h-6 w-6" />
+                    </span>
+                    <h3 className="mt-5 text-xl font-black text-[#071a3a]">{feature.title}</h3>
+                    <p className="mt-3 text-sm font-medium leading-6 text-[#51627d]">{feature.text}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        <section id="how-it-works" className="mx-auto max-w-[1480px] px-4 pb-8 pt-2 sm:px-6 lg:px-10">
+          <div className="rounded-[18px] bg-[linear-gradient(115deg,#123577_0%,#0d3e95_52%,#2468e8_100%)] px-5 py-7 text-white shadow-[0_22px_55px_rgba(10,50,120,0.16)] sm:px-9 lg:px-10">
+            <div className="mb-5 flex items-center justify-center gap-7">
+              <span className="hidden h-px w-20 bg-white/25 sm:block" />
+              <h2 className="text-center text-[26px] font-black tracking-normal sm:text-[30px]">How GrantsCopilot Works</h2>
+              <span className="hidden h-px w-20 bg-white/25 sm:block" />
+            </div>
+
+            <div className="grid items-center gap-6 lg:grid-cols-[1fr_0.36fr_1fr_0.36fr_1fr_0.36fr_1.5fr]">
+              <Step icon={Search} title="1. Watch" text="Your funding radar scans grant feeds, databases, and web sources so you do not have to keep searching." />
+              <ArrowDivider />
+              <Step icon={Target} title="2. Match" text="Our AI checks eligibility signals and ranks opportunities by fit, gaps, and readiness." accent="green" />
+              <ArrowDivider />
+              <Step icon={Send} title="3. Prepare" text="Generate funder-ready answers, document checklists, pitch decks, and application tasks." accent="purple" />
+              <ArrowDivider />
+              <div className="flex min-h-[126px] items-center gap-6 rounded-xl border border-white/22 bg-white/8 px-7 py-5">
+                <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-[#35c386]/20">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#35c386] text-white shadow-[0_0_0_8px_rgba(53,195,134,0.18)]">
+                    <Trophy className="h-8 w-8" />
+                  </div>
+                </div>
+                <div>
+                  <h3 className="text-[22px] font-black">Apply Faster</h3>
+                  <p className="mt-2 text-[14px] font-medium leading-6 text-white/90">
+                    Review the grants that matter, prepare faster, and stop losing time to stale funding pages. Full auto-filing is planned for V2.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section id="resources" className="mx-auto max-w-[1480px] px-4 py-10 sm:px-6 sm:py-12 lg:px-10">
           <div className="rounded-[24px] bg-white p-5 shadow-[0_20px_60px_rgba(7,26,58,0.08)] sm:p-7 lg:p-9">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -470,31 +493,6 @@ export default async function LandingPage() {
               <AboutStat value="AI" label="Eligibility reasoning and application drafting" />
               <AboutStat value="UK+" label="Built for UK SMEs with global expansion in mind" />
               <AboutStat value="Review" label="Human approval before sensitive submission steps" />
-            </div>
-          </div>
-        </section>
-
-        <section id="get-started" className="mx-auto max-w-[1480px] px-4 py-10 sm:px-6 sm:py-12 lg:px-10">
-          <div className="grid items-center gap-6 rounded-[24px] bg-[linear-gradient(115deg,#e7f1ff,#ffffff)] p-6 shadow-[0_18px_50px_rgba(7,26,58,0.08)] sm:p-8 lg:grid-cols-[1fr_auto] lg:p-10">
-            <div>
-              <p className="text-sm font-black uppercase tracking-[0.14em] text-[#2167e8]">Get started</p>
-              <h2 className="mt-3 text-[30px] font-black leading-tight text-[#071a3a] sm:text-[36px]">
-                Let your next grant opportunity come to you.
-              </h2>
-              <p className="mt-4 max-w-3xl text-base font-medium leading-7 text-[#51627d]">
-                Create your Business DNA profile once. GrantsCopilot keeps scanning, scoring, reminding, and preparing
-                applications around what your company actually qualifies for.
-              </p>
-            </div>
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <Link href={isSignedIn ? "/dashboard" : "/sign-up"} className="inline-flex h-12 items-center justify-center rounded-lg bg-[#2167e8] px-7 text-sm font-black text-white">
-                {isSignedIn ? "Return to dashboard" : "Get started"}
-              </Link>
-              {!isSignedIn && (
-                <Link href="/sign-in" className="inline-flex h-12 items-center justify-center rounded-lg border border-[#d8e2f2] bg-white px-7 text-sm font-black text-[#071a3a]">
-                  Log in
-                </Link>
-              )}
             </div>
           </div>
         </section>
