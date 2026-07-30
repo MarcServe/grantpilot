@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getActiveOrg } from "@/lib/auth";
 import { fetchApplicationsNeedingOutcome, fetchRecordedOutcomeInsights, type RecordedOutcomeInsight } from "@/lib/outcome-feedback";
+import { formatApplicationDuration } from "@/lib/application-duration";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -124,6 +125,8 @@ export default async function ApplicationsOutcomesPage() {
 }
 
 function OutcomeInsightCard({ item }: { item: RecordedOutcomeInsight }) {
+  const actualTime = formatApplicationDuration(item.actualApplicationMinutes);
+
   return (
     <Card className="min-w-0">
       <CardContent className="min-w-0 space-y-4 p-4">
@@ -137,6 +140,7 @@ function OutcomeInsightCard({ item }: { item: RecordedOutcomeInsight }) {
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             <Badge>{item.outcome.replace(/_/g, " ")}</Badge>
+            {actualTime && <Badge variant="outline">Actual time: {actualTime}</Badge>}
             {item.scoringAdjustment != null && (
               <Badge variant={item.scoringAdjustment >= 0 ? "secondary" : "outline"}>
                 {item.scoringAdjustment >= 0 ? "+" : ""}{item.scoringAdjustment} advisory signal
@@ -151,10 +155,11 @@ function OutcomeInsightCard({ item }: { item: RecordedOutcomeInsight }) {
         <InsightList title="Gaps to improve" items={item.weaknesses} />
         <InsightList title="Next actions" items={item.nextActions} />
 
-        {(item.funderFeedback || item.responseText || item.userNotes) && (
+        {(item.funderFeedback || item.responseText || item.userNotes || actualTime) && (
           <details className="rounded-md border bg-muted/20 p-3 text-sm">
             <summary className="cursor-pointer font-medium">Evidence saved</summary>
             <div className="mt-3 space-y-3 text-muted-foreground">
+              {actualTime && <p className="break-words">Actual application time: {actualTime}</p>}
               {item.funderFeedback && <p className="break-words">{item.funderFeedback}</p>}
               {item.responseText && <p className="break-words">{item.responseText}</p>}
               {item.userNotes && <p className="break-words">{item.userNotes}</p>}

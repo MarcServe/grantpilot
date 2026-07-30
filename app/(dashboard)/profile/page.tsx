@@ -34,7 +34,7 @@ export default async function ProfilePage({
   const sp = await searchParams;
   const stepParam = sp.step != null ? parseInt(String(sp.step), 10) : NaN;
   const stepFromQuery =
-    Number.isFinite(stepParam) && stepParam >= 1 && stepParam <= 6 ? stepParam : null;
+    Number.isFinite(stepParam) && stepParam >= 1 && stepParam <= 7 ? stepParam : null;
 
   const activeOrg = await getActiveOrg();
   const profile = await getProfile();

@@ -37,6 +37,7 @@ interface GrantCardProps {
   scoringSource?: string | null;
   showUnscoredState?: boolean;
   targetSummary?: string | null;
+  opportunityType?: string | null;
   tagExplanations?: GrantFitTag[];
   whyNotSuggested?: string[];
   matchSection?: GrantFitPreview["matchSection"];
@@ -137,6 +138,7 @@ export function GrantCard({
   scoringSource,
   showUnscoredState,
   targetSummary,
+  opportunityType,
   tagExplanations,
   whyNotSuggested,
   matchSection,
@@ -226,6 +228,11 @@ export function GrantCard({
           {sourceLabel && (
             <Badge variant={source === "openai" ? "default" : "outline"} className="w-fit text-xs">
               {sourceLabel}
+            </Badge>
+          )}
+          {opportunityType && (
+            <Badge variant="secondary" className="w-fit text-xs">
+              {opportunityType}
             </Badge>
           )}
           {scoringSource === "heuristic" && (

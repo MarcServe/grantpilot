@@ -23,7 +23,7 @@ const complexGrantPage = estimateGrantEffort({
   missingCriteria: ["Partner letter", "Financial statements"],
 });
 
-assert.equal(complexGrantPage.effortBand, "Heavy");
+assert.equal(complexGrantPage.effortBand, "Strategic");
 assert.ok(complexGrantPage.estimatedMinutes > directQuick.estimatedMinutes);
 assert.notEqual(complexGrantPage.priorityLabel, "Apply today");
 

@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "./supabase";
+import { normaliseActualApplicationMinutes } from "./application-duration";
 
 /** Applications that have been sent / approved for filing — awaiting funder decision in product terms */
 export const OUTCOME_FEEDBACK_APPLICATION_STATUSES = ["SUBMITTED", "APPROVED"] as const;
@@ -25,6 +26,7 @@ export type RecordedOutcomeInsight = {
   funderFeedback: string | null;
   responseText: string | null;
   userNotes: string | null;
+  actualApplicationMinutes: number | null;
   summary: string;
   strengths: string[];
   weaknesses: string[];
@@ -57,6 +59,7 @@ function grantFromOutcomeRow(row: Record<string, unknown>): { name: string; fund
 
 function parseLearningNotes(value: unknown): {
   userNotes: string | null;
+  actualApplicationMinutes: number | null;
   insight?: {
     summary?: unknown;
     strengths?: unknown;
@@ -65,10 +68,11 @@ function parseLearningNotes(value: unknown): {
     scoringAdjustment?: unknown;
   };
 } {
-  if (typeof value !== "string" || !value.trim()) return { userNotes: null };
+  if (typeof value !== "string" || !value.trim()) return { userNotes: null, actualApplicationMinutes: null };
   try {
     const parsed = JSON.parse(value) as {
       userNotes?: string | null;
+      actualApplicationMinutes?: unknown;
       insight?: {
         summary?: unknown;
         strengths?: unknown;
@@ -79,10 +83,11 @@ function parseLearningNotes(value: unknown): {
     };
     return {
       userNotes: parsed.userNotes ?? null,
+      actualApplicationMinutes: normaliseActualApplicationMinutes(parsed.actualApplicationMinutes),
       insight: parsed.insight,
     };
   } catch {
-    return { userNotes: value };
+    return { userNotes: value, actualApplicationMinutes: null };
   }
 }
 
@@ -194,6 +199,7 @@ export async function fetchRecordedOutcomeInsights(orgId: string): Promise<Recor
       funderFeedback: typeof item.funderFeedback === "string" ? item.funderFeedback : null,
       responseText: typeof item.responseText === "string" ? item.responseText : null,
       userNotes: notes.userNotes,
+      actualApplicationMinutes: notes.actualApplicationMinutes,
       summary: typeof insight?.summary === "string" && insight.summary.trim() ? insight.summary : fallbackSummary,
       strengths: toStringArray(insight?.strengths),
       weaknesses: toStringArray(insight?.weaknesses),

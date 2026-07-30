@@ -11,6 +11,7 @@ import { Step3Financials } from "./step-3-financials";
 import { Step4Funding } from "./step-4-funding";
 import { Step5Documents } from "./step-5-documents";
 import { Step6GrantReadiness } from "./step-6-grant-readiness";
+import { Step7EligibilityFacts } from "./step-7-eligibility-facts";
 import { CompanyDnaAutofill } from "./company-dna-autofill";
 import {
   saveStep1,
@@ -18,6 +19,7 @@ import {
   saveStep3,
   saveStep4,
   saveStep6,
+  saveStep7,
   removeDocument,
 } from "@/app/(dashboard)/profile/actions";
 import type {
@@ -26,23 +28,34 @@ import type {
   Step3Data,
   Step4Data,
   Step6Data,
+  Step7Data,
 } from "@/lib/validations/profile";
+import { normalizeEligibilityFacts, type EligibilityFact } from "@/lib/eligibility-facts";
 
 interface ProfileData {
   id: string;
   businessName: string;
   tradingName?: string | null;
   businessType?: string | null;
+  legalStructure?: string | null;
+  businessStage?: string | null;
+  businessSizeBand?: string | null;
+  founderEmploymentStatus?: string | null;
   registrationNumber: string | null;
   charityNumber?: string | null;
   vatNumber?: string | null;
   yearEstablished?: number | null;
+  incorporationDate?: string | null;
+  tradingStartDate?: string | null;
   location: string;
   registeredAddress?: string | null;
   operatingAddress?: string | null;
   postcode?: string | null;
   country?: string | null;
   region?: string | null;
+  expectedEmployeeGrowth?: string | null;
+  localAuthority?: string | null;
+  areasServed?: string | null;
   primaryContactName?: string | null;
   primaryContactRole?: string | null;
   primaryContactEmail?: string | null;
@@ -61,11 +74,15 @@ interface ProfileData {
   profitLoss?: string | null;
   cashReserves?: string | null;
   financialProjections?: string | null;
+  previousGrantExperience?: string | null;
   previousGrants: string | null;
   fundingMin: number;
   fundingMax: number;
   fundingPurposes: string[];
+  preferredOpportunityTypes?: string[];
   fundingDetails: string | null;
+  coFundingCapacity?: string | null;
+  reimbursementReadiness?: string | null;
   coFundingAvailable?: string | null;
   matchFundingDetails?: string | null;
   directorNames: string | null;
@@ -102,6 +119,7 @@ interface ProfileData {
   communityEngagement: string | null;
   keyAchievements: string | null;
   teamExpertise: string | null;
+  eligibilityFacts?: EligibilityFact[] | null;
   completionScore: number;
   documents: {
     id: string;
@@ -120,6 +138,7 @@ const STEP_LABELS = [
   "Funding Goals",
   "Documents",
   "Grant Readiness",
+  "Eligibility Facts",
 ];
 
 export function ProfileForm({
@@ -281,6 +300,26 @@ export function ProfileForm({
     });
   }
 
+  function handleStep7(data: Step7Data) {
+    return new Promise<boolean>((resolve) => {
+      setSavingStep(7);
+      startTransition(async () => {
+        const result = await saveStep7(data);
+        if (result.error) {
+          toast.error(result.error);
+          setSavingStep(null);
+          resolve(false);
+          return;
+        } else {
+          toast.success("Eligibility facts saved");
+          router.refresh();
+        }
+        setSavingStep(null);
+        resolve(true);
+      });
+    });
+  }
+
   function handleComplete() {
     toast.success("Profile complete! You can now browse and apply for grants.");
     router.push("/dashboard");
@@ -291,7 +330,7 @@ export function ProfileForm({
       <div>
         <div className="mb-2 flex flex-col gap-1 text-sm min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between">
           <span className="font-medium">
-            Step {step} of 6: {STEP_LABELS[step - 1]}
+            Step {step} of {STEP_LABELS.length}: {STEP_LABELS[step - 1]}
           </span>
           <span className="text-muted-foreground">
             {Math.round(progressPercent)}% complete
@@ -317,16 +356,26 @@ export function ProfileForm({
                 businessName: profile.businessName,
                 tradingName: profile.tradingName ?? "",
                 businessType: profile.businessType ?? "",
+                legalStructure: profile.legalStructure ?? "",
+                businessStage: profile.businessStage ?? "",
+                businessSizeBand: profile.businessSizeBand ?? "",
+                founderEmploymentStatus: profile.founderEmploymentStatus ?? "",
                 registrationNumber: profile.registrationNumber ?? undefined,
                 charityNumber: profile.charityNumber ?? "",
                 vatNumber: profile.vatNumber ?? "",
                 yearEstablished: profile.yearEstablished ?? "",
+                incorporationDate: profile.incorporationDate ?? "",
+                tradingStartDate: profile.tradingStartDate ?? "",
+                employeeCount: profile.employeeCount ?? "",
+                expectedEmployeeGrowth: profile.expectedEmployeeGrowth ?? "",
                 location: profile.location,
                 registeredAddress: profile.registeredAddress ?? "",
                 operatingAddress: profile.operatingAddress ?? "",
                 postcode: profile.postcode ?? "",
                 country: profile.country ?? "",
                 region: profile.region ?? "",
+                localAuthority: profile.localAuthority ?? "",
+                areasServed: profile.areasServed ?? "",
                 primaryContactName: profile.primaryContactName ?? "",
                 primaryContactRole: profile.primaryContactRole ?? "",
                 primaryContactEmail: profile.primaryContactEmail ?? "",
@@ -361,6 +410,7 @@ export function ProfileForm({
                 profitLoss: profile.profitLoss ?? "",
                 cashReserves: profile.cashReserves ?? "",
                 financialProjections: profile.financialProjections ?? "",
+                previousGrantExperience: profile.previousGrantExperience ?? "",
                 previousGrants: profile.previousGrants ?? undefined,
               }}
               onSubmit={handleStep3}
@@ -374,7 +424,10 @@ export function ProfileForm({
                 fundingMin: profile.fundingMin || undefined,
                 fundingMax: profile.fundingMax || undefined,
                 fundingPurposes: profile.fundingPurposes ?? [],
+                preferredOpportunityTypes: profile.preferredOpportunityTypes ?? [],
                 fundingDetails: profile.fundingDetails ?? "",
+                coFundingCapacity: profile.coFundingCapacity ?? "",
+                reimbursementReadiness: profile.reimbursementReadiness ?? "",
                 coFundingAvailable: profile.coFundingAvailable ?? "",
                 matchFundingDetails: profile.matchFundingDetails ?? "",
               }}
@@ -441,8 +494,20 @@ export function ProfileForm({
               }}
               onSubmit={handleStep6}
               onBack={() => setStep(5)}
-              onComplete={handleComplete}
+              onComplete={() => setStep(7)}
               isPending={isPending || savingStep === 6}
+              completeLabel="Save & Next"
+            />
+          )}
+          {step === 7 && (
+            <Step7EligibilityFacts
+              defaultValues={{
+                eligibilityFacts: normalizeEligibilityFacts(profile.eligibilityFacts),
+              }}
+              onSubmit={handleStep7}
+              onBack={() => setStep(6)}
+              onComplete={handleComplete}
+              isPending={isPending || savingStep === 7}
             />
           )}
         </CardContent>

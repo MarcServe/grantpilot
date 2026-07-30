@@ -206,12 +206,28 @@ function profileToMatching(profile: Record<string, unknown>) {
     employeeCount: profile.employeeCount != null ? Number(profile.employeeCount) : (profile.employee_count != null ? Number(profile.employee_count) : null),
     annualRevenue: profile.annualRevenue != null ? Number(profile.annualRevenue) : (profile.annual_revenue != null ? Number(profile.annual_revenue) : null),
     yearEstablished: profile.yearEstablished != null ? Number(profile.yearEstablished) : (profile.year_established != null ? Number(profile.year_established) : null),
+    incorporationDate: get("incorporationDate") != null ? String(get("incorporationDate")) : null,
+    tradingStartDate: get("tradingStartDate") != null ? String(get("tradingStartDate")) : null,
+    expectedEmployeeGrowth: get("expectedEmployeeGrowth") != null ? String(get("expectedEmployeeGrowth")) : null,
     fundingMin: Number(get("fundingMin") ?? get("funding_min") ?? 0),
     fundingMax: Number(get("fundingMax") ?? get("funding_max") ?? 0),
     fundingPurposes: Array.isArray(profile.fundingPurposes) ? profile.fundingPurposes as string[] : (Array.isArray(profile.funding_purposes) ? profile.funding_purposes as string[] : []),
+    preferredOpportunityTypes: Array.isArray(get("preferredOpportunityTypes")) ? get("preferredOpportunityTypes") as string[] : [],
     fundingDetails: profile.fundingDetails != null ? String(profile.fundingDetails) : (profile.funding_details != null ? String(profile.funding_details) : null),
     businessType: String(get("businessType") ?? get("business_type") ?? ""),
+    legalStructure: String(get("legalStructure") ?? ""),
+    businessStage: String(get("businessStage") ?? ""),
+    businessSizeBand: String(get("businessSizeBand") ?? ""),
+    founderEmploymentStatus: String(get("founderEmploymentStatus") ?? ""),
+    localAuthority: String(get("localAuthority") ?? ""),
+    areasServed: String(get("areasServed") ?? ""),
+    coFundingCapacity: String(get("coFundingCapacity") ?? ""),
+    reimbursementReadiness: String(get("reimbursementReadiness") ?? ""),
+    coFundingAvailable: get("coFundingAvailable") != null ? String(get("coFundingAvailable")) : null,
+    matchFundingDetails: get("matchFundingDetails") != null ? String(get("matchFundingDetails")) : null,
+    previousGrantExperience: get("previousGrantExperience") != null ? String(get("previousGrantExperience")) : null,
     fundingOutcomeSignals: profile.fundingOutcomeSignals != null ? String(profile.fundingOutcomeSignals) : null,
+    eligibilityFacts: get("eligibilityFacts") ?? get("eligibility_facts") ?? [],
   };
 }
 
@@ -427,6 +443,16 @@ function profileToHeuristic(profile: Record<string, unknown>) {
       ? Number(profile.yearEstablished)
       : (profile.year_established != null ? Number(profile.year_established) : null),
     businessType: String(get("businessType") ?? get("business_type") ?? "") || null,
+    legalStructure: String(get("legalStructure") ?? "") || null,
+    businessStage: String(get("businessStage") ?? "") || null,
+    businessSizeBand: String(get("businessSizeBand") ?? "") || null,
+    coFundingCapacity: String(get("coFundingCapacity") ?? "") || null,
+    reimbursementReadiness: String(get("reimbursementReadiness") ?? "") || null,
+    coFundingAvailable: get("coFundingAvailable") != null ? String(get("coFundingAvailable")) : null,
+    matchFundingDetails: get("matchFundingDetails") != null ? String(get("matchFundingDetails")) : null,
+    eligibilityFactsText: Array.isArray(get("eligibilityFacts"))
+      ? JSON.stringify(get("eligibilityFacts"))
+      : "",
   };
 }
 

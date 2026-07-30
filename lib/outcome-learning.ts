@@ -1,5 +1,6 @@
 import { completeJson, cleanJsonResponse } from "@/lib/openai-client";
 import type { EligibilityResult } from "@/lib/claude";
+import { formatApplicationDuration, normaliseActualApplicationMinutes } from "@/lib/application-duration";
 
 export type FundingOutcome = "applied" | "shortlisted" | "awarded" | "rejected" | "withdrawn" | "unknown";
 
@@ -132,6 +133,16 @@ function parseStoredInsight(value?: string | null): OutcomeLearningInsight | nul
   }
 }
 
+function parseStoredActualApplicationMinutes(value?: string | null): number | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as { actualApplicationMinutes?: unknown };
+    return normaliseActualApplicationMinutes(parsed.actualApplicationMinutes);
+  } catch {
+    return null;
+  }
+}
+
 function unique(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
@@ -202,7 +213,9 @@ export function buildFundingOutcomeSignals(outcomes: unknown[] | null): string {
       };
       const grant = Array.isArray(item.Grant) ? item.Grant[0] : item.Grant;
       const insight = parseStoredInsight(item.learningNotes);
+      const actualTime = formatApplicationDuration(parseStoredActualApplicationMinutes(item.learningNotes));
       const amount = item.awardedAmount ? `, awarded GBP ${Number(item.awardedAmount).toLocaleString("en-GB")}` : "";
+      const time = actualTime ? `, actual application time: ${actualTime}` : "";
       const feedback = item.funderFeedback ? `, funder feedback: ${item.funderFeedback.slice(0, 240)}` : "";
       const learning = insight
         ? [
@@ -211,7 +224,7 @@ export function buildFundingOutcomeSignals(outcomes: unknown[] | null): string {
             insight.nextActions.length ? `pre-application checks: ${insight.nextActions.slice(0, 3).join("; ")}` : "",
           ].filter(Boolean).join(", ")
         : "";
-      return `${grant?.name ?? "Grant"} (${grant?.funder ?? "Funder"}): ${item.outcome ?? "unknown"}${amount}${feedback}${learning ? `, ${learning}` : ""}`;
+      return `${grant?.name ?? "Grant"} (${grant?.funder ?? "Funder"}): ${item.outcome ?? "unknown"}${amount}${time}${feedback}${learning ? `, ${learning}` : ""}`;
     })
     .join("\n");
 }

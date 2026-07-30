@@ -1,5 +1,6 @@
 import type { EligibilityResult } from "@/lib/claude";
 import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
+import { confirmedEligibilityFactsToText, eligibilityFactsToText } from "@/lib/eligibility-facts";
 import { applyOutcomeScoreAdjustment, type OutcomeLearningAdvisory } from "@/lib/outcome-learning";
 
 export type EligibilityAssessmentLike = {
@@ -44,6 +45,16 @@ export function profileForEligibilityGuards(profile: Record<string, unknown>) {
         ? (profile.funding_purposes as string[])
         : [],
     businessType: String(profile.businessType ?? profile.business_type ?? "") || null,
+    legalStructure: String(profile.legalStructure ?? profile.legal_structure ?? "") || null,
+    businessStage: String(profile.businessStage ?? profile.business_stage ?? "") || null,
+    businessSizeBand: String(profile.businessSizeBand ?? profile.business_size_band ?? "") || null,
+    expectedEmployeeGrowth: String(profile.expectedEmployeeGrowth ?? profile.expected_employee_growth ?? "") || null,
+    coFundingCapacity: String(profile.coFundingCapacity ?? profile.co_funding_capacity ?? "") || null,
+    reimbursementReadiness: String(profile.reimbursementReadiness ?? profile.reimbursement_readiness ?? "") || null,
+    coFundingAvailable: String(profile.coFundingAvailable ?? profile.co_funding_available ?? "") || null,
+    matchFundingDetails: String(profile.matchFundingDetails ?? profile.match_funding_details ?? "") || null,
+    eligibilityFactsText: eligibilityFactsToText(profile.eligibilityFacts ?? profile.eligibility_facts, 16),
+    confirmedEligibilityFactsText: confirmedEligibilityFactsToText(profile.eligibilityFacts ?? profile.eligibility_facts, 16),
     employeeCount:
       profile.employeeCount != null
         ? Number(profile.employeeCount)

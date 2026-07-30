@@ -4,6 +4,7 @@
  */
 
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { normalizeEligibilityFacts, type EligibilityFact } from "@/lib/eligibility-facts";
 
 export interface GrantMemoryPayload {
   company?: {
@@ -25,6 +26,16 @@ export interface GrantMemoryPayload {
     primaryContactLinkedIn?: string | null;
     preferredContactMethod?: string | null;
     location?: string;
+    businessType?: string | null;
+    legalStructure?: string | null;
+    businessStage?: string | null;
+    businessSizeBand?: string | null;
+    founderEmploymentStatus?: string | null;
+    incorporationDate?: string | null;
+    tradingStartDate?: string | null;
+    expectedEmployeeGrowth?: string | null;
+    localAuthority?: string | null;
+    areasServed?: string | null;
     sector?: string;
     missionStatement?: string;
     description?: string;
@@ -38,10 +49,14 @@ export interface GrantMemoryPayload {
     cashReserves?: string | null;
     financialProjections?: string | null;
     previousGrants?: string | null;
+    previousGrantExperience?: string | null;
     fundingMin?: number;
     fundingMax?: number;
     fundingPurposes?: string[];
+    preferredOpportunityTypes?: string[];
     fundingDetails?: string | null;
+    coFundingCapacity?: string | null;
+    reimbursementReadiness?: string | null;
     coFundingAvailable?: string | null;
     matchFundingDetails?: string | null;
   };
@@ -54,6 +69,7 @@ export interface GrantMemoryPayload {
     founderBackground?: string | null;
   };
   applicationBrief?: Record<string, unknown>;
+  eligibilityFacts?: EligibilityFact[];
   documentsSummary?: { name: string; type: string; category?: string | null }[];
   pitchSnippets?: Record<string, string>;
 }
@@ -84,6 +100,16 @@ function buildPayloadFromProfile(profile: Record<string, unknown>): GrantMemoryP
       primaryContactLinkedIn: (profile.primaryContactLinkedIn as string | null) ?? null,
       preferredContactMethod: (profile.preferredContactMethod as string | null) ?? null,
       location: profile.location as string,
+      businessType: (profile.businessType as string | null) ?? null,
+      legalStructure: (profile.legalStructure as string | null) ?? null,
+      businessStage: (profile.businessStage as string | null) ?? null,
+      businessSizeBand: (profile.businessSizeBand as string | null) ?? null,
+      founderEmploymentStatus: (profile.founderEmploymentStatus as string | null) ?? null,
+      incorporationDate: (profile.incorporationDate as string | null) ?? null,
+      tradingStartDate: (profile.tradingStartDate as string | null) ?? null,
+      expectedEmployeeGrowth: (profile.expectedEmployeeGrowth as string | null) ?? null,
+      localAuthority: (profile.localAuthority as string | null) ?? null,
+      areasServed: (profile.areasServed as string | null) ?? null,
       sector: profile.sector as string,
       missionStatement: profile.missionStatement as string,
       description: profile.description as string,
@@ -97,10 +123,14 @@ function buildPayloadFromProfile(profile: Record<string, unknown>): GrantMemoryP
       cashReserves: (profile.cashReserves as string | null) ?? null,
       financialProjections: (profile.financialProjections as string | null) ?? null,
       previousGrants: (profile.previousGrants as string | null) ?? null,
+      previousGrantExperience: (profile.previousGrantExperience as string | null) ?? null,
       fundingMin: Number(profile.fundingMin ?? profile.funding_min ?? 0),
       fundingMax: Number(profile.fundingMax ?? profile.funding_max ?? 0),
       fundingPurposes: (profile.fundingPurposes as string[]) ?? [],
+      preferredOpportunityTypes: (profile.preferredOpportunityTypes as string[]) ?? [],
       fundingDetails: (profile.fundingDetails as string | null) ?? (profile.funding_details as string | null) ?? null,
+      coFundingCapacity: (profile.coFundingCapacity as string | null) ?? null,
+      reimbursementReadiness: (profile.reimbursementReadiness as string | null) ?? null,
       coFundingAvailable: (profile.coFundingAvailable as string | null) ?? null,
       matchFundingDetails: (profile.matchFundingDetails as string | null) ?? null,
     },
@@ -137,6 +167,7 @@ function buildPayloadFromProfile(profile: Record<string, unknown>): GrantMemoryP
       exitStrategy: profile.exitStrategy,
       projectSustainabilityPlan: profile.projectSustainabilityPlan,
     },
+    eligibilityFacts: normalizeEligibilityFacts(profile.eligibilityFacts),
     documentsSummary,
     pitchSnippets: {},
   };

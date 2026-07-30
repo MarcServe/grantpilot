@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ELIGIBILITY_FACT_CATEGORIES, ELIGIBILITY_FACT_CONFIDENCE_VALUES } from "@/lib/eligibility-facts";
 
 export const FUNDER_LOCATION_VALUES = ["US", "UK", "EU", "CA", "AU", "Global"] as const;
 
@@ -15,20 +16,107 @@ export const BUSINESS_TYPES = [
   "Other",
 ] as const;
 
+export const LEGAL_STRUCTURES = [
+  "Limited company",
+  "Sole trader",
+  "Partnership",
+  "Limited liability partnership",
+  "Charity",
+  "Community interest company",
+  "Social enterprise",
+  "University / research organisation",
+  "Public sector body",
+  "Other",
+] as const;
+
+export const BUSINESS_STAGES = [
+  "Idea / pre-trading",
+  "Pre-revenue startup",
+  "Early-stage startup",
+  "Established SME",
+  "Growth / scale-up",
+  "Enterprise",
+  "Other",
+] as const;
+
+export const BUSINESS_SIZE_BANDS = [
+  "Solo founder",
+  "Micro business (1-9 employees)",
+  "Small business (10-49 employees)",
+  "Medium business (50-249 employees)",
+  "Large business (250+ employees)",
+  "Not sure",
+] as const;
+
+export const FOUNDER_EMPLOYMENT_STATUSES = [
+  "Full-time founder",
+  "Part-time founder",
+  "Self-employed",
+  "Employed and building on the side",
+  "Team-led company",
+  "Other",
+] as const;
+
+export const PREVIOUS_GRANT_EXPERIENCE = [
+  "First-time grant applicant",
+  "Applied before",
+  "Previously awarded",
+  "Previously rejected",
+  "Regular grant applicant",
+  "Not sure",
+] as const;
+
+export const CO_FUNDING_CAPACITY = [
+  "None confirmed",
+  "Can contribute up to 10%",
+  "Can contribute 10-25%",
+  "Can contribute 25-50%",
+  "Can contribute 50%+",
+  "In-kind support only",
+  "Not sure",
+] as const;
+
+export const REIMBURSEMENT_READINESS = [
+  "Can pay upfront and reclaim",
+  "Limited upfront cash",
+  "Needs advance payment",
+  "Not sure",
+] as const;
+
+export const PREFERRED_OPPORTUNITY_TYPES = [
+  "Grant",
+  "Loan",
+  "Innovation competition",
+  "Accelerator",
+  "Business support",
+  "Software / startup perk",
+  "Procurement / contract",
+] as const;
+
 export const step1Schema = z.object({
   businessName: z.string().min(2, "Business name is required"),
   tradingName: z.string().optional(),
   businessType: z.string().optional(),
+  legalStructure: z.string().optional(),
+  businessStage: z.string().optional(),
+  businessSizeBand: z.string().optional(),
+  founderEmploymentStatus: z.string().optional(),
   registrationNumber: z.string().optional(),
   charityNumber: z.string().optional(),
   vatNumber: z.string().optional(),
   yearEstablished: z.coerce.number().int().min(1800).max(new Date().getFullYear()).optional().or(z.literal("")),
+  incorporationDate: z.string().optional(),
+  tradingStartDate: z.string().optional(),
+  employeeCount: z.coerce.number().int().min(0).optional().or(z.literal("")),
+  expectedEmployeeGrowth: z.string().optional(),
   location: z.string().min(2, "Location is required"),
   registeredAddress: z.string().optional(),
   operatingAddress: z.string().optional(),
   postcode: z.string().optional(),
   country: z.string().optional(),
   region: z.string().optional(),
+  localAuthority: z.string().optional(),
+  areasServed: z.string().optional(),
   primaryContactName: z.string().optional(),
   primaryContactRole: z.string().optional(),
   primaryContactEmail: z.string().email("Enter a valid email").optional().or(z.literal("")),
@@ -52,6 +140,7 @@ export const step3Schema = z.object({
   profitLoss: z.string().optional(),
   cashReserves: z.string().optional(),
   financialProjections: z.string().optional(),
+  previousGrantExperience: z.string().optional(),
   previousGrants: z.string().optional(),
 });
 
@@ -77,6 +166,9 @@ export const step4Schema = z.object({
   fundingMax: z.coerce.number().min(1, "Maximum funding amount is required"),
   fundingPurposes: z.array(z.string()).min(1, "Select at least one funding purpose"),
   fundingDetails: z.string().optional(),
+  preferredOpportunityTypes: z.array(z.string()).optional().default([]),
+  coFundingCapacity: z.string().optional(),
+  reimbursementReadiness: z.string().optional(),
   coFundingAvailable: z.string().optional(),
   matchFundingDetails: z.string().optional(),
 }).refine((data) => data.fundingMax >= data.fundingMin, {
@@ -130,6 +222,21 @@ export const step6Schema = z.object({
   teamExpertise: z.string().optional(),
 });
 
+export const eligibilityFactSchema = z.object({
+  id: z.string().optional(),
+  label: z.string().trim().min(2, "Add a short fact label").max(120),
+  value: z.string().trim().min(2, "Add the confirmed fact").max(500),
+  category: z.enum(ELIGIBILITY_FACT_CATEGORIES).optional().or(z.literal("")),
+  evidence: z.string().trim().max(700).optional().or(z.literal("")),
+  source: z.enum(["manual", "ai_suggested"]).optional().default("manual"),
+  confidence: z.enum(ELIGIBILITY_FACT_CONFIDENCE_VALUES).optional().default("confirmed"),
+  updatedAt: z.string().optional(),
+});
+
+export const step7Schema = z.object({
+  eligibilityFacts: z.array(eligibilityFactSchema).max(40).default([]),
+});
+
 /** Phone for WhatsApp: optional; if provided, must have at least 10 digits. */
 export const notificationPreferencesSchema = z.object({
   phoneNumber: z
@@ -149,6 +256,7 @@ export type Step3Data = z.infer<typeof step3Schema>;
 export type Step4Data = z.infer<typeof step4Schema>;
 export type Step5Data = z.infer<typeof step5Schema>;
 export type Step6Data = z.infer<typeof step6Schema>;
+export type Step7Data = z.infer<typeof step7Schema>;
 export type NotificationPreferencesData = z.infer<typeof notificationPreferencesSchema>;
 
 export const SECTORS = [

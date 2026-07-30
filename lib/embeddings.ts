@@ -6,6 +6,7 @@
  */
 
 import OpenAI from "openai";
+import { eligibilityFactsToText } from "@/lib/eligibility-facts";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 const EMBEDDING_MODEL = "text-embedding-3-small";
@@ -63,21 +64,55 @@ function buildProfileText(profile: {
   missionStatement: string;
   description: string;
   location: string;
+  businessType?: string | null;
+  legalStructure?: string | null;
+  businessStage?: string | null;
+  businessSizeBand?: string | null;
+  founderEmploymentStatus?: string | null;
+  localAuthority?: string | null;
+  areasServed?: string | null;
+  expectedEmployeeGrowth?: string | null;
+  incorporationDate?: string | null;
+  tradingStartDate?: string | null;
   fundingPurposes: string[];
+  preferredOpportunityTypes?: string[] | null;
   fundingDetails?: string | null;
   employeeCount?: number | null;
   annualRevenue?: number | null;
+  coFundingCapacity?: string | null;
+  reimbursementReadiness?: string | null;
+  coFundingAvailable?: string | null;
+  matchFundingDetails?: string | null;
+  previousGrantExperience?: string | null;
+  eligibilityFacts?: unknown;
 }): string {
   const parts = [
     `Business: ${profile.businessName}`,
+    profile.businessType ? `Business type: ${profile.businessType}` : "",
+    profile.legalStructure ? `Legal structure: ${profile.legalStructure}` : "",
+    profile.businessStage ? `Business stage: ${profile.businessStage}` : "",
+    profile.businessSizeBand ? `Business size: ${profile.businessSizeBand}` : "",
+    profile.founderEmploymentStatus ? `Founder/employment status: ${profile.founderEmploymentStatus}` : "",
     `Sector: ${profile.sector}`,
     `Mission: ${profile.missionStatement}`,
     `Description: ${profile.description}`,
     `Location: ${profile.location}`,
+    profile.localAuthority ? `Local authority: ${profile.localAuthority}` : "",
+    profile.areasServed ? `Areas served: ${profile.areasServed}` : "",
+    profile.incorporationDate ? `Incorporation date: ${profile.incorporationDate}` : "",
+    profile.tradingStartDate ? `Trading start date: ${profile.tradingStartDate}` : "",
+    profile.expectedEmployeeGrowth ? `Expected employee growth: ${profile.expectedEmployeeGrowth}` : "",
     `Funding purposes: ${profile.fundingPurposes.join(", ")}`,
+    profile.preferredOpportunityTypes?.length ? `Preferred opportunity types: ${profile.preferredOpportunityTypes.join(", ")}` : "",
     profile.fundingDetails ? `Funding details: ${profile.fundingDetails}` : "",
-    profile.employeeCount ? `Employees: ${profile.employeeCount}` : "",
-    profile.annualRevenue ? `Revenue: £${profile.annualRevenue.toLocaleString("en-GB")}` : "",
+    profile.employeeCount != null ? `Employees: ${profile.employeeCount}` : "",
+    profile.annualRevenue != null ? `Revenue: £${profile.annualRevenue.toLocaleString("en-GB")}` : "",
+    profile.coFundingCapacity ? `Co-funding capacity: ${profile.coFundingCapacity}` : "",
+    profile.reimbursementReadiness ? `Reimbursement readiness: ${profile.reimbursementReadiness}` : "",
+    profile.coFundingAvailable ? `Co-funding available: ${profile.coFundingAvailable}` : "",
+    profile.matchFundingDetails ? `Match funding details: ${profile.matchFundingDetails}` : "",
+    profile.previousGrantExperience ? `Previous grant experience: ${profile.previousGrantExperience}` : "",
+    eligibilityFactsToText(profile.eligibilityFacts) ? `Eligibility facts: ${eligibilityFactsToText(profile.eligibilityFacts)}` : "",
   ];
   return parts.filter(Boolean).join("\n");
 }
@@ -106,7 +141,7 @@ export async function generateAndStoreProfileEmbedding(profileId: string): Promi
   const supabase = getSupabaseAdmin();
   const { data: profile } = await supabase
     .from("BusinessProfile")
-    .select("id, businessName, sector, missionStatement, description, location, fundingPurposes, fundingDetails, employeeCount, annualRevenue")
+    .select("id, businessName, businessType, legalStructure, businessStage, businessSizeBand, founderEmploymentStatus, sector, missionStatement, description, location, localAuthority, areasServed, incorporationDate, tradingStartDate, expectedEmployeeGrowth, fundingPurposes, preferredOpportunityTypes, fundingDetails, employeeCount, annualRevenue, coFundingCapacity, reimbursementReadiness, coFundingAvailable, matchFundingDetails, previousGrantExperience, eligibilityFacts")
     .eq("id", profileId)
     .maybeSingle();
 

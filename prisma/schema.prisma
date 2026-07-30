@@ -136,17 +136,30 @@ model BusinessProfile {
   organisation       Organisation  @relation(fields: [organisationId], references: [id])
   businessName       String
   businessType       String?              // SME, Startup, Charity / Non-profit, etc. — for grant applicant-type matching
+  legalStructure     String?
+  businessStage      String?
+  businessSizeBand   String?
+  founderEmploymentStatus String?
   registrationNumber String?
   sector             String
   missionStatement   String        @db.Text
   description        String        @db.Text
   location           String
+  localAuthority     String?
+  areasServed        String?       @db.Text
   employeeCount      Int?
+  expectedEmployeeGrowth String?    @db.Text
   annualRevenue      Float?
+  incorporationDate  String?
+  tradingStartDate   String?
   fundingMin         Float         @default(0)
   fundingMax         Float         @default(0)
   fundingPurposes    String[]
+  preferredOpportunityTypes String[] @default([])
   fundingDetails     String?       @db.Text
+  coFundingCapacity  String?
+  reimbursementReadiness String?
+  previousGrantExperience String?
   previousGrants     String?       @db.Text
   funderLocations    String[]      @default([]) // US, UK, EU, Global – which funder regions user wants to see
   websiteUrl         String?
@@ -157,6 +170,7 @@ model BusinessProfile {
   communityEngagement String?      @db.Text     // Community partnerships, outreach
   keyAchievements    String?       @db.Text     // Awards, milestones, growth metrics
   teamExpertise      String?       @db.Text     // Key team skills, qualifications
+  eligibilityFacts   Json?         @default("[]") // Confirmed edge-case eligibility facts: property ownership, match funding, certifications, etc.
   documents          Document[]
   applications       Application[]
   founderFundingPacks FounderFundingPack[]

@@ -6,7 +6,8 @@ import { planAllowsForOrg, PLAN_CAPABILITY_MESSAGES } from "@/lib/plan-features"
 import { syncGrantMemoryFromProfile } from "@/lib/grant-memory";
 import { requestEligibilityRefresh } from "@/lib/eligibility-refresh-trigger";
 import { generateAndStoreProfileEmbedding } from "@/lib/embeddings";
-import { FUNDING_PURPOSES } from "@/lib/validations/profile";
+import { eligibilityFactSchema, FUNDING_PURPOSES } from "@/lib/validations/profile";
+import { mergeEligibilityFacts } from "@/lib/eligibility-facts";
 
 const ALLOWED_TEXT_FIELDS = [
   "missionStatement",
@@ -27,6 +28,7 @@ const applySchema = z.object({
       socialImpact: z.string().min(8).optional(),
       teamExpertise: z.string().min(8).optional(),
       fundingPurposes: z.array(z.string()).optional(),
+      eligibilityFacts: z.array(eligibilityFactSchema).optional(),
     })
     .default({}),
 });
@@ -42,26 +44,35 @@ async function recalcCompletionScore(profileId: string) {
 
   let score = 0;
   if (profile.businessName) score++;
+  if (profile.businessType) score++;
+  if (profile.legalStructure) score++;
+  if (profile.businessStage) score++;
+  if (profile.businessSizeBand) score++;
   if (profile.sector) score++;
   if (profile.location) score++;
-  if (profile.websiteUrl) score++;
+  if (profile.localAuthority) score++;
   if (profile.missionStatement) score++;
   if (profile.description) score++;
+  if (profile.employeeCount != null && Number(profile.employeeCount) >= 0) score++;
+  if (profile.annualRevenue != null && Number(profile.annualRevenue) >= 0) score++;
   if (profile.fundingMin != null && Number(profile.fundingMin) >= 0) score++;
   if (profile.fundingMax != null && Number(profile.fundingMax) >= 0) score++;
   if (Array.isArray(profile.fundingPurposes) && profile.fundingPurposes.length > 0) score++;
-  if (profile.innovationCapabilities || profile.socialImpact || profile.teamExpertise) score++;
+  if (Array.isArray(profile.preferredOpportunityTypes) && profile.preferredOpportunityTypes.length > 0) score++;
+  if (profile.coFundingCapacity) score++;
+  if (profile.reimbursementReadiness) score++;
+  if (Array.isArray(profile.eligibilityFacts) && profile.eligibilityFacts.length > 0) score++;
   if ((count ?? 0) >= 1) score++;
 
   await supabase
     .from("BusinessProfile")
-    .update({ completionScore: Math.round((score / 11) * 100) })
+    .update({ completionScore: Math.round((score / 20) * 100) })
     .eq("id", profileId);
 }
 
 export async function POST(req: Request): Promise<NextResponse> {
   try {
-    const { orgId, org } = await getActiveOrg();
+    const { orgId, org, activeProfileId } = await getActiveOrg();
     if (!planAllowsForOrg(org, "company_dna_ai")) {
       return NextResponse.json(
         { error: PLAN_CAPABILITY_MESSAGES.company_dna_ai, code: "FEATURE_FORBIDDEN" },
@@ -90,18 +101,24 @@ export async function POST(req: Request): Promise<NextResponse> {
       if (values.length > 0) updates.fundingPurposes = values;
     }
 
-    if (Object.keys(updates).length === 0) {
-      return NextResponse.json({ error: "Select at least one safe Business DNA improvement to apply" }, { status: 400 });
-    }
-
     const supabase = getSupabaseAdmin();
-    const { data: profile } = await supabase
+    let profileQuery = supabase
       .from("BusinessProfile")
-      .select("id")
-      .eq("organisationId", orgId)
-      .maybeSingle();
+      .select("id, eligibilityFacts")
+      .eq("organisationId", orgId);
+    if (activeProfileId) profileQuery = profileQuery.eq("id", activeProfileId);
+    else profileQuery = profileQuery.order("createdAt", { ascending: true }).limit(1);
+    const { data: profile } = await profileQuery.maybeSingle();
     if (!profile?.id) {
       return NextResponse.json({ error: "Profile not found" }, { status: 404 });
+    }
+
+    if (Array.isArray(parsed.data.updates.eligibilityFacts) && parsed.data.updates.eligibilityFacts.length > 0) {
+      updates.eligibilityFacts = mergeEligibilityFacts(profile.eligibilityFacts, parsed.data.updates.eligibilityFacts);
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return NextResponse.json({ error: "Select at least one safe Business DNA improvement to apply" }, { status: 400 });
     }
 
     const { error } = await supabase

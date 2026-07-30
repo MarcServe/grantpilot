@@ -14,6 +14,16 @@ interface GuardProfile {
   annualRevenue?: number | null;
   yearEstablished?: number | null;
   businessType?: string | null;
+  legalStructure?: string | null;
+  businessStage?: string | null;
+  businessSizeBand?: string | null;
+  expectedEmployeeGrowth?: string | null;
+  coFundingCapacity?: string | null;
+  reimbursementReadiness?: string | null;
+  coFundingAvailable?: string | null;
+  matchFundingDetails?: string | null;
+  eligibilityFactsText?: string | null;
+  confirmedEligibilityFactsText?: string | null;
 }
 
 interface GuardGrant {
@@ -157,9 +167,13 @@ function hasExplicitMeasurableProfileCriteria(grant: GuardGrant): boolean {
   return [
     /\b(?:employee|employees|staff|fte|full[- ]time equivalent)/,
     /\b(?:revenue|turnover|income|sales|gross revenue)/,
+    /\b(?:legal structure|limited company|sole trader|self[- ]?employed|charity|cic)/,
+    /\b(?:business stage|startup|start[- ]?up|early[- ]stage|established|scale[- ]?up)/,
     /\b(?:trading|operating|registered|incorporated|established)[^.;\n]{0,80}\b(?:at least|minimum|min\.?|for|within|last|under|less than|up to|max)/,
     /\b(?:at least|minimum|min\.?|under|less than|up to|max)\s+\d+(?:\.\d+)?\s+(?:years?|months?)[^.;\n]{0,80}\b(?:trading|operating|registration|incorporation|established)/,
     /\bpre[- ]?revenue\b/,
+    /\b(?:match funding|matched funding|co[- ]?funding|own contribution|reimbursement|paid in arrears|cash[- ]?flow)/,
+    /\b(?:property owner|leaseholder|tenant|premises|academic partner|university partner|consortium|collaborative project)/,
   ].some((pattern) => pattern.test(text));
 }
 

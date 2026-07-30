@@ -11,6 +11,7 @@ import {
 } from "@/lib/outcome-learning";
 import { requestEligibilityRefresh } from "@/lib/eligibility-refresh-trigger";
 import { planAllowsForOrg } from "@/lib/plan-features";
+import { formatApplicationDuration } from "@/lib/application-duration";
 
 const outcomeSchema = z.object({
   outcome: z.enum(["applied", "shortlisted", "awarded", "rejected", "withdrawn", "unknown"]),
@@ -19,6 +20,7 @@ const outcomeSchema = z.object({
   responseText: z.string().max(8000).optional(),
   responseScreenshotName: z.string().max(240).optional(),
   responseScreenshotDataUrl: z.string().max(2_000_000).optional(),
+  actualApplicationMinutes: z.number().int().positive().max(24 * 60).nullable().optional(),
   learningNotes: z.string().max(5000).optional(),
 });
 
@@ -56,6 +58,14 @@ export async function POST(
       parsed.data.responseText?.trim() ? `Funder response text:\n${parsed.data.responseText.trim()}` : "",
       parsed.data.responseScreenshotDataUrl ? `Screenshot evidence uploaded: ${parsed.data.responseScreenshotName ?? "response screenshot"}` : "",
     ].filter(Boolean).join("\n\n");
+    const actualApplicationMinutes = parsed.data.actualApplicationMinutes ?? null;
+    const actualApplicationTimeNote = actualApplicationMinutes
+      ? `Actual application time from starting the funder form to submission: ${formatApplicationDuration(actualApplicationMinutes)}.`
+      : "";
+    const learningNotesForInsight = [
+      parsed.data.learningNotes?.trim(),
+      actualApplicationTimeNote,
+    ].filter(Boolean).join("\n\n");
 
     let insight: OutcomeLearningInsight;
     if (planAllowsForOrg(org, "outcome_learning_ai")) {
@@ -65,7 +75,7 @@ export async function POST(
         funder: String((grant as { funder?: string } | null)?.funder ?? "Funder"),
         profileSummary: buildOutcomeProfileSummary((profile ?? {}) as Record<string, unknown>),
         funderFeedback: combinedFunderFeedback || parsed.data.funderFeedback,
-        learningNotes: parsed.data.learningNotes,
+        learningNotes: learningNotesForInsight || parsed.data.learningNotes,
       }).catch(() => ({
         summary: "Outcome recorded.",
         strengths: [],
@@ -106,6 +116,7 @@ export async function POST(
               hasScreenshot: Boolean(parsed.data.responseScreenshotDataUrl),
               screenshotName: parsed.data.responseScreenshotName?.trim() || null,
             },
+            actualApplicationMinutes,
             insight,
           }),
           reportedAt: new Date().toISOString(),

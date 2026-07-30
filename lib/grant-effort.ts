@@ -1,6 +1,13 @@
-export type GrantEffortBand = "Quick win" | "Standard" | "Heavy";
+export type GrantEffortBand = "Quick win" | "Standard" | "Heavy" | "Strategic";
 export type GrantRoatLabel = "Excellent" | "Good" | "Medium" | "Low";
-export type GrantPriorityLabel = "Apply today" | "Review this week" | "Lower priority";
+export type GrantPriorityLabel = "Apply today" | "Review this week" | "Build readiness first" | "Lower priority";
+export type GrantApplicationPathway = "Quick form" | "Standard" | "Heavy" | "Strategic";
+export type GrantRecommendationCategory =
+  | "Best first"
+  | "Good first application"
+  | "Growth opportunity"
+  | "Strategic opportunity"
+  | "Build readiness first";
 
 export interface GrantEffortInput {
   amount?: number | null;
@@ -14,6 +21,8 @@ export interface GrantEffortInput {
   scoringSource?: string | null;
   missingCriteria?: string[] | null;
   improvementPlan?: { gaps?: string[]; actions?: string[] } | null;
+  firstTimeApplicantFriendly?: boolean | null;
+  complexityHints?: string[] | null;
 }
 
 export interface GrantEffortSignal {
@@ -24,6 +33,11 @@ export interface GrantEffortSignal {
   roatLabel: GrantRoatLabel;
   priorityLabel: GrantPriorityLabel;
   opportunityScore: number;
+  achievabilityScore: number;
+  applicationPathway: GrantApplicationPathway;
+  complexityBand: GrantEffortBand;
+  recommendationCategory: GrantRecommendationCategory;
+  whatToCheck: string[];
   effortReasons: string[];
 }
 
@@ -64,6 +78,7 @@ export function estimateGrantEffort(input: GrantEffortInput): GrantEffortSignal 
     input.eligibility,
     input.description,
     input.objectives,
+    ...(input.complexityHints ?? []),
     ...(input.missingCriteria ?? []),
     ...(input.improvementPlan?.gaps ?? []),
     ...(input.improvementPlan?.actions ?? []),
@@ -96,6 +111,10 @@ export function estimateGrantEffort(input: GrantEffortInput): GrantEffortSignal 
     minutes += 35;
     reasons.push("Partnership evidence may be needed");
   }
+  if (hasAny(text, ["procurement", "contract", "tender", "framework", "defence", "defense", "phase 2", "stage two", "clinical trial"])) {
+    minutes += 45;
+    reasons.push("Strategic or tender-style application pathway");
+  }
   if (hasAny(text, ["match funding", "co-funding", "budget", "cash flow", "financial statements", "accounts"])) {
     minutes += 25;
     reasons.push("Budget or finance evidence likely required");
@@ -120,6 +139,13 @@ export function estimateGrantEffort(input: GrantEffortInput): GrantEffortSignal 
     minutes += Math.min(35, missingCount * 8);
     reasons.push("Business DNA evidence gaps need filling");
   }
+  if (input.firstTimeApplicantFriendly === true) {
+    minutes -= 10;
+    reasons.push("Suitable for first-time applicants");
+  } else if (input.firstTimeApplicantFriendly === false) {
+    minutes += 15;
+    reasons.push("May be better for experienced applicants");
+  }
 
   const deadlineDays = daysUntil(input.deadline);
   if (deadlineDays != null && deadlineDays >= 0 && deadlineDays <= 7) {
@@ -128,7 +154,15 @@ export function estimateGrantEffort(input: GrantEffortInput): GrantEffortSignal 
 
   minutes = clamp(roundToFive(minutes), 15, 360);
   const effortBand: GrantEffortBand =
-    minutes <= 35 ? "Quick win" : minutes <= 105 ? "Standard" : "Heavy";
+    minutes <= 35 ? "Quick win" : minutes <= 105 ? "Standard" : minutes <= 210 ? "Heavy" : "Strategic";
+  const applicationPathway: GrantApplicationPathway =
+    effortBand === "Quick win"
+      ? "Quick form"
+      : effortBand === "Standard"
+        ? "Standard"
+        : effortBand === "Heavy"
+          ? "Heavy"
+          : "Strategic";
 
   const valuePerHour = amount != null ? amount / Math.max(minutes / HOUR, 0.25) : null;
   const roatLabel: GrantRoatLabel =
@@ -156,15 +190,40 @@ export function estimateGrantEffort(input: GrantEffortInput): GrantEffortSignal 
       : 0;
   const linkBoost = verifiedDirect ? 8 : 0;
   const roatBoost = roatLabel === "Excellent" ? 14 : roatLabel === "Good" ? 9 : roatLabel === "Medium" ? 4 : 0;
-  const effortPenalty = effortBand === "Heavy" ? 10 : effortBand === "Standard" ? 4 : 0;
+  const effortPenalty = effortBand === "Strategic" ? 15 : effortBand === "Heavy" ? 10 : effortBand === "Standard" ? 4 : 0;
   const opportunityScore = clamp(Math.round(score * 0.65 + roatBoost + urgencyBoost + linkBoost - effortPenalty), 1, 100);
+  const achievabilityScore = clamp(
+    Math.round(score * 0.7 + linkBoost + (input.firstTimeApplicantFriendly === true ? 6 : 0) - effortPenalty - Math.min(18, missingCount * 3)),
+    1,
+    100
+  );
 
   const priorityLabel: GrantPriorityLabel =
-    score >= 85 && (deadlineDays == null || deadlineDays <= 21 || roatLabel === "Excellent")
+    (missingCount >= 3 && score < 85) || (effortBand === "Strategic" && score < 80)
+      ? "Build readiness first"
+      : score >= 85 && (deadlineDays == null || deadlineDays <= 21 || roatLabel === "Excellent")
       ? "Apply today"
       : score >= 50 && (deadlineDays == null || deadlineDays <= 45 || roatLabel !== "Low")
         ? "Review this week"
         : "Lower priority";
+  const recommendationCategory: GrantRecommendationCategory =
+    priorityLabel === "Build readiness first"
+      ? "Build readiness first"
+      : score >= 85 && achievabilityScore >= 78 && effortBand !== "Strategic"
+        ? "Best first"
+        : score >= 75 && effortBand === "Quick win"
+          ? "Good first application"
+          : effortBand === "Strategic"
+            ? "Strategic opportunity"
+            : "Growth opportunity";
+  const whatToCheck = [
+    verifiedDirect ? null : "Confirm the direct application route on the funder page.",
+    deadlineDays != null && deadlineDays >= 0 && deadlineDays <= 14 ? "Check the deadline before starting." : null,
+    hasAny(text, ["match funding", "co-funding", "own contribution"]) ? "Confirm match funding or own contribution requirements." : null,
+    hasAny(text, ["reimbursement", "paid in arrears", "claim back", "cash flow"]) ? "Check whether costs are reimbursed after spend." : null,
+    hasAny(text, ["collaboration", "consortium", "academic", "university", "partner"]) ? "Confirm partner or collaboration requirements." : null,
+    hasAny(text, ["property", "premises", "leaseholder", "tenant"]) ? "Confirm property or premises eligibility." : null,
+  ].filter((item): item is string => Boolean(item));
 
   return {
     amount,
@@ -174,6 +233,11 @@ export function estimateGrantEffort(input: GrantEffortInput): GrantEffortSignal 
     roatLabel,
     priorityLabel,
     opportunityScore,
+    achievabilityScore,
+    applicationPathway,
+    complexityBand: effortBand,
+    recommendationCategory,
+    whatToCheck: whatToCheck.slice(0, 4),
     effortReasons: reasons.slice(0, 4),
   };
 }

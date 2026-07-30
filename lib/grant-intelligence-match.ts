@@ -1,4 +1,5 @@
 import type { EligibilityResult } from "@/lib/claude";
+import { confirmedEligibilityFactsToText, eligibilityFactsToText } from "@/lib/eligibility-facts";
 import type { GrantIntelligence, GrantRequirement } from "@/lib/grant-intelligence-schema";
 
 type GrantForMatch = {
@@ -21,13 +22,30 @@ export type ProfileFacts = {
   missionStatement: string;
   location: string;
   businessType: string;
+  legalStructure: string;
+  businessStage: string;
+  businessSizeBand: string;
+  founderEmploymentStatus: string;
+  localAuthority: string;
+  areasServed: string;
   employeeCount: number | null;
+  expectedEmployeeGrowth: string;
   annualRevenue: number | null;
   yearEstablished: number | null;
+  incorporationDate: string;
+  tradingStartDate: string;
   fundingMin: number | null;
   fundingMax: number | null;
   fundingPurposes: string[];
+  preferredOpportunityTypes: string[];
   fundingDetails: string;
+  coFundingCapacity: string;
+  reimbursementReadiness: string;
+  coFundingAvailable: string;
+  matchFundingDetails: string;
+  previousGrantExperience: string;
+  eligibilityFactsText: string;
+  confirmedEligibilityFactsText: string;
 };
 
 export type GrantIntelligenceMatch = EligibilityResult & {
@@ -83,7 +101,7 @@ function pushUnique(target: string[], value: string): void {
 }
 
 function profileRegion(profile: ProfileFacts): string {
-  const text = profile.location.toLowerCase();
+  const text = [profile.location, profile.localAuthority, profile.areasServed].join(" ").toLowerCase();
   if (/\buk\b|united kingdom|england|scotland|wales|northern ireland|london|manchester|birmingham|bristol/.test(text)) return "UK";
   if (/\beu\b|europe/.test(text)) return "EU";
   return profile.location || "Unknown";
@@ -100,11 +118,24 @@ function regionMatches(profile: ProfileFacts, regions: string[]): "match" | "unk
 }
 
 function profileApplicantTerms(profile: ProfileFacts): string[] {
-  const type = `${profile.businessType} ${profile.description} ${profile.businessName}`.toLowerCase();
+  const type = [
+    profile.businessType,
+    profile.legalStructure,
+    profile.businessStage,
+    profile.businessSizeBand,
+    profile.founderEmploymentStatus,
+    profile.description,
+    profile.businessName,
+  ].join(" ").toLowerCase();
   const terms = ["business", "company", "organisation"];
-  if (/startup|start-up|early stage/.test(type)) terms.push("startup", "start-up");
-  if (/sme|small|micro/.test(type) || (profile.employeeCount != null && profile.employeeCount <= 250)) terms.push("sme", "small business");
-  if (/charity|nonprofit|not-for-profit|cic/.test(type)) terms.push("charity", "nonprofit", "not-for-profit", "cic");
+  if (/startup|start-up|early stage|pre[- ]?seed|seed/.test(type)) terms.push("startup", "start-up", "early-stage business");
+  if (/scale|growth|established/.test(type)) terms.push("growth business", "established business");
+  if (/sme|small|micro|medium/.test(type) || (profile.employeeCount != null && profile.employeeCount <= 250)) {
+    terms.push("sme", "small business", "micro business", "medium business");
+  }
+  if (/limited|ltd|company limited|private company/.test(type)) terms.push("limited company", "company");
+  if (/sole trader|self[- ]?employed|freelancer/.test(type)) terms.push("sole trader", "self-employed", "individual");
+  if (/charity|nonprofit|non-profit|not-for-profit|cic|community interest/.test(type)) terms.push("charity", "nonprofit", "non-profit", "not-for-profit", "cic");
   if (/university|researcher|academic/.test(type)) terms.push("researcher", "academic", "university");
   return terms;
 }
@@ -127,8 +158,22 @@ function textCorpus(profile: ProfileFacts): string {
     profile.description,
     profile.missionStatement,
     profile.businessType,
+    profile.legalStructure,
+    profile.businessStage,
+    profile.businessSizeBand,
+    profile.founderEmploymentStatus,
+    profile.localAuthority,
+    profile.areasServed,
+    profile.expectedEmployeeGrowth,
     profile.fundingDetails,
     profile.fundingPurposes.join(" "),
+    profile.preferredOpportunityTypes.join(" "),
+    profile.coFundingCapacity,
+    profile.reimbursementReadiness,
+    profile.coFundingAvailable,
+    profile.matchFundingDetails,
+    profile.previousGrantExperience,
+    profile.eligibilityFactsText,
   ].join(" ");
 }
 
@@ -149,9 +194,33 @@ function intelligenceCorpus(intelligence: GrantIntelligence, grant: GrantForMatc
 
 function requirementGap(profile: ProfileFacts, requirement: GrantRequirement): string | null {
   const label = requirement.label.toLowerCase();
-  if (/revenue|turnover|income/.test(label) && profile.annualRevenue == null) return requirement.label;
-  if (/employee|staff|headcount|team/.test(label) && profile.employeeCount == null) return requirement.label;
-  if (/age|trading history|incorporat|registered/.test(label) && profile.yearEstablished == null) return requirement.label;
+  const facts = profile.confirmedEligibilityFactsText.toLowerCase();
+  const profileText = textCorpus({ ...profile, eligibilityFactsText: profile.confirmedEligibilityFactsText }).toLowerCase();
+  if (facts && overlapScore(facts, requirement.label) >= 0.2) return null;
+  if (profileText && overlapScore(profileText, requirement.label) >= 0.26) return null;
+  if (/revenue|turnover|income/.test(label) && profile.annualRevenue == null) {
+    return /revenue|turnover|income|financial|management accounts/.test(facts) ? null : requirement.label;
+  }
+  if (/employee|staff|headcount|team/.test(label) && profile.employeeCount == null) {
+    return /employee|staff|headcount|team/.test(facts) ? null : requirement.label;
+  }
+  if (/age|trading history|incorporat|registered/.test(label) && profile.yearEstablished == null) {
+    return /age|trading history|incorporat|registered|trading start|company age/.test(facts) ? null : requirement.label;
+  }
+  if (/legal structure|limited company|ltd|charity|cic|sole trader|self[- ]?employed/.test(label) && !profile.legalStructure) return requirement.label;
+  if (/stage|early[- ]?stage|startup|scale[- ]?up|established/.test(label) && !profile.businessStage) return requirement.label;
+  if (/property|premises|lease|landlord|tenant/.test(label) && !/property|premises|lease|landlord|tenant|owner/.test(facts)) {
+    return requirement.label;
+  }
+  if (/match funding|co[- ]?funding|own contribution/.test(label) && !/match funding|co[- ]?funding|own contribution|contribution|cash available|can contribute/.test(`${facts} ${profile.coFundingCapacity} ${profile.coFundingAvailable} ${profile.matchFundingDetails}`.toLowerCase())) {
+    return requirement.label;
+  }
+  if (/reimburse|paid in arrears|cash[- ]?flow|claim back/.test(label) && !/ready|cash|reserves|arrears|reimburse|can fund/.test(`${facts} ${profile.reimbursementReadiness}`.toLowerCase())) {
+    return requirement.label;
+  }
+  if (/certification|accreditation|licen[cs]e|regulated/.test(label) && !/certification|accreditation|licen[cs]e|regulated|compliance/.test(facts)) {
+    return requirement.label;
+  }
   return null;
 }
 
@@ -167,6 +236,30 @@ function hardGateMismatch(profile: ProfileFacts, intelligence: GrantIntelligence
   if (/charit(y|ies) only|registered charities only/.test(corpus) && applicantMatch(profile, [], ["charity"]) !== "match") {
     mismatches.push("Grant is restricted to charities");
   }
+  if (/\b(?:limited compan(?:y|ies)|ltd compan(?:y|ies)|companies limited by shares) only\b/.test(corpus) && !/limited|ltd|company/.test(profile.legalStructure.toLowerCase())) {
+    mismatches.push("Grant is restricted to limited companies");
+  }
+  if (/\b(?:sole traders?|self[- ]?employed) only\b/.test(corpus) && !/sole trader|self[- ]?employed/.test(`${profile.legalStructure} ${profile.founderEmploymentStatus}`.toLowerCase())) {
+    mismatches.push("Grant is restricted to sole traders or self-employed applicants");
+  }
+  if (/\b(?:startups?|start[- ]?ups?|early[- ]stage) only\b/.test(corpus) && !/startup|start-up|early/.test(profile.businessStage.toLowerCase())) {
+    mismatches.push("Grant is restricted to startups or early-stage businesses");
+  }
+  if (/\b(?:established|trading for|operating for) businesses? only\b/.test(corpus) && /idea|pre[- ]?start|not trading/.test(profile.businessStage.toLowerCase())) {
+    mismatches.push("Grant is restricted to established trading businesses");
+  }
+  if (/\b(?:match funding|co[- ]?funding|own contribution|matched funding) required\b/.test(corpus) && /none|not available|cannot|no capacity/.test(profile.coFundingCapacity.toLowerCase())) {
+    mismatches.push("Grant requires co-funding capacity");
+  }
+  if (/\b(?:reimbursement|paid in arrears|claim back|cash[- ]?flow) required\b/.test(corpus) && /needs advance|not ready|cannot|no capacity/.test(profile.reimbursementReadiness.toLowerCase())) {
+    mismatches.push("Grant requires reimbursement cash-flow readiness");
+  }
+  if (/\b(?:must own|property owner|leaseholder|tenant|premises) required\b/.test(corpus) && !/property|premises|leaseholder|tenant|owner|owned/.test(profile.confirmedEligibilityFactsText.toLowerCase())) {
+    mismatches.push("Property or premises requirement needs confirmed evidence");
+  }
+  if (/\b(?:academic partner|university partner|consortium|collaborative project) required\b/.test(corpus) && !/academic|university|partner|consortium|collaboration|collaborative/.test(profile.confirmedEligibilityFactsText.toLowerCase())) {
+    mismatches.push("Partner or consortium requirement needs confirmed evidence");
+  }
   return mismatches;
 }
 
@@ -179,13 +272,30 @@ export function normalizeProfileFacts(profile: Record<string, unknown>): Profile
     missionStatement: asText(get("missionStatement")),
     location: asText(get("location")),
     businessType: asText(get("businessType")),
+    legalStructure: asText(get("legalStructure")),
+    businessStage: asText(get("businessStage")),
+    businessSizeBand: asText(get("businessSizeBand")),
+    founderEmploymentStatus: asText(get("founderEmploymentStatus")),
+    localAuthority: asText(get("localAuthority")),
+    areasServed: asText(get("areasServed")),
     employeeCount: asNumber(get("employeeCount")),
+    expectedEmployeeGrowth: asText(get("expectedEmployeeGrowth")),
     annualRevenue: asNumber(get("annualRevenue")),
     yearEstablished: asNumber(get("yearEstablished")),
+    incorporationDate: asText(get("incorporationDate")),
+    tradingStartDate: asText(get("tradingStartDate")),
     fundingMin: asNumber(get("fundingMin")),
     fundingMax: asNumber(get("fundingMax")),
     fundingPurposes: asStringArray(get("fundingPurposes")),
+    preferredOpportunityTypes: asStringArray(get("preferredOpportunityTypes")),
     fundingDetails: asText(get("fundingDetails")),
+    coFundingCapacity: asText(get("coFundingCapacity")),
+    reimbursementReadiness: asText(get("reimbursementReadiness")),
+    coFundingAvailable: asText(get("coFundingAvailable")),
+    matchFundingDetails: asText(get("matchFundingDetails")),
+    previousGrantExperience: asText(get("previousGrantExperience")),
+    eligibilityFactsText: eligibilityFactsToText(get("eligibilityFacts"), 16),
+    confirmedEligibilityFactsText: confirmedEligibilityFactsToText(get("eligibilityFacts"), 16),
   };
 }
 

@@ -1,7 +1,18 @@
 interface PreScreenProfile {
+  businessType?: string | null;
+  legalStructure?: string | null;
+  businessStage?: string | null;
+  businessSizeBand?: string | null;
   employeeCount?: number | null;
+  expectedEmployeeGrowth?: string | null;
   annualRevenue?: number | null;
   yearEstablished?: number | null;
+  coFundingCapacity?: string | null;
+  reimbursementReadiness?: string | null;
+  coFundingAvailable?: string | null;
+  matchFundingDetails?: string | null;
+  eligibilityFactsText?: string | null;
+  confirmedEligibilityFactsText?: string | null;
 }
 
 interface PreScreenGrant {
@@ -83,6 +94,10 @@ function firstAge(patterns: RegExp[], text: string): number | null {
   return null;
 }
 
+function hasAny(text: string, patterns: RegExp[]): boolean {
+  return patterns.some((pattern) => pattern.test(text));
+}
+
 export function getCompanyAgeYears(yearEstablished?: number | null, asOf = new Date()): number | null {
   if (!yearEstablished || !Number.isFinite(yearEstablished)) return null;
   const currentYear = asOf.getFullYear();
@@ -96,6 +111,19 @@ export function evaluateEligibilityPreScreen(
 ): EligibilityPreScreenResult {
   const text = cleanText([grant.eligibility, grant.description, grant.objectives].filter(Boolean).join(" "));
   const lower = text.toLowerCase();
+  const profileText = cleanText([
+    profile.businessType,
+    profile.legalStructure,
+    profile.businessStage,
+    profile.businessSizeBand,
+    profile.expectedEmployeeGrowth,
+    profile.coFundingCapacity,
+    profile.reimbursementReadiness,
+    profile.coFundingAvailable,
+    profile.matchFundingDetails,
+    profile.eligibilityFactsText,
+  ].filter(Boolean).join(" ")).toLowerCase();
+  const confirmedFacts = cleanText(profile.confirmedEligibilityFactsText ?? "").toLowerCase();
   const met: string[] = [];
   const gaps: string[] = [];
   const actions: string[] = [];
@@ -185,6 +213,30 @@ export function evaluateEligibilityPreScreen(
     softGap("Grant appears aimed at pre-revenue businesses, but the profile has recorded revenue.", "Check whether the funder accepts revenue-generating businesses before recommending as a strong fit.", 65);
   }
 
+  if (hasAny(lower, [/\b(?:limited company|ltd company|companies limited by shares) only\b/, /\bmust be (?:a )?(?:registered )?(?:limited company|ltd)\b/])) {
+    if (!/limited|ltd|company/.test(String(profile.legalStructure ?? "").toLowerCase())) {
+      hardGap("Legal structure appears to require a limited company.", "Confirm the business legal structure before treating this grant as a strong match.", 45);
+    } else {
+      met.push("Legal structure fits limited-company requirement.");
+    }
+  }
+
+  if (hasAny(lower, [/\b(?:sole traders?|self[- ]?employed) only\b/, /\bmust be (?:a )?(?:sole trader|self[- ]?employed)\b/])) {
+    if (!/sole trader|self[- ]?employed/.test(profileText)) {
+      hardGap("Legal structure appears restricted to sole traders or self-employed applicants.", "Only recommend if the applicant status is confirmed as sole trader or self-employed.", 45);
+    } else {
+      met.push("Applicant status fits sole-trader/self-employed requirement.");
+    }
+  }
+
+  if (hasAny(lower, [/\b(?:startups?|start[- ]?ups?|early[- ]stage) only\b/, /\bfor (?:new|early[- ]stage) businesses\b/])) {
+    if (!/startup|start-up|early|pre[- ]?seed|seed|new business/.test(profileText)) {
+      softGap("Grant appears targeted at startups or early-stage businesses.", "Add business stage evidence before treating this as a strong match.", 65);
+    } else {
+      met.push("Business stage fits startup/early-stage language.");
+    }
+  }
+
   const minAge = firstAge([
     /\b(?:trading|operating|registered|incorporated|established)[^.;\n]{0,60}\b(?:at least|minimum|min\.?|for)\s+(\d+(?:\.\d+)?)\s+(years?|months?)\b/i,
     /\b(?:at least|minimum|min\.?)\s+(\d+(?:\.\d+)?)\s+(years?|months?)[^.;\n]{0,60}\b(?:trading|operating|registered|incorporated|established)\b/i,
@@ -212,6 +264,55 @@ export function evaluateEligibilityPreScreen(
       softGap(`Grant appears targeted at businesses up to ${maxAge.toFixed(maxAge % 1 ? 1 : 0)} years old; this profile is ${companyAge} years old.`, "Check whether the funder accepts more mature businesses before recommending as a strong fit.", 65);
     } else if (/\bearly[- ]stage\b|\bstart[- ]?up\b|\bstartup\b/.test(lower)) {
       met.push(`Fits early-stage company-age range (${companyAge} years).`);
+    }
+  }
+
+  const coFundingRequired = hasAny(lower, [
+    /\b(?:match funding|matched funding|co[- ]?funding|own contribution)\b/,
+    /\bapplicants? must contribute\b/,
+  ]);
+  if (coFundingRequired) {
+    if (/none|not available|cannot|no capacity/.test(profileText)) {
+      hardGap("Grant appears to require co-funding, but the profile says co-funding capacity is not available.", "Do not treat as high fit unless co-funding is confirmed.", 45);
+    } else if (!/match funding|co[- ]?funding|own contribution|contribution|available|can contribute|confirmed|cash/.test(profileText)) {
+      softGap("Co-funding or own contribution may be required.", "Confirm co-funding capacity in Business DNA before treating this as a strong match.", 65);
+    } else {
+      met.push("Co-funding readiness is evidenced.");
+    }
+  }
+
+  const reimbursementRequired = hasAny(lower, [
+    /\b(?:reimbursement|paid in arrears|claim back|cash[- ]?flow)\b/,
+  ]);
+  if (reimbursementRequired) {
+    if (/needs advance|not ready|cannot|no capacity/.test(profileText)) {
+      hardGap("Grant appears to require reimbursement/cash-flow readiness, but the profile is not ready.", "Build cash-flow readiness before prioritising this grant.", 45);
+    } else if (!/reimbursement|cash[- ]?flow|arrears|ready|can fund|cash reserves/.test(profileText)) {
+      softGap("Reimbursement or cash-flow readiness may be required.", "Confirm whether the business can fund project costs before reimbursement.", 65);
+    } else {
+      met.push("Reimbursement/cash-flow readiness is evidenced.");
+    }
+  }
+
+  const propertyRequired = hasAny(lower, [
+    /\b(?:must own|property owner|leaseholder|tenant|premises)\b/,
+  ]);
+  if (propertyRequired) {
+    if (!/property|premises|leaseholder|tenant|owner|owned|landlord/.test(confirmedFacts)) {
+      softGap("Property or premises status may be a hard requirement.", "Add a confirmed eligibility fact for property ownership, lease, tenancy, or premises status.", 60);
+    } else {
+      met.push("Property/premises eligibility fact is confirmed.");
+    }
+  }
+
+  const partnerRequired = hasAny(lower, [
+    /\b(?:academic partner|university partner|consortium|collaborative project|collaboration agreement)\b/,
+  ]);
+  if (partnerRequired) {
+    if (!/academic|university|partner|consortium|collaboration|collaborative/.test(confirmedFacts)) {
+      softGap("Partner, academic, or consortium evidence may be required.", "Add confirmed partner evidence before treating this as a strong match.", 65);
+    } else {
+      met.push("Partner/collaboration eligibility fact is confirmed.");
     }
   }
 

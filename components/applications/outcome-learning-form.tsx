@@ -9,8 +9,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { formatApplicationDuration, normaliseActualApplicationMinutes } from "@/lib/application-duration";
 
 const OUTCOME_OPTIONS = [
+  { value: "applied", label: "Applied / submitted, waiting for decision" },
   { value: "shortlisted", label: "Shortlisted" },
   { value: "awarded", label: "Awarded" },
   { value: "rejected", label: "Rejected" },
@@ -38,6 +40,8 @@ interface OutcomeLearningInsight {
   scoringAdjustment?: number;
 }
 
+const QUICK_DURATION_OPTIONS = [10, 20, 30, 45, 60, 90];
+
 function parseLearningNotes(value?: string | null): string {
   if (!value) return "";
   try {
@@ -45,6 +49,17 @@ function parseLearningNotes(value?: string | null): string {
     return parsed.userNotes ?? "";
   } catch {
     return value;
+  }
+}
+
+function parseActualApplicationMinutes(value?: string | null): string {
+  if (!value) return "";
+  try {
+    const parsed = JSON.parse(value) as { actualApplicationMinutes?: unknown };
+    const minutes = normaliseActualApplicationMinutes(parsed.actualApplicationMinutes);
+    return minutes ? String(minutes) : "";
+  } catch {
+    return "";
   }
 }
 
@@ -75,6 +90,9 @@ export function OutcomeLearningForm({
   const [responseText, setResponseText] = useState(existingOutcome?.responseText ?? "");
   const [responseScreenshotName, setResponseScreenshotName] = useState(existingOutcome?.responseScreenshotName ?? "");
   const [responseScreenshotDataUrl, setResponseScreenshotDataUrl] = useState(existingOutcome?.responseScreenshotDataUrl ?? "");
+  const [actualApplicationMinutes, setActualApplicationMinutes] = useState(
+    parseActualApplicationMinutes(existingOutcome?.learningNotes)
+  );
   const [learningNotes, setLearningNotes] = useState(parseLearningNotes(existingOutcome?.learningNotes));
   const [savedInsight, setSavedInsight] = useState<OutcomeLearningInsight | null>(
     parseLearningInsight(existingOutcome?.learningNotes)
@@ -96,10 +114,21 @@ export function OutcomeLearningForm({
   }
 
   async function save() {
-    const hasEvidence = Boolean(
+    const actualMinutes = actualApplicationMinutes.trim()
+      ? normaliseActualApplicationMinutes(actualApplicationMinutes)
+      : null;
+    if (actualApplicationMinutes.trim() && !actualMinutes) {
+      toast.error("Enter the actual application time in minutes, between 1 minute and 24 hours.");
+      return;
+    }
+    const hasFunderDecisionEvidence = Boolean(
       funderFeedback.trim() ||
         responseText.trim() ||
-        responseScreenshotDataUrl.trim() ||
+        responseScreenshotDataUrl.trim()
+    );
+    const hasEvidence = Boolean(
+      hasFunderDecisionEvidence ||
+        actualMinutes ||
         learningNotes.trim()
     );
     if (!outcome) {
@@ -110,7 +139,7 @@ export function OutcomeLearningForm({
       );
       return;
     }
-    if ((outcome === "applied" || outcome === "unknown") && hasEvidence) {
+    if ((outcome === "applied" || outcome === "unknown") && hasFunderDecisionEvidence) {
       toast.error("This response evidence still needs a final decision: awarded, rejected, shortlisted, or withdrawn.");
       return;
     }
@@ -127,6 +156,7 @@ export function OutcomeLearningForm({
           responseText,
           responseScreenshotName,
           responseScreenshotDataUrl,
+          actualApplicationMinutes: actualMinutes,
           learningNotes,
         }),
       });
@@ -167,7 +197,6 @@ export function OutcomeLearningForm({
               className="h-10 w-full rounded-md border bg-background px-3 text-sm"
             >
               <option value="">Select final outcome</option>
-              {outcome === "applied" && <option value="applied">Applied (not final)</option>}
               {OUTCOME_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
@@ -227,6 +256,39 @@ export function OutcomeLearningForm({
               )}
             </div>
           )}
+        </div>
+        <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
+          <Label htmlFor="actualApplicationMinutes">How long did this application actually take?</Label>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Input
+              id="actualApplicationMinutes"
+              type="number"
+              min="1"
+              max={24 * 60}
+              step="1"
+              placeholder="e.g. 20"
+              value={actualApplicationMinutes}
+              onChange={(event) => setActualApplicationMinutes(event.target.value)}
+              className="sm:max-w-40"
+            />
+            <div className="flex flex-wrap gap-2">
+              {QUICK_DURATION_OPTIONS.map((minutes) => (
+                <Button
+                  key={minutes}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setActualApplicationMinutes(String(minutes))}
+                >
+                  {formatApplicationDuration(minutes)}
+                </Button>
+              ))}
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Use the real time from opening the funder form to submission. This helps calibrate future time estimates,
+            quick-win labels, and ROAT.
+          </p>
         </div>
         <div className="space-y-2">
           <Label htmlFor="learningNotes">Internal notes</Label>

@@ -84,6 +84,49 @@ assert.notEqual(revenueRequirement.decision, "unlikely");
 assert.ok((revenueRequirement.missing ?? []).some((item) => /revenue/i.test(item)));
 assert.ok(revenueRequirement.requiresOpenAiReview);
 
+const suggestedRevenueFact = matchProfileToGrantIntelligence(
+  {
+    ...missingRevenueProfile,
+    eligibilityFacts: [
+      {
+        label: "Annual revenue evidence",
+        value: "Revenue may be available but needs user confirmation",
+        category: "Financial evidence",
+        source: "ai_suggested",
+        confidence: "suggested",
+      },
+    ],
+  },
+  baseGrant,
+  {
+    ...baseIntelligence,
+    measurableRequirements: [{ label: "Annual revenue evidence", required: true }],
+  }
+);
+assert.ok((suggestedRevenueFact.missing ?? []).some((item) => /revenue/i.test(item)));
+assert.ok(suggestedRevenueFact.requiresOpenAiReview);
+
+const confirmedRevenueFact = matchProfileToGrantIntelligence(
+  {
+    ...missingRevenueProfile,
+    eligibilityFacts: [
+      {
+        label: "Annual revenue evidence",
+        value: "Last annual revenue was confirmed from management accounts",
+        category: "Financial evidence",
+        source: "manual",
+        confidence: "confirmed",
+      },
+    ],
+  },
+  baseGrant,
+  {
+    ...baseIntelligence,
+    measurableRequirements: [{ label: "Annual revenue evidence", required: true }],
+  }
+);
+assert.ok(!(confirmedRevenueFact.missing ?? []).some((item) => /revenue/i.test(item)));
+
 const stale = matchProfileToGrantIntelligence(baseProfile, baseGrant, {
   ...baseIntelligence,
   freshness: { status: "stale", deadline: "2015-01-16", evidence: ["Deadline passed"] },

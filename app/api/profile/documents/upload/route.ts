@@ -12,7 +12,7 @@ async function refreshProfileAfterDocumentUpload(profileId: string, organisation
   const supabase = getSupabaseAdmin();
   const { data: profile } = await supabase
     .from("BusinessProfile")
-    .select("businessName, location, sector, missionStatement, description, employeeCount, annualRevenue, fundingMin, fundingMax, fundingPurposes")
+    .select("businessName, location, sector, missionStatement, description, employeeCount, annualRevenue, fundingMin, fundingMax, fundingPurposes, businessType, legalStructure, businessStage, businessSizeBand, localAuthority, preferredOpportunityTypes, coFundingCapacity, reimbursementReadiness, eligibilityFacts")
     .eq("id", profileId)
     .maybeSingle();
   if (!profile) return;
@@ -26,18 +26,27 @@ async function refreshProfileAfterDocumentUpload(profileId: string, organisation
   if (profile.businessName?.trim()) score++;
   if (profile.location?.trim()) score++;
   if (profile.sector?.trim()) score++;
+  if (profile.businessType?.trim()) score++;
+  if (profile.legalStructure?.trim()) score++;
+  if (profile.businessStage?.trim()) score++;
+  if (profile.businessSizeBand?.trim()) score++;
+  if (profile.localAuthority?.trim()) score++;
   if (profile.missionStatement?.trim()) score++;
   if (profile.description?.trim()) score++;
-  if (profile.employeeCount != null && Number(profile.employeeCount) > 0) score++;
-  if (profile.annualRevenue != null && Number(profile.annualRevenue) > 0) score++;
-  if (profile.fundingMin != null && Number(profile.fundingMin) > 0) score++;
-  if (profile.fundingMax != null && Number(profile.fundingMax) > 0) score++;
+  if (profile.employeeCount != null && Number(profile.employeeCount) >= 0) score++;
+  if (profile.annualRevenue != null && Number(profile.annualRevenue) >= 0) score++;
+  if (profile.fundingMin != null && Number(profile.fundingMin) >= 0) score++;
+  if (profile.fundingMax != null && Number(profile.fundingMax) >= 0) score++;
   if (Array.isArray(profile.fundingPurposes) && profile.fundingPurposes.length > 0) score++;
+  if (Array.isArray(profile.preferredOpportunityTypes) && profile.preferredOpportunityTypes.length > 0) score++;
+  if (profile.coFundingCapacity?.trim()) score++;
+  if (profile.reimbursementReadiness?.trim()) score++;
+  if (Array.isArray(profile.eligibilityFacts) && profile.eligibilityFacts.length > 0) score++;
   if ((count ?? 0) >= 1) score++;
 
   await supabase
     .from("BusinessProfile")
-    .update({ completionScore: Math.round((score / 11) * 100) })
+    .update({ completionScore: Math.round((score / 20) * 100) })
     .eq("id", profileId);
 
   await syncGrantMemoryFromProfile(profileId, organisationId).catch((error) =>

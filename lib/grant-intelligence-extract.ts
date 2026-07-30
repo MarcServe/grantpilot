@@ -82,13 +82,43 @@ Return STRICT JSON only with this shape:
   "exclusions": ["who is not eligible or stale/closed signals"],
   "freshness": {"status":"current|stale|unknown", "deadline":"ISO date or null", "evidence":["date/deadline text"]},
   "scoringHints": {"strongSignals":["signals"], "weakSignals":["signals"], "redFlags":["risks"]},
-  "extractedCriteria": {"notes":"other structured facts"}
+  "extractedCriteria": {
+    "opportunityType": "grant|loan|innovation_competition|accelerator|business_support|software_startup_perk|procurement_contract|unknown",
+    "applicantRules": {
+      "legalStructure": ["limited company", "sole trader", "CIC", "charity", "public body", "unknown"],
+      "stage": ["pre-start", "startup", "growth", "established", "scaleup", "unknown"],
+      "size": ["micro", "small", "medium", "large", "SME", "unknown"],
+      "employeeCount": "visible numeric threshold or null",
+      "turnover": "visible turnover/revenue threshold or null",
+      "tradingAge": "visible trading-age threshold or null"
+    },
+    "geographyRules": {
+      "countries": ["eligible countries"],
+      "regions": ["eligible regions"],
+      "localAuthorities": ["eligible councils/local authority areas"],
+      "mandatoryMultiRegion": false
+    },
+    "fundingRules": {
+      "maxAwardPerApplicant": "visible applicant-level award or null",
+      "totalProgrammeFund": "visible programme-wide fund or null",
+      "matchFunding": "required|not_required|unknown",
+      "reimbursementModel": "reimbursement|upfront|unknown",
+      "projectValue": "visible project value requirement or null"
+    },
+    "complexitySignals": ["documents, partner, consortium, academic, R&D, procurement, tender, interview, pitch"],
+    "firstTimeApplicantFriendly": true,
+    "competitionLevel": "low|medium|high|unknown",
+    "notes": "other structured facts"
+  }
 }
 
 Rules:
 - Extract grant facts only. Do not judge any specific business.
+- Identify the opportunity type. Include grants, loans, innovation competitions, accelerators, business support, software/startup perks, and procurement/contracts when applicable.
+- Capture legal structure, business stage, size band, employee count, turnover, trading age, co-funding, reimbursement, property, partner, academic, and local-authority requirements when visible.
 - Mark freshness.status "stale" if the text clearly says closed, expired, winner announced in the past, or past application windows.
 - Do not invent revenue, age, team size, or sector requirements when not stated.
+- If a generic SME grant does not define micro/small/medium exclusions, do not create stricter size exclusions.
 - Prefer UK/EU/global eligibility details when visible.
 - Keep hardGates strict and factual.
 

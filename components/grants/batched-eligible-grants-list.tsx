@@ -159,6 +159,22 @@ function countAfterAddition(state: TierState): number | null {
   return state.availableCandidateCount + 1;
 }
 
+function bestFirstScore(grant: EligibleGrant): number {
+  const effort = grant.effort;
+  const achievability = effort?.achievabilityScore ?? effort?.opportunityScore ?? grant.score;
+  const directBoost = hasVerifiedApplicationStart(grant.applicationUrlQuality) ? 6 : 0;
+  const priorityBoost =
+    effort?.priorityLabel === "Apply today"
+      ? 8
+      : effort?.priorityLabel === "Review this week"
+        ? 3
+        : effort?.priorityLabel === "Build readiness first"
+          ? -8
+          : 0;
+  const categoryBoost = effort?.recommendationCategory === "Best first" ? 8 : effort?.recommendationCategory === "Good first application" ? 4 : 0;
+  return achievability + directBoost + priorityBoost + categoryBoost;
+}
+
 export function BatchedEligibleGrantsList({
   initialTier,
   initialPage,
@@ -261,6 +277,23 @@ export function BatchedEligibleGrantsList({
     ) as Record<MatchSection, GrantValueSummary>,
     [sections]
   );
+  const bestFirstGrants = useMemo(() => {
+    const seen = new Set<string>();
+    return [...sections.suggested.grants, ...sections.within_reach.grants]
+      .filter((grant) => {
+        if (seen.has(grant.grantId)) return false;
+        seen.add(grant.grantId);
+        return grant.scoringSource !== "heuristic" && grant.effort?.priorityLabel !== "Build readiness first";
+      })
+      .sort((a, b) => {
+        const scoreDiff = bestFirstScore(b) - bestFirstScore(a);
+        if (scoreDiff !== 0) return scoreDiff;
+        const dateA = a.addedAt ? new Date(a.addedAt).getTime() : 0;
+        const dateB = b.addedAt ? new Date(b.addedAt).getTime() : 0;
+        return dateB - dateA;
+      })
+      .slice(0, 5);
+  }, [sections.suggested.grants, sections.within_reach.grants]);
   const hasLoadedAny = TIER_ORDER.some((tier) => sections[tier].grants.length > 0);
   const isAnyLoading = TIER_ORDER.some((tier) => sections[tier].status === "loading");
   const allVisibleDone = tiersToShow.every((tier) => sections[tier].status === "loaded" || sections[tier].status === "error");
@@ -366,6 +399,13 @@ export function BatchedEligibleGrantsList({
         summaries={valueSummaries}
       />
 
+      {!activeTier && bestFirstGrants.length > 0 && (
+        <BestFirstSection
+          grants={bestFirstGrants}
+          onGrantStateChanged={handleGrantStateChanged}
+        />
+      )}
+
       {tiersToShow.map((tier, index) => {
         const state = sections[tier];
         if (!activeTier && state.status === "idle" && index > 0) {
@@ -399,6 +439,37 @@ export function BatchedEligibleGrantsList({
         </Card>
       )}
     </div>
+  );
+}
+
+function BestFirstSection({
+  grants,
+  onGrantStateChanged,
+}: {
+  grants: EligibleGrant[];
+  onGrantStateChanged: (grant: EligibleGrant, status: GrantUserState) => void;
+}) {
+  return (
+    <Card className="border-emerald-200 bg-emerald-50/35">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Sparkles className="h-4 w-4 text-emerald-600" />
+          Best first recommendations
+        </CardTitle>
+        <p className="text-sm font-normal text-muted-foreground">
+          The most achievable current opportunities based on match strength, application effort, deadline, route quality, newness, and estimated value.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {grants.map((grant) => (
+          <EligibleGrantCard
+            key={grant.grantId}
+            grant={grant}
+            onStateChanged={onGrantStateChanged}
+          />
+        ))}
+      </CardContent>
+    </Card>
   );
 }
 

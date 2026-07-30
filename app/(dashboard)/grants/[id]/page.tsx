@@ -451,6 +451,11 @@ export default async function GrantDetailPage({
                 {grantFinderLabel((grant as { source?: string | null }).source)}
               </Badge>
             )}
+            {fitPreview?.opportunityType && (
+              <Badge variant="secondary">
+                {fitPreview.opportunityType}
+              </Badge>
+            )}
           </div>
 
           <Separator />

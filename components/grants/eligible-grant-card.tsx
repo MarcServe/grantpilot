@@ -209,7 +209,7 @@ export function EligibleGrantCard({
       </Badge>
 
       {grant.effort && (
-        <div className="grid gap-2 rounded-md border border-blue-100 bg-blue-50/60 px-3 py-2 text-xs text-blue-950 sm:grid-cols-4">
+        <div className="grid gap-2 rounded-md border border-blue-100 bg-blue-50/60 px-3 py-2 text-xs text-blue-950 sm:grid-cols-2 lg:grid-cols-5">
           <div>
             <span className="block font-semibold">Value</span>
             <span className="text-blue-900/80">{formatGrantValue(grant.amount ?? grant.effort.amount)}</span>
@@ -226,7 +226,17 @@ export function EligibleGrantCard({
             <span className="block font-semibold">Priority</span>
             <span className="text-blue-900/80">{grant.effort.priorityLabel}</span>
           </div>
+          <div>
+            <span className="block font-semibold">Achievable</span>
+            <span className="text-blue-900/80">{grant.effort.achievabilityScore}% · {grant.effort.applicationPathway}</span>
+          </div>
         </div>
+      )}
+
+      {grant.effort?.recommendationCategory && (
+        <Badge variant="outline" className="w-fit border-emerald-200 bg-emerald-50 text-emerald-700">
+          {grant.effort.recommendationCategory}
+        </Badge>
       )}
 
       {grant.summary && (
@@ -239,6 +249,13 @@ export function EligibleGrantCard({
           <span>To improve: {uniqueActions.join("; ")}</span>
         </div>
       )}
+
+      {grant.effort?.whatToCheck?.length ? (
+        <div className="rounded-md border border-blue-100 bg-white px-3 py-2 text-xs text-blue-950">
+          <span className="font-semibold">Check before applying: </span>
+          <span className="text-blue-900/80">{grant.effort.whatToCheck.join(" ")}</span>
+        </div>
+      ) : null}
 
       {grant.verificationWarning && (
         <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">

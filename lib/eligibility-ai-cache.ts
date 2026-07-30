@@ -1,5 +1,6 @@
 import { createHash } from "crypto";
 import type { EligibilityResult } from "@/lib/claude";
+import { eligibilityFactsToText, normalizeEligibilityFacts } from "@/lib/eligibility-facts";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 type ProfileLike = Record<string, unknown>;
@@ -76,12 +77,28 @@ function normalizedProfile(profile: ProfileLike) {
     employeeCount: numberOrNull(profileField(profile, "employeeCount", "employee_count")),
     annualRevenue: numberOrNull(profileField(profile, "annualRevenue", "annual_revenue")),
     yearEstablished: numberOrNull(profileField(profile, "yearEstablished", "year_established")),
+    incorporationDate: compactText(profileField(profile, "incorporationDate", "incorporation_date"), 120),
+    tradingStartDate: compactText(profileField(profile, "tradingStartDate", "trading_start_date"), 120),
+    expectedEmployeeGrowth: compactText(profileField(profile, "expectedEmployeeGrowth", "expected_employee_growth"), 600),
     fundingMin: numberOrNull(profileField(profile, "fundingMin", "funding_min")),
     fundingMax: numberOrNull(profileField(profile, "fundingMax", "funding_max")),
     fundingPurposes: stringArray(profileField(profile, "fundingPurposes", "funding_purposes")),
+    preferredOpportunityTypes: stringArray(profileField(profile, "preferredOpportunityTypes", "preferred_opportunity_types")),
     fundingDetails: compactText(profileField(profile, "fundingDetails", "funding_details"), 1200),
     businessType: compactText(profileField(profile, "businessType", "business_type"), 240).toLowerCase(),
+    legalStructure: compactText(profileField(profile, "legalStructure", "legal_structure"), 240).toLowerCase(),
+    businessStage: compactText(profileField(profile, "businessStage", "business_stage"), 240).toLowerCase(),
+    businessSizeBand: compactText(profileField(profile, "businessSizeBand", "business_size_band"), 240).toLowerCase(),
+    founderEmploymentStatus: compactText(profileField(profile, "founderEmploymentStatus", "founder_employment_status"), 240).toLowerCase(),
+    localAuthority: compactText(profileField(profile, "localAuthority", "local_authority"), 240).toLowerCase(),
+    areasServed: compactText(profileField(profile, "areasServed", "areas_served"), 900).toLowerCase(),
+    coFundingCapacity: compactText(profileField(profile, "coFundingCapacity", "co_funding_capacity"), 240).toLowerCase(),
+    reimbursementReadiness: compactText(profileField(profile, "reimbursementReadiness", "reimbursement_readiness"), 240).toLowerCase(),
+    coFundingAvailable: compactText(profileField(profile, "coFundingAvailable", "co_funding_available"), 900),
+    matchFundingDetails: compactText(profileField(profile, "matchFundingDetails", "match_funding_details"), 900),
+    previousGrantExperience: compactText(profileField(profile, "previousGrantExperience", "previous_grant_experience"), 240).toLowerCase(),
     fundingOutcomeSignals: compactText(profileField(profile, "fundingOutcomeSignals", "funding_outcome_signals"), 1200),
+    eligibilityFacts: normalizeEligibilityFacts(profileField(profile, "eligibilityFacts", "eligibility_facts")),
   };
 }
 
@@ -140,9 +157,23 @@ export async function touchEligibilityAiCaches(profile: ProfileLike, grant: Gran
           [
             profileField(profile, "businessName", "business_name"),
             profileField(profile, "sector"),
+            profileField(profile, "businessType", "business_type"),
+            profileField(profile, "legalStructure", "legal_structure"),
+            profileField(profile, "businessStage", "business_stage"),
+            profileField(profile, "businessSizeBand", "business_size_band"),
+            profileField(profile, "founderEmploymentStatus", "founder_employment_status"),
             profileField(profile, "missionStatement", "mission_statement"),
             profileField(profile, "description"),
+            profileField(profile, "localAuthority", "local_authority"),
+            profileField(profile, "areasServed", "areas_served"),
             profileField(profile, "fundingDetails", "funding_details"),
+            profileField(profile, "preferredOpportunityTypes", "preferred_opportunity_types"),
+            profileField(profile, "coFundingCapacity", "co_funding_capacity"),
+            profileField(profile, "reimbursementReadiness", "reimbursement_readiness"),
+            profileField(profile, "coFundingAvailable", "co_funding_available"),
+            profileField(profile, "matchFundingDetails", "match_funding_details"),
+            profileField(profile, "previousGrantExperience", "previous_grant_experience"),
+            eligibilityFactsToText(profileField(profile, "eligibilityFacts", "eligibility_facts"), 16),
           ].filter(Boolean).join(" | "),
           4000
         ),

@@ -5,6 +5,7 @@ import { activeSectionForScore, isTrustedMatchScoringSource, type GrantUserState
 import { grantIntelligenceFromDb, isReadyGrantIntelligence, type GrantIntelligence, type GrantIntelligenceDbRow } from "@/lib/grant-intelligence-schema";
 import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
 import { applyOutcomeScoreAdjustment, deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
+import { confirmedEligibilityFactsToText, eligibilityFactsToText } from "@/lib/eligibility-facts";
 import type { EligibilityResult } from "@/lib/claude";
 
 type SupabaseAdmin = ReturnType<typeof getSupabaseAdmin>;
@@ -22,6 +23,7 @@ export type GrantFitTag = {
 export type GrantFitPreview = {
   grantId: string;
   targetSummary: string | null;
+  opportunityType: string | null;
   score: number | null;
   summary: string | null;
   scoringSource: string | null;
@@ -86,6 +88,26 @@ function stringArray(value: unknown): string[] {
   return result.slice(0, 12);
 }
 
+function extractedString(record: Record<string, unknown> | null | undefined, key: string): string | null {
+  const value = record?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function opportunityTypeFromIntelligence(intelligence: GrantIntelligence | null): string | null {
+  const criteria = intelligence?.extractedCriteria ?? {};
+  const raw = extractedString(criteria, "opportunityType") ?? extractedString(criteria, "opportunity_type");
+  if (!raw) return null;
+  const normalized = raw.toLowerCase().replace(/[_-]+/g, " ");
+  if (normalized.includes("loan")) return "Loan";
+  if (normalized.includes("innovation competition")) return "Innovation competition";
+  if (normalized.includes("accelerator")) return "Accelerator";
+  if (normalized.includes("business support")) return "Business support";
+  if (normalized.includes("software") || normalized.includes("startup perk")) return "Startup perk";
+  if (normalized.includes("procurement") || normalized.includes("contract")) return "Procurement / contract";
+  if (normalized.includes("grant")) return "Grant";
+  return raw;
+}
+
 function collectMissingCriteria(row: GrantFitAssessmentRow | null): string[] {
   const gaps = stringArray(row?.improvement_plan?.gaps);
   const missing = stringArray(row?.missing_criteria);
@@ -116,6 +138,17 @@ function profileApplicantTerms(profile: Record<string, unknown> | null | undefin
   const corpus = textCorpus(
     profile?.businessType,
     profile?.business_type,
+    profile?.legalStructure,
+    profile?.legal_structure,
+    profile?.businessStage,
+    profile?.business_stage,
+    profile?.businessSizeBand,
+    profile?.business_size_band,
+    profile?.founderEmploymentStatus,
+    profile?.founder_employment_status,
+    profile?.previousGrantExperience,
+    profile?.previous_grant_experience,
+    eligibilityFactsToText(profile?.eligibilityFacts ?? profile?.eligibility_facts),
     profile?.businessName,
     profile?.business_name,
     profile?.description,
@@ -123,23 +156,41 @@ function profileApplicantTerms(profile: Record<string, unknown> | null | undefin
   );
   const employeeCount = Number(profile?.employeeCount ?? profile?.employee_count);
   const terms = ["business", "company", "organisation"];
-  if (/startup|start-up|early stage|founder/.test(corpus)) terms.push("startup", "start-up");
-  if (/sme|small|micro/.test(corpus) || (Number.isFinite(employeeCount) && employeeCount > 0 && employeeCount <= 250)) {
-    terms.push("sme", "small business");
+  if (/startup|start-up|early stage|pre[- ]?seed|seed|founder/.test(corpus)) terms.push("startup", "start-up", "early stage");
+  if (/growth|scale[- ]?up|scaling/.test(corpus)) terms.push("growth business", "scaleup", "scale-up");
+  if (/established|trading/.test(corpus)) terms.push("established business", "trading business");
+  if (/sme|small|micro|medium/.test(corpus) || (Number.isFinite(employeeCount) && employeeCount >= 0 && employeeCount <= 250)) {
+    terms.push("sme", "small business", "micro business", "medium business");
   }
   if (/limited|ltd|company/.test(corpus)) terms.push("limited company");
+  if (/sole trader|self[- ]?employed|freelancer/.test(corpus)) terms.push("sole trader", "self-employed", "individual");
   if (/charity|nonprofit|not-for-profit|cic/.test(corpus)) terms.push("charity", "nonprofit", "not-for-profit", "cic");
   if (/university|academic|research/.test(corpus)) terms.push("university", "academic", "researcher");
-  return terms;
+  return Array.from(new Set(terms));
 }
 
 function profileRegionLabels(profile: Record<string, unknown> | null | undefined, explicitFunderLocations: string[]): string[] {
   const inferred = explicitFunderLocations.length
     ? explicitFunderLocations
-    : inferFunderLocationsFromProfile(profile as { funderLocations?: string[] | null; location?: string | null; country?: string | null; region?: string | null } | undefined);
-  const text = textCorpus(profile?.location, profile?.country, profile?.region, inferred);
-  const labels = [...inferred];
-  if (/\buk|united kingdom|england|scotland|wales|northern ireland|bristol|london/.test(text)) labels.push("UK", "United Kingdom", "England");
+    : inferFunderLocationsFromProfile(profile as { funderLocations?: string[] | null; location?: string | null; country?: string | null; region?: string | null; localAuthority?: string | null; areasServed?: string | null } | undefined);
+  const text = textCorpus(
+    profile?.location,
+    profile?.country,
+    profile?.region,
+    profile?.localAuthority,
+    profile?.local_authority,
+    profile?.areasServed,
+    profile?.areas_served,
+    profile?.postcode,
+    profile?.city,
+    inferred
+  );
+  const labels = [...inferred, profile?.localAuthority, profile?.local_authority, profile?.region, profile?.city]
+    .map((label) => String(label ?? "").trim())
+    .filter(Boolean);
+  if (/\buk|united kingdom|england|scotland|wales|northern ireland|bristol|london|somerset|devon|cornwall|gloucestershire|staffordshire|worcestershire|west midlands|south west|southwest|south east|southeast/.test(text)) {
+    labels.push("UK", "United Kingdom", "England");
+  }
   if (/\bswitzerland|swiss/.test(text)) labels.push("Switzerland", "Swiss");
   if (/\beu|europe/.test(text)) labels.push("EU", "Europe");
   if (/\bglobal|international|worldwide/.test(text)) labels.push("Global", "International");
@@ -232,8 +283,19 @@ function sectorTagState(label: string, profile: Record<string, unknown> | null |
     profile?.mission_statement,
     profile?.fundingPurposes,
     profile?.funding_purposes,
+    profile?.preferredOpportunityTypes,
+    profile?.preferred_opportunity_types,
     profile?.fundingDetails,
-    profile?.funding_details
+    profile?.funding_details,
+    profile?.innovationCapabilities,
+    profile?.innovation_capabilities,
+    profile?.socialImpact,
+    profile?.social_impact,
+    profile?.sustainabilityInitiatives,
+    profile?.sustainability_initiatives,
+    profile?.communityEngagement,
+    profile?.community_engagement,
+    eligibilityFactsToText(profile?.eligibilityFacts ?? profile?.eligibility_facts)
   );
   const match = tokenOverlap(label, corpus);
   const intelligenceText = textCorpus(intelligence?.sectors, intelligence?.semanticTags, intelligence?.fundingPurposes);
@@ -281,9 +343,24 @@ function profileForEligibilityGuards(profile: Record<string, unknown>) {
     sector: String(profile.sector ?? ""),
     fundingPurposes: Array.isArray(profile.fundingPurposes) ? profile.fundingPurposes as string[] : (Array.isArray(profile.funding_purposes) ? profile.funding_purposes as string[] : []),
     businessType: String(profile.businessType ?? profile.business_type ?? "") || null,
+    legalStructure: String(profile.legalStructure ?? profile.legal_structure ?? "") || null,
+    businessStage: String(profile.businessStage ?? profile.business_stage ?? "") || null,
+    businessSizeBand: String(profile.businessSizeBand ?? profile.business_size_band ?? "") || null,
+    founderEmploymentStatus: String(profile.founderEmploymentStatus ?? profile.founder_employment_status ?? "") || null,
+    localAuthority: String(profile.localAuthority ?? profile.local_authority ?? "") || null,
+    areasServed: String(profile.areasServed ?? profile.areas_served ?? "") || null,
+    expectedEmployeeGrowth: String(profile.expectedEmployeeGrowth ?? profile.expected_employee_growth ?? "") || null,
+    coFundingCapacity: String(profile.coFundingCapacity ?? profile.co_funding_capacity ?? "") || null,
+    reimbursementReadiness: String(profile.reimbursementReadiness ?? profile.reimbursement_readiness ?? "") || null,
+    coFundingAvailable: String(profile.coFundingAvailable ?? profile.co_funding_available ?? "") || null,
+    matchFundingDetails: String(profile.matchFundingDetails ?? profile.match_funding_details ?? "") || null,
+    eligibilityFactsText: eligibilityFactsToText(profile.eligibilityFacts ?? profile.eligibility_facts),
+    confirmedEligibilityFactsText: confirmedEligibilityFactsToText(profile.eligibilityFacts ?? profile.eligibility_facts),
     employeeCount: profile.employeeCount != null ? Number(profile.employeeCount) : (profile.employee_count != null ? Number(profile.employee_count) : null),
     annualRevenue: profile.annualRevenue != null ? Number(profile.annualRevenue) : (profile.annual_revenue != null ? Number(profile.annual_revenue) : null),
     yearEstablished: profile.yearEstablished != null ? Number(profile.yearEstablished) : (profile.year_established != null ? Number(profile.year_established) : null),
+    incorporationDate: String(profile.incorporationDate ?? profile.incorporation_date ?? "") || null,
+    tradingStartDate: String(profile.tradingStartDate ?? profile.trading_start_date ?? "") || null,
   };
 }
 
@@ -438,6 +515,7 @@ function buildPreview(params: {
   return {
     grantId: params.grant.id,
     targetSummary,
+    opportunityType: opportunityTypeFromIntelligence(params.intelligence),
     score: finalized.score,
     summary: finalized.summary,
     scoringSource: finalized.scoringSource,
@@ -477,6 +555,8 @@ export async function getGrantFitPreviews(options: {
     location?: string | null;
     country?: string | null;
     region?: string | null;
+    localAuthority?: string | null;
+    areasServed?: string | null;
   } | undefined);
 
   const [intelligenceResult, assessmentResult, outcomeResult] = await Promise.all([

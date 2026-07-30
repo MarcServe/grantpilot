@@ -1,6 +1,7 @@
 import { getApplicantTypeGate } from "@/lib/eligibility-hard-gates";
 import { cleanJsonResponse, completeJson } from "@/lib/openai-client";
 import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
+import { eligibilityFactsToText, normalizeEligibilityFacts, type EligibilityFact } from "@/lib/eligibility-facts";
 import {
   getCachedEligibilityDecision,
   storeCachedEligibilityDecision,
@@ -20,12 +21,28 @@ interface ProfileForMatching {
   employeeCount: number | null;
   annualRevenue: number | null;
   yearEstablished?: number | null;
+  incorporationDate?: string | null;
+  tradingStartDate?: string | null;
+  expectedEmployeeGrowth?: string | null;
   fundingMin: number;
   fundingMax: number;
   fundingPurposes: string[];
+  preferredOpportunityTypes?: string[] | null;
   fundingDetails: string | null;
   businessType?: string | null;
+  legalStructure?: string | null;
+  businessStage?: string | null;
+  businessSizeBand?: string | null;
+  founderEmploymentStatus?: string | null;
+  localAuthority?: string | null;
+  areasServed?: string | null;
+  coFundingCapacity?: string | null;
+  reimbursementReadiness?: string | null;
+  coFundingAvailable?: string | null;
+  matchFundingDetails?: string | null;
+  previousGrantExperience?: string | null;
   fundingOutcomeSignals?: string | null;
+  eligibilityFacts?: EligibilityFact[] | unknown;
 }
 
 interface GrantForMatching {
@@ -98,6 +115,7 @@ export async function getEligibilityDecision(
   grant: GrantForMatching
 ): Promise<EligibilityResult> {
   const companyAge = profile.yearEstablished ? Math.max(0, new Date().getFullYear() - profile.yearEstablished) : null;
+  const eligibilityFacts = eligibilityFactsToText(profile.eligibilityFacts, 16);
   const cached = await getCachedEligibilityDecision(profile as unknown as Record<string, unknown>, grant);
   if (cached) return cached;
   await touchEligibilityAiCaches(profile as unknown as Record<string, unknown>, grant);
@@ -105,8 +123,10 @@ export async function getEligibilityDecision(
   const rawText = await completeJson(
     `You are a UK grant eligibility expert. Given this business and this grant, give an eligibility assessment.
 
-Business: ${profile.businessName} (${profile.sector}). Location: ${profile.location}. Employees: ${profile.employeeCount ?? "N/A"}. Revenue: ${profile.annualRevenue ? `£${profile.annualRevenue.toLocaleString("en-GB")}` : "N/A"}. Year established: ${profile.yearEstablished ?? "N/A"}. Company age: ${companyAge != null ? `${companyAge} years` : "N/A"}. Funding sought: £${profile.fundingMin.toLocaleString("en-GB")}–£${profile.fundingMax.toLocaleString("en-GB")}. Purposes: ${profile.fundingPurposes.join(", ")}. ${profile.missionStatement ? `Mission: ${profile.missionStatement}.` : ""} ${profile.description ? `Description: ${profile.description}` : ""}
-Business type: ${profile.businessType || "N/A"}.
+Business: ${profile.businessName} (${profile.sector}). Location: ${profile.location}. Local authority/areas served: ${[profile.localAuthority, profile.areasServed].filter(Boolean).join(" / ") || "N/A"}. Employees: ${profile.employeeCount ?? "N/A"}. Expected employee growth: ${profile.expectedEmployeeGrowth || "N/A"}. Revenue: ${profile.annualRevenue != null ? `£${profile.annualRevenue.toLocaleString("en-GB")}` : "N/A"}. Year established: ${profile.yearEstablished ?? "N/A"}. Incorporation/trading start: ${[profile.incorporationDate, profile.tradingStartDate].filter(Boolean).join(" / ") || "N/A"}. Company age: ${companyAge != null ? `${companyAge} years` : "N/A"}. Funding sought: £${profile.fundingMin.toLocaleString("en-GB")}–£${profile.fundingMax.toLocaleString("en-GB")}. Purposes: ${profile.fundingPurposes.join(", ")}. Preferred opportunity types: ${(profile.preferredOpportunityTypes ?? []).join(", ") || "N/A"}. ${profile.missionStatement ? `Mission: ${profile.missionStatement}.` : ""} ${profile.description ? `Description: ${profile.description}` : ""}
+Business type: ${profile.businessType || "N/A"}. Legal structure: ${profile.legalStructure || "N/A"}. Stage/size: ${[profile.businessStage, profile.businessSizeBand].filter(Boolean).join(" / ") || "N/A"}. Founder/employment status: ${profile.founderEmploymentStatus || "N/A"}.
+Co-funding/cash-flow readiness: ${[profile.coFundingCapacity, profile.reimbursementReadiness, profile.coFundingAvailable, profile.matchFundingDetails].filter(Boolean).join(" | ") || "N/A"}. Previous grant experience: ${profile.previousGrantExperience || "N/A"}.
+Business eligibility facts (status included; suggested or needs-evidence facts must be treated cautiously): ${eligibilityFacts || "None provided"}.
 
 Grant: ${grant.name} (${grant.funder}). Amount: ${grant.amount != null ? `£${grant.amount.toLocaleString("en-GB")}` : "Varies"}. Eligibility: ${grant.eligibility}.${grant.description ? ` Description: ${grant.description.slice(0, 800)}.` : ""}${grant.objectives ? ` Objectives: ${grant.objectives.slice(0, 400)}.` : ""}${grant.applicantTypes?.length ? ` Applicant types: ${grant.applicantTypes.join(", ")}.` : ""} Sectors: ${(grant.sectors ?? []).join(", ")}. Regions: ${(grant.regions ?? []).join(", ")}.
 
@@ -131,6 +151,8 @@ Rules:
 - Treat legal applicant type as a hard gate. If the grant is only for charities, non-profits, CICs, or social enterprises and the business type does not match, decision must be unlikely and score must be below 30 even if sector, region, and purpose align.
 - Treat expired opportunities and past project windows as hard gates. If the grant text says applications have closed, the deadline has passed, or projects must start/end in a period that is already over, decision must be unlikely and score must be below 10.
 - Treat explicit measurable criteria as hard qualification gates. If the grant requires minimum revenue, minimum employee count, maximum employee count, or minimum trading/company age and the profile does not meet it, decision must be unlikely and score must be below 40.
+- Treat legal structure, business stage, size band, co-funding, reimbursement, property, consortium, and academic-partner requirements as qualification gates when the grant explicitly states them.
+- Treat micro/small/medium businesses as eligible for generic SME grants unless the funder gives a stricter threshold.
 - If revenue, employee count, or year established is missing and the grant explicitly depends on it, do not recommend as high fit; mark it review and call out the missing profile data.
 - Do not penalise missing revenue, employee count, or company age when the grant text does not state a measurable threshold or clearly depend on that fact.
 - Do not invent revenue, employee-count, company-age, traction, or investment-readiness criteria that are not stated in the current grant. Missing profile data can be an advisory note only when useful, not a scoring blocker.
@@ -216,6 +238,7 @@ export interface BusinessDnaCoverageSuggestions {
   socialImpact?: string;
   teamExpertise?: string;
   fundingPurposes?: string[];
+  eligibilityFacts?: EligibilityFact[];
   rationale?: string[];
   safeguards?: string[];
 }
@@ -277,6 +300,7 @@ Rules:
 - Use ONLY facts already present in the profile, team data, document summaries, website intelligence, and blocker list below.
 - Do NOT invent revenue, employee count, customers, awards, certifications, traction, partnerships, grant wins, dates, team size, or legal status.
 - If a missing fact is important, put it in safeguards/rationale, not in rewritten profile text.
+- If a fact is already supported by the profile or blocker list but belongs in a structured edge-case fact, return it in eligibilityFacts with confidence "suggested" so the user can confirm it manually.
 - Broaden positioning only when the profile already supports it.
 - Keep language grant-ready, factual, and concise.
 
@@ -295,6 +319,16 @@ Return ONLY valid JSON with this shape. Omit fields where no safe improvement is
   "socialImpact": "optional improved social impact",
   "teamExpertise": "optional improved team expertise",
   "fundingPurposes": ["optional", "existing-fact-supported", "purposes"],
+  "eligibilityFacts": [
+    {
+      "label": "optional concise fact label",
+      "value": "optional supported fact or manual confirmation needed",
+      "category": "Property / premises" | "Match funding" | "Certification / compliance" | "Trading history" | "Financial evidence" | "Partnerships" | "Other",
+      "evidence": "optional supporting note",
+      "source": "ai_suggested",
+      "confidence": "suggested"
+    }
+  ],
   "rationale": ["why these safe edits may improve matching"],
   "safeguards": ["facts the user should add manually instead of AI inventing them"]
 }`,
@@ -314,6 +348,11 @@ Return ONLY valid JSON with this shape. Omit fields where no safe improvement is
       ...(parsed.socialImpact && { socialImpact: String(parsed.socialImpact).trim() }),
       ...(parsed.teamExpertise && { teamExpertise: String(parsed.teamExpertise).trim() }),
       ...(fundingPurposes && fundingPurposes.length > 0 && { fundingPurposes }),
+      ...(Array.isArray(parsed.eligibilityFacts) && {
+        eligibilityFacts: normalizeEligibilityFacts(parsed.eligibilityFacts)
+          .map((fact) => ({ ...fact, source: "ai_suggested" as const, confidence: "suggested" as const }))
+          .slice(0, 8),
+      }),
       ...(Array.isArray(parsed.rationale) && { rationale: parsed.rationale.map(String).filter(Boolean).slice(0, 6) }),
       ...(Array.isArray(parsed.safeguards) && { safeguards: parsed.safeguards.map(String).filter(Boolean).slice(0, 6) }),
     };

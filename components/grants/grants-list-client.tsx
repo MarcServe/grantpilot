@@ -434,6 +434,7 @@ export function GrantsListClient({
               scoringSource={cached?.scoringSource}
               showUnscoredState={profileComplete && (!cached || fitPreview?.matchSection === "unscored")}
               targetSummary={fitPreview?.targetSummary ?? null}
+              opportunityType={fitPreview?.opportunityType ?? null}
               tagExplanations={fitPreview?.tagExplanations ?? []}
               whyNotSuggested={profileComplete ? fitPreview?.whyNotSuggested ?? [] : []}
               matchSection={fitPreview?.matchSection}

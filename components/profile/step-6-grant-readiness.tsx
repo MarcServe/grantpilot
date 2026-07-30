@@ -308,9 +308,10 @@ interface Step6Props {
   onBack: () => void;
   onComplete: () => void;
   isPending?: boolean;
+  completeLabel?: string;
 }
 
-export function Step6GrantReadiness({ defaultValues, onSubmit, onBack, onComplete, isPending }: Step6Props) {
+export function Step6GrantReadiness({ defaultValues, onSubmit, onBack, onComplete, isPending, completeLabel = "Complete Profile" }: Step6Props) {
   const [directors, setDirectors] = useState<PersonRow[]>(() =>
     parseDirectors(defaultValues.directorNames, defaultValues.directorProfiles)
   );
@@ -599,7 +600,7 @@ export function Step6GrantReadiness({ defaultValues, onSubmit, onBack, onComplet
             </Button>
             <Button type="submit" disabled={isPending}>
               {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Complete Profile
+              {completeLabel}
             </Button>
           </div>
         </div>

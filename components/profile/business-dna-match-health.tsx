@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle, CheckCircle2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import type { MatchHealthReport } from "@/lib/match-health";
+import type { EligibilityFact } from "@/lib/eligibility-facts";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -26,6 +27,7 @@ type SuggestionMap = {
   socialImpact?: string;
   teamExpertise?: string;
   fundingPurposes?: string[];
+  eligibilityFacts?: EligibilityFact[];
   rationale?: string[];
   safeguards?: string[];
 };
@@ -40,10 +42,24 @@ const FIELD_LABELS: Record<Exclude<keyof SuggestionMap, "rationale" | "safeguard
   socialImpact: "Social impact",
   teamExpertise: "Team expertise",
   fundingPurposes: "Funding purposes",
+  eligibilityFacts: "Eligibility facts",
 };
 
 function displayValue(value: unknown): string {
-  if (Array.isArray(value)) return value.join(", ");
+  if (Array.isArray(value)) {
+    if (value.every((item) => item && typeof item === "object")) {
+      return value
+        .map((item) => {
+          const fact = item as Partial<EligibilityFact>;
+          const status = fact.confidence && fact.confidence !== "confirmed" ? ` (${fact.confidence.replace("_", " ")})` : "";
+          const evidence = fact.evidence ? ` Evidence: ${fact.evidence}` : "";
+          return [fact.label, fact.value].filter(Boolean).join(": ") + status + evidence;
+        })
+        .filter(Boolean)
+        .join("\n");
+    }
+    return value.join(", ");
+  }
   return typeof value === "string" ? value : "";
 }
 
@@ -80,7 +96,7 @@ export function BusinessDnaMatchHealth({
       try {
         const res = await fetch("/api/profile/match-health/improve", { method: "POST" });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error ?? "Could not generate Business DNA suggestions");
+        if (!res.ok) throw new Error(data.error ?? "Could not generate readiness suggestions");
         const nextSuggestions = (data.suggestions ?? {}) as SuggestionMap;
         const nextFields = suggestedFieldEntries(nextSuggestions);
         setSuggestions(nextSuggestions);
@@ -89,7 +105,7 @@ export function BusinessDnaMatchHealth({
           toast.info("No safe AI rewrite found. Add the missing evidence manually in your profile.");
         }
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Could not generate Business DNA suggestions");
+        toast.error(error instanceof Error ? error.message : "Could not generate readiness suggestions");
       } finally {
         setIsLoadingSuggestions(false);
       }
@@ -117,12 +133,12 @@ export function BusinessDnaMatchHealth({
           body: JSON.stringify({ updates }),
         });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error ?? "Could not apply Business DNA improvements");
-        toast.success("Business DNA updated. A fresh eligibility refresh has been queued.");
+        if (!res.ok) throw new Error(data.error ?? "Could not apply readiness improvements");
+        toast.success("Funding readiness updated. A fresh eligibility refresh has been queued.");
         setOpen(false);
         router.refresh();
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Could not apply Business DNA improvements");
+        toast.error(error instanceof Error ? error.message : "Could not apply readiness improvements");
       } finally {
         setIsApplying(false);
       }
@@ -143,7 +159,7 @@ export function BusinessDnaMatchHealth({
             </div>
             <Button type="button" onClick={loadSuggestions} disabled={isLoadingSuggestions} className="shrink-0 gap-2">
               <Sparkles className="h-4 w-4" />
-              Improve Business DNA
+              Open Funding Readiness Roadmap
             </Button>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -169,9 +185,10 @@ export function BusinessDnaMatchHealth({
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-4xl">
           <DialogHeader>
-            <DialogTitle>Improve Business DNA coverage</DialogTitle>
+            <DialogTitle>Funding Readiness Roadmap</DialogTitle>
             <DialogDescription>
-              AI can only rewrite and broaden facts already in your profile. Select the edits you want to apply.
+              GrantsCopilot can rewrite supported profile evidence and suggest missing readiness facts. Select the edits to apply, or add sensitive facts manually in your profile.
+              Suggested eligibility facts stay unconfirmed until you review them.
             </DialogDescription>
           </DialogHeader>
 
@@ -232,7 +249,7 @@ export function BusinessDnaMatchHealth({
               Cancel
             </Button>
             <Button type="button" onClick={applySuggestions} disabled={isApplying || isLoadingSuggestions || fields.length === 0}>
-              {isApplying ? "Applying..." : "Apply selected improvements"}
+              {isApplying ? "Applying..." : "Apply selected readiness updates"}
             </Button>
           </DialogFooter>
         </DialogContent>

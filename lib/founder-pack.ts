@@ -1,4 +1,5 @@
 import { cleanJsonResponse, completeJson } from "@/lib/openai-client";
+import { eligibilityFactsToText } from "@/lib/eligibility-facts";
 
 export interface FounderPackInputs {
   founderName: string;
@@ -169,16 +170,32 @@ export function buildFounderPackProfileContext(profile: BusinessProfileLike): st
   const fields = [
     "businessName",
     "businessType",
+    "legalStructure",
+    "businessStage",
+    "businessSizeBand",
+    "founderEmploymentStatus",
     "sector",
     "missionStatement",
     "description",
     "location",
+    "localAuthority",
+    "areasServed",
     "employeeCount",
+    "expectedEmployeeGrowth",
+    "yearEstablished",
+    "incorporationDate",
+    "tradingStartDate",
     "annualRevenue",
     "fundingMin",
     "fundingMax",
     "fundingPurposes",
+    "preferredOpportunityTypes",
     "fundingDetails",
+    "coFundingCapacity",
+    "reimbursementReadiness",
+    "coFundingAvailable",
+    "matchFundingDetails",
+    "previousGrantExperience",
     "websiteUrl",
     "websiteIntelligence",
     "socialImpact",
@@ -207,10 +224,15 @@ export function buildFounderPackProfileContext(profile: BusinessProfileLike): st
     "jobsCreated",
     "revenueGrowthExpected",
   ];
-  return fields
+  const profileLines = fields
     .map((field) => `${field}: ${text(profile[field])}`)
     .filter((line) => !line.endsWith(": "))
     .join("\n");
+  const eligibilityFacts = eligibilityFactsToText(profile.eligibilityFacts, 20);
+  return [
+    profileLines,
+    eligibilityFacts ? `eligibilityFacts: ${eligibilityFacts}` : "",
+  ].filter(Boolean).join("\n");
 }
 
 function normaliseContent(raw: unknown): FounderPackContent {

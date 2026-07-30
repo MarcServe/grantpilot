@@ -3,10 +3,14 @@
 import { useState, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import {
+  CO_FUNDING_CAPACITY,
   step4Schema,
   type Step4Data,
   FUNDING_PURPOSES,
+  PREFERRED_OPPORTUNITY_TYPES,
+  REIMBURSEMENT_READINESS,
 } from "@/lib/validations/profile";
 import {
   Form,
@@ -113,13 +117,18 @@ export function Step4Funding({
   isPending,
   profileContext,
 }: Step4Props) {
-  const form = useForm<Step4Data>({
+  const form = useForm<z.input<typeof step4Schema>, unknown, Step4Data>({
     resolver: zodResolver(step4Schema),
     defaultValues: {
       fundingMin: defaultValues.fundingMin ?? undefined,
       fundingMax: defaultValues.fundingMax ?? undefined,
       fundingPurposes: defaultValues.fundingPurposes ?? [],
       fundingDetails: defaultValues.fundingDetails ?? "",
+      preferredOpportunityTypes: defaultValues.preferredOpportunityTypes ?? [],
+      coFundingCapacity: defaultValues.coFundingCapacity ?? "",
+      reimbursementReadiness: defaultValues.reimbursementReadiness ?? "",
+      coFundingAvailable: defaultValues.coFundingAvailable ?? "",
+      matchFundingDetails: defaultValues.matchFundingDetails ?? "",
     },
   });
 
@@ -386,6 +395,107 @@ export function Step4Funding({
             </FormItem>
           )}
         />
+
+        <FormField
+          control={form.control}
+          name="preferredOpportunityTypes"
+          render={() => (
+            <FormItem>
+              <FormLabel>Preferred opportunity types</FormLabel>
+              <p className="text-sm text-muted-foreground">
+                GrantsCopilot will still show strong grant matches, but this helps prioritise what you want to act on first.
+              </p>
+              <FormControl>
+                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {PREFERRED_OPPORTUNITY_TYPES.map((type) => (
+                    <FormField
+                      key={type}
+                      control={form.control}
+                      name="preferredOpportunityTypes"
+                      render={({ field }) => (
+                        <FormItem className="flex min-w-0 items-center gap-2 space-y-0 rounded-md border p-2">
+                          <FormControl>
+                            <Checkbox
+                              checked={field.value?.includes(type)}
+                              onCheckedChange={(checked) => {
+                                const current = field.value ?? [];
+                                field.onChange(
+                                  checked
+                                    ? [...current, type]
+                                    : current.filter((value: string) => value !== type)
+                                );
+                              }}
+                            />
+                          </FormControl>
+                          <FormLabel className="min-w-0 flex-1 cursor-pointer text-sm font-normal leading-snug">
+                            {type}
+                          </FormLabel>
+                        </FormItem>
+                      )}
+                    />
+                  ))}
+                </div>
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <FormField
+            control={form.control}
+            name="coFundingCapacity"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Co-funding capacity</FormLabel>
+                <FormControl>
+                  <select
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={field.value ?? ""}
+                    onChange={field.onChange}
+                    aria-label="Co-funding capacity"
+                  >
+                    <option value="">— Select capacity —</option>
+                    {CO_FUNDING_CAPACITY.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="reimbursementReadiness"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Reimbursement readiness</FormLabel>
+                <FormControl>
+                  <select
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={field.value ?? ""}
+                    onChange={field.onChange}
+                    aria-label="Reimbursement readiness"
+                  >
+                    <option value="">— Select readiness —</option>
+                    {REIMBURSEMENT_READINESS.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </FormControl>
+                <p className="text-muted-foreground text-xs">
+                  Some grants pay in arrears. This lets GrantsCopilot flag cash-flow blockers before you apply.
+                </p>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
 
         <FormField
           control={form.control}

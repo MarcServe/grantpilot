@@ -51,6 +51,11 @@ export type MatchHealthBlockerReason =
   | "missing_employee_count"
   | "missing_revenue"
   | "missing_company_age"
+  | "missing_legal_structure"
+  | "missing_stage_size"
+  | "missing_local_authority"
+  | "missing_cofunding_readiness"
+  | "missing_reimbursement_readiness"
   | "missing_evidence"
   | "narrow_funding_purpose"
   | "sector_mismatch"
@@ -125,6 +130,36 @@ function blockerCopy(reason: MatchHealthBlockerReason): Omit<MatchHealthBlocker,
         label: "Company age needs clearer evidence",
         detail: "Add registration date, trading history, or milestones so age-based criteria can be assessed.",
       };
+    case "missing_legal_structure":
+      return {
+        reason,
+        label: "Legal structure is missing",
+        detail: "Many funders restrict awards to limited companies, sole traders, charities, CICs, or incorporated entities.",
+      };
+    case "missing_stage_size":
+      return {
+        reason,
+        label: "Business stage or size band is unclear",
+        detail: "Add whether the business is pre-start, startup, growing, established, micro, small, or medium so stage-based grants score correctly.",
+      };
+    case "missing_local_authority":
+      return {
+        reason,
+        label: "Local authority or service area is unclear",
+        detail: "Local and regional schemes often depend on council area, postcode, or the communities served.",
+      };
+    case "missing_cofunding_readiness":
+      return {
+        reason,
+        label: "Co-funding capacity is unclear",
+        detail: "Some strong grants require match funding or an own contribution before the AI can treat them as high confidence.",
+      };
+    case "missing_reimbursement_readiness":
+      return {
+        reason,
+        label: "Cash-flow readiness is unclear",
+        detail: "Reimbursement grants can require the business to spend first and claim later. Add readiness evidence where true.",
+      };
     case "missing_evidence":
       return {
         reason,
@@ -192,6 +227,11 @@ function blockersFromAssessment(row: AssessmentRow, map: Map<MatchHealthBlockerR
   if (/\b(employee|staff|team size|headcount|sme)\b/.test(text)) addCount(map, "missing_employee_count");
   if (/\b(revenue|turnover|income|sales|financial|trading)\b/.test(text)) addCount(map, "missing_revenue");
   if (/\b(age|year established|registration|registered|company history|trading history)\b/.test(text)) addCount(map, "missing_company_age");
+  if (/\b(legal structure|limited company|incorporated|sole trader|self-employed|cic|charity)\b/.test(text)) addCount(map, "missing_legal_structure");
+  if (/\b(stage|startup|start-up|early stage|growth|established|micro|small|medium|size band)\b/.test(text)) addCount(map, "missing_stage_size");
+  if (/\b(local authority|council|borough|district|postcode|area served)\b/.test(text)) addCount(map, "missing_local_authority");
+  if (/\b(co-funding|cofunding|match funding|own contribution|contribution)\b/.test(text)) addCount(map, "missing_cofunding_readiness");
+  if (/\b(reimbursement|cash flow|cash-flow|spend first|claim later)\b/.test(text)) addCount(map, "missing_reimbursement_readiness");
   if (/\b(evidence|proof|pilot|traction|customer|partnership|milestone|certification|award|document)\b/.test(text)) addCount(map, "missing_evidence");
   if (/\b(sector|industry|purpose|focus)\b.*\b(mismatch|unclear|partial|weak|does not)\b/.test(text)) addCount(map, "sector_mismatch");
   if (/\b(region|location|geography|country)\b.*\b(mismatch|outside|not eligible|unclear)\b/.test(text)) addCount(map, "geography_mismatch");
@@ -203,8 +243,28 @@ function profileGaps(profile: Record<string, unknown>): string[] {
   const gaps: string[] = [];
   if (normalizeNumber(profile.employeeCount ?? profile.employee_count) == null) gaps.push("Add employee count or team size.");
   if (normalizeNumber(profile.annualRevenue ?? profile.annual_revenue) == null) gaps.push("Add annual revenue or trading-stage evidence.");
-  if (normalizeNumber(profile.yearEstablished ?? profile.year_established) == null && !normalizeString(profile.registrationNumber ?? profile.registration_number)) {
-    gaps.push("Add company registration date, registration number, or trading history.");
+  if (
+    normalizeNumber(profile.yearEstablished ?? profile.year_established) == null &&
+    !normalizeString(profile.registrationNumber ?? profile.registration_number) &&
+    !normalizeString(profile.incorporationDate ?? profile.incorporation_date) &&
+    !normalizeString(profile.tradingStartDate ?? profile.trading_start_date)
+  ) {
+    gaps.push("Add company registration date, trading start date, registration number, or trading history.");
+  }
+  if (!normalizeString(profile.legalStructure ?? profile.legal_structure)) {
+    gaps.push("Add legal structure, such as limited company, sole trader, CIC, charity, or partnership.");
+  }
+  if (!normalizeString(profile.businessStage ?? profile.business_stage) || !normalizeString(profile.businessSizeBand ?? profile.business_size_band)) {
+    gaps.push("Add business stage and size band so startup, growth, established, micro, small, and medium grant rules can be checked.");
+  }
+  if (!normalizeString(profile.localAuthority ?? profile.local_authority) && !normalizeString(profile.areasServed ?? profile.areas_served)) {
+    gaps.push("Add local authority, postcode area, or areas served for local and regional grants.");
+  }
+  if (!normalizeString(profile.coFundingCapacity ?? profile.co_funding_capacity) && !normalizeString(profile.coFundingAvailable ?? profile.co_funding_available)) {
+    gaps.push("Confirm co-funding or own-contribution capacity if the business can support match-funded grants.");
+  }
+  if (!normalizeString(profile.reimbursementReadiness ?? profile.reimbursement_readiness)) {
+    gaps.push("Confirm reimbursement/cash-flow readiness for grants where the business spends first and claims later.");
   }
   const fundingPurposes = Array.isArray(profile.fundingPurposes)
     ? profile.fundingPurposes
@@ -319,6 +379,8 @@ export async function getMatchHealthReport(params: {
     location?: string | null;
     country?: string | null;
     region?: string | null;
+    localAuthority?: string | null;
+    areasServed?: string | null;
   });
 
   const blockerCounts = new Map<MatchHealthBlockerReason, number>();
@@ -368,6 +430,11 @@ export async function getMatchHealthReport(params: {
   if (gaps.some((gap) => /employee|team/i.test(gap))) addCount(blockerCounts, "missing_employee_count");
   if (gaps.some((gap) => /revenue|trading/i.test(gap))) addCount(blockerCounts, "missing_revenue");
   if (gaps.some((gap) => /registration|company/i.test(gap))) addCount(blockerCounts, "missing_company_age");
+  if (gaps.some((gap) => /legal structure|limited company|sole trader|cic|charity/i.test(gap))) addCount(blockerCounts, "missing_legal_structure");
+  if (gaps.some((gap) => /business stage|size band|startup|growth|medium/i.test(gap))) addCount(blockerCounts, "missing_stage_size");
+  if (gaps.some((gap) => /local authority|postcode|areas served|regional/i.test(gap))) addCount(blockerCounts, "missing_local_authority");
+  if (gaps.some((gap) => /co-funding|own-contribution|match-funded/i.test(gap))) addCount(blockerCounts, "missing_cofunding_readiness");
+  if (gaps.some((gap) => /reimbursement|cash-flow|spends first/i.test(gap))) addCount(blockerCounts, "missing_reimbursement_readiness");
   if (gaps.some((gap) => /funding purpose/i.test(gap))) addCount(blockerCounts, "narrow_funding_purpose");
   if (gaps.some((gap) => /evidence|expertise|impact|capability/i.test(gap))) addCount(blockerCounts, "missing_evidence");
 

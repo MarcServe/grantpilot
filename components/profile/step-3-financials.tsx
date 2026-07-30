@@ -2,7 +2,7 @@
 
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { step3Schema, type Step3Data } from "@/lib/validations/profile";
+import { PREVIOUS_GRANT_EXPERIENCE, step3Schema, type Step3Data } from "@/lib/validations/profile";
 import {
   Form,
   FormControl,
@@ -38,6 +38,7 @@ export function Step3Financials({
       profitLoss: defaultValues.profitLoss ?? "",
       cashReserves: defaultValues.cashReserves ?? "",
       financialProjections: defaultValues.financialProjections ?? "",
+      previousGrantExperience: defaultValues.previousGrantExperience ?? "",
       previousGrants: defaultValues.previousGrants ?? "",
     },
   });
@@ -124,6 +125,35 @@ export function Step3Financials({
               <FormControl>
                 <Textarea placeholder="Projected revenue, costs, growth assumptions, break-even timeline..." rows={3} {...field} />
               </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="previousGrantExperience"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Previous grant experience</FormLabel>
+              <FormControl>
+                <select
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={field.value ?? ""}
+                  onChange={field.onChange}
+                  aria-label="Previous grant experience"
+                >
+                  <option value="">— Select experience —</option>
+                  {PREVIOUS_GRANT_EXPERIENCE.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </FormControl>
+              <p className="text-muted-foreground text-xs">
+                Helps GrantsCopilot explain whether a grant is first-time applicant friendly or needs stronger track record evidence.
+              </p>
               <FormMessage />
             </FormItem>
           )}

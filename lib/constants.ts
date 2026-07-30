@@ -62,11 +62,13 @@ export function inferFunderLocationsFromProfile(profile?: {
   location?: string | null;
   country?: string | null;
   region?: string | null;
+  localAuthority?: string | null;
+  areasServed?: string | null;
 } | null): FunderLocation[] {
   const explicit = normalizeFunderLocations(profile?.funderLocations);
   if (explicit?.length) return explicit;
 
-  const text = `${profile?.country ?? ""} ${profile?.region ?? ""} ${profile?.location ?? ""}`.toLowerCase();
+  const text = `${profile?.country ?? ""} ${profile?.region ?? ""} ${profile?.location ?? ""} ${profile?.localAuthority ?? ""} ${profile?.areasServed ?? ""}`.toLowerCase();
   if (/\b(uk|united kingdom|england|scotland|wales|northern ireland|london|bristol|manchester|birmingham|leeds|cardiff|edinburgh|glasgow|belfast)\b/.test(text)) {
     return ["UK"];
   }

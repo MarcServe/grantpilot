@@ -8,14 +8,17 @@ import {
   step3Schema,
   step4Schema,
   step6Schema,
+  step7Schema,
   notificationPreferencesSchema,
   Step1Data,
   Step2Data,
   Step3Data,
   Step4Data,
   Step6Data,
+  Step7Data,
   NotificationPreferencesData,
 } from "@/lib/validations/profile";
+import { normalizeEligibilityFacts } from "@/lib/eligibility-facts";
 import { syncGrantMemoryFromProfile } from "@/lib/grant-memory";
 import { requestEligibilityRefresh, requestProfileEligibilityBackfill } from "@/lib/eligibility-refresh-trigger";
 import { analyseWebsite } from "@/lib/website-intelligence";
@@ -37,10 +40,15 @@ function calculateCompletionScore(profile: Record<string, unknown>, documentCoun
     profile[camel] ?? (snake ? profile[snake] : undefined);
 
   let score = 0;
-  const total = 11; // 10 core profile fields + supporting documents
+  const total = 20; // core Business DNA, readiness facts, and supporting documents
 
   const businessName = get("businessName", "business_name");
+  const businessType = get("businessType", "business_type");
+  const legalStructure = get("legalStructure", "legal_structure");
+  const businessStage = get("businessStage", "business_stage");
+  const businessSizeBand = get("businessSizeBand", "business_size_band");
   const location = get("location");
+  const localAuthority = get("localAuthority", "local_authority");
   const sector = get("sector");
   const missionStatement = get("missionStatement", "mission_statement");
   const description = get("description");
@@ -49,17 +57,30 @@ function calculateCompletionScore(profile: Record<string, unknown>, documentCoun
   const fundingMin = get("fundingMin", "funding_min");
   const fundingMax = get("fundingMax", "funding_max");
   const fundingPurposes = get("fundingPurposes", "funding_purposes");
+  const preferredOpportunityTypes = get("preferredOpportunityTypes", "preferred_opportunity_types");
+  const coFundingCapacity = get("coFundingCapacity", "co_funding_capacity");
+  const reimbursementReadiness = get("reimbursementReadiness", "reimbursement_readiness");
+  const eligibilityFacts = get("eligibilityFacts", "eligibility_facts");
 
   if (businessName && String(businessName).trim()) score++;
+  if (businessType && String(businessType).trim()) score++;
+  if (legalStructure && String(legalStructure).trim()) score++;
+  if (businessStage && String(businessStage).trim()) score++;
+  if (businessSizeBand && String(businessSizeBand).trim()) score++;
   if (location && String(location).trim()) score++;
+  if (localAuthority && String(localAuthority).trim()) score++;
   if (sector && String(sector).trim()) score++;
   if (missionStatement && String(missionStatement).trim()) score++;
   if (description && String(description).trim()) score++;
-  if (employeeCount != null && Number(employeeCount) > 0) score++;
-  if (annualRevenue != null && Number(annualRevenue) > 0) score++;
+  if (employeeCount != null && Number(employeeCount) >= 0) score++;
+  if (annualRevenue != null && Number(annualRevenue) >= 0) score++;
   if (fundingMin != null && Number(fundingMin) > 0) score++;
   if (fundingMax != null && Number(fundingMax) > 0) score++;
   if (Array.isArray(fundingPurposes) && fundingPurposes.length > 0) score++;
+  if (Array.isArray(preferredOpportunityTypes) && preferredOpportunityTypes.length > 0) score++;
+  if (coFundingCapacity && String(coFundingCapacity).trim()) score++;
+  if (reimbursementReadiness && String(reimbursementReadiness).trim()) score++;
+  if (Array.isArray(eligibilityFacts) && eligibilityFacts.length > 0) score++;
   if (documentCount >= 1) score++;
 
   return Math.round((score / total) * 100);
@@ -69,7 +90,7 @@ async function recalcAndSaveCompletionScore(profileId: string): Promise<void> {
   const supabase = getSupabaseAdmin();
   const { data: profile } = await supabase
     .from("BusinessProfile")
-    .select("businessName, businessType, location, sector, missionStatement, description, employeeCount, annualRevenue, fundingMin, fundingMax, fundingPurposes, fundingDetails, directorNames, directorProfiles, teamMembers")
+    .select("businessName, businessType, legalStructure, businessStage, businessSizeBand, location, localAuthority, sector, missionStatement, description, employeeCount, annualRevenue, fundingMin, fundingMax, fundingPurposes, preferredOpportunityTypes, fundingDetails, coFundingCapacity, reimbursementReadiness, eligibilityFacts, directorNames, directorProfiles, teamMembers")
     .eq("id", profileId)
     .single();
   if (!profile) return;
@@ -188,6 +209,7 @@ async function getOrCreateProfile(organisationId: string) {
       fundingPurposes: [],
       fundingDetails: null,
       funderLocations: [],
+      preferredOpportunityTypes: [],
     })
     .select("*")
     .single();
@@ -244,6 +266,7 @@ export async function createBusinessProfile(data: { businessName: string }) {
       fundingPurposes: [],
       fundingDetails: null,
       funderLocations: [],
+      preferredOpportunityTypes: [],
     })
     .select("id, businessName")
     .single();
@@ -290,16 +313,26 @@ export async function saveStep1(data: Step1Data) {
       businessName: parsed.data.businessName,
       tradingName: parsed.data.tradingName || null,
       businessType: parsed.data.businessType || null,
+      legalStructure: parsed.data.legalStructure || null,
+      businessStage: parsed.data.businessStage || null,
+      businessSizeBand: parsed.data.businessSizeBand || null,
+      founderEmploymentStatus: parsed.data.founderEmploymentStatus || null,
       registrationNumber: parsed.data.registrationNumber ?? null,
       charityNumber: parsed.data.charityNumber || null,
       vatNumber: parsed.data.vatNumber || null,
       yearEstablished: optionalNumber(parsed.data.yearEstablished),
+      incorporationDate: parsed.data.incorporationDate || null,
+      tradingStartDate: parsed.data.tradingStartDate || null,
+      employeeCount: optionalNumber(parsed.data.employeeCount),
+      expectedEmployeeGrowth: parsed.data.expectedEmployeeGrowth || null,
       location: parsed.data.location,
       registeredAddress: parsed.data.registeredAddress || null,
       operatingAddress: parsed.data.operatingAddress || null,
       postcode: parsed.data.postcode || null,
       country: parsed.data.country || null,
       region: parsed.data.region || null,
+      localAuthority: parsed.data.localAuthority || null,
+      areasServed: parsed.data.areasServed || null,
       primaryContactName: parsed.data.primaryContactName || null,
       primaryContactRole: parsed.data.primaryContactRole || null,
       primaryContactEmail: parsed.data.primaryContactEmail || null,
@@ -396,6 +429,7 @@ export async function saveStep3(data: Step3Data) {
       profitLoss: parsed.data.profitLoss || null,
       cashReserves: parsed.data.cashReserves || null,
       financialProjections: parsed.data.financialProjections || null,
+      previousGrantExperience: parsed.data.previousGrantExperience || null,
       previousGrants: parsed.data.previousGrants ?? null,
     })
     .eq("id", profile.id)
@@ -425,7 +459,10 @@ export async function saveStep4(data: Step4Data) {
       fundingMin: parsed.data.fundingMin,
       fundingMax: parsed.data.fundingMax,
       fundingPurposes: parsed.data.fundingPurposes,
+      preferredOpportunityTypes: parsed.data.preferredOpportunityTypes ?? [],
       fundingDetails: parsed.data.fundingDetails ?? null,
+      coFundingCapacity: parsed.data.coFundingCapacity || null,
+      reimbursementReadiness: parsed.data.reimbursementReadiness || null,
       coFundingAvailable: parsed.data.coFundingAvailable || null,
       matchFundingDetails: parsed.data.matchFundingDetails || null,
     })
@@ -499,6 +536,32 @@ export async function saveStep6(data: Step6Data) {
   await syncGrantMemoryForProfile(profile.id);
   await refreshProfileEmbedding(profile.id);
   await triggerEligibilityForProfile(orgId, profile.id, "profile.step6.saved");
+
+  return { success: true };
+}
+
+export async function saveStep7(data: Step7Data) {
+  const parsed = step7Schema.safeParse(data);
+  if (!parsed.success) return { error: "Invalid data" };
+
+  const orgId = await getOrgId();
+  const profile = await getOrCreateProfile(orgId);
+  const eligibilityFacts = normalizeEligibilityFacts(parsed.data.eligibilityFacts);
+
+  const supabase = getSupabaseAdmin();
+  const { data: updated, error: updateError } = await supabase
+    .from("BusinessProfile")
+    .update({ eligibilityFacts })
+    .eq("id", profile.id)
+    .select()
+    .single();
+
+  if (updateError || !updated) return { error: updateError?.message ?? "Update failed" };
+
+  await recalcAndSaveCompletionScore(profile.id);
+  await syncGrantMemoryForProfile(profile.id);
+  await refreshProfileEmbedding(profile.id);
+  await triggerEligibilityForProfile(orgId, profile.id, "profile.eligibility_facts.saved");
 
   return { success: true };
 }

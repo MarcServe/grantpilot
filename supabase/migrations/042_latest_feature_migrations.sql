@@ -11,17 +11,25 @@ ALTER TABLE "BusinessProfile"
   ADD COLUMN IF NOT EXISTS "communityEngagement" TEXT,
   ADD COLUMN IF NOT EXISTS "keyAchievements" TEXT,
   ADD COLUMN IF NOT EXISTS "teamExpertise" TEXT,
+  ADD COLUMN IF NOT EXISTS "legalStructure" TEXT,
+  ADD COLUMN IF NOT EXISTS "businessStage" TEXT,
+  ADD COLUMN IF NOT EXISTS "businessSizeBand" TEXT,
+  ADD COLUMN IF NOT EXISTS "founderEmploymentStatus" TEXT,
   ADD COLUMN IF NOT EXISTS "directorNames" TEXT,
   ADD COLUMN IF NOT EXISTS "directorProfiles" TEXT,
   ADD COLUMN IF NOT EXISTS "tradingName" TEXT,
   ADD COLUMN IF NOT EXISTS "charityNumber" TEXT,
   ADD COLUMN IF NOT EXISTS "vatNumber" TEXT,
   ADD COLUMN IF NOT EXISTS "yearEstablished" INTEGER,
+  ADD COLUMN IF NOT EXISTS "incorporationDate" TEXT,
+  ADD COLUMN IF NOT EXISTS "tradingStartDate" TEXT,
   ADD COLUMN IF NOT EXISTS "registeredAddress" TEXT,
   ADD COLUMN IF NOT EXISTS "operatingAddress" TEXT,
   ADD COLUMN IF NOT EXISTS "postcode" TEXT,
   ADD COLUMN IF NOT EXISTS "country" TEXT,
   ADD COLUMN IF NOT EXISTS "region" TEXT,
+  ADD COLUMN IF NOT EXISTS "localAuthority" TEXT,
+  ADD COLUMN IF NOT EXISTS "areasServed" TEXT,
   ADD COLUMN IF NOT EXISTS "primaryContactName" TEXT,
   ADD COLUMN IF NOT EXISTS "primaryContactRole" TEXT,
   ADD COLUMN IF NOT EXISTS "primaryContactEmail" TEXT,
@@ -29,12 +37,17 @@ ALTER TABLE "BusinessProfile"
   ADD COLUMN IF NOT EXISTS "primaryContactLinkedIn" TEXT,
   ADD COLUMN IF NOT EXISTS "preferredContactMethod" TEXT,
   ADD COLUMN IF NOT EXISTS "contractorCount" INTEGER,
+  ADD COLUMN IF NOT EXISTS "expectedEmployeeGrowth" TEXT,
   ADD COLUMN IF NOT EXISTS "boardMembers" TEXT,
   ADD COLUMN IF NOT EXISTS "founderBackground" TEXT,
   ADD COLUMN IF NOT EXISTS "teamMembers" TEXT,
   ADD COLUMN IF NOT EXISTS "profitLoss" TEXT,
   ADD COLUMN IF NOT EXISTS "cashReserves" TEXT,
   ADD COLUMN IF NOT EXISTS "financialProjections" TEXT,
+  ADD COLUMN IF NOT EXISTS "previousGrantExperience" TEXT,
+  ADD COLUMN IF NOT EXISTS "preferredOpportunityTypes" TEXT[] NOT NULL DEFAULT '{}'::text[],
+  ADD COLUMN IF NOT EXISTS "coFundingCapacity" TEXT,
+  ADD COLUMN IF NOT EXISTS "reimbursementReadiness" TEXT,
   ADD COLUMN IF NOT EXISTS "coFundingAvailable" TEXT,
   ADD COLUMN IF NOT EXISTS "matchFundingDetails" TEXT,
   ADD COLUMN IF NOT EXISTS "projectTitle" TEXT,
@@ -228,3 +241,7 @@ BEGIN
     ALTER TYPE "Plan" ADD VALUE IF NOT EXISTS 'GROWTH';
   END IF;
 END $$;
+
+-- Confirmed edge-case eligibility facts for scoring and Founder Pack context.
+ALTER TABLE "BusinessProfile"
+  ADD COLUMN IF NOT EXISTS "eligibilityFacts" JSONB NOT NULL DEFAULT '[]'::jsonb;
