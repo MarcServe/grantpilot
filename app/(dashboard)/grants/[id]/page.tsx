@@ -32,6 +32,7 @@ import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
 import { applyOutcomeScoreAdjustment, deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
 import { getGrantFitPreviews } from "@/lib/grant-fit-preview";
 import type { GrantUserState } from "@/lib/eligible-match-rules";
+import { formatGrantFundingValue } from "@/lib/grant-value";
 import {
   getGrantFreshnessStatus,
   getGrantVerificationWarning,
@@ -469,6 +470,34 @@ export default async function GrantDetailPage({
             </div>
           )}
 
+          {fitPreview && (
+            <div className="grid gap-3 rounded-lg border bg-background p-4 text-sm sm:grid-cols-3">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Funding value</p>
+                <p className="mt-1 font-semibold">{formatGrantFundingValue(fitPreview.fundingValue)}</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">{fitPreview.fundingValue.label}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Effort</p>
+                <p className="mt-1 font-semibold">
+                  {fitPreview.effort ? `${fitPreview.effort.estimatedTimeLabel} · ${fitPreview.effort.effortBand}` : "Not estimated yet"}
+                </p>
+                {fitPreview.effort?.applicationPathway && (
+                  <p className="mt-0.5 text-xs text-muted-foreground">{fitPreview.effort.applicationPathway} pathway</p>
+                )}
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Priority</p>
+                <p className="mt-1 font-semibold">
+                  {fitPreview.effort?.priorityLabel ?? fitPreview.recommendationCategory ?? "Review details"}
+                </p>
+                {fitPreview.recommendationCategory && (
+                  <p className="mt-0.5 text-xs text-muted-foreground">{fitPreview.recommendationCategory}</p>
+                )}
+              </div>
+            </div>
+          )}
+
           {fitPreview?.whyNotSuggested?.length ? (
             <div
               className={
@@ -495,6 +524,9 @@ export default async function GrantDetailPage({
                   <li key={reason}>{reason}</li>
                 ))}
               </ul>
+              {fitPreview.nextAction && (
+                <p className="mt-3 font-medium">Next action: {fitPreview.nextAction}</p>
+              )}
             </div>
           ) : null}
 

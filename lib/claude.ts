@@ -29,6 +29,9 @@ interface ProfileForMatching {
   fundingPurposes: string[];
   preferredOpportunityTypes?: string[] | null;
   fundingDetails: string | null;
+  fundingUrgency?: string | null;
+  fundingPosition?: string | null;
+  documentReadiness?: string | null;
   businessType?: string | null;
   legalStructure?: string | null;
   businessStage?: string | null;
@@ -41,6 +44,7 @@ interface ProfileForMatching {
   coFundingAvailable?: string | null;
   matchFundingDetails?: string | null;
   previousGrantExperience?: string | null;
+  previousGrantHistory?: string | null;
   fundingOutcomeSignals?: string | null;
   eligibilityFacts?: EligibilityFact[] | unknown;
 }
@@ -123,9 +127,9 @@ export async function getEligibilityDecision(
   const rawText = await completeJson(
     `You are a UK grant eligibility expert. Given this business and this grant, give an eligibility assessment.
 
-Business: ${profile.businessName} (${profile.sector}). Location: ${profile.location}. Local authority/areas served: ${[profile.localAuthority, profile.areasServed].filter(Boolean).join(" / ") || "N/A"}. Employees: ${profile.employeeCount ?? "N/A"}. Expected employee growth: ${profile.expectedEmployeeGrowth || "N/A"}. Revenue: ${profile.annualRevenue != null ? `£${profile.annualRevenue.toLocaleString("en-GB")}` : "N/A"}. Year established: ${profile.yearEstablished ?? "N/A"}. Incorporation/trading start: ${[profile.incorporationDate, profile.tradingStartDate].filter(Boolean).join(" / ") || "N/A"}. Company age: ${companyAge != null ? `${companyAge} years` : "N/A"}. Funding sought: £${profile.fundingMin.toLocaleString("en-GB")}–£${profile.fundingMax.toLocaleString("en-GB")}. Purposes: ${profile.fundingPurposes.join(", ")}. Preferred opportunity types: ${(profile.preferredOpportunityTypes ?? []).join(", ") || "N/A"}. ${profile.missionStatement ? `Mission: ${profile.missionStatement}.` : ""} ${profile.description ? `Description: ${profile.description}` : ""}
+Business: ${profile.businessName} (${profile.sector}). Location: ${profile.location}. Local authority/areas served: ${[profile.localAuthority, profile.areasServed].filter(Boolean).join(" / ") || "N/A"}. Employees: ${profile.employeeCount ?? "N/A"}. Expected employee growth: ${profile.expectedEmployeeGrowth || "N/A"}. Revenue: ${profile.annualRevenue != null ? `£${profile.annualRevenue.toLocaleString("en-GB")}` : "N/A"}. Year established: ${profile.yearEstablished ?? "N/A"}. Incorporation/trading start: ${[profile.incorporationDate, profile.tradingStartDate].filter(Boolean).join(" / ") || "N/A"}. Company age: ${companyAge != null ? `${companyAge} years` : "N/A"}. Funding sought: £${profile.fundingMin.toLocaleString("en-GB")}–£${profile.fundingMax.toLocaleString("en-GB")}. Purposes: ${profile.fundingPurposes.join(", ")}. Preferred opportunity types: ${(profile.preferredOpportunityTypes ?? []).join(", ") || "N/A"}. Funding urgency/position/readiness: ${[profile.fundingUrgency, profile.fundingPosition, profile.documentReadiness].filter(Boolean).join(" | ") || "N/A"}. ${profile.missionStatement ? `Mission: ${profile.missionStatement}.` : ""} ${profile.description ? `Description: ${profile.description}` : ""}
 Business type: ${profile.businessType || "N/A"}. Legal structure: ${profile.legalStructure || "N/A"}. Stage/size: ${[profile.businessStage, profile.businessSizeBand].filter(Boolean).join(" / ") || "N/A"}. Founder/employment status: ${profile.founderEmploymentStatus || "N/A"}.
-Co-funding/cash-flow readiness: ${[profile.coFundingCapacity, profile.reimbursementReadiness, profile.coFundingAvailable, profile.matchFundingDetails].filter(Boolean).join(" | ") || "N/A"}. Previous grant experience: ${profile.previousGrantExperience || "N/A"}.
+Co-funding/cash-flow readiness: ${[profile.coFundingCapacity, profile.reimbursementReadiness, profile.coFundingAvailable, profile.matchFundingDetails].filter(Boolean).join(" | ") || "N/A"}. Previous grant experience: ${profile.previousGrantExperience || "N/A"}. Previous grant history/outcomes: ${profile.previousGrantHistory || "N/A"}.
 Business eligibility facts (status included; suggested or needs-evidence facts must be treated cautiously): ${eligibilityFacts || "None provided"}.
 
 Grant: ${grant.name} (${grant.funder}). Amount: ${grant.amount != null ? `£${grant.amount.toLocaleString("en-GB")}` : "Varies"}. Eligibility: ${grant.eligibility}.${grant.description ? ` Description: ${grant.description.slice(0, 800)}.` : ""}${grant.objectives ? ` Objectives: ${grant.objectives.slice(0, 400)}.` : ""}${grant.applicantTypes?.length ? ` Applicant types: ${grant.applicantTypes.join(", ")}.` : ""} Sectors: ${(grant.sectors ?? []).join(", ")}. Regions: ${(grant.regions ?? []).join(", ")}.

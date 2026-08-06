@@ -8,7 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ArrowRight, AlertTriangle, CheckCircle2, FileText, LinkIcon, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import type { GrantEffortSignal } from "@/lib/grant-effort";
-import { formatGrantValue } from "@/lib/grant-value";
+import { formatGrantFundingValue, type GrantFundingValue } from "@/lib/grant-value";
+import type { ConfidenceState, ScoreDimensions } from "@/lib/grant-decision-signals";
 
 type GrantUserState = "saved" | "viewed" | "deferred" | "applied" | "dismissed";
 
@@ -17,6 +18,9 @@ export interface EligibleGrant {
   grantName: string;
   funder: string;
   amount?: number | null;
+  fundingValue?: GrantFundingValue | null;
+  fundingValueType?: string | null;
+  fundingValueEvidence?: string | null;
   deadline: string | null;
   addedAt?: string | null;
   scoredAt?: string | null;
@@ -36,6 +40,12 @@ export interface EligibleGrant {
   scoringSource?: string | null;
   userState?: GrantUserState | null;
   effort?: GrantEffortSignal | null;
+  scoreDimensions?: ScoreDimensions | null;
+  confidenceState?: ConfidenceState | null;
+  recommendationCategory?: string | null;
+  primaryBlocker?: string | null;
+  nextAction?: string | null;
+  profileFactsNeeded?: string[] | null;
 }
 
 const ONE_WEEK_MS = 7 * 86_400_000;
@@ -109,6 +119,8 @@ export function EligibleGrantCard({
   const addedAt = formatAddedAt(grant.addedAt);
   const [currentState, setCurrentState] = useState<GrantUserState | null>(grant.userState ?? null);
   const [loadingState, setLoadingState] = useState<GrantUserState | null>(null);
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState<string | null>(null);
+  const [feedbackSent, setFeedbackSent] = useState<string | null>(null);
   const state = stateLabel(currentState);
   const isDeadlineSoon =
     grant.deadline && new Date(grant.deadline).getTime() - pageLoadedAt < ONE_WEEK_MS;
@@ -151,6 +163,32 @@ export function EligibleGrantCard({
     }
   }
 
+  async function submitFeedback(category: string) {
+    if (feedbackSubmitting) return;
+    setFeedbackSubmitting(category);
+    try {
+      const response = await fetch("/api/grants/recommendation-feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          grantId: grant.grantId,
+          category,
+          source: "eligible_match_card",
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(typeof body.error === "string" ? body.error : "Could not save feedback");
+      }
+      setFeedbackSent(category);
+      toast.success("Feedback saved for review.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not save feedback");
+    } finally {
+      setFeedbackSubmitting(null);
+    }
+  }
+
   return (
     <div className="min-w-0 rounded-lg border p-4 transition-colors hover:bg-muted/50">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -180,7 +218,7 @@ export function EligibleGrantCard({
           </p>
         </div>
         <Badge variant={scoreBadgeVariant(grant.score)} className="shrink-0">
-          {grant.score}% {grant.scoringSource === "heuristic" ? "prelim" : "match"}
+          {grant.score}% {grant.scoringSource === "heuristic" ? "prelim" : "eligibility"}
         </Badge>
       </div>
 
@@ -212,7 +250,10 @@ export function EligibleGrantCard({
         <div className="grid gap-2 rounded-md border border-blue-100 bg-blue-50/60 px-3 py-2 text-xs text-blue-950 sm:grid-cols-2 lg:grid-cols-5">
           <div>
             <span className="block font-semibold">Value</span>
-            <span className="text-blue-900/80">{formatGrantValue(grant.amount ?? grant.effort.amount)}</span>
+            <span className="text-blue-900/80">{formatGrantFundingValue(grant.fundingValue ?? grant.amount ?? grant.effort.amount)}</span>
+            {grant.fundingValue?.label && (
+              <span className="block text-[10px] text-blue-900/60">{grant.fundingValue.label}</span>
+            )}
           </div>
           <div>
             <span className="block font-semibold">Time</span>
@@ -227,16 +268,35 @@ export function EligibleGrantCard({
             <span className="text-blue-900/80">{grant.effort.priorityLabel}</span>
           </div>
           <div>
-            <span className="block font-semibold">Achievable</span>
-            <span className="text-blue-900/80">{grant.effort.achievabilityScore}% · {grant.effort.applicationPathway}</span>
+            <span className="block font-semibold">Readiness</span>
+            <span className="text-blue-900/80">
+              {grant.scoreDimensions?.applicationReadiness ?? grant.effort.achievabilityScore}% · {grant.effort.applicationPathway}
+            </span>
           </div>
         </div>
       )}
 
-      {grant.effort?.recommendationCategory && (
+      {(grant.recommendationCategory ?? grant.effort?.recommendationCategory) && (
         <Badge variant="outline" className="w-fit border-emerald-200 bg-emerald-50 text-emerald-700">
-          {grant.effort.recommendationCategory}
+          {grant.recommendationCategory ?? grant.effort?.recommendationCategory}
         </Badge>
+      )}
+
+      {(grant.primaryBlocker || grant.nextAction) && (
+        <div className="rounded-md border border-blue-100 bg-blue-50/50 px-3 py-2 text-xs text-blue-950">
+          {grant.primaryBlocker && (
+            <p>
+              <span className="font-semibold">Primary blocker: </span>
+              <span className="text-blue-900/80">{grant.primaryBlocker}</span>
+            </p>
+          )}
+          {grant.nextAction && (
+            <p className={grant.primaryBlocker ? "mt-1" : ""}>
+              <span className="font-semibold">Next action: </span>
+              <span className="text-blue-900/80">{grant.nextAction}</span>
+            </p>
+          )}
+        </div>
       )}
 
       {grant.summary && (
@@ -314,6 +374,31 @@ export function EligibleGrantCard({
             </a>
           </Button>
         )}
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-1 border-t pt-3">
+        <span className="mr-1 text-xs font-medium text-muted-foreground">Feedback</span>
+        {[
+          ["relevant", "Relevant"],
+          ["not_relevant", "Not relevant"],
+          ["expired", "Expired"],
+          ["wrong_location", "Wrong location"],
+          ["not_my_business_type", "Wrong type"],
+          ["already_applied", "Already applied"],
+        ].map(([category, label]) => (
+          <Button
+            key={category}
+            type="button"
+            variant={feedbackSent === category ? "secondary" : "outline"}
+            size="sm"
+            className="h-7 px-2 text-xs"
+            disabled={feedbackSubmitting != null}
+            onClick={() => submitFeedback(category)}
+          >
+            {feedbackSubmitting === category && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+            {label}
+          </Button>
+        ))}
       </div>
     </div>
   );

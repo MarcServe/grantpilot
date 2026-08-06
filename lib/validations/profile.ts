@@ -66,6 +66,30 @@ export const PREVIOUS_GRANT_EXPERIENCE = [
   "Not sure",
 ] as const;
 
+export const FUNDING_URGENCY = [
+  "Actively applying now",
+  "Applying this month",
+  "Exploring options",
+  "Preparing for future rounds",
+  "Not sure",
+] as const;
+
+export const FUNDING_POSITION = [
+  "Need non-dilutive funding",
+  "Can combine grant with own funds",
+  "Can combine grant with investor/loan funding",
+  "Need low-risk or advance-funded options",
+  "Not sure",
+] as const;
+
+export const DOCUMENT_READINESS = [
+  "Application documents ready",
+  "Core documents partly ready",
+  "Need help preparing documents",
+  "No documents ready yet",
+  "Not sure",
+] as const;
+
 export const CO_FUNDING_CAPACITY = [
   "None confirmed",
   "Can contribute up to 10%",
@@ -142,6 +166,7 @@ export const step3Schema = z.object({
   financialProjections: z.string().optional(),
   previousGrantExperience: z.string().optional(),
   previousGrants: z.string().optional(),
+  previousGrantHistory: z.string().optional(),
 });
 
 export const FUNDING_PURPOSES = [
@@ -166,6 +191,9 @@ export const step4Schema = z.object({
   fundingMax: z.coerce.number().min(1, "Maximum funding amount is required"),
   fundingPurposes: z.array(z.string()).min(1, "Select at least one funding purpose"),
   fundingDetails: z.string().optional(),
+  fundingUrgency: z.string().optional(),
+  fundingPosition: z.string().optional(),
+  documentReadiness: z.string().optional(),
   preferredOpportunityTypes: z.array(z.string()).optional().default([]),
   coFundingCapacity: z.string().optional(),
   reimbursementReadiness: z.string().optional(),

@@ -3,7 +3,13 @@ import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { inferFunderLocationsFromProfile } from "@/lib/constants";
-import { getGrantFitPreviews } from "@/lib/grant-fit-preview";
+import {
+  GRANT_FIT_PREVIEW_SELECT_BASE,
+  GRANT_FIT_PREVIEW_SELECT_WITH_DECISION,
+  getGrantFitPreviews,
+  isGrantFitPreviewColumnError,
+  type GrantFitPreviewGrant,
+} from "@/lib/grant-fit-preview";
 import type { GrantUserState } from "@/lib/eligible-match-rules";
 
 export const dynamic = "force-dynamic";
@@ -46,13 +52,19 @@ export async function POST(request: Request) {
   const profile = org.profiles?.[0] ?? null;
   const supabase = getSupabaseAdmin();
 
-  const { data: grantsData, error: grantsError } = await supabase
+  const grantsResult = await supabase
     .from("Grant")
-    .select("id, name, funder, amount, deadline, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, url_status, createdAt")
+    .select(GRANT_FIT_PREVIEW_SELECT_WITH_DECISION)
     .in("id", grantIds);
+  const fallbackGrantsResult = grantsResult.error && isGrantFitPreviewColumnError(grantsResult.error.message)
+    ? await supabase
+        .from("Grant")
+        .select(GRANT_FIT_PREVIEW_SELECT_BASE)
+        .in("id", grantIds)
+    : grantsResult;
 
-  if (grantsError) {
-    return NextResponse.json({ error: grantsError.message }, { status: 500 });
+  if (fallbackGrantsResult.error) {
+    return NextResponse.json({ error: fallbackGrantsResult.error.message }, { status: 500 });
   }
 
   const profileComplete = Boolean(profile && (profile.completionScore ?? 0) >= 50);
@@ -83,7 +95,7 @@ export async function POST(request: Request) {
     supabase,
     organisationId: orgId,
     profile: profileComplete ? profile as Record<string, unknown> : null,
-    grants: grantsData ?? [],
+    grants: (fallbackGrantsResult.data ?? []) as unknown as GrantFitPreviewGrant[],
     userFunderLocations,
     grantUserStates,
     appliedGrantIds,

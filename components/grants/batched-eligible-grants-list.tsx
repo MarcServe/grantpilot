@@ -49,15 +49,15 @@ const TIER_META: Record<MatchSection, {
   muted?: boolean;
 }> = {
   suggested: {
-    title: "Suggested for you",
-    subtitle: "High eligibility - grouped by direct forms and grant pages.",
-    badgeLabel: "Suggested",
-    emptyLabel: "No current suggested grants.",
+    title: "Strong matches",
+    subtitle: "85%+ trusted AI eligibility confidence, grouped by direct forms and grant pages.",
+    badgeLabel: "Strong",
+    emptyLabel: "No current strong recommendations.",
     icon: <Sparkles className="h-4 w-4 text-primary" />,
   },
   within_reach: {
     title: "Within reach",
-    subtitle: "Partial fit - newer current grants appear first, then older near-matches.",
+    subtitle: "50-84% eligibility confidence with missing evidence or readiness gaps.",
     badgeLabel: "Within reach",
     emptyLabel: "No within-reach grants in this batch.",
     icon: <Target className="h-4 w-4 text-amber-600" />,
@@ -71,10 +71,10 @@ const TIER_META: Record<MatchSection, {
     muted: true,
   },
   needs_review: {
-    title: "Needs full AI review",
-    subtitle: "Preliminary heuristic matches kept separate until the full company-DNA score runs.",
-    badgeLabel: "Needs AI review",
-    emptyLabel: "No preliminary grants waiting for full AI review.",
+    title: "Funding Readiness Roadmap",
+    subtitle: "Promising or blocked opportunities that need full AI scoring or stronger Business DNA evidence.",
+    badgeLabel: "Readiness roadmap",
+    emptyLabel: "No readiness-roadmap grants in this batch.",
     icon: <BrainCircuit className="h-4 w-4 text-amber-600" />,
   },
   reviewed: {
@@ -428,12 +428,12 @@ export function BatchedEligibleGrantsList({
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
             <Search className="h-10 w-10 text-muted-foreground" />
-            <h2 className="mt-4 text-lg font-semibold">No current matches available</h2>
+            <h2 className="mt-4 text-lg font-semibold">No current recommendations available</h2>
             <p className="mt-1 max-w-md text-sm text-muted-foreground">
               Grants were scored, but the current results are expired, already applied, outside your funder region, or otherwise unavailable.
             </p>
             <Link href="/grants" className="mt-4">
-              <Button size="sm">Browse All Grants</Button>
+              <Button size="sm">Open Grant Library</Button>
             </Link>
           </CardContent>
         </Card>
@@ -454,10 +454,10 @@ function BestFirstSection({
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <Sparkles className="h-4 w-4 text-emerald-600" />
-          Best first recommendations
+          Best Next Opportunities
         </CardTitle>
         <p className="text-sm font-normal text-muted-foreground">
-          The most achievable current opportunities based on match strength, application effort, deadline, route quality, newness, and estimated value.
+          Ranked by eligibility confidence, effort, deadline, route quality, newness, and applicant-level value.
         </p>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -631,7 +631,7 @@ function FundingValueSummaryStrip({
           >
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.08em] text-muted-foreground">
               {TIER_META[tier].icon}
-              {tier === "suggested" ? "Strong match value" : `${TIER_META[tier].badgeLabel} value`}
+              {tier === "suggested" ? "Strong-match value" : `${TIER_META[tier].badgeLabel} value`}
             </div>
             <div className="mt-2 text-2xl font-black tracking-tight text-[#071a3a]">
               {state.status === "loading" && summary.totalCount === 0

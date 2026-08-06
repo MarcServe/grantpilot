@@ -77,6 +77,9 @@ function buildProfileText(profile: {
   fundingPurposes: string[];
   preferredOpportunityTypes?: string[] | null;
   fundingDetails?: string | null;
+  fundingUrgency?: string | null;
+  fundingPosition?: string | null;
+  documentReadiness?: string | null;
   employeeCount?: number | null;
   annualRevenue?: number | null;
   coFundingCapacity?: string | null;
@@ -84,6 +87,7 @@ function buildProfileText(profile: {
   coFundingAvailable?: string | null;
   matchFundingDetails?: string | null;
   previousGrantExperience?: string | null;
+  previousGrantHistory?: string | null;
   eligibilityFacts?: unknown;
 }): string {
   const parts = [
@@ -105,6 +109,9 @@ function buildProfileText(profile: {
     `Funding purposes: ${profile.fundingPurposes.join(", ")}`,
     profile.preferredOpportunityTypes?.length ? `Preferred opportunity types: ${profile.preferredOpportunityTypes.join(", ")}` : "",
     profile.fundingDetails ? `Funding details: ${profile.fundingDetails}` : "",
+    profile.fundingUrgency ? `Funding urgency: ${profile.fundingUrgency}` : "",
+    profile.fundingPosition ? `Funding position: ${profile.fundingPosition}` : "",
+    profile.documentReadiness ? `Document readiness: ${profile.documentReadiness}` : "",
     profile.employeeCount != null ? `Employees: ${profile.employeeCount}` : "",
     profile.annualRevenue != null ? `Revenue: £${profile.annualRevenue.toLocaleString("en-GB")}` : "",
     profile.coFundingCapacity ? `Co-funding capacity: ${profile.coFundingCapacity}` : "",
@@ -112,6 +119,7 @@ function buildProfileText(profile: {
     profile.coFundingAvailable ? `Co-funding available: ${profile.coFundingAvailable}` : "",
     profile.matchFundingDetails ? `Match funding details: ${profile.matchFundingDetails}` : "",
     profile.previousGrantExperience ? `Previous grant experience: ${profile.previousGrantExperience}` : "",
+    profile.previousGrantHistory ? `Previous grant history and outcomes: ${profile.previousGrantHistory}` : "",
     eligibilityFactsToText(profile.eligibilityFacts) ? `Eligibility facts: ${eligibilityFactsToText(profile.eligibilityFacts)}` : "",
   ];
   return parts.filter(Boolean).join("\n");
@@ -141,7 +149,7 @@ export async function generateAndStoreProfileEmbedding(profileId: string): Promi
   const supabase = getSupabaseAdmin();
   const { data: profile } = await supabase
     .from("BusinessProfile")
-    .select("id, businessName, businessType, legalStructure, businessStage, businessSizeBand, founderEmploymentStatus, sector, missionStatement, description, location, localAuthority, areasServed, incorporationDate, tradingStartDate, expectedEmployeeGrowth, fundingPurposes, preferredOpportunityTypes, fundingDetails, employeeCount, annualRevenue, coFundingCapacity, reimbursementReadiness, coFundingAvailable, matchFundingDetails, previousGrantExperience, eligibilityFacts")
+    .select("id, businessName, businessType, legalStructure, businessStage, businessSizeBand, founderEmploymentStatus, sector, missionStatement, description, location, localAuthority, areasServed, incorporationDate, tradingStartDate, expectedEmployeeGrowth, fundingPurposes, preferredOpportunityTypes, fundingDetails, fundingUrgency, fundingPosition, documentReadiness, employeeCount, annualRevenue, coFundingCapacity, reimbursementReadiness, coFundingAvailable, matchFundingDetails, previousGrantExperience, previousGrantHistory, eligibilityFacts")
     .eq("id", profileId)
     .maybeSingle();
 

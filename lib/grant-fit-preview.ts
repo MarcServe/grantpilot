@@ -6,12 +6,51 @@ import { grantIntelligenceFromDb, isReadyGrantIntelligence, type GrantIntelligen
 import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
 import { applyOutcomeScoreAdjustment, deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
 import { confirmedEligibilityFactsToText, eligibilityFactsToText } from "@/lib/eligibility-facts";
+import { estimateGrantEffort, type GrantEffortSignal } from "@/lib/grant-effort";
+import { deriveDecisionSignals, type ConfidenceState, type ScoreDimensions } from "@/lib/grant-decision-signals";
+import { resolveGrantFundingValue, type GrantFundingValue } from "@/lib/grant-value";
 import type { EligibilityResult } from "@/lib/claude";
 
 type SupabaseAdmin = ReturnType<typeof getSupabaseAdmin>;
 
 export type GrantFitTagState = "met" | "possible" | "blocked" | "neutral";
 export type GrantFitTagKind = "sector" | "region" | "applicant";
+
+export const GRANT_FIT_PREVIEW_SELECT_BASE = [
+  "id",
+  "name",
+  "funder",
+  "amount",
+  "deadline",
+  "eligibility",
+  "description",
+  "objectives",
+  "applicantTypes",
+  "sectors",
+  "regions",
+  "funderLocations",
+  "url_status",
+  "createdAt",
+].join(", ");
+
+export const GRANT_FIT_PREVIEW_SELECT_WITH_DECISION = [
+  GRANT_FIT_PREVIEW_SELECT_BASE,
+  "applicationUrl",
+  "detailUrl",
+  "directApplicationUrl",
+  "applicationUrlQuality",
+  "applicationUrlKind",
+  "opportunityType",
+  "fundingValueType",
+  "applicantMaxAmount",
+  "applicantTypicalAmount",
+  "programmeTotalAmount",
+  "fundingValueEvidence",
+].join(", ");
+
+export function isGrantFitPreviewColumnError(message: string | null | undefined): boolean {
+  return /applicationUrlQuality|applicationUrlKind|directApplicationUrl|detailUrl|opportunityType|fundingValueType|applicantMaxAmount|applicantTypicalAmount|programmeTotalAmount|fundingValueEvidence|column .* does not exist/i.test(message ?? "");
+}
 
 export type GrantFitTag = {
   kind: GrantFitTagKind;
@@ -32,6 +71,14 @@ export type GrantFitPreview = {
   suppressionReason: string | null;
   whyNotSuggested: string[];
   tagExplanations: GrantFitTag[];
+  fundingValue: GrantFundingValue;
+  scoreDimensions: ScoreDimensions | null;
+  confidenceState: ConfidenceState | null;
+  recommendationCategory: string | null;
+  primaryBlocker: string | null;
+  nextAction: string | null;
+  profileFactsNeeded: string[];
+  effort: GrantEffortSignal | null;
 };
 
 export type GrantFitAssessmentRow = {
@@ -62,6 +109,18 @@ export type GrantFitPreviewGrant = {
   funderLocations?: string[] | null;
   url_status?: string | null;
   urlStatus?: string | null;
+  applicationUrl?: string | null;
+  detailUrl?: string | null;
+  directApplicationUrl?: string | null;
+  applicationUrlQuality?: string | null;
+  applicationUrlKind?: string | null;
+  opportunityType?: string | null;
+  fundingValue?: GrantFundingValue | null;
+  fundingValueType?: string | null;
+  applicantMaxAmount?: number | null;
+  applicantTypicalAmount?: number | null;
+  programmeTotalAmount?: number | null;
+  fundingValueEvidence?: string | null;
   createdAt?: string | null;
 };
 
@@ -93,9 +152,13 @@ function extractedString(record: Record<string, unknown> | null | undefined, key
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function opportunityTypeFromIntelligence(intelligence: GrantIntelligence | null): string | null {
+function opportunityTypeFromIntelligence(intelligence: GrantIntelligence | null, grant?: GrantFitPreviewGrant): string | null {
   const criteria = intelligence?.extractedCriteria ?? {};
-  const raw = extractedString(criteria, "opportunityType") ?? extractedString(criteria, "opportunity_type");
+  const raw =
+    extractedString(criteria, "opportunityType") ??
+    extractedString(criteria, "opportunity_type") ??
+    grant?.opportunityType ??
+    null;
   if (!raw) return null;
   const normalized = raw.toLowerCase().replace(/[_-]+/g, " ");
   if (normalized.includes("loan")) return "Loan";
@@ -492,6 +555,7 @@ function buildPreview(params: {
   const actionable = isGrantActionableNow(params.grant);
   const locationMatched = grantMatchesFunderLocations(params.grant.funderLocations ?? [], params.userFunderLocations);
   const urlStatus = params.grant.url_status ?? params.grant.urlStatus ?? null;
+  const fundingValue = resolveGrantFundingValue(params.grant);
   const suppressionReason = buildSuppressionReason({
     userState: params.userState,
     isApplied: params.isApplied,
@@ -511,11 +575,37 @@ function buildPreview(params: {
     params.grant.description,
     params.grant.eligibility
   );
+  const effort = finalized.score == null
+    ? null
+    : estimateGrantEffort({
+        amount: fundingValue.countsTowardApplicantTotal ? fundingValue.amount : params.grant.amount ?? null,
+        deadline: params.grant.deadline ? String(params.grant.deadline) : null,
+        applicationUrlQuality: params.grant.applicationUrlQuality ?? null,
+        applicationUrlKind: params.grant.applicationUrlKind ?? null,
+        eligibility: params.grant.eligibility,
+        description: params.grant.description,
+        objectives: params.grant.objectives,
+        score: finalized.score,
+        scoringSource: finalized.scoringSource,
+        missingCriteria: finalized.missingCriteria,
+        improvementPlan: params.assessment?.improvement_plan ?? null,
+      });
+  const decisionSignals = finalized.score == null
+    ? null
+    : deriveDecisionSignals({
+        score: finalized.score,
+        scoringSource: finalized.scoringSource,
+        missingCriteria: finalized.missingCriteria,
+        improvementPlan: params.assessment?.improvement_plan ?? null,
+        effort,
+        userState: params.userState,
+        suppressionReason,
+      });
 
   return {
     grantId: params.grant.id,
     targetSummary,
-    opportunityType: opportunityTypeFromIntelligence(params.intelligence),
+    opportunityType: opportunityTypeFromIntelligence(params.intelligence, params.grant),
     score: finalized.score,
     summary: finalized.summary,
     scoringSource: finalized.scoringSource,
@@ -533,6 +623,14 @@ function buildPreview(params: {
       intelligence: params.intelligence,
     }),
     tagExplanations: buildTagExplanations(params.grant, params.profile, params.userFunderLocations, params.intelligence),
+    fundingValue,
+    scoreDimensions: decisionSignals?.scoreDimensions ?? null,
+    confidenceState: decisionSignals?.confidenceState ?? null,
+    recommendationCategory: decisionSignals?.recommendationCategory ?? null,
+    primaryBlocker: decisionSignals?.primaryBlocker ?? null,
+    nextAction: decisionSignals?.nextAction ?? null,
+    profileFactsNeeded: decisionSignals?.profileFactsNeeded ?? [],
+    effort,
   };
 }
 

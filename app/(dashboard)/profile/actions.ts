@@ -431,6 +431,7 @@ export async function saveStep3(data: Step3Data) {
       financialProjections: parsed.data.financialProjections || null,
       previousGrantExperience: parsed.data.previousGrantExperience || null,
       previousGrants: parsed.data.previousGrants ?? null,
+      previousGrantHistory: parsed.data.previousGrantHistory || null,
     })
     .eq("id", profile.id)
     .select()
@@ -461,6 +462,9 @@ export async function saveStep4(data: Step4Data) {
       fundingPurposes: parsed.data.fundingPurposes,
       preferredOpportunityTypes: parsed.data.preferredOpportunityTypes ?? [],
       fundingDetails: parsed.data.fundingDetails ?? null,
+      fundingUrgency: parsed.data.fundingUrgency || null,
+      fundingPosition: parsed.data.fundingPosition || null,
+      documentReadiness: parsed.data.documentReadiness || null,
       coFundingCapacity: parsed.data.coFundingCapacity || null,
       reimbursementReadiness: parsed.data.reimbursementReadiness || null,
       coFundingAvailable: parsed.data.coFundingAvailable || null,

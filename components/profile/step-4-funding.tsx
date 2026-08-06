@@ -6,6 +6,9 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import {
   CO_FUNDING_CAPACITY,
+  DOCUMENT_READINESS,
+  FUNDING_POSITION,
+  FUNDING_URGENCY,
   step4Schema,
   type Step4Data,
   FUNDING_PURPOSES,
@@ -124,6 +127,9 @@ export function Step4Funding({
       fundingMax: defaultValues.fundingMax ?? undefined,
       fundingPurposes: defaultValues.fundingPurposes ?? [],
       fundingDetails: defaultValues.fundingDetails ?? "",
+      fundingUrgency: defaultValues.fundingUrgency ?? "",
+      fundingPosition: defaultValues.fundingPosition ?? "",
+      documentReadiness: defaultValues.documentReadiness ?? "",
       preferredOpportunityTypes: defaultValues.preferredOpportunityTypes ?? [],
       coFundingCapacity: defaultValues.coFundingCapacity ?? "",
       reimbursementReadiness: defaultValues.reimbursementReadiness ?? "",
@@ -339,6 +345,93 @@ export function Step4Funding({
               )}
             />
           </div>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-3">
+          <FormField
+            control={form.control}
+            name="fundingUrgency"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Funding urgency</FormLabel>
+                <FormControl>
+                  <select
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={field.value ?? ""}
+                    onChange={field.onChange}
+                    aria-label="Funding urgency"
+                  >
+                    <option value="">— Select urgency —</option>
+                    {FUNDING_URGENCY.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </FormControl>
+                <p className="text-muted-foreground text-xs">
+                  Helps prioritise urgent deadlines and quick wins.
+                </p>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="fundingPosition"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Funding position</FormLabel>
+                <FormControl>
+                  <select
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={field.value ?? ""}
+                    onChange={field.onChange}
+                    aria-label="Funding position"
+                  >
+                    <option value="">— Select position —</option>
+                    {FUNDING_POSITION.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </FormControl>
+                <p className="text-muted-foreground text-xs">
+                  Flags co-funding, reimbursement, and low-risk funding needs.
+                </p>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="documentReadiness"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Document readiness</FormLabel>
+                <FormControl>
+                  <select
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={field.value ?? ""}
+                    onChange={field.onChange}
+                    aria-label="Document readiness"
+                  >
+                    <option value="">— Select readiness —</option>
+                    {DOCUMENT_READINESS.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </FormControl>
+                <p className="text-muted-foreground text-xs">
+                  Improves application readiness and effort estimates.
+                </p>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
         </div>
 
         <FormField
@@ -584,7 +677,7 @@ export function Step4Funding({
         />
 
         <p className="text-xs text-muted-foreground">
-          Grants-Copilot uses this information to match your business with relevant grants and prepare stronger application materials.
+          GrantsCopilot uses this information to match your business with relevant grants and prepare stronger application materials.
         </p>
 
         <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">

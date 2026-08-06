@@ -55,10 +55,14 @@ export interface GrantMemoryPayload {
     fundingPurposes?: string[];
     preferredOpportunityTypes?: string[];
     fundingDetails?: string | null;
+    fundingUrgency?: string | null;
+    fundingPosition?: string | null;
+    documentReadiness?: string | null;
     coFundingCapacity?: string | null;
     reimbursementReadiness?: string | null;
     coFundingAvailable?: string | null;
     matchFundingDetails?: string | null;
+    previousGrantHistory?: string | null;
   };
   team?: {
     directorNames?: string | null;
@@ -129,10 +133,14 @@ function buildPayloadFromProfile(profile: Record<string, unknown>): GrantMemoryP
       fundingPurposes: (profile.fundingPurposes as string[]) ?? [],
       preferredOpportunityTypes: (profile.preferredOpportunityTypes as string[]) ?? [],
       fundingDetails: (profile.fundingDetails as string | null) ?? (profile.funding_details as string | null) ?? null,
+      fundingUrgency: (profile.fundingUrgency as string | null) ?? (profile.funding_urgency as string | null) ?? null,
+      fundingPosition: (profile.fundingPosition as string | null) ?? (profile.funding_position as string | null) ?? null,
+      documentReadiness: (profile.documentReadiness as string | null) ?? (profile.document_readiness as string | null) ?? null,
       coFundingCapacity: (profile.coFundingCapacity as string | null) ?? null,
       reimbursementReadiness: (profile.reimbursementReadiness as string | null) ?? null,
       coFundingAvailable: (profile.coFundingAvailable as string | null) ?? null,
       matchFundingDetails: (profile.matchFundingDetails as string | null) ?? null,
+      previousGrantHistory: (profile.previousGrantHistory as string | null) ?? (profile.previous_grant_history as string | null) ?? null,
     },
     team: {
       directorNames: (profile.directorNames as string | null) ?? (profile.director_names as string | null) ?? null,

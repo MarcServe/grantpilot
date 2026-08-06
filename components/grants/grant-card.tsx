@@ -11,6 +11,8 @@ import { UrlStatusBadge } from "./url-status-badge";
 import { grantFinderLabel } from "@/lib/grant-source-policy";
 import { cn } from "@/lib/utils";
 import type { GrantFitPreview, GrantFitTag, GrantFitTagKind } from "@/lib/grant-fit-preview";
+import type { GrantEffortSignal } from "@/lib/grant-effort";
+import { formatGrantFundingValue, type GrantFundingValue } from "@/lib/grant-value";
 
 interface GrantCardProps {
   id: string;
@@ -41,6 +43,11 @@ interface GrantCardProps {
   tagExplanations?: GrantFitTag[];
   whyNotSuggested?: string[];
   matchSection?: GrantFitPreview["matchSection"];
+  fundingValue?: GrantFundingValue | null;
+  effort?: GrantEffortSignal | null;
+  recommendationCategory?: string | null;
+  primaryBlocker?: string | null;
+  nextAction?: string | null;
 }
 
 type GrantUserState = "saved" | "viewed" | "deferred" | "applied" | "dismissed";
@@ -142,10 +149,16 @@ export function GrantCard({
   tagExplanations,
   whyNotSuggested,
   matchSection,
+  fundingValue,
+  effort,
+  recommendationCategory,
+  primaryBlocker,
+  nextAction,
 }: GrantCardProps) {
   const scoreLabel = scoringSource === "heuristic" ? "Prelim" : "Match";
   const sourceLabel = grantFinderLabel(source);
   const state = stateLabel(userState, isSaved);
+  const fundingDisplay = fundingValue ? formatGrantFundingValue(fundingValue) : formatGrantFundingValue(amount);
   const adviceTitle =
     matchSection === "suggested"
       ? "For stronger positioning"
@@ -253,9 +266,24 @@ export function GrantCard({
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="flex flex-wrap gap-2">
-          {amount && (
+          {(fundingValue?.amount || amount) && (
             <Badge variant="secondary">
-              Up to {amount.toLocaleString("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 })}
+              {fundingDisplay}
+            </Badge>
+          )}
+          {fundingValue?.amount && (
+            <Badge variant="outline">
+              {fundingValue.label}
+            </Badge>
+          )}
+          {effort && (
+            <Badge variant="outline">
+              {effort.estimatedTimeLabel} · {effort.effortBand}
+            </Badge>
+          )}
+          {recommendationCategory && (
+            <Badge variant="outline">
+              {recommendationCategory}
             </Badge>
           )}
           {deadline && (
@@ -340,6 +368,16 @@ export function GrantCard({
                 <li key={reason}>{reason}</li>
               ))}
             </ul>
+            {nextAction && (
+              <p className="mt-2 font-medium">Next action: {nextAction}</p>
+            )}
+          </div>
+        )}
+
+        {!whyNotSuggested?.length && (primaryBlocker || nextAction) && (
+          <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+            {primaryBlocker && <p><span className="font-semibold text-foreground">Primary blocker:</span> {primaryBlocker}</p>}
+            {nextAction && <p className="mt-1"><span className="font-semibold text-foreground">Next action:</span> {nextAction}</p>}
           </div>
         )}
 

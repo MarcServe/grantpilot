@@ -438,6 +438,11 @@ export function GrantsListClient({
               tagExplanations={fitPreview?.tagExplanations ?? []}
               whyNotSuggested={profileComplete ? fitPreview?.whyNotSuggested ?? [] : []}
               matchSection={fitPreview?.matchSection}
+              fundingValue={fitPreview?.fundingValue ?? null}
+              effort={fitPreview?.effort ?? null}
+              recommendationCategory={fitPreview?.recommendationCategory ?? null}
+              primaryBlocker={fitPreview?.primaryBlocker ?? null}
+              nextAction={fitPreview?.nextAction ?? null}
             />
           );
           })}

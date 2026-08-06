@@ -76,11 +76,15 @@ interface ProfileData {
   financialProjections?: string | null;
   previousGrantExperience?: string | null;
   previousGrants: string | null;
+  previousGrantHistory?: string | null;
   fundingMin: number;
   fundingMax: number;
   fundingPurposes: string[];
   preferredOpportunityTypes?: string[];
   fundingDetails: string | null;
+  fundingUrgency?: string | null;
+  fundingPosition?: string | null;
+  documentReadiness?: string | null;
   coFundingCapacity?: string | null;
   reimbursementReadiness?: string | null;
   coFundingAvailable?: string | null;
@@ -412,6 +416,7 @@ export function ProfileForm({
                 financialProjections: profile.financialProjections ?? "",
                 previousGrantExperience: profile.previousGrantExperience ?? "",
                 previousGrants: profile.previousGrants ?? undefined,
+                previousGrantHistory: profile.previousGrantHistory ?? "",
               }}
               onSubmit={handleStep3}
               onBack={() => setStep(2)}
@@ -426,6 +431,9 @@ export function ProfileForm({
                 fundingPurposes: profile.fundingPurposes ?? [],
                 preferredOpportunityTypes: profile.preferredOpportunityTypes ?? [],
                 fundingDetails: profile.fundingDetails ?? "",
+                fundingUrgency: profile.fundingUrgency ?? "",
+                fundingPosition: profile.fundingPosition ?? "",
+                documentReadiness: profile.documentReadiness ?? "",
                 coFundingCapacity: profile.coFundingCapacity ?? "",
                 reimbursementReadiness: profile.reimbursementReadiness ?? "",
                 coFundingAvailable: profile.coFundingAvailable ?? "",

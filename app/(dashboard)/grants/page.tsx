@@ -8,7 +8,12 @@ import { isGrantActionableNow } from "@/lib/grant-actionability";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { grantMatchesFunderLocations, inferFunderLocationsFromProfile } from "@/lib/constants";
 import { getServerCache } from "@/lib/server-cache";
-import { getGrantFitPreviews } from "@/lib/grant-fit-preview";
+import {
+  GRANT_FIT_PREVIEW_SELECT_BASE,
+  GRANT_FIT_PREVIEW_SELECT_WITH_DECISION,
+  getGrantFitPreviews,
+  isGrantFitPreviewColumnError,
+} from "@/lib/grant-fit-preview";
 
 const GRANT_PAGE_SIZE_OPTIONS = [20, 30, 50] as const;
 const DEFAULT_GRANT_PAGE_SIZE = 20;
@@ -42,6 +47,16 @@ type GrantListRow = {
   updated_at?: string | null;
   url_status?: string | null;
   url_checked_at?: string | null;
+  detailUrl?: string | null;
+  directApplicationUrl?: string | null;
+  applicationUrlQuality?: string | null;
+  applicationUrlKind?: string | null;
+  opportunityType?: string | null;
+  fundingValueType?: string | null;
+  applicantMaxAmount?: number | null;
+  applicantTypicalAmount?: number | null;
+  programmeTotalAmount?: number | null;
+  fundingValueEvidence?: string | null;
 };
 
 function latestDate(values: (string | null)[]): string | null {
@@ -148,29 +163,13 @@ export default async function GrantsPage({
     ])
   );
 
-  const grantColumns = [
-    "id",
-    "name",
-    "funder",
-    "amount",
-    "deadline",
-    "sectors",
-    "regions",
-    "applicantTypes",
-    "funderLocations",
-    "source",
-    "eligibility",
-    "applicationUrl",
-    "createdAt",
-    "updatedAt",
-    "url_status",
-    "url_checked_at",
-  ].join(", ");
+  const grantColumnsBase = `${GRANT_FIT_PREVIEW_SELECT_BASE}, source, applicationUrl, updatedAt, url_checked_at`;
+  const grantColumnsWithDecision = `${GRANT_FIT_PREVIEW_SELECT_WITH_DECISION}, source, updatedAt, url_checked_at`;
   const offset = (page - 1) * pageSize;
   const fetchEnd = offset + pageSize * GRANT_FETCH_OVERAGE - 1;
   const nowIso = new Date().toISOString();
   const grantsListCacheKey = [
-    "grants-list:v2",
+    "grants-list:v3",
     `shelf:${shelf}`,
     `sort:${sortMode}`,
     `region:${regionFilter || "all"}`,
@@ -185,34 +184,41 @@ export default async function GrantsPage({
     grantsListCacheKey,
     { ttlMs: GRANTS_PUBLIC_CACHE_TTL_MS, maxEntries: 100 },
     async () => {
-      let grantsQuery = supabase
-        .from("Grant")
-        .select(grantColumns, { count: "exact" });
+      const runQuery = (columns: string) => {
+        let grantsQuery = supabase
+          .from("Grant")
+          .select(columns, { count: "exact" });
 
-      if (shelf === "expired") {
-        grantsQuery = grantsQuery.or(`deadline.lt.${nowIso},url_status.in.(dead,expired)`);
-      } else if (hideExpired) {
-        grantsQuery = grantsQuery.or(`deadline.is.null,deadline.gte.${nowIso}`);
-      }
-      if (hideBroken) {
-        grantsQuery = grantsQuery.not("url_status", "in", "(dead,expired)");
-      }
-      if (funderFilter) {
-        grantsQuery = grantsQuery.eq("funder", funderFilter);
-      }
-      if (regionFilter === "saved") {
-        grantsQuery = savedGrantIds.length > 0
-          ? grantsQuery.in("id", savedGrantIds)
-          : grantsQuery.eq("id", "__no_saved_grants__");
-      }
+        if (shelf === "expired") {
+          grantsQuery = grantsQuery.or(`deadline.lt.${nowIso},url_status.in.(dead,expired)`);
+        } else if (hideExpired) {
+          grantsQuery = grantsQuery.or(`deadline.is.null,deadline.gte.${nowIso}`);
+        }
+        if (hideBroken) {
+          grantsQuery = grantsQuery.not("url_status", "in", "(dead,expired)");
+        }
+        if (funderFilter) {
+          grantsQuery = grantsQuery.eq("funder", funderFilter);
+        }
+        if (regionFilter === "saved") {
+          grantsQuery = savedGrantIds.length > 0
+            ? grantsQuery.in("id", savedGrantIds)
+            : grantsQuery.eq("id", "__no_saved_grants__");
+        }
 
-      if (sortMode === "deadline") {
-        grantsQuery = grantsQuery.order("deadline", { ascending: true, nullsFirst: false });
-      } else {
-        grantsQuery = grantsQuery.order("createdAt", { ascending: false });
-      }
+        if (sortMode === "deadline") {
+          grantsQuery = grantsQuery.order("deadline", { ascending: true, nullsFirst: false });
+        } else {
+          grantsQuery = grantsQuery.order("createdAt", { ascending: false });
+        }
 
-      return grantsQuery.range(offset, fetchEnd);
+        return grantsQuery.range(offset, fetchEnd);
+      };
+      const result = await runQuery(grantColumnsWithDecision);
+      if (result.error && isGrantFitPreviewColumnError(result.error.message)) {
+        return runQuery(grantColumnsBase);
+      }
+      return result;
     }
   );
   const candidateGrants = (Array.isArray(grantsData) ? grantsData : []) as unknown as GrantListRow[];

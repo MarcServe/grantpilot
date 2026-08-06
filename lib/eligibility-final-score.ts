@@ -44,6 +44,9 @@ export function profileForEligibilityGuards(profile: Record<string, unknown>) {
       : Array.isArray(profile.funding_purposes)
         ? (profile.funding_purposes as string[])
         : [],
+    fundingUrgency: String(profile.fundingUrgency ?? profile.funding_urgency ?? "") || null,
+    fundingPosition: String(profile.fundingPosition ?? profile.funding_position ?? "") || null,
+    documentReadiness: String(profile.documentReadiness ?? profile.document_readiness ?? "") || null,
     businessType: String(profile.businessType ?? profile.business_type ?? "") || null,
     legalStructure: String(profile.legalStructure ?? profile.legal_structure ?? "") || null,
     businessStage: String(profile.businessStage ?? profile.business_stage ?? "") || null,
@@ -53,6 +56,7 @@ export function profileForEligibilityGuards(profile: Record<string, unknown>) {
     reimbursementReadiness: String(profile.reimbursementReadiness ?? profile.reimbursement_readiness ?? "") || null,
     coFundingAvailable: String(profile.coFundingAvailable ?? profile.co_funding_available ?? "") || null,
     matchFundingDetails: String(profile.matchFundingDetails ?? profile.match_funding_details ?? "") || null,
+    previousGrantHistory: String(profile.previousGrantHistory ?? profile.previous_grant_history ?? "") || null,
     eligibilityFactsText: eligibilityFactsToText(profile.eligibilityFacts ?? profile.eligibility_facts, 16),
     confirmedEligibilityFactsText: confirmedEligibilityFactsToText(profile.eligibilityFacts ?? profile.eligibility_facts, 16),
     employeeCount:

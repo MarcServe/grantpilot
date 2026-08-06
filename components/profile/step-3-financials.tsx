@@ -40,6 +40,7 @@ export function Step3Financials({
       financialProjections: defaultValues.financialProjections ?? "",
       previousGrantExperience: defaultValues.previousGrantExperience ?? "",
       previousGrants: defaultValues.previousGrants ?? "",
+      previousGrantHistory: defaultValues.previousGrantHistory ?? "",
     },
   });
 
@@ -172,6 +173,27 @@ export function Step3Financials({
                   {...field}
                 />
               </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="previousGrantHistory"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Previous grant history and outcomes (optional)</FormLabel>
+              <FormControl>
+                <Textarea
+                  placeholder="Summarise awards, rejections, shortlist outcomes, or funder feedback..."
+                  rows={3}
+                  {...field}
+                />
+              </FormControl>
+              <p className="text-muted-foreground text-xs">
+                This helps GrantsCopilot avoid repeating weak positioning and strengthen future grant answers.
+              </p>
               <FormMessage />
             </FormItem>
           )}

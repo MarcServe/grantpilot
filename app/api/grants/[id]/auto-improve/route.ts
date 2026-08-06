@@ -23,6 +23,9 @@ function profileToMatching(profile: Record<string, unknown>) {
     fundingPurposes: Array.isArray(profile.fundingPurposes) ? (profile.fundingPurposes as string[]) : (Array.isArray(profile.funding_purposes) ? (profile.funding_purposes as string[]) : []),
     preferredOpportunityTypes: Array.isArray(get("preferredOpportunityTypes")) ? get("preferredOpportunityTypes") as string[] : [],
     fundingDetails: profile.fundingDetails != null ? String(profile.fundingDetails) : (profile.funding_details != null ? String(profile.funding_details) : null),
+    fundingUrgency: get("fundingUrgency") != null ? String(get("fundingUrgency")) : null,
+    fundingPosition: get("fundingPosition") != null ? String(get("fundingPosition")) : null,
+    documentReadiness: get("documentReadiness") != null ? String(get("documentReadiness")) : null,
     businessType: String(get("businessType") ?? get("business_type") ?? ""),
     legalStructure: String(get("legalStructure") ?? ""),
     businessStage: String(get("businessStage") ?? ""),
@@ -35,6 +38,7 @@ function profileToMatching(profile: Record<string, unknown>) {
     coFundingAvailable: get("coFundingAvailable") != null ? String(get("coFundingAvailable")) : null,
     matchFundingDetails: get("matchFundingDetails") != null ? String(get("matchFundingDetails")) : null,
     previousGrantExperience: get("previousGrantExperience") != null ? String(get("previousGrantExperience")) : null,
+    previousGrantHistory: get("previousGrantHistory") != null ? String(get("previousGrantHistory")) : null,
     eligibilityFacts: get("eligibilityFacts") ?? get("eligibility_facts") ?? [],
   };
 }

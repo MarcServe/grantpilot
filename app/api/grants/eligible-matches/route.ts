@@ -7,6 +7,8 @@ import { getServerCache } from "@/lib/server-cache";
 import { getAppliedGrantIds } from "@/lib/applied-grants";
 import { isGrantActionableNow } from "@/lib/grant-actionability";
 import { estimateGrantEffort } from "@/lib/grant-effort";
+import { deriveDecisionSignals } from "@/lib/grant-decision-signals";
+import { resolveGrantFundingValue } from "@/lib/grant-value";
 import { getGrantVerificationWarning } from "@/lib/grant-freshness";
 import { deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
 import {
@@ -50,6 +52,12 @@ const GRANT_SELECT_WITH_URL_QUALITY = [
   "applicationUrlQuality",
   "applicationUrlKind",
   "applicationUrlQualityReason",
+  "opportunityType",
+  "fundingValueType",
+  "applicantMaxAmount",
+  "applicantTypicalAmount",
+  "programmeTotalAmount",
+  "fundingValueEvidence",
 ].join(", ");
 const GRANT_SELECT_BASE = [
   "id",
@@ -105,6 +113,12 @@ type GrantRow = {
   applicationUrlQuality?: string | null;
   applicationUrlKind?: string | null;
   applicationUrlQualityReason?: string | null;
+  opportunityType?: string | null;
+  fundingValueType?: string | null;
+  applicantMaxAmount?: number | null;
+  applicantTypicalAmount?: number | null;
+  programmeTotalAmount?: number | null;
+  fundingValueEvidence?: string | null;
 };
 type GrantWithAssessmentRow = GrantRow & {
   EligibilityAssessment?: AssessmentRow[] | AssessmentRow | null;
@@ -175,7 +189,7 @@ async function fetchEligibleGrantRowsByIds(
   supabase: SupabaseAdmin,
   ids: string[]
 ): Promise<Map<string, GrantRow>> {
-  const cacheKey = `eligible-grants-rows:v2:${hashIds(ids)}`;
+  const cacheKey = `eligible-grants-rows:v3:${hashIds(ids)}`;
 
   return getServerCache(cacheKey, { ttlMs: 60_000, maxEntries: 100 }, async () => {
     const full = await fetchGrantRowsByIds(supabase, ids, GRANT_SELECT_WITH_URL_QUALITY);
@@ -185,7 +199,7 @@ async function fetchEligibleGrantRowsByIds(
 
     const missingUrlQualityColumns =
       full.error.code === "42703" ||
-      /applicationUrlQuality|applicationUrlKind|directApplicationUrl|detailUrl|column .* does not exist/i.test(full.error.message ?? "");
+      /applicationUrlQuality|applicationUrlKind|directApplicationUrl|detailUrl|opportunityType|fundingValueType|applicantMaxAmount|applicantTypicalAmount|programmeTotalAmount|fundingValueEvidence|column .* does not exist/i.test(full.error.message ?? "");
 
     if (!missingUrlQualityColumns) {
       console.warn("[eligible-matches] Grant lookup failed:", full.error.message ?? full.error);
@@ -362,7 +376,7 @@ async function buildTierMatches({
   pageSize: number;
 }): Promise<TierMatchResult> {
   const supabase = getSupabaseAdmin();
-  const cacheKey = `eligible-match-tier:v6:${orgId}:${profileId}:${section}:${page}:${pageSize}`;
+  const cacheKey = `eligible-match-tier:v7:${orgId}:${profileId}:${section}:${page}:${pageSize}`;
 
   return getServerCache(cacheKey, { ttlMs: 30_000, maxEntries: 100 }, async () => {
     const outcomePromise = supabase
@@ -447,8 +461,11 @@ async function buildTierMatches({
         const userState = grantUserStateMap.get(assessment.grant_id) ?? null;
         if (!scoreBelongsToMatchSection(section, score)) continue;
         if (!matchSectionAllowsCandidate({ section, userState, scoringSource })) continue;
+        const missingCriteria = guarded.missing ?? assessment.missing_criteria;
+        const improvementPlan = guarded.improvementPlan ?? assessment.improvement_plan;
+        const fundingValue = resolveGrantFundingValue(grant);
         const effortSignal = estimateGrantEffort({
-          amount: grant.amount ?? null,
+          amount: fundingValue.countsTowardApplicantTotal ? fundingValue.amount : grant.amount ?? null,
           deadline: grant.deadline,
           applicationUrlQuality: grant.applicationUrlQuality ?? null,
           applicationUrlKind: grant.applicationUrlKind ?? null,
@@ -457,8 +474,16 @@ async function buildTierMatches({
           objectives: grant.objectives ?? null,
           score,
           scoringSource,
-          missingCriteria: guarded.missing ?? assessment.missing_criteria,
-          improvementPlan: guarded.improvementPlan ?? assessment.improvement_plan,
+          missingCriteria,
+          improvementPlan,
+        });
+        const decisionSignals = deriveDecisionSignals({
+          score,
+          scoringSource,
+          missingCriteria,
+          improvementPlan,
+          effort: effortSignal,
+          userState,
         });
 
         seenGrantIds.add(assessment.grant_id);
@@ -467,14 +492,17 @@ async function buildTierMatches({
           grantName: grant.name,
           funder: grant.funder,
           amount: grant.amount ?? null,
+          fundingValue,
+          fundingValueType: fundingValue.type,
+          fundingValueEvidence: fundingValue.evidence ?? null,
           deadline: grant.deadline,
           addedAt: grant.createdAt ?? null,
           scoredAt: assessment.updated_at ?? null,
           score,
           decision: guarded.decision,
           summary: guarded.summary ?? assessment.summary,
-          missingCriteria: guarded.missing ?? assessment.missing_criteria,
-          improvementPlan: guarded.improvementPlan ?? assessment.improvement_plan,
+          missingCriteria,
+          improvementPlan,
           outcomeWarnings: guarded.outcomeWarnings ?? [],
           verificationWarning: getGrantVerificationWarning(grant)?.message ?? null,
           applicationUrl: grant.applicationUrl ?? null,
@@ -486,6 +514,12 @@ async function buildTierMatches({
           scoringSource,
           userState,
           effort: effortSignal,
+          scoreDimensions: decisionSignals.scoreDimensions,
+          confidenceState: decisionSignals.confidenceState,
+          recommendationCategory: decisionSignals.recommendationCategory,
+          primaryBlocker: decisionSignals.primaryBlocker,
+          nextAction: decisionSignals.nextAction,
+          profileFactsNeeded: decisionSignals.profileFactsNeeded,
         });
       }
 

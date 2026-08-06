@@ -160,6 +160,10 @@ model BusinessProfile {
   coFundingCapacity  String?
   reimbursementReadiness String?
   previousGrantExperience String?
+  fundingUrgency     String?
+  fundingPosition    String?
+  documentReadiness  String?
+  previousGrantHistory String?    @db.Text
   previousGrants     String?       @db.Text
   funderLocations    String[]      @default([]) // US, UK, EU, Global – which funder regions user wants to see
   websiteUrl         String?
@@ -234,6 +238,12 @@ model Grant {
   source           String?                    // default, claude, openai, gemini, perplexity, grants-gov, bing, google, admin
   url_status       String        @default("unknown") // live, dead, expired, unknown
   url_checked_at   DateTime?     // last time the URL was verified
+  opportunityType  String?
+  fundingValueType String?
+  applicantMaxAmount Float?
+  applicantTypicalAmount Float?
+  programmeTotalAmount Float?
+  fundingValueEvidence String?    @db.Text
   applications    Application[]
   applicationOutcomes ApplicationOutcome[]
   createdAt        DateTime      @default(now())
@@ -315,6 +325,23 @@ model NotificationLog {
   status    String
   error     String?
   createdAt DateTime @default(now())
+}
+
+model RecommendationFeedback {
+  id             String   @id @default(cuid())
+  organisationId String   @map("organisation_id")
+  profileId      String?  @map("profile_id")
+  grantId        String   @map("grant_id")
+  userId         String?  @map("user_id")
+  category       String
+  note           String?  @db.Text
+  source         String   @default("card")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([organisationId])
+  @@index([profileId])
+  @@index([grantId])
+  @@map("RecommendationFeedback")
 }
 
 model PortalCredential {

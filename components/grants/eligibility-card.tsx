@@ -284,14 +284,14 @@ export function EligibilityCard({
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-sm font-medium">
           <Scale className="h-4 w-4" />
-          Funding probability
+          Eligibility confidence
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         {!result ? (
           <>
             <p className="text-sm text-muted-foreground">
-              Get a GrantsCopilot assessment of rule eligibility, evidence strength, and likely funding fit. We may show a cached score if we&apos;ve already assessed it.
+              Get a GrantsCopilot assessment of rule eligibility, strategic fit, application readiness, and practical suitability. We may show a cached score if we&apos;ve already assessed it.
             </p>
             <Button
               variant="outline"
@@ -308,14 +308,14 @@ export function EligibilityCard({
           <>
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-base font-semibold">
-                Funding fit: {score}%
+                Eligibility confidence: {score}%
               </span>
               <Badge variant={result.scoringSource === "heuristic" ? "outline" : "secondary"}>
                 {result.scoringSource === "heuristic" ? "Preliminary fit" : "Company-DNA AI scored"}
               </Badge>
               {result.winProbability != null && (
                 <Badge variant="secondary">
-                  Win probability: {Math.round(result.winProbability)}%
+                  Practical suitability: {Math.round(result.winProbability)}%
                 </Badge>
               )}
               {result.evidenceStrength && (
@@ -341,7 +341,7 @@ export function EligibilityCard({
                 <p className="mb-2 text-xs font-medium text-muted-foreground">
                   {result.scoringSource === "heuristic"
                     ? "Preliminary signals only"
-                    : `Why your company DNA gives this grant a ${score}% fit`}
+                    : `Why your Business DNA gives this grant ${score}% eligibility confidence`}
                 </p>
                 {result.met && result.met.length > 0 && (
                   <ul className="space-y-1 text-sm text-green-700 dark:text-green-400">
@@ -390,7 +390,7 @@ export function EligibilityCard({
               <div className="rounded-md border border-amber-200 bg-amber-50/50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
                 <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-amber-800 dark:text-amber-200">
                   <Lightbulb className="h-3.5 w-3.5" />
-                  How to improve your fit
+                  Funding Readiness Roadmap
                 </p>
                 {result.improvementPlan.gaps && result.improvementPlan.gaps.length > 0 && (
                   <p className="mb-1 text-xs font-medium text-muted-foreground">Gaps</p>
@@ -418,7 +418,7 @@ export function EligibilityCard({
             <div className="flex flex-wrap gap-2">
               <Button variant="ghost" size="sm" onClick={() => handleCheck(true)} disabled={loading}>
                 {loading ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
-                {result.scoringSource === "heuristic" ? "Run full company-DNA check" : "Re-check fresh"}
+                {result.scoringSource === "heuristic" ? "Run full company-DNA check" : "Re-check eligibility"}
               </Button>
               {grantAutoImproveEnabled && score < 85 && (result.improvementPlan?.actions?.length || result.missing?.length) ? (
                 <AutoImproveButton grantId={grantId} applicationId={applicationId} />

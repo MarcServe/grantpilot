@@ -39,11 +39,15 @@ export type ProfileFacts = {
   fundingPurposes: string[];
   preferredOpportunityTypes: string[];
   fundingDetails: string;
+  fundingUrgency: string;
+  fundingPosition: string;
+  documentReadiness: string;
   coFundingCapacity: string;
   reimbursementReadiness: string;
   coFundingAvailable: string;
   matchFundingDetails: string;
   previousGrantExperience: string;
+  previousGrantHistory: string;
   eligibilityFactsText: string;
   confirmedEligibilityFactsText: string;
 };
@@ -166,6 +170,9 @@ function textCorpus(profile: ProfileFacts): string {
     profile.areasServed,
     profile.expectedEmployeeGrowth,
     profile.fundingDetails,
+    profile.fundingUrgency,
+    profile.fundingPosition,
+    profile.documentReadiness,
     profile.fundingPurposes.join(" "),
     profile.preferredOpportunityTypes.join(" "),
     profile.coFundingCapacity,
@@ -173,6 +180,7 @@ function textCorpus(profile: ProfileFacts): string {
     profile.coFundingAvailable,
     profile.matchFundingDetails,
     profile.previousGrantExperience,
+    profile.previousGrantHistory,
     profile.eligibilityFactsText,
   ].join(" ");
 }
@@ -289,11 +297,15 @@ export function normalizeProfileFacts(profile: Record<string, unknown>): Profile
     fundingPurposes: asStringArray(get("fundingPurposes")),
     preferredOpportunityTypes: asStringArray(get("preferredOpportunityTypes")),
     fundingDetails: asText(get("fundingDetails")),
+    fundingUrgency: asText(get("fundingUrgency")),
+    fundingPosition: asText(get("fundingPosition")),
+    documentReadiness: asText(get("documentReadiness")),
     coFundingCapacity: asText(get("coFundingCapacity")),
     reimbursementReadiness: asText(get("reimbursementReadiness")),
     coFundingAvailable: asText(get("coFundingAvailable")),
     matchFundingDetails: asText(get("matchFundingDetails")),
     previousGrantExperience: asText(get("previousGrantExperience")),
+    previousGrantHistory: asText(get("previousGrantHistory")),
     eligibilityFactsText: eligibilityFactsToText(get("eligibilityFacts"), 16),
     confirmedEligibilityFactsText: confirmedEligibilityFactsToText(get("eligibilityFacts"), 16),
   };
