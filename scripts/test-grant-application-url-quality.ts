@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import {
   classifyGrantApplicationUrl,
   classifyGrantPageText,
+  isGrantAggregatorClassificationReason,
+  isGrantAggregatorUrl,
   shouldExposeApplyCta,
 } from "../lib/grant-application-url-quality";
 
@@ -22,6 +24,16 @@ assert.equal(
   "generic_listing",
   "Bristol business support landing page should not be treated as an application form"
 );
+
+const aggregatorClassification = classifyGrantApplicationUrl("https://www.grantsonline.org.uk/grants-search");
+assert.equal(aggregatorClassification.kind, "generic_listing");
+assert.equal(aggregatorClassification.quality, "rejected");
+assert.equal(
+  isGrantAggregatorClassificationReason(aggregatorClassification.reason),
+  true,
+  "Known grant aggregators should get a clear non-funder reason"
+);
+assert.equal(isGrantAggregatorUrl("https://fundingcentral.org.uk/"), true);
 
 assert.equal(
   classifyGrantPageText({

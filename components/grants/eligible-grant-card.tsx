@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import type { GrantEffortSignal } from "@/lib/grant-effort";
 import { formatGrantFundingValue, type GrantFundingValue } from "@/lib/grant-value";
 import type { ConfidenceState, ScoreDimensions } from "@/lib/grant-decision-signals";
+import { isGrantAggregatorClassificationReason } from "@/lib/grant-application-url-quality";
 
 type GrantUserState = "saved" | "viewed" | "deferred" | "applied" | "dismissed";
 
@@ -94,8 +95,10 @@ export function hasVerifiedApplicationStart(quality?: string | null): boolean {
   return quality === "verified_direct" || quality === "verified_portal";
 }
 
-function applicationLinkLabel(quality?: string | null): string {
+function applicationLinkLabel(quality?: string | null, reason?: string | null): string {
+  if (isGrantAggregatorClassificationReason(reason)) return "Funding directory link";
   if (hasVerifiedApplicationStart(quality)) return "Direct grant form link";
+  if (quality === "rejected") return "Needs official funder link";
   return "Grant page link";
 }
 
@@ -125,10 +128,14 @@ export function EligibleGrantCard({
   const isDeadlineSoon =
     grant.deadline && new Date(grant.deadline).getTime() - pageLoadedAt < ONE_WEEK_MS;
   const verifiedApplicationStart = hasVerifiedApplicationStart(grant.applicationUrlQuality);
-  const linkLabel = applicationLinkLabel(grant.applicationUrlQuality);
+  const isAggregatorDirectoryLink = isGrantAggregatorClassificationReason(grant.applicationUrlQualityReason);
+  const canOpenReviewLink = !isAggregatorDirectoryLink && grant.applicationUrlQuality !== "rejected";
+  const linkLabel = applicationLinkLabel(grant.applicationUrlQuality, grant.applicationUrlQualityReason);
   const externalActionHref = verifiedApplicationStart
     ? grant.directApplicationUrl ?? grant.applicationUrl ?? grant.detailUrl ?? null
-    : grant.detailUrl ?? grant.applicationUrl ?? grant.directApplicationUrl ?? null;
+    : canOpenReviewLink
+      ? grant.detailUrl ?? grant.applicationUrl ?? grant.directApplicationUrl ?? null
+      : null;
 
   const actions: string[] = [];
   if (grant.improvementPlan?.actions?.length) actions.push(...grant.improvementPlan.actions);
@@ -239,6 +246,8 @@ export function EligibleGrantCard({
         className={`w-fit gap-1.5 ${
           verifiedApplicationStart
             ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+            : isAggregatorDirectoryLink || grant.applicationUrlQuality === "rejected"
+              ? "border-rose-200 bg-rose-50 text-rose-700"
             : "border-slate-200 bg-slate-50 text-slate-700"
         }`}
       >
@@ -325,10 +334,20 @@ export function EligibleGrantCard({
       )}
 
       {!verifiedApplicationStart && (
-        <div className="flex items-start gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/30 dark:text-slate-300">
+        <div
+          className={`flex items-start gap-2 rounded-md border px-3 py-2 text-xs ${
+            isAggregatorDirectoryLink || grant.applicationUrlQuality === "rejected"
+              ? "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300"
+              : "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-950/30 dark:text-slate-300"
+          }`}
+        >
           <LinkIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>
-            This is a grant information page, not a verified direct form yet. Review the page to find the funder application route.
+            {isAggregatorDirectoryLink
+              ? "This link opens another grant directory or funding finder, not the official funder page. Save the funder page or direct application form before applying."
+              : grant.applicationUrlQuality === "rejected"
+                ? "This link is not specific enough to use as an application route. Save the official funder page or direct form first."
+                : "This is a grant information page, not a verified direct form yet. Review the page to find the funder application route."}
           </span>
         </div>
       )}

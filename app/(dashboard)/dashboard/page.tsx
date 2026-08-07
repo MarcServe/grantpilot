@@ -16,7 +16,6 @@ import {
   ListTodo,
   ClipboardCheck,
   Gauge,
-  Bot,
   Bell,
   ChevronRight,
 } from "lucide-react";
@@ -35,9 +34,13 @@ import { fetchCachedGrantRowsByIds } from "@/lib/grant-record-cache";
 import { planAllowsForOrg } from "@/lib/plan-features";
 import {
   formatGrantValue,
+  formatGrantFundingValue,
   formatGrantValueSummary,
   grantValueSummaryDetail,
+  resolveGrantFundingValue,
   summarizeGrantValues,
+  type GrantFundingValue,
+  type GrantValueInput,
   type GrantValueSummary,
 } from "@/lib/grant-value";
 import type { EligibilityResult } from "@/lib/claude";
@@ -45,6 +48,39 @@ import type { EligibilityResult } from "@/lib/claude";
 const DASHBOARD_MATCH_PREVIEW_LIMIT = 80;
 const GRANT_QUERY_BATCH_SIZE = 24;
 const DASHBOARD_MATCH_HEALTH_LIMIT = 80;
+const DASHBOARD_HEADLINE_VALUE_LIMIT = 5_000_000;
+const DASHBOARD_HEADLINE_TOTAL_LIMIT = 10_000_000;
+const DASHBOARD_GRANT_SELECT_WITH_VALUE = [
+  "id",
+  "name",
+  "amount",
+  "fundingValueType",
+  "applicantMaxAmount",
+  "applicantTypicalAmount",
+  "programmeTotalAmount",
+  "fundingValueEvidence",
+  "funderLocations",
+  "createdAt",
+  "eligibility",
+  "description",
+  "objectives",
+  "applicantTypes",
+  "sectors",
+  "regions",
+].join(", ");
+const DASHBOARD_GRANT_SELECT_BASE = [
+  "id",
+  "name",
+  "amount",
+  "funderLocations",
+  "createdAt",
+  "eligibility",
+  "description",
+  "objectives",
+  "applicantTypes",
+  "sectors",
+  "regions",
+].join(", ");
 
 type SupabaseAdmin = ReturnType<typeof getSupabaseAdmin>;
 type DashboardMatchGrant = {
@@ -52,6 +88,7 @@ type DashboardMatchGrant = {
   grantName: string;
   score: number;
   amount?: number | null;
+  fundingValue?: GrantFundingValue | null;
   summary?: string;
   addedAt?: string | null;
 };
@@ -72,6 +109,48 @@ function profileForEligibilityGuards(profile: Record<string, unknown>) {
     annualRevenue: profile.annualRevenue != null ? Number(profile.annualRevenue) : (profile.annual_revenue != null ? Number(profile.annual_revenue) : null),
     yearEstablished: profile.yearEstablished != null ? Number(profile.yearEstablished) : (profile.year_established != null ? Number(profile.year_established) : null),
   };
+}
+
+function resolveDashboardFundingValue(grant: GrantValueInput): GrantFundingValue {
+  const fundingValue = resolveGrantFundingValue(grant);
+  if (
+    fundingValue.countsTowardApplicantTotal &&
+    fundingValue.amount != null &&
+    fundingValue.amount > DASHBOARD_HEADLINE_VALUE_LIMIT
+  ) {
+    return {
+      ...fundingValue,
+      amount: null,
+      type: "unknown",
+      label: "Funding value needs review",
+      countsTowardApplicantTotal: false,
+    };
+  }
+  return fundingValue;
+}
+
+function dashboardValueReviewCount(grants: DashboardMatchGrant[]) {
+  return grants.filter((grant) => {
+    const value = grant.fundingValue;
+    return Boolean(value?.amount && !value.countsTowardApplicantTotal);
+  }).length;
+}
+
+function dashboardValueDetail(summary: GrantValueSummary, reviewCount = 0) {
+  const base = grantValueSummaryDetail(summary);
+  const totalNote =
+    summary.knownCount > 0 && summary.total > DASHBOARD_HEADLINE_TOTAL_LIMIT
+      ? "large totals shown on grant cards"
+      : null;
+  const reviewNote =
+    reviewCount > 0 ? `${reviewCount} programme or large values kept off totals` : null;
+  return [base, totalNote, reviewNote].filter(Boolean).join(" · ");
+}
+
+function formatDashboardFundingHeadline(summary: GrantValueSummary) {
+  if (summary.knownCount === 0) return "Values vary";
+  if (summary.total > DASHBOARD_HEADLINE_TOTAL_LIMIT) return `${summary.knownCount} values`;
+  return formatGrantValueSummary(summary);
 }
 
 async function loadDashboardMatches({
@@ -122,11 +201,16 @@ async function loadDashboardMatches({
   ];
 
   if (grantIds.length > 0) {
-    const grantById = await fetchCachedGrantRowsByIds<{
+    let grantById = await fetchCachedGrantRowsByIds<{
       id: string;
       name: string;
       funderLocations?: string[];
       amount?: number | null;
+      fundingValueType?: string | null;
+      applicantMaxAmount?: number | null;
+      applicantTypicalAmount?: number | null;
+      programmeTotalAmount?: number | null;
+      fundingValueEvidence?: string | null;
       createdAt?: string | null;
       eligibility?: string | null;
       description?: string | null;
@@ -137,11 +221,21 @@ async function loadDashboardMatches({
     }>({
       supabase,
       ids: grantIds,
-      select: "id, name, amount, funderLocations, createdAt, eligibility, description, objectives, applicantTypes, sectors, regions",
+      select: DASHBOARD_GRANT_SELECT_WITH_VALUE,
       batchSize: GRANT_QUERY_BATCH_SIZE,
       ttlMs: 60_000,
       cacheNamespace: "dashboard-grants",
     });
+    if (grantById.size === 0 && grantIds.length > 0) {
+      grantById = await fetchCachedGrantRowsByIds({
+        supabase,
+        ids: grantIds,
+        select: DASHBOARD_GRANT_SELECT_BASE,
+        batchSize: GRANT_QUERY_BATCH_SIZE,
+        ttlMs: 60_000,
+        cacheNamespace: "dashboard-grants-base",
+      });
+    }
     const grantsList = [...grantById.values()];
     const userFunderLocations = inferFunderLocationsFromProfile(profile as {
       funderLocations?: string[] | null;
@@ -157,6 +251,7 @@ async function loadDashboardMatches({
       if (!matchesLocation.has(a.grant_id)) continue;
       const grant = grantById.get(a.grant_id);
       const name = grant?.name ?? "Grant";
+      const fundingValue = grant ? resolveDashboardFundingValue(grant) : null;
       const source = a.scoring_source ?? (a.summary?.startsWith("Preliminary fit") ? "heuristic" : "openai");
       const baseScore = source === "heuristic" ? Math.min(a.score, 69) : a.score;
       const guarded = grant
@@ -185,6 +280,7 @@ async function loadDashboardMatches({
           grantName: name,
           score,
           amount: grant?.amount ?? null,
+          fundingValue,
           addedAt: grant?.createdAt ?? null,
         });
       } else if (score >= 50) {
@@ -193,6 +289,7 @@ async function loadDashboardMatches({
           grantName: name,
           score,
           amount: grant?.amount ?? null,
+          fundingValue,
           summary: guarded?.summary ?? a.summary ?? undefined,
           addedAt: grant?.createdAt ?? null,
         });
@@ -414,7 +511,19 @@ export default async function DashboardPage() {
               </div>
             </div>
 
-            <div className="mt-8 grid min-w-0 grid-cols-1 gap-4 @min-[520px]/main:grid-cols-2 @min-[920px]/main:grid-cols-4">
+            <div className="mt-6">
+              <Suspense fallback={<DashboardMyMatchesStartSkeleton />}>
+                <DashboardMyMatchesStart matchesPromise={matchesPromise} completionScore={completionScore} />
+              </Suspense>
+            </div>
+
+            <div className="mt-5">
+              <Suspense fallback={<DashboardFundingSnapshotSkeleton />}>
+                <DashboardFundingSnapshot matchesPromise={matchesPromise} />
+              </Suspense>
+            </div>
+
+            <div className="mt-5 grid min-w-0 grid-cols-1 gap-4 @min-[520px]/main:grid-cols-2 @min-[920px]/main:grid-cols-4">
               <MetricCard
                 icon={Search}
                 label="Opportunities"
@@ -449,12 +558,6 @@ export default async function DashboardPage() {
               />
             </div>
 
-            <div className="mt-5">
-              <Suspense fallback={<DashboardFundingSnapshotSkeleton />}>
-                <DashboardFundingSnapshot matchesPromise={matchesPromise} />
-              </Suspense>
-            </div>
-
             <div className="mt-5 grid min-w-0 grid-cols-1 gap-5 @min-[680px]/main:grid-cols-2">
               <Suspense fallback={<TopMatchedOpportunitiesSkeleton />}>
                 <TopMatchedOpportunities matchesPromise={matchesPromise} />
@@ -480,19 +583,11 @@ export default async function DashboardPage() {
               </div>
             </div>
 
-            <div className="mt-5 flex flex-col gap-5 rounded-2xl bg-[#e7f1ff] p-4 sm:flex-row sm:items-center sm:justify-between sm:p-6">
-              <div>
-                <p className="text-xl font-black leading-snug text-[#071a3a]">
-                  Save time. Increase success.
-                  <br /> Get funded.
-                </p>
-                <p className="mt-3 max-w-xl text-sm font-medium leading-6 text-[#2a4065]">
-                  GrantsCopilot handles discovery, scoring, drafting, and preparation workflows so you can focus on growing your business.
-                </p>
-              </div>
-              <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-[#d6e8ff] text-[#2167e8]">
-                <Bot className="h-10 w-10" />
-              </div>
+            <div className="mt-5 grid gap-3 rounded-2xl bg-[#e7f1ff] p-4 sm:grid-cols-2 lg:grid-cols-4">
+              <DashboardActionButton href="/grants/eligible" icon={Sparkles} label="My Matches" />
+              <DashboardActionButton href="/founder-pack" icon={FileText} label="Founder Pack" />
+              <DashboardActionButton href="/profile" icon={Building2} label="Business DNA" />
+              <DashboardActionButton href="/grants" icon={Search} label="Grant Library" />
             </div>
           </div>
 
@@ -656,30 +751,133 @@ async function DashboardBusinessDnaPrompt({
   return <BusinessDnaMatchHealth report={matchHealth} profile={profile} />;
 }
 
+async function DashboardMyMatchesStart({
+  matchesPromise,
+  completionScore,
+}: {
+  matchesPromise: Promise<DashboardMatchesData>;
+  completionScore: number;
+}) {
+  const { suggestedGrants, withinReachGrants } = await matchesPromise;
+  const allMatches = [...suggestedGrants, ...withinReachGrants];
+  const topGrant = suggestedGrants[0] ?? withinReachGrants[0] ?? null;
+  const totalValue = summarizeGrantValues(allMatches);
+
+  return (
+    <div className="rounded-2xl border border-[#cfe1ff] bg-[linear-gradient(135deg,#f4f8ff,#ecfff7)] p-4 shadow-[0_16px_42px_rgba(7,26,58,0.07)] sm:p-5">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <p className="text-xs font-black uppercase tracking-[0.12em] text-[#2167e8]">Start here</p>
+          <h2 className="mt-1 text-2xl font-black leading-tight text-[#071a3a]">My Matches</h2>
+          <p className="mt-1 text-sm font-semibold text-[#51627d]">
+            AI-scored grants for your Business DNA.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button asChild className="rounded-xl bg-[#2167e8] font-black">
+            <Link href="/grants/eligible">
+              Open My Matches <ArrowRight className="h-4 w-4" />
+            </Link>
+          </Button>
+          <Button asChild variant="outline" className="rounded-xl bg-white font-black">
+            <Link href="/grants/eligible?section=suggested">Strong {suggestedGrants.length}</Link>
+          </Button>
+          <Button asChild variant="outline" className="rounded-xl bg-white font-black">
+            <Link href="/grants/eligible?section=within_reach">Within reach {withinReachGrants.length}</Link>
+          </Button>
+          <Button asChild variant="outline" className="rounded-xl bg-white font-black">
+            <Link href="/founder-pack">Prepare answers</Link>
+          </Button>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px]">
+        {topGrant ? (
+          <Link
+            href={`/grants/${topGrant.grantId}?from=dashboard`}
+            className="flex min-w-0 flex-col gap-3 rounded-2xl border border-[#dbe7f6] bg-white p-4 transition-colors hover:border-[#2167e8]/45 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <span className="min-w-0">
+              <span className="block text-xs font-black uppercase tracking-[0.08em] text-[#087f59]">
+                Best next grant
+              </span>
+              <span className="mt-1 block truncate text-base font-black text-[#071a3a]">
+                {topGrant.grantName}
+              </span>
+              <span className="mt-1 block text-xs font-bold text-[#51627d]">
+                {topGrant.fundingValue ? formatGrantFundingValue(topGrant.fundingValue) : formatGrantValue(topGrant.amount)}
+              </span>
+            </span>
+            <span className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-[#2167e8] px-4 py-2 text-sm font-black text-white">
+              Review {topGrant.score}% <ArrowRight className="h-4 w-4" />
+            </span>
+          </Link>
+        ) : (
+          <div className="rounded-2xl border border-[#dbe7f6] bg-white p-4">
+            <p className="text-base font-black text-[#071a3a]">No matches ready yet</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button asChild size="sm" className="rounded-xl bg-[#2167e8] font-black">
+                <Link href="/profile">Improve Business DNA</Link>
+              </Button>
+              <Button asChild size="sm" variant="outline" className="rounded-xl bg-white font-black">
+                <Link href="/grants">Browse Grant Library</Link>
+              </Button>
+            </div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-2 lg:grid-cols-1">
+          <DashboardMiniButton href="/grants/eligible" label="Known value" value={formatDashboardFundingHeadline(totalValue)} />
+          <DashboardMiniButton href="/profile" label="DNA" value={`${completionScore}%`} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DashboardMyMatchesStartSkeleton() {
+  return (
+    <div className="rounded-2xl border border-[#e7edf6] bg-white p-4 sm:p-5" aria-hidden="true">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="space-y-3">
+          <div className="h-3 w-24 animate-pulse rounded bg-[#eef3f8]" />
+          <div className="h-8 w-44 animate-pulse rounded bg-[#eef3f8]" />
+          <div className="h-4 w-64 animate-pulse rounded bg-[#eef3f8]" />
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {[0, 1, 2, 3].map((button) => (
+            <div key={button} className="h-9 w-28 animate-pulse rounded-xl bg-[#eef3f8]" />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 async function DashboardFundingSnapshot({ matchesPromise }: { matchesPromise: Promise<DashboardMatchesData> }) {
   const { suggestedGrants, withinReachGrants } = await matchesPromise;
-  const suggestedValue = summarizeGrantValues(suggestedGrants);
-  const withinReachValue = summarizeGrantValues(withinReachGrants);
-  const totalValue = summarizeGrantValues([...suggestedGrants, ...withinReachGrants]);
+  const allMatches = [...suggestedGrants, ...withinReachGrants];
+  const totalValue = summarizeGrantValues(allMatches);
+  const valueReviewCount = dashboardValueReviewCount(allMatches);
 
   return (
     <div className="grid min-w-0 gap-3 lg:grid-cols-3">
       <FundingSnapshotCard
-        label="Matched funding value"
-        summary={totalValue}
-        detail="Strong + within-reach opportunities"
+        label="Known applicant funding"
+        value={formatDashboardFundingHeadline(totalValue)}
+        detail={dashboardValueDetail(totalValue, valueReviewCount)}
         tone="blue"
       />
       <FundingSnapshotCard
-        label="Strong match value"
-        summary={suggestedValue}
-        detail="85%+ AI-scored matches"
+        label="Strong matches"
+        value={String(suggestedGrants.length)}
+        detail="85%+ AI-scored opportunities to review first"
         tone="green"
       />
       <FundingSnapshotCard
-        label="Within reach value"
-        summary={withinReachValue}
-        detail="Near matches worth reviewing"
+        label="Within reach"
+        value={String(withinReachGrants.length)}
+        detail="Near matches with evidence gaps to improve"
         tone="amber"
       />
     </div>
@@ -688,12 +886,12 @@ async function DashboardFundingSnapshot({ matchesPromise }: { matchesPromise: Pr
 
 function FundingSnapshotCard({
   label,
-  summary,
+  value,
   detail,
   tone,
 }: {
   label: string;
-  summary: GrantValueSummary;
+  value: string;
   detail: string;
   tone: "blue" | "green" | "amber";
 }) {
@@ -707,11 +905,9 @@ function FundingSnapshotCard({
     <div className={`rounded-2xl border px-4 py-3 ${toneClass}`}>
       <p className="text-xs font-black uppercase tracking-[0.08em] text-[#51627d]">{label}</p>
       <p className="mt-1 break-words text-3xl font-black leading-none tracking-tight text-[#071a3a]">
-        {formatGrantValueSummary(summary)}
+        {value}
       </p>
-      <p className="mt-2 text-xs font-bold text-[#51627d]">
-        {detail} · {grantValueSummaryDetail(summary)}
-      </p>
+      <p className="mt-2 text-xs font-bold text-[#51627d]">{detail}</p>
     </div>
   );
 }
@@ -727,6 +923,37 @@ function DashboardFundingSnapshotSkeleton() {
         </div>
       ))}
     </div>
+  );
+}
+
+function DashboardActionButton({
+  href,
+  icon: Icon,
+  label,
+}: {
+  href: string;
+  icon: typeof Search;
+  label: string;
+}) {
+  return (
+    <Button asChild variant="outline" className="h-12 justify-start rounded-xl border-[#cfe1ff] bg-white font-black text-[#071a3a]">
+      <Link href={href}>
+        <Icon className="h-4 w-4 text-[#2167e8]" />
+        {label}
+      </Link>
+    </Button>
+  );
+}
+
+function DashboardMiniButton({ href, label, value }: { href: string; label: string; value: string }) {
+  return (
+    <Link
+      href={href}
+      className="rounded-2xl border border-[#dbe7f6] bg-white px-4 py-3 transition-colors hover:border-[#2167e8]/45"
+    >
+      <span className="block text-xs font-black uppercase tracking-[0.08em] text-[#51627d]">{label}</span>
+      <span className="mt-1 block truncate text-xl font-black text-[#071a3a]">{value}</span>
+    </Link>
   );
 }
 
@@ -764,7 +991,7 @@ async function TopMatchedOpportunities({ matchesPromise }: { matchesPromise: Pro
                     : ""}
                 </span>
                 <span className="mt-1 block text-xs font-black text-[#2167e8]">
-                  {formatGrantValue(grant.amount)}
+                  {grant.fundingValue ? formatGrantFundingValue(grant.fundingValue) : formatGrantValue(grant.amount)}
                 </span>
               </span>
               <span className="shrink-0 rounded-lg bg-[#dff8ed] px-2.5 py-2 text-center text-xs font-black leading-none text-[#087f59] sm:px-3">

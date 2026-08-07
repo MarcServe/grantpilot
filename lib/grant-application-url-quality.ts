@@ -23,6 +23,9 @@ export type ApplicationUrlClassification = {
   reason: string;
 };
 
+const AGGREGATOR_REASON =
+  "This link opens another grant directory or funding finder, not an official funder application page.";
+
 const FORM_HOST_PATTERNS = [
   /(^|\.)airtable\.com$/i,
   /(^|\.)typeform\.com$/i,
@@ -40,6 +43,23 @@ const PORTAL_HOST_PATTERNS = [
   /(^|\.)apply-for-innovation-funding\.service\.gov\.uk$/i,
   /^apply\./i,
   /^application\./i,
+];
+
+const GRANT_AGGREGATOR_HOST_PATTERNS = [
+  /(^|\.)grantsonline\.org\.uk$/i,
+  /(^|\.)fundingcentral\.org\.uk$/i,
+  /(^|\.)grants4community\.org\.uk$/i,
+  /(^|\.)grantfinder\.co\.uk$/i,
+  /(^|\.)mygrantfinder\.co\.uk$/i,
+  /(^|\.)idoxopen4community\.co\.uk$/i,
+  /(^|\.)open4community\.info$/i,
+  /(^|\.)open4business\.info$/i,
+  /(^|\.)open4funding\.info$/i,
+  /(^|\.)grantwatch\.com$/i,
+  /(^|\.)instrumentl\.com$/i,
+  /(^|\.)grantforward\.com$/i,
+  /(^|\.)grantstation\.com$/i,
+  /(^|\.)fundsforngos\.org$/i,
 ];
 
 const GENERIC_PATH_SEGMENTS = new Set([
@@ -91,6 +111,19 @@ export function isVerifiedApplicationQuality(quality?: string | null): boolean {
   return quality === "verified_direct" || quality === "verified_portal";
 }
 
+export function isGrantAggregatorUrl(rawUrl?: string | null): boolean {
+  if (!rawUrl?.trim()) return false;
+  const url = safeUrl(rawUrl.trim());
+  if (!url) return false;
+  const host = url.hostname.toLowerCase();
+  return GRANT_AGGREGATOR_HOST_PATTERNS.some((pattern) => pattern.test(host));
+}
+
+export function isGrantAggregatorClassificationReason(reason?: string | null): boolean {
+  if (!reason) return false;
+  return /grant directory|funding finder|official funder application page/i.test(reason);
+}
+
 function safeUrl(raw: string): URL | null {
   try {
     return new URL(raw);
@@ -116,6 +149,10 @@ export function classifyGrantApplicationUrl(rawUrl: string): ApplicationUrlClass
   const host = url.hostname.toLowerCase();
   const path = url.pathname.toLowerCase().replace(/\/+$/, "");
   const segments = path.split("/").filter(Boolean);
+
+  if (isGrantAggregatorUrl(rawUrl)) {
+    return { kind: "generic_listing", quality: "rejected", confidence: 95, reason: AGGREGATOR_REASON };
+  }
 
   if (FORM_HOST_PATTERNS.some((pattern) => pattern.test(host))) {
     return directFormClassification("Known hosted form provider");

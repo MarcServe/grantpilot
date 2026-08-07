@@ -16,6 +16,9 @@ const sourceSchema = z.object({
   enabled: z.boolean().default(true),
   manualReview: z.boolean().default(false),
   notes: z.string().trim().max(1000).optional().nullable(),
+  metadata: z.custom<Record<string, unknown> | null | undefined>(
+    (value) => value == null || (typeof value === "object" && !Array.isArray(value))
+  ).optional().nullable(),
 });
 
 type SourceInput = z.infer<typeof sourceSchema>;
@@ -56,6 +59,31 @@ function defaultAdapter(type: SourceInput["type"]): "rss" | "crawl" {
 function sourceIdForEndpoint(endpoint: string): string {
   const hash = createHash("sha256").update(grantSourceEndpointKey(endpoint)).digest("hex").slice(0, 20);
   return `auto-${hash}`;
+}
+
+function isMissingSourceMetadataColumn(error: { code?: string; message?: string } | null | undefined): boolean {
+  const message = error?.message?.toLowerCase() ?? "";
+  return (
+    error?.code === "PGRST204" ||
+    message.includes("metadata") ||
+    message.includes("notes")
+  );
+}
+
+async function insertGrantSourceRows(
+  supabase: SupabaseAdmin,
+  inserts: Record<string, unknown>[]
+): Promise<void> {
+  if (inserts.length === 0) return;
+
+  let insertResult = await supabase.from("grant_sources").insert(inserts);
+  if (insertResult.error && isMissingSourceMetadataColumn(insertResult.error)) {
+    const fallbackInserts = inserts.map(({ notes: _notes, metadata: _metadata, ...row }) => row);
+    insertResult = await supabase.from("grant_sources").insert(fallbackInserts);
+  }
+  if (insertResult.error) {
+    throw new GrantSourceImportError(500, insertResult.error.message);
+  }
 }
 
 function readString(row: Record<string, unknown>, keys: string[]): string | undefined {
@@ -140,6 +168,10 @@ function normaliseSource(row: unknown): { source?: SourceInput; result?: GrantSo
     notes:
       readString(sourceRow, ["notes", "access_notes", "why_it_matters", "robots_notes"]) ??
       null,
+    metadata:
+      sourceRow.metadata && typeof sourceRow.metadata === "object" && !Array.isArray(sourceRow.metadata)
+        ? sourceRow.metadata as Record<string, unknown>
+        : null,
   };
 
   const parsed = sourceSchema.safeParse(source);
@@ -241,6 +273,8 @@ export async function importGrantSourcesFromPayload(
       crawl_frequency: source.crawlFrequency,
       enabled: source.enabled,
       adapter: defaultAdapter(source.type),
+      notes: source.notes,
+      metadata: source.metadata ?? null,
       last_crawled_at: null,
       last_content_hash: null,
       updated_at: now,
@@ -253,12 +287,7 @@ export async function importGrantSourcesFromPayload(
     });
   }
 
-  if (inserts.length > 0) {
-    const insertResult = await supabase.from("grant_sources").insert(inserts);
-    if (insertResult.error) {
-      throw new GrantSourceImportError(500, insertResult.error.message);
-    }
-  }
+  await insertGrantSourceRows(supabase, inserts);
 
   const added = results.filter((row) => row.status === "added").length;
   const duplicates = results.filter((row) => row.status === "duplicate").length;

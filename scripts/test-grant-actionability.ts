@@ -155,6 +155,33 @@ async function main() {
     globalThis.fetch = originalFetch;
   }
 
+  try {
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const response = new Response((init?.method ?? "GET").toUpperCase() === "HEAD" ? "" : "<html><body>Grant search results</body></html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+      Object.defineProperty(response, "url", {
+        value: "https://www.grantsonline.org.uk/grants-search",
+      });
+      return response;
+    }) as typeof fetch;
+
+    const aggregatorRedirect = await checkUrlHealth("https://example-funder.org/redirected-grant", {
+      name: "Redirected grant",
+      funder: "Example Funder",
+      eligibility: "Open to UK technology SMEs.",
+    });
+    assert.equal(
+      aggregatorRedirect.status,
+      "dead",
+      "URL health should treat redirects to grant aggregators as non-actionable links."
+    );
+    assert.match(aggregatorRedirect.reason, /grant directory|funding finder/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
   console.log("grant actionability checks passed");
 }
 

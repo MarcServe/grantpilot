@@ -4,6 +4,8 @@
  * Used by discovery and ingest so we don't store links that waste users' time.
  */
 
+import { isGrantAggregatorUrl } from "./grant-application-url-quality";
+
 /** Path segments that indicate a generic org page, not a specific grant/application. */
 const GENERIC_ORG_SEGMENTS = new Set([
   "",
@@ -34,6 +36,7 @@ const GENERIC_ORG_SEGMENTS = new Set([
  */
 export function looksLikeGenericOrListUrl(url: string): boolean {
   try {
+    if (isGrantAggregatorUrl(url)) return true;
     const u = new URL(url);
     const path = u.pathname.toLowerCase().replace(/\/+$/, "");
     const segments = path.split("/").filter(Boolean);

@@ -10,6 +10,7 @@
 
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getGrantFreshnessStatus } from "@/lib/grant-freshness";
+import { isGrantAggregatorUrl } from "@/lib/grant-application-url-quality";
 
 export type UrlStatus = "live" | "dead" | "expired" | "unknown";
 
@@ -208,6 +209,14 @@ export async function checkUrlHealth(url: string, context?: HealthCheckContext):
 
     clearTimeout(timeout);
 
+    if (isGrantAggregatorUrl(headRes.url)) {
+      return {
+        status: "dead",
+        httpStatus: headRes.status,
+        reason: "Redirects to another grant directory or funding finder, not an official funder application page",
+      };
+    }
+
     if (headRes.status === 404 || headRes.status === 410 || headRes.status === 403) {
       return { status: "dead", httpStatus: headRes.status, reason: `HTTP ${headRes.status}` };
     }
@@ -232,6 +241,14 @@ export async function checkUrlHealth(url: string, context?: HealthCheckContext):
         },
       });
       clearTimeout(getTimeout);
+
+      if (isGrantAggregatorUrl(getRes.url)) {
+        return {
+          status: "dead",
+          httpStatus: getRes.status,
+          reason: "Redirects to another grant directory or funding finder, not an official funder application page",
+        };
+      }
 
       const html = await getRes.text();
       const fullBodyText = normalisePageText(html).slice(0, MAX_PAGE_TEXT_CHARS);

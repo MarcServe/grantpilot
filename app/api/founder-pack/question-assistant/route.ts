@@ -6,7 +6,8 @@ import {
   MAX_FOUNDER_PACK_GRANT_CONTEXT_CHARS,
   assembleFounderPackGrantContext,
 } from "@/lib/founder-pack-context";
-import { planAllowsForOrg, PLAN_CAPABILITY_MESSAGES } from "@/lib/plan-features";
+import { recordUsage } from "@/lib/plan-check";
+import { planAllowsForOrg } from "@/lib/plan-features";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 const questionSchema = z.object({
@@ -34,13 +35,6 @@ function uniqueIds(...groups: Array<string[] | undefined>): string[] {
 export async function POST(req: Request): Promise<NextResponse> {
   try {
     const { org, orgId } = await getActiveOrg();
-    if (!planAllowsForOrg(org, "founder_pack")) {
-      return NextResponse.json(
-        { error: PLAN_CAPABILITY_MESSAGES.founder_pack },
-        { status: 402 }
-      );
-    }
-
     const body = await req.json().catch(() => ({}));
     const parsed = requestSchema.safeParse(body);
     if (!parsed.success) {
@@ -51,6 +45,35 @@ export async function POST(req: Request): Promise<NextResponse> {
     }
 
     const supabase = getSupabaseAdmin();
+    const hasFounderPackAccess = planAllowsForOrg(org, "founder_pack");
+    let usingFreeQuestionPreview = false;
+    if (!hasFounderPackAccess) {
+      if (parsed.data.questions.length > 1) {
+        return NextResponse.json(
+          { error: "The free Founder Pack preview supports one grant question. Upgrade to draft the full application." },
+          { status: 402 }
+        );
+      }
+      const { count: previewCount, error: previewCountError } = await supabase
+        .from("Usage")
+        .select("id", { count: "exact", head: true })
+        .eq("organisationId", orgId)
+        .eq("type", "founder_pack_free_answer");
+      if (previewCountError) {
+        return NextResponse.json({ error: previewCountError.message }, { status: 502 });
+      }
+      if ((previewCount ?? 0) > 0) {
+        return NextResponse.json(
+          {
+            error:
+              "Your free Founder Pack answer preview has already been used. Upgrade to continue drafting and export the full pack.",
+          },
+          { status: 402 }
+        );
+      }
+      usingFreeQuestionPreview = true;
+    }
+
     const { data: profile, error: profileError } = await supabase
       .from("BusinessProfile")
       .select("*")
@@ -157,7 +180,19 @@ export async function POST(req: Request): Promise<NextResponse> {
       trimmedGrantContext
     );
 
-    return NextResponse.json(result);
+    if (usingFreeQuestionPreview) {
+      await recordUsage(orgId, "founder_pack_free_answer").catch((error) => {
+        console.error("[FOUNDER_PACK_QUESTION_ASSISTANT_PREVIEW_USAGE]", error);
+      });
+    }
+
+    return NextResponse.json({
+      ...result,
+      progressiveAccess: {
+        previewUsed: usingFreeQuestionPreview,
+        paidAccess: hasFounderPackAccess,
+      },
+    });
   } catch (error) {
     console.error("[FOUNDER_PACK_QUESTION_ASSISTANT]", error);
     const message = error instanceof Error ? error.message : "Internal server error";

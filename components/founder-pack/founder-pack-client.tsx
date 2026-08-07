@@ -678,6 +678,7 @@ export function FounderPackClient({
   eligibleGrants,
   packs,
   allowed,
+  questionPreviewAvailable,
   initialGrantId,
   initialApplicationId,
 }: {
@@ -686,6 +687,7 @@ export function FounderPackClient({
   eligibleGrants: EligibleGrantOption[];
   packs: PackSummary[];
   allowed: boolean;
+  questionPreviewAvailable: boolean;
   initialGrantId?: string;
   initialApplicationId?: string;
 }) {
@@ -725,6 +727,7 @@ export function FounderPackClient({
   const [questionAssistantExistingAnswer, setQuestionAssistantExistingAnswer] = useState("");
   const [questionAssistantLoading, setQuestionAssistantLoading] = useState(false);
   const [questionAssistantAnswers, setQuestionAssistantAnswers] = useState<QuestionAssistantAnswer[]>([]);
+  const [freeQuestionPreviewAvailable, setFreeQuestionPreviewAvailable] = useState(questionPreviewAvailable);
 
   const selectedPack = useMemo(
     () => history.find((pack) => pack.id === selectedPackId) ?? history[0] ?? null,
@@ -742,6 +745,12 @@ export function FounderPackClient({
   );
 
   const selectedEligibleCount = form.selectedEligibleGrantIds?.length ?? 0;
+  const canUseQuestionAssistant = allowed || freeQuestionPreviewAvailable;
+  const questionAssistantCta = allowed
+    ? "Generate answer"
+    : freeQuestionPreviewAvailable
+      ? "Generate free preview answer"
+      : "Upgrade to continue";
 
   function update<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -799,7 +808,7 @@ export function FounderPackClient({
 
   async function generate() {
     if (!allowed) {
-      toast.error("Upgrade to Pro or Business to generate Founder Funding Packs.");
+      toast.error("Upgrade to Growth, Pro, or Business to complete and export Founder Funding Packs.");
       return;
     }
     if (!form.documentTypes?.length) {
@@ -856,13 +865,17 @@ export function FounderPackClient({
   }
 
   async function generateQuestionAnswers() {
-    if (!allowed) {
-      toast.error("Upgrade to Growth, Pro, or Business to use the AI Grant Question Assistant.");
+    if (!canUseQuestionAssistant) {
+      toast.error("Upgrade to Growth, Pro, or Business to continue using the AI Grant Question Assistant.");
       return;
     }
     const questions = parseQuestionBlocks(questionAssistantText);
     if (questions.length === 0) {
       toast.error("Paste at least one grant form question.");
+      return;
+    }
+    if (!allowed && questions.length > 1) {
+      toast.error("The free preview supports one grant question. Upgrade to draft the full application.");
       return;
     }
     const parsedWordLimit = Number(questionAssistantWordLimit);
@@ -894,10 +907,18 @@ export function FounderPackClient({
         toast.error(data.error ?? "Could not generate answers");
         return;
       }
+      const previewWasUsed = data.progressiveAccess?.previewUsed === true;
+      if (previewWasUsed) {
+        setFreeQuestionPreviewAvailable(false);
+      }
       const answers = Array.isArray(data.answers) ? (data.answers as QuestionAssistantAnswer[]) : [];
       setQuestionAssistantAnswers(answers);
       if (answers.length) {
-        toast.success("Grant answers generated");
+        if (previewWasUsed) {
+          toast.success("Preview answer generated. Upgrade when you are ready to complete the full pack.");
+        } else {
+          toast.success("Grant answers generated");
+        }
       } else {
         toast.error("No answers returned. Add more grant context and try again.");
       }
@@ -952,16 +973,24 @@ export function FounderPackClient({
               <div className="max-w-2xl">
                 <Badge className="gap-1 bg-blue-100 text-blue-700 hover:bg-blue-100">
                   <Presentation className="h-3.5 w-3.5" />
-                  Pitch deck and grant documents
+                  Grant-specific AI application support
                 </Badge>
                 <h2 className="mt-3 text-2xl font-black tracking-tight text-[#071a3a]">
-                  Generate the full funding pack from company DNA.
+                  Answer real funder questions and build the pack for one grant.
                 </h2>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  Pick a grant, select the outputs, then generate funder-ready documents including a Canvas Standard Pitch
-                  Deck, Business Model Canvas, business plan, application answers, budget narrative, evidence checklist, and
-                  export files.
+                  Start from the grant you want to apply for. GrantsCopilot pulls your Business DNA, match reasoning, and
+                  pasted funder criteria to draft answers, budget notes, impact statements, delivery plans, and evidence
+                  checklists.
                 </p>
+                <div className="mt-4 grid gap-2 text-xs font-medium text-[#071a3a] sm:grid-cols-2">
+                  {["Draft form answers", "Find missing evidence", "Shape budgets and workplans", "Export funder-ready packs"].map((item) => (
+                    <span key={item} className="flex items-center gap-2 rounded-md bg-white/80 px-2.5 py-2 shadow-sm">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                      {item}
+                    </span>
+                  ))}
+                </div>
               </div>
               <div className="grid min-w-[190px] gap-2 rounded-xl border bg-white/80 p-3 text-sm shadow-sm">
                 <div className="flex items-center gap-2 font-semibold text-[#071a3a]">
@@ -986,7 +1015,7 @@ export function FounderPackClient({
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Quick document presets</CardTitle>
+            <CardTitle className="text-base">Choose what this application needs</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-2">
             {documentPresets.map((preset) => (
@@ -1018,9 +1047,21 @@ export function FounderPackClient({
               <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
                 <div className="flex items-center gap-2 font-medium">
                   <Lock className="h-4 w-4" />
-                  Paid plans
+                  Progressive access
                 </div>
-                <p className="mt-1">Upgrade to Growth, Pro, or Business to generate visa-grade business planning packs.</p>
+                <p className="mt-1">
+                  Try one AI grant answer first. Upgrade when you are ready to complete the remaining answers, evidence
+                  checklist, document pack, and exports.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-3 bg-white"
+                  onClick={() => router.push("/billing")}
+                >
+                  Upgrade when ready
+                </Button>
               </div>
             )}
 
@@ -1167,9 +1208,16 @@ export function FounderPackClient({
                 <div>
                   <Label className="text-base">AI Grant Question Assistant</Label>
                   <p className="mt-1 text-xs leading-5 text-blue-950/75">
-                    Paste funder form questions and get editable answers using the selected Business DNA, chosen grants,
+                    Paste funder form questions and get editable answers using your Business DNA, selected grant context,
                     eligibility reasoning, and any criteria pasted above.
                   </p>
+                  {!allowed && (
+                    <p className="mt-2 text-xs font-medium text-blue-950">
+                      {freeQuestionPreviewAvailable
+                        ? "Free preview: generate one answer before the full Founder Pack gate."
+                        : "Preview used. Upgrade to continue drafting and export the full pack."}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -1242,12 +1290,17 @@ export function FounderPackClient({
               <Button
                 type="button"
                 className="w-full gap-2"
-                disabled={questionAssistantLoading || !allowed || !questionAssistantText.trim()}
+                disabled={questionAssistantLoading || !canUseQuestionAssistant || !questionAssistantText.trim()}
                 onClick={generateQuestionAnswers}
               >
                 {questionAssistantLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                Generate answer
+                {questionAssistantCta}
               </Button>
+              {!allowed && !freeQuestionPreviewAvailable && (
+                <Button type="button" variant="outline" className="w-full bg-white" onClick={() => router.push("/billing")}>
+                  Upgrade to complete this application pack
+                </Button>
+              )}
 
               {questionAssistantAnswers.length > 0 && (
                 <div className="space-y-3">

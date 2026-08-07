@@ -38,7 +38,10 @@ import {
   getGrantVerificationWarning,
   type GrantFreshnessStatus,
 } from "@/lib/grant-freshness";
-import { isVerifiedApplicationQuality } from "@/lib/grant-application-url-quality";
+import {
+  isGrantAggregatorClassificationReason,
+  isVerifiedApplicationQuality,
+} from "@/lib/grant-application-url-quality";
 
 function profileForEligibilityGuards(profile: Record<string, unknown>) {
   return {
@@ -126,6 +129,7 @@ export default async function GrantDetailPage({
   const directApplicationUrl = grantUrlMeta.directApplicationUrl ?? null;
   const applicationUrlQuality = grantUrlMeta.applicationUrlQuality ?? null;
   const canOpenApplication = isVerifiedApplicationQuality(applicationUrlQuality);
+  const isAggregatorDirectoryLink = isGrantAggregatorClassificationReason(grantUrlMeta.applicationUrlQualityReason);
   const applicationStartUrl = canOpenApplication ? directApplicationUrl ?? grant.applicationUrl ?? "" : null;
   const profile = org.profiles?.[0];
   const grantAutoImproveEnabled = planAllowsForOrg(
@@ -541,7 +545,11 @@ export default async function GrantDetailPage({
             <EditApplicationUrl grantId={grant.id} applicationUrl={applicationStartUrl ?? ((detailUrl || grant.applicationUrl) ?? "")} />
             {freshness.usable && !canOpenApplication && (
               <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
-                Direct application form not verified yet. Use Find application form or save a verified direct form/portal URL before preparing an application.
+                {isAggregatorDirectoryLink
+                  ? "This link opens another grant directory or funding finder, not the official funder page. Save the funder page or direct application form before preparing an application."
+                  : applicationUrlQuality === "rejected"
+                    ? "This link is not specific enough to use as an application route. Save the official funder page or direct form before preparing an application."
+                    : "Direct application form not verified yet. Use Find application form or save a verified direct form/portal URL before preparing an application."}
                 {grantUrlMeta.applicationUrlQualityReason ? ` ${grantUrlMeta.applicationUrlQualityReason}` : ""}
               </p>
             )}

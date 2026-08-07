@@ -26,6 +26,31 @@ function sourceIdForEndpoint(endpoint: string): string {
   return `auto-${hash}`;
 }
 
+function isMissingSourceMetadataColumn(error: { code?: string; message?: string } | null | undefined): boolean {
+  const message = error?.message?.toLowerCase() ?? "";
+  return (
+    error?.code === "PGRST204" ||
+    message.includes("metadata") ||
+    message.includes("notes")
+  );
+}
+
+async function insertGrantSourceRows(
+  supabase: SupabaseAdmin,
+  inserts: Record<string, unknown>[]
+): Promise<void> {
+  if (inserts.length === 0) return;
+
+  let insertResult = await supabase.from("grant_sources").insert(inserts);
+  if (insertResult.error && isMissingSourceMetadataColumn(insertResult.error)) {
+    const fallbackInserts = inserts.map(({ notes: _notes, metadata: _metadata, ...row }) => row);
+    insertResult = await supabase.from("grant_sources").insert(fallbackInserts);
+  }
+  if (insertResult.error) {
+    throw new Error(`grant_sources default seed insert failed: ${insertResult.error.message}`);
+  }
+}
+
 async function shouldWriteImportLog(supabase: SupabaseAdmin, values: {
   runSource: string;
   added: number;
@@ -112,6 +137,8 @@ export async function autoSeedDefaultGrantSources(options?: {
       crawl_frequency: seed.crawlFrequency,
       enabled: true,
       adapter: seed.type === "rss" ? "rss" : "crawl",
+      notes: seed.notes,
+      metadata: seed.metadata ?? null,
       last_crawled_at: null,
       last_content_hash: null,
       updated_at: now,
@@ -124,12 +151,7 @@ export async function autoSeedDefaultGrantSources(options?: {
     });
   }
 
-  if (inserts.length > 0) {
-    const insertResult = await supabase.from("grant_sources").insert(inserts);
-    if (insertResult.error) {
-      throw new Error(`grant_sources default seed insert failed: ${insertResult.error.message}`);
-    }
-  }
+  await insertGrantSourceRows(supabase, inserts);
 
   const added = results.filter((row) => row.status === "added").length;
   const duplicates = results.filter((row) => row.status === "duplicate").length;

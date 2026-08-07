@@ -104,7 +104,13 @@ export default async function FounderPackPage({
   const supabase = getSupabaseAdmin();
   const allowed = planAllowsForOrg(org, "founder_pack");
 
-  const [{ data: profiles }, { data: packs }, { data: applicationsData }, { data: eligibilityData }] = await Promise.all([
+  const [
+    { data: profiles },
+    { data: packs },
+    { data: applicationsData },
+    { data: eligibilityData },
+    { count: freeQuestionPreviewCount },
+  ] = await Promise.all([
     supabase
       .from("BusinessProfile")
       .select("id, businessName, sector, primaryContactName, primaryContactRole, directorNames, founderBackground, teamExpertise, financialProjections")
@@ -128,7 +134,13 @@ export default async function FounderPackPage({
       .eq("organisation_id", orgId)
       .order("score", { ascending: false })
       .limit(20),
+    supabase
+      .from("Usage")
+      .select("id", { count: "exact", head: true })
+      .eq("organisationId", orgId)
+      .eq("type", "founder_pack_free_answer"),
   ]);
+  const questionPreviewAvailable = !allowed && (freeQuestionPreviewCount ?? 0) === 0;
 
   let applicationRows: ApplicationOption[] = mapApplicationRows((applicationsData ?? []) as Record<string, unknown>[]);
   if (applicationRows.length === 0) {
@@ -218,11 +230,11 @@ export default async function FounderPackPage({
   return (
     <div className="mx-auto w-full max-w-7xl space-y-6 px-0 sm:px-2">
       <div className="rounded-2xl bg-white p-5 shadow-[0_18px_45px_rgba(7,26,58,0.07)] sm:p-6">
-        <h1 className="text-2xl font-black text-[#071a3a]">Founder Funding Pack</h1>
+        <h1 className="text-2xl font-black text-[#071a3a]">Grant Application Workspace</h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground sm:text-base">
-          Tie documents to specific opportunities: pick in-progress applications, scored eligible grants you have not started
-          yet, and/or paste funder criteria so the AI shapes drafts, budgets, evidence checklists, and workplans around those
-          targets.
+          Turn one grant into funder-ready answers, evidence steps, budgets, workplans, and exportable documents. Pick a
+          matched grant or in-progress application, paste the funder's questions, and GrantsCopilot uses your Business DNA
+          and eligibility reasoning to help you prepare the application.
         </p>
       </div>
 
@@ -232,6 +244,7 @@ export default async function FounderPackPage({
         eligibleGrants={eligibleGrantRows}
         packs={packRows}
         allowed={allowed}
+        questionPreviewAvailable={questionPreviewAvailable}
         initialGrantId={initialGrantId || undefined}
         initialApplicationId={initialApplicationId || undefined}
       />

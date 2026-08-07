@@ -1,3 +1,5 @@
+import { UK_LOCAL_GOVERNMENT_GRANT_SOURCE_SEEDS } from "@/lib/local-grant-source-seeds";
+
 export type DefaultGrantSourceSeed = {
   sourceName: string;
   endpoint: string;
@@ -5,9 +7,10 @@ export type DefaultGrantSourceSeed = {
   type: "rss" | "government_portal" | "foundation" | "newsletter";
   crawlFrequency: "6h" | "24h" | "72h" | "168h";
   notes: string;
+  metadata?: Record<string, unknown>;
 };
 
-export const DEFAULT_UK_EU_GLOBAL_GRANT_SOURCE_SEEDS: DefaultGrantSourceSeed[] = [
+const CORE_UK_EU_GLOBAL_GRANT_SOURCE_SEEDS: DefaultGrantSourceSeed[] = [
   {
     sourceName: "UKRI Funding Finder",
     endpoint: "https://www.ukri.org/opportunity/",
@@ -304,4 +307,9 @@ export const DEFAULT_UK_EU_GLOBAL_GRANT_SOURCE_SEEDS: DefaultGrantSourceSeed[] =
     crawlFrequency: "24h",
     notes: "Global humanitarian innovation funding opportunities.",
   },
+];
+
+export const DEFAULT_UK_EU_GLOBAL_GRANT_SOURCE_SEEDS: DefaultGrantSourceSeed[] = [
+  ...CORE_UK_EU_GLOBAL_GRANT_SOURCE_SEEDS,
+  ...UK_LOCAL_GOVERNMENT_GRANT_SOURCE_SEEDS,
 ];
