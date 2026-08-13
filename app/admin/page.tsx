@@ -59,9 +59,24 @@ const OPS_NOTIFICATION_TYPES = [
 ] as const;
 const ADMIN_BATCH_SIZE = 20;
 const ADMIN_NOTIFICATION_SAMPLE_SIZE = 120;
-const ADMIN_GRANT_SOURCE_STATUS_LIMIT = 120;
+const ADMIN_GRANT_SOURCE_STATUS_LIMIT = 1000;
 const ADMIN_SOURCE_ATTRIBUTION_SAMPLE_SIZE = 500;
 const ADMIN_OVERVIEW_CACHE_TTL_MS = 20_000;
+const UPSTREAM_CRAWLER_ROUTES = [
+  "/api/cron/grant-source-crawler",
+  "inngest/grant-source-crawler",
+  "inngest/grant-source.run",
+  "/api/cron/grant-sync",
+  "inngest/grant-sync",
+  "inngest/grant-sync.source",
+  "inngest/grant-sync.grants-gov-page",
+  "/api/cron/grant-discovery",
+  "inngest/grant-discovery",
+  "/api/cron/grant-discovery-queue",
+  "inngest/grant-discovery-enqueue",
+  "inngest/grant-discovery-process",
+  "/api/cron/apify-grant-source-discovery",
+] as const;
 
 type AdminSearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -158,6 +173,7 @@ type OrganisationMemberRow = {
 
 type GrantSourceRow = {
   source_name: string | null;
+  country?: string | null;
   type: string | null;
   adapter: string | null;
   enabled: boolean | null;
@@ -225,6 +241,48 @@ type IntakeQualityMetrics = {
   rejectedRate: number;
   needsScoutRate: number;
   unknownUrlRate: number;
+};
+
+type CrawlerRunStats = {
+  enqueued: number;
+  claimed: number;
+  processed: number;
+  inlineProcessed: number;
+  synced: number;
+  created: number;
+  updated: number;
+  failedExternal: number;
+  failedInternal: number;
+  failed: number;
+};
+
+type UpstreamCrawlerHealth = {
+  enabledSources: number;
+  sampledSources: number;
+  dueSources: number;
+  neverCrawled: number;
+  crawledToday: number;
+  crawledLast7d: number;
+  localSources: number;
+  localNeverCrawled: number;
+  localDueSources: number;
+  latestSourceCrawl: string | null;
+  schedulerRunsToday: number;
+  schedulerSuccessToday: number;
+  schedulerFailuresToday: number;
+  workerRunsToday: number;
+  sourceWorkersProcessedToday: number;
+  enqueuedToday: number;
+  claimedToday: number;
+  grantsCreatedToday: number;
+  grantsUpdatedToday: number;
+  externalFailuresToday: number;
+  internalFailuresToday: number;
+  latestRun: CronRunLogRow | null;
+  latestWorkerRun: CronRunLogRow | null;
+  claimSchemaReady: boolean;
+  claimSchemaWarning: string | null;
+  warnings: string[];
 };
 
 type DiscoveryProviderStatus = {
@@ -793,6 +851,183 @@ function isSourceDue(source: GrantSourceRow, now = Date.now()): boolean {
   return last + intervalToMs(source.crawl_frequency) <= now;
 }
 
+function objectRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function crawlerRunStats(row: CronRunLogRow): CrawlerRunStats {
+  const result = objectRecord(row.result);
+  const inlineProcessed = objectRecord(result?.inlineProcessed);
+
+  return {
+    enqueued: readNumber(result?.enqueued),
+    claimed: readNumber(result?.claimed),
+    processed: readNumber(result?.processed),
+    inlineProcessed: readNumber(inlineProcessed?.attempted) || readNumber(inlineProcessed?.processed),
+    synced: readNumber(result?.synced) + readNumber(inlineProcessed?.synced),
+    created: readNumber(result?.created) + readNumber(inlineProcessed?.created),
+    updated: readNumber(result?.updated) + readNumber(inlineProcessed?.updated),
+    failedExternal: readNumber(result?.failedExternal) + readNumber(inlineProcessed?.failedExternal),
+    failedInternal: readNumber(result?.failedInternal) + readNumber(inlineProcessed?.failedInternal),
+    failed: readNumber(result?.failed) + readNumber(inlineProcessed?.failed),
+  };
+}
+
+function isLocalGrantSource(source: GrantSourceRow): boolean {
+  const text = [
+    source.source_name,
+    source.country,
+    source.type,
+    source.adapter,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return [
+    "council",
+    "local",
+    "borough",
+    "county",
+    "combined authority",
+    "growth hub",
+    "enterprise partnership",
+    "freeport",
+    "investment zone",
+    "community foundation",
+    "business support",
+    "scotland",
+    "wales",
+    "northern ireland",
+    "england",
+    "uk local",
+  ].some((term) => text.includes(term));
+}
+
+function buildUpstreamCrawlerHealth(
+  sources: GrantSourceRow[],
+  enabledSourceCount: number,
+  runs: CronRunLogRow[],
+  todayStart: Date,
+  last7dStart: Date
+): UpstreamCrawlerHealth {
+  const enabledSources = sources.filter((source) => source.enabled);
+  const localSources = enabledSources.filter(isLocalGrantSource);
+  const runsToday = runs.filter((run) => isSince(run.started_at, todayStart));
+  const schedulerRunsToday = runsToday.filter((run) =>
+    run.route === "/api/cron/grant-source-crawler" ||
+    run.route === "inngest/grant-source-crawler" ||
+    run.route === "/api/cron/grant-sync" ||
+    run.route === "inngest/grant-sync"
+  );
+  const workerRunsToday = runsToday.filter((run) =>
+    run.route === "inngest/grant-source.run" ||
+    run.route === "inngest/grant-sync.source" ||
+    run.route === "inngest/grant-sync.grants-gov-page" ||
+    run.route === "inngest/grant-discovery-process"
+  );
+  const totals = runsToday.reduce<CrawlerRunStats>((sum, row) => {
+    const stats = crawlerRunStats(row);
+    sum.enqueued += stats.enqueued;
+    sum.claimed += stats.claimed;
+    sum.processed += stats.processed;
+    sum.inlineProcessed += stats.inlineProcessed;
+    sum.synced += stats.synced;
+    sum.created += stats.created;
+    sum.updated += stats.updated;
+    sum.failedExternal += stats.failedExternal;
+    sum.failedInternal += stats.failedInternal;
+    sum.failed += stats.failed;
+    return sum;
+  }, {
+    enqueued: 0,
+    claimed: 0,
+    processed: 0,
+    inlineProcessed: 0,
+    synced: 0,
+    created: 0,
+    updated: 0,
+    failedExternal: 0,
+    failedInternal: 0,
+    failed: 0,
+  });
+  const sourceWorkersProcessedToday = totals.processed + totals.inlineProcessed;
+  const latestRun = runs[0] ?? null;
+  const latestWorkerRun = runs.find((run) => workerRunsToday.some((workerRun) => workerRun.started_at === run.started_at && workerRun.route === run.route)) ?? null;
+  const latestSourceCrawl = enabledSources
+    .map((source) => source.last_crawled_at)
+    .filter((value): value is string => Boolean(value))
+    .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ?? null;
+  const claimSchemaMissingRun = runs.find((run) =>
+    run.error?.includes("claim_due_grant_sources") ||
+    run.error?.includes("claim_token") ||
+    JSON.stringify(run.result ?? "").includes("claim_token")
+  );
+  const warnings: string[] = [];
+
+  if (schedulerRunsToday.length === 0) {
+    warnings.push("No source-crawler or grant-sync scheduler run recorded today.");
+  }
+  if (schedulerRunsToday.some((run) => run.status === "failed")) {
+    warnings.push("At least one upstream scheduler failed today.");
+  }
+  if (totals.enqueued > 0 && sourceWorkersProcessedToday === 0) {
+    warnings.push("Sources were enqueued today, but no source worker processed them yet.");
+  }
+  if (enabledSources.length >= ADMIN_GRANT_SOURCE_STATUS_LIMIT) {
+    warnings.push("Source registry is larger than the admin sample; increase the status limit if totals look capped.");
+  }
+  if (localSources.filter((source) => !source.last_crawled_at).length > 0) {
+    warnings.push("Some local or regional sources have never been crawled.");
+  }
+  if (runsToday.length > 0 && totals.failedInternal > 0) {
+    warnings.push("Internal upstream crawler failures were recorded today.");
+  }
+
+  return {
+    enabledSources: enabledSourceCount || enabledSources.length,
+    sampledSources: enabledSources.length,
+    dueSources: enabledSources.filter((source) => isSourceDue(source)).length,
+    neverCrawled: enabledSources.filter((source) => !source.last_crawled_at).length,
+    crawledToday: enabledSources.filter((source) => isSince(source.last_crawled_at, todayStart)).length,
+    crawledLast7d: enabledSources.filter((source) => isSince(source.last_crawled_at, last7dStart)).length,
+    localSources: localSources.length,
+    localNeverCrawled: localSources.filter((source) => !source.last_crawled_at).length,
+    localDueSources: localSources.filter((source) => isSourceDue(source)).length,
+    latestSourceCrawl,
+    schedulerRunsToday: schedulerRunsToday.length,
+    schedulerSuccessToday: schedulerRunsToday.filter((run) => run.status === "success").length,
+    schedulerFailuresToday: schedulerRunsToday.filter((run) => run.status === "failed").length,
+    workerRunsToday: workerRunsToday.length,
+    sourceWorkersProcessedToday,
+    enqueuedToday: totals.enqueued,
+    claimedToday: totals.claimed,
+    grantsCreatedToday: totals.created,
+    grantsUpdatedToday: totals.updated,
+    externalFailuresToday: totals.failedExternal,
+    internalFailuresToday: totals.failedInternal,
+    latestRun,
+    latestWorkerRun,
+    claimSchemaReady: !claimSchemaMissingRun,
+    claimSchemaWarning: claimSchemaMissingRun
+      ? "Claim/outcome schema fallback may be active. Apply the grant_sources claim migration if source dedupe is not available in production."
+      : null,
+    warnings,
+  };
+}
+
+function crawlerRunSummary(row: CronRunLogRow): string {
+  const stats = crawlerRunStats(row);
+  const parts = [
+    stats.enqueued > 0 ? `${stats.enqueued} enqueued` : null,
+    stats.processed + stats.inlineProcessed > 0 ? `${stats.processed + stats.inlineProcessed} processed` : null,
+    stats.created > 0 ? `${stats.created} created` : null,
+    stats.failedExternal > 0 ? `${stats.failedExternal} external failed` : null,
+    stats.failedInternal > 0 ? `${stats.failedInternal} internal failed` : null,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(" · ") : "No item counts logged";
+}
+
 function countNotifications(
   rows: NotificationLogRow[],
   options: { since?: Date; type?: string; channel?: string; status?: string }
@@ -997,6 +1232,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
   const todayStart = startOfDayInTimeZone(now, ADMIN_REPORT_TIME_ZONE);
   const reportDateLabel = LONDON_DAY.format(todayStart);
   const next7d = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const last7dStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   const adminOverviewCacheKey = [
     "admin-overview:v3",
     `today:${todayStart.toISOString()}`,
@@ -1049,6 +1285,8 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
     failedCronRunsTodayResult,
     recentFailedCronRunsResult,
     cronRunsResult,
+    sourceHealthCronRunsResult,
+    grantSourcesClaimSchemaResult,
     suppressedGrantsResult,
   ] = await getServerCache(
     adminOverviewCacheKey,
@@ -1087,7 +1325,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
         .range(deadlinesRange.from, deadlinesRange.to),
       supabase
         .from("grant_sources")
-        .select("source_name, type, adapter, enabled, crawl_frequency, last_crawled_at")
+        .select("source_name, country, type, adapter, enabled, crawl_frequency, last_crawled_at")
         .order("last_crawled_at", { ascending: false, nullsFirst: false })
         .limit(ADMIN_GRANT_SOURCE_STATUS_LIMIT),
       supabase
@@ -1182,6 +1420,17 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
         .order("started_at", { ascending: false })
         .range(cronRunsRange.from, cronRunsRange.to),
       supabase
+        .from("CronRunLog")
+        .select("job_name, route, trigger, status, result, error, started_at, finished_at, duration_ms")
+        .in("route", [...UPSTREAM_CRAWLER_ROUTES])
+        .gte("started_at", last7dStart.toISOString())
+        .order("started_at", { ascending: false })
+        .limit(240),
+      supabase
+        .from("grant_sources")
+        .select("claim_token, last_crawl_status, last_crawl_error, last_crawl_result")
+        .limit(1),
+      supabase
         .from("SavedGrant")
         .select(
           "organisation_id, profile_id, grant_id, status, suppress_notifications, viewed_at, deferred_at, applied_at, dismissed_at, notes, created_at, updated_at",
@@ -1267,6 +1516,12 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
   }
   if (cronRunsResult.error) {
     console.warn("[admin] CronRunLog query failed:", cronRunsResult.error.message);
+  }
+  if (sourceHealthCronRunsResult.error) {
+    console.warn("[admin] Upstream crawler health query failed:", sourceHealthCronRunsResult.error.message);
+  }
+  if (grantSourcesClaimSchemaResult.error) {
+    console.warn("[admin] Grant source claim schema query failed:", grantSourcesClaimSchemaResult.error.message);
   }
   if (reviewQueueResult.error) {
     console.warn("[admin] Grant source review queue query failed:", reviewQueueResult.error.message);
@@ -1370,18 +1625,25 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
   }
 
   const cronRuns = (cronRunsResult.data ?? []) as CronRunLogRow[];
+  const sourceHealthCronRuns = (sourceHealthCronRunsResult.data ?? []) as CronRunLogRow[];
   const aiDiscoveryActivity = discoveryActivityFromCronRuns(grantDiscoveryRuns);
   const sourceImportSummaryRows = summarizeSourceImportRuns(sourceImportRunsToday);
   const intakeQuality = buildIntakeQualityMetrics(sourceImportRunsToday, aiDiscoveryActivity, grantQualityRows);
   const latestCronRun = ((latestCronRunResult.data ?? []) as CronRunLogRow[])[0] ?? null;
   const failedCronRunsTodayCount = failedCronRunsTodayResult.count ?? 0;
   const recentFailedCronRuns = (recentFailedCronRunsResult.data ?? []) as CronRunLogRow[];
-  const dueSources = grantSources.filter((source) => isSourceDue(source)).length;
   const enabledSources = enabledGrantSourcesResult.count ?? grantSources.filter((source) => source.enabled).length;
-  const latestSourceCrawl = grantSources
-    .map((source) => source.last_crawled_at)
-    .filter((value): value is string => Boolean(value))
-    .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ?? null;
+  const upstreamCrawlerHealth = buildUpstreamCrawlerHealth(
+    grantSources,
+    enabledSources,
+    sourceHealthCronRuns,
+    todayStart,
+    last7dStart
+  );
+  if (grantSourcesClaimSchemaResult.error) {
+    upstreamCrawlerHealth.claimSchemaReady = false;
+    upstreamCrawlerHealth.claimSchemaWarning = "Grant source claim/outcome columns are not readable. Apply migration 059 before relying on source claiming diagnostics.";
+  }
   const sourceAttributionCounts = grantSourceCounts.length > 0
     ? grantSourceCounts
     : Array.from(
@@ -1808,26 +2070,137 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                 <div className="grid grid-cols-2 gap-3">
                   <div className="rounded-md border bg-muted/30 p-3">
                     <div className="text-xs text-muted-foreground">Enabled sources</div>
-                    <div className="text-2xl font-semibold">{enabledSources}</div>
+                    <div className="text-2xl font-semibold">{upstreamCrawlerHealth.enabledSources}</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {upstreamCrawlerHealth.sampledSources} checked in admin
+                    </div>
                   </div>
                   <div className="rounded-md border bg-muted/30 p-3">
                     <div className="text-xs text-muted-foreground">Due sources</div>
-                    <div className="text-2xl font-semibold">{dueSources}</div>
+                    <div className="text-2xl font-semibold">{upstreamCrawlerHealth.dueSources}</div>
                   </div>
                   <div className="rounded-md border bg-muted/30 p-3">
-                    <div className="text-xs text-muted-foreground">Discovery pending</div>
-                    <div className="text-2xl font-semibold">{discoveryQueue.pending}</div>
+                    <div className="text-xs text-muted-foreground">Never crawled</div>
+                    <div className="text-2xl font-semibold">{upstreamCrawlerHealth.neverCrawled}</div>
                   </div>
                   <div className="rounded-md border bg-muted/30 p-3">
-                    <div className="text-xs text-muted-foreground">Scout review</div>
-                    <div className="text-2xl font-semibold">{linkScout.manualReview ?? 0}</div>
+                    <div className="text-xs text-muted-foreground">Local never crawled</div>
+                    <div className="text-2xl font-semibold">{upstreamCrawlerHealth.localNeverCrawled}</div>
+                  </div>
+                  <div className="rounded-md border bg-muted/30 p-3">
+                    <div className="text-xs text-muted-foreground">Schedulers today</div>
+                    <div className="text-2xl font-semibold">{upstreamCrawlerHealth.schedulerRunsToday}</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {upstreamCrawlerHealth.schedulerSuccessToday} ok · {upstreamCrawlerHealth.schedulerFailuresToday} failed
+                    </div>
+                  </div>
+                  <div className="rounded-md border bg-muted/30 p-3">
+                    <div className="text-xs text-muted-foreground">Sources processed</div>
+                    <div className="text-2xl font-semibold">{upstreamCrawlerHealth.sourceWorkersProcessedToday}</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {upstreamCrawlerHealth.enqueuedToday} enqueued · {upstreamCrawlerHealth.claimedToday} claimed
+                    </div>
+                  </div>
+                  <div className="rounded-md border bg-muted/30 p-3">
+                    <div className="text-xs text-muted-foreground">Crawler grants</div>
+                    <div className="text-2xl font-semibold text-emerald-700">{upstreamCrawlerHealth.grantsCreatedToday}</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {upstreamCrawlerHealth.grantsUpdatedToday} updated
+                    </div>
+                  </div>
+                  <div className="rounded-md border bg-muted/30 p-3">
+                    <div className="text-xs text-muted-foreground">Crawler failures</div>
+                    <div className="text-2xl font-semibold text-amber-700">
+                      {upstreamCrawlerHealth.externalFailuresToday + upstreamCrawlerHealth.internalFailuresToday}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {upstreamCrawlerHealth.externalFailuresToday} external · {upstreamCrawlerHealth.internalFailuresToday} internal
+                    </div>
                   </div>
                 </div>
-                <p className="text-muted-foreground">
-                  Latest source crawl: {latestSourceCrawl ? `${formatRelative(latestSourceCrawl)} (${formatDateTime(latestSourceCrawl)})` : "never"}
-                </p>
+                <div className="rounded-md border bg-muted/20 p-3 text-xs">
+                  <div className="font-medium">Daily upstream intake checklist</div>
+                  <div className="mt-2 grid gap-1">
+                    <div>
+                      <span className="text-muted-foreground">Latest source crawl:</span>{" "}
+                      <span className="font-medium">
+                        {upstreamCrawlerHealth.latestSourceCrawl
+                          ? `${formatRelative(upstreamCrawlerHealth.latestSourceCrawl)} (${formatDateTime(upstreamCrawlerHealth.latestSourceCrawl)})`
+                          : "never"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Crawled today / 7d:</span>{" "}
+                      <span className="font-medium">
+                        {upstreamCrawlerHealth.crawledToday} / {upstreamCrawlerHealth.crawledLast7d}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Local source coverage:</span>{" "}
+                      <span className="font-medium">
+                        {upstreamCrawlerHealth.localSources} local sources · {upstreamCrawlerHealth.localDueSources} due
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Claim schema:</span>{" "}
+                      <span className={upstreamCrawlerHealth.claimSchemaReady ? "font-medium text-emerald-700" : "font-medium text-amber-700"}>
+                        {upstreamCrawlerHealth.claimSchemaReady ? "ready" : "needs migration/fallback check"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                {(upstreamCrawlerHealth.warnings.length > 0 || upstreamCrawlerHealth.claimSchemaWarning) ? (
+                  <div className="space-y-2">
+                    {upstreamCrawlerHealth.claimSchemaWarning && (
+                      <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                        {upstreamCrawlerHealth.claimSchemaWarning}
+                      </div>
+                    )}
+                    {upstreamCrawlerHealth.warnings.map((warning) => (
+                      <div key={warning} className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                        {warning}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-md border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-800">
+                    Source schedulers and workers have activity today. Check intake quality below for duplicate and accepted rates.
+                  </div>
+                )}
+                {sourceHealthCronRuns.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="text-xs font-medium text-muted-foreground">Recent upstream runs</div>
+                    {sourceHealthCronRuns.slice(0, 5).map((run, index) => (
+                      <div key={`source-health-run-${run.started_at}-${run.route}-${index}`} className="rounded-md border p-2 text-xs">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="truncate font-medium">{run.job_name ?? run.route ?? "Upstream run"}</div>
+                            <div className="truncate text-muted-foreground">{run.route ?? "unknown route"}</div>
+                          </div>
+                          <span
+                            className={`shrink-0 rounded-full border px-2 py-0.5 ${
+                              run.status === "success"
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                : "border-red-200 bg-red-50 text-red-700"
+                            }`}
+                          >
+                            {run.status ?? "unknown"}
+                          </span>
+                        </div>
+                        <div className="mt-1 text-muted-foreground">
+                          {formatRelative(run.started_at)} · {formatDurationMs(run.duration_ms)} · {crawlerRunSummary(run)}
+                        </div>
+                        {run.error && (
+                          <div className="mt-1 break-words rounded border border-red-200 bg-red-50 p-1 text-red-900">
+                            {run.error}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <p className="text-xs text-muted-foreground">
-                  Discovery failed: {discoveryQueue.failed}. Link scout found: {linkScout.found ?? 0}, pending: {linkScout.pending}, failed: {linkScout.failed}.
+                  Discovery pending: {discoveryQueue.pending}, failed: {discoveryQueue.failed}. Link scout found: {linkScout.found ?? 0}, pending: {linkScout.pending}, review: {linkScout.manualReview ?? 0}, failed: {linkScout.failed}.
                 </p>
               </CardContent>
             </Card>
