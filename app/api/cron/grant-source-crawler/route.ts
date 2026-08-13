@@ -1,13 +1,19 @@
 import { NextResponse } from "next/server";
-import { enqueueDueGrantSourceRuns } from "@/lib/grant-sources";
+import { enqueueDueGrantSourceRuns, runDueGrantSources } from "@/lib/grant-sources";
 import { runWithCronLog } from "@/lib/cron-run-log";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
+export const maxDuration = 120;
 
 function cronLimit(): number {
   const raw = Number(process.env.GRANT_SOURCE_CRON_LIMIT ?? 20);
   return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 20;
+}
+
+function cronInlineWorkerLimit(): number {
+  const raw = Number(process.env.GRANT_SOURCE_CRON_INLINE_WORKER_LIMIT ?? 3);
+  if (!Number.isFinite(raw)) return 3;
+  return Math.max(0, Math.min(5, Math.floor(raw)));
 }
 
 /**
@@ -24,7 +30,18 @@ export async function GET(req: Request) {
   try {
     const result = await runWithCronLog(
       { jobName: "Grant Source Registry Crawler Enqueue", route: "/api/cron/grant-source-crawler", trigger: "vercel" },
-      () => enqueueDueGrantSourceRuns({ limit: cronLimit(), source: "vercel.cron.grant-source-crawler" })
+      async () => {
+        const enqueue = await enqueueDueGrantSourceRuns({ limit: cronLimit(), source: "vercel.cron.grant-source-crawler" });
+        const inlineWorkerLimit = cronInlineWorkerLimit();
+        const inlineProcessed = inlineWorkerLimit > 0
+          ? await runDueGrantSources({ limit: inlineWorkerLimit, skipAutoSeed: true })
+          : null;
+        return {
+          ...enqueue,
+          inlineWorkerLimit,
+          inlineProcessed,
+        };
+      }
     );
     return NextResponse.json({ ok: true, result });
   } catch (error) {

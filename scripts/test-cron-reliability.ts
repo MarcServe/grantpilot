@@ -14,8 +14,29 @@ assert.match(grantSyncRoute, /maxDuration\s*=\s*30/, "grant-sync cron should hav
 
 const sourceCrawlerRoute = read("app/api/cron/grant-source-crawler/route.ts");
 assert.match(sourceCrawlerRoute, /enqueueDueGrantSourceRuns/, "grant-source crawler cron should enqueue work");
-assert.doesNotMatch(sourceCrawlerRoute, /runDueGrantSources/, "grant-source crawler cron should not run all sources inline");
-assert.match(sourceCrawlerRoute, /maxDuration\s*=\s*30/, "grant-source crawler cron should have a short maxDuration");
+assert.match(
+  sourceCrawlerRoute,
+  /GRANT_SOURCE_CRON_INLINE_WORKER_LIMIT/,
+  "grant-source crawler cron should expose a bounded inline worker fallback"
+);
+assert.match(
+  sourceCrawlerRoute,
+  /runDueGrantSources\(\{\s*limit:\s*inlineWorkerLimit,\s*skipAutoSeed:\s*true\s*\}\)/,
+  "grant-source crawler cron should only run a bounded inline source fallback"
+);
+assert.match(sourceCrawlerRoute, /maxDuration\s*=\s*120/, "grant-source crawler cron should allow bounded source workers without returning to 300s jobs");
+
+const grantSourceCrawler = read("inngest/grant-source-crawler.ts");
+assert.match(
+  grantSourceCrawler,
+  /GRANT_SOURCE_CRAWLER_INLINE_WORKER_LIMIT/,
+  "Inngest grant-source crawler should expose a bounded inline worker fallback when event workers lag"
+);
+assert.match(
+  grantSourceCrawler,
+  /runDueGrantSources\(\{\s*limit:\s*inlineWorkerLimit,\s*skipAutoSeed:\s*true\s*\}\)/,
+  "Inngest grant-source crawler should process only a bounded source fallback"
+);
 
 const dailyDigestSafeguard = read("inngest/daily-notification-safeguard.ts");
 assert.match(
@@ -165,6 +186,18 @@ assert.match(
   deepScoreQueue,
   /JSON\.stringify\(error\)/,
   "deep-score enqueue should log Supabase error objects with useful details"
+);
+
+const grantSources = read("lib/grant-sources.ts");
+assert.match(
+  grantSources,
+  /neverCrawled && localOrRegionalSource/,
+  "grant-source priority should pull never-crawled local and regional sources forward"
+);
+assert.match(
+  grantSources,
+  /const selected = await claimDueGrantSources\(\{ limit: selectedLimit \}\)/,
+  "bounded source fallback should still use source claiming/dedupe where the database supports it"
 );
 
 const inngestRoute = read("app/api/inngest/route.ts");

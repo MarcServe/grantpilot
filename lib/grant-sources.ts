@@ -172,11 +172,27 @@ function parseIntervalToMs(interval: string): number {
 
 function sourceRunPriority(source: GrantSourceRow): number {
   const adapter = (source.adapter ?? source.type).toLowerCase();
-  if (adapter === "rss" || adapter === "feed" || adapter === "json") return 0;
+  const sourceText = `${source.source_name} ${source.country ?? ""} ${source.type} ${source.endpoint}`.toLowerCase();
+  const neverCrawled = !source.last_crawled_at;
+  const localOrRegionalSource =
+    sourceText.includes("council") ||
+    sourceText.includes("local authority") ||
+    sourceText.includes("growth hub") ||
+    sourceText.includes("combined authority") ||
+    sourceText.includes("business support") ||
+    sourceText.includes("business growth") ||
+    sourceText.includes("enterprise") ||
+    sourceText.includes("freeport") ||
+    sourceText.includes("investment zone");
+
+  if (neverCrawled && localOrRegionalSource) return 0;
+  if (neverCrawled) return 1;
+  if (adapter === "rss" || adapter === "feed" || adapter === "json") return 2;
   if (["grants-gov", "grants_gov", "uk", "eu", "au", "australia", "ca", "canada", "nih", "us-nih"].includes(adapter)) {
-    return 1;
+    return 3;
   }
-  return 2;
+  if (localOrRegionalSource) return 4;
+  return 5;
 }
 
 function sourceLastCrawledTime(source: GrantSourceRow): number {
@@ -545,7 +561,7 @@ export async function runClaimedGrantSource(input: {
  * Run due registry sources with per-source isolation. Failed sources are marked
  * attempted so one bad portal/feed cannot starve the rest of the registry.
  */
-export async function runDueGrantSources(options?: { limit?: number }): Promise<{
+export async function runDueGrantSources(options?: { limit?: number; skipAutoSeed?: boolean }): Promise<{
   dueCount: number;
   attempted: number;
   synced: number;
@@ -555,20 +571,14 @@ export async function runDueGrantSources(options?: { limit?: number }): Promise<
   sourceSeed?: AutoSeedGrantSourcesResult;
   results: GrantSourceRunResult[];
 }> {
-  const sourceSeed = await autoSeedDefaultGrantSources({
-    runSource: "app_default_seed",
-    createdBy: "grant-source-crawler",
-  });
-  const due = await getDueGrantSources();
-  const limit = options?.limit;
-  const prioritized = [...due].sort((a, b) =>
-    sourceRunPriority(a) - sourceRunPriority(b) ||
-    sourceLastCrawledTime(a) - sourceLastCrawledTime(b) ||
-    a.source_name.localeCompare(b.source_name)
-  );
-  const selected = typeof limit === "number" && Number.isFinite(limit) && limit > 0
-    ? prioritized.slice(0, Math.floor(limit))
-    : prioritized;
+  const sourceSeed = options?.skipAutoSeed
+    ? undefined
+    : await autoSeedDefaultGrantSources({
+        runSource: "app_default_seed",
+        createdBy: "grant-source-crawler",
+      });
+  const selectedLimit = safeLimit(options?.limit, 20, 1, 100);
+  const selected = await claimDueGrantSources({ limit: selectedLimit });
   const results: GrantSourceRunResult[] = [];
 
   let synced = 0;
@@ -619,7 +629,7 @@ export async function runDueGrantSources(options?: { limit?: number }): Promise<
   }
 
   return {
-    dueCount: due.length,
+    dueCount: selected.length,
     attempted: selected.length,
     synced,
     created,

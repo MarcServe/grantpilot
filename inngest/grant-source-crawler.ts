@@ -1,6 +1,12 @@
 import { inngest } from "./client";
-import { enqueueDueGrantSourceRuns, runClaimedGrantSource } from "@/lib/grant-sources";
+import { enqueueDueGrantSourceRuns, runClaimedGrantSource, runDueGrantSources } from "@/lib/grant-sources";
 import { runWithCronLog } from "@/lib/cron-run-log";
+
+function crawlerInlineWorkerLimit(): number {
+  const raw = Number(process.env.GRANT_SOURCE_CRAWLER_INLINE_WORKER_LIMIT ?? 2);
+  if (!Number.isFinite(raw)) return 2;
+  return Math.max(0, Math.min(5, Math.floor(raw)));
+}
 
 /**
  * Scheduler only claims and enqueues due grant sources. The actual crawl work is
@@ -12,7 +18,18 @@ export const grantSourceCrawler = inngest.createFunction(
   async () =>
     runWithCronLog(
       { jobName: "Grant Source Registry Crawler Enqueue", route: "inngest/grant-source-crawler", trigger: "inngest" },
-      () => enqueueDueGrantSourceRuns({ source: "inngest.cron.grant-source-crawler" })
+      async () => {
+        const enqueue = await enqueueDueGrantSourceRuns({ source: "inngest.cron.grant-source-crawler" });
+        const inlineWorkerLimit = crawlerInlineWorkerLimit();
+        const inlineProcessed = inlineWorkerLimit > 0
+          ? await runDueGrantSources({ limit: inlineWorkerLimit, skipAutoSeed: true })
+          : null;
+        return {
+          ...enqueue,
+          inlineWorkerLimit,
+          inlineProcessed,
+        };
+      }
     )
 );
 
