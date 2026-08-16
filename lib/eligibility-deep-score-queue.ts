@@ -94,6 +94,10 @@ const PROFILE_BACKFILL_MIN_HEURISTIC_SCORE = positiveIntFromEnv("ELIGIBILITY_PRO
 export const PROFILE_BOOTSTRAP_MIN_INTELLIGENCE_SCORE = positiveIntFromEnv("ELIGIBILITY_PROFILE_BOOTSTRAP_MIN_INTELLIGENCE_SCORE", 40);
 const PROFILE_BOOTSTRAP_INTELLIGENCE_SCAN_LIMIT = positiveIntFromEnv("ELIGIBILITY_PROFILE_BOOTSTRAP_INTELLIGENCE_SCAN_LIMIT", 5000);
 const PROFILE_BOOTSTRAP_INTELLIGENCE_PAGE_SIZE = 1000;
+const FRESH_PROFILE_BACKFILL_PROFILE_SCAN_LIMIT = positiveIntFromEnv("ELIGIBILITY_FRESH_BACKFILL_PROFILE_SCAN_LIMIT", 1000);
+const FRESH_PROFILE_BACKFILL_PROFILE_LIMIT = positiveIntFromEnv("ELIGIBILITY_FRESH_BACKFILL_PROFILE_LIMIT", 250);
+const FRESH_PROFILE_BACKFILL_GRANT_LIMIT = positiveIntFromEnv("ELIGIBILITY_FRESH_BACKFILL_GRANT_LIMIT", 150);
+const FRESH_PROFILE_BACKFILL_CANDIDATE_LIMIT = positiveIntFromEnv("ELIGIBILITY_FRESH_BACKFILL_CANDIDATE_LIMIT", 30);
 const GRANT_BACKFILL_SELECT =
   "id, name, funder, amount, deadline, applicationUrl, createdAt, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, url_status";
 const GRANT_INTELLIGENCE_SELECT =
@@ -489,6 +493,36 @@ async function fetchReadyGrantIntelligenceRows(
   return rows;
 }
 
+async function fetchReadyGrantIntelligenceRowsByIds(
+  supabase: SupabaseAdmin,
+  grantIds: string[]
+): Promise<Map<string, GrantIntelligenceDbRow>> {
+  const rowsByGrantId = new Map<string, GrantIntelligenceDbRow>();
+  const uniqueGrantIds = Array.from(new Set(grantIds.filter(Boolean)));
+
+  for (let offset = 0; offset < uniqueGrantIds.length; offset += QUEUE_LOOKUP_BATCH_SIZE) {
+    const batch = uniqueGrantIds.slice(offset, offset + QUEUE_LOOKUP_BATCH_SIZE);
+    const { data, error } = await supabase
+      .from("grant_ai_intelligence")
+      .select(GRANT_INTELLIGENCE_SELECT)
+      .eq("status", "ready")
+      .in("grant_id", batch);
+
+    if (error) {
+      console.warn("[eligibility-deep-score-queue] recent grant intelligence lookup skipped:", error.message);
+      continue;
+    }
+
+    for (const row of (data ?? []) as GrantIntelligenceDbRow[]) {
+      if (row.grant_id && !rowsByGrantId.has(row.grant_id)) {
+        rowsByGrantId.set(row.grant_id, row);
+      }
+    }
+  }
+
+  return rowsByGrantId;
+}
+
 async function fetchBackfillGrantRowsByIds(
   supabase: SupabaseAdmin,
   grantIds: string[]
@@ -536,6 +570,286 @@ async function fetchExistingTrustedAssessmentIds(
     }
   }
   return trusted;
+}
+
+function grantPreFilterInput(grant: GrantRow) {
+  return {
+    id: grant.id,
+    amount: grant.amount,
+    deadline: grant.deadline,
+    eligibility: grant.eligibility,
+    sectors: grant.sectors ?? [],
+    regions: grant.regions ?? [],
+    applicantTypes: grant.applicantTypes ?? [],
+    description: grant.description,
+    objectives: grant.objectives,
+  };
+}
+
+type FreshBackfillProfile = {
+  organisationId: string;
+  profileId: string;
+  profile: ProfileRow;
+  priority: number;
+  updatedAt: number;
+};
+
+function profileUpdatedAt(profile: Record<string, unknown>): number {
+  return dateTime(valueAsString(profile.updatedAt ?? profile.updated_at));
+}
+
+export async function enqueueFreshGrantBackfillForEligibleProfiles(options?: {
+  supabase?: SupabaseAdmin;
+  source?: string;
+  profileScanLimit?: number;
+  profileLimit?: number;
+  grantLimit?: number;
+  candidateLimitPerProfile?: number;
+  minScore?: number;
+}): Promise<{
+  profilesScanned: number;
+  profilesEligible: number;
+  profilesProcessed: number;
+  grantsScanned: number;
+  actionableGrants: number;
+  intelligenceReady: number;
+  candidatesMatched: number;
+  requested: number;
+  enqueued: number;
+  errors: string[];
+}> {
+  const supabase = options?.supabase ?? getSupabaseAdmin();
+  const source = options?.source ?? "fresh_grant_backfill";
+  const profileScanLimit = Math.max(1, Math.min(5000, options?.profileScanLimit ?? FRESH_PROFILE_BACKFILL_PROFILE_SCAN_LIMIT));
+  const profileLimit = Math.max(1, Math.min(profileScanLimit, options?.profileLimit ?? FRESH_PROFILE_BACKFILL_PROFILE_LIMIT));
+  const grantLimit = Math.max(1, Math.min(1000, options?.grantLimit ?? FRESH_PROFILE_BACKFILL_GRANT_LIMIT));
+  const candidateLimitPerProfile = Math.max(1, Math.min(100, options?.candidateLimitPerProfile ?? FRESH_PROFILE_BACKFILL_CANDIDATE_LIMIT));
+  const minScore = Math.max(0, Math.min(100, options?.minScore ?? PROFILE_BOOTSTRAP_MIN_INTELLIGENCE_SCORE));
+  const cutoff = new Date(Date.now() - FRESH_DEEP_SCORE_WINDOW_DAYS * 86_400_000).toISOString();
+  const errors: string[] = [];
+
+  try {
+    const [{ data: grantsData, error: grantsError }, { data: profilesData, error: profilesError }] = await Promise.all([
+      supabase
+        .from("Grant")
+        .select(GRANT_BACKFILL_SELECT)
+        .gte("createdAt", cutoff)
+        .order("createdAt", { ascending: false })
+        .limit(grantLimit),
+      supabase
+        .from("BusinessProfile")
+        .select("*")
+        .gte("completionScore", MIN_DEEP_SCORE_PROFILE_COMPLETION)
+        .limit(profileScanLimit),
+    ]);
+
+    if (grantsError) throw grantsError;
+    if (profilesError) throw profilesError;
+
+    const recentGrants = (grantsData ?? []) as GrantRow[];
+    const actionableGrants = recentGrants.filter((grant) => isGrantActionableNow(grant));
+    if (actionableGrants.length === 0) {
+      return {
+        profilesScanned: (profilesData ?? []).length,
+        profilesEligible: 0,
+        profilesProcessed: 0,
+        grantsScanned: recentGrants.length,
+        actionableGrants: 0,
+        intelligenceReady: 0,
+        candidatesMatched: 0,
+        requested: 0,
+        enqueued: 0,
+        errors,
+      };
+    }
+
+    const intelligenceByGrantId = await fetchReadyGrantIntelligenceRowsByIds(
+      supabase,
+      actionableGrants.map((grant) => grant.id)
+    );
+
+    const profiles = (profilesData ?? []) as ProfileRow[];
+    const orgIds = Array.from(new Set(profiles.map((profile) => orgIdFromProfile(profile)).filter(Boolean))) as string[];
+    const orgsResult = await fetchOrganisationPlanRows(supabase, orgIds);
+    if (orgsResult.error) throw orgsResult.error;
+    const orgsById = new Map(((orgsResult.data ?? []) as OrganisationPlanRow[]).map((org) => [String(org.id), org]));
+
+    const eligibleProfiles: FreshBackfillProfile[] = profiles
+      .map((profile) => {
+        const organisationId = orgIdFromProfile(profile);
+        if (!organisationId || !profile.id) return null;
+        const priority = deepScoreProfilePriority(profile, orgsById.get(organisationId));
+        if (priority == null) return null;
+        return {
+          organisationId,
+          profileId: String(profile.id),
+          profile,
+          priority,
+          updatedAt: profileUpdatedAt(profile),
+        };
+      })
+      .filter((profile): profile is FreshBackfillProfile => profile != null)
+      .sort((a, b) => {
+        if (b.priority !== a.priority) return b.priority - a.priority;
+        return b.updatedAt - a.updatedAt;
+      });
+
+    const selectedProfiles = eligibleProfiles.slice(0, profileLimit);
+    let candidatesMatched = 0;
+    let requested = 0;
+    let enqueued = 0;
+
+    type RankedCandidate = DeepScoreCandidate & {
+      _createdAt: number;
+      _score: number;
+      _sourceRank: number;
+    };
+
+    for (const profileInfo of selectedProfiles) {
+      const userFunderLocations = inferFunderLocationsFromProfile(profileInfo.profile as {
+        funderLocations?: string[] | null;
+        location?: string | null;
+        country?: string | null;
+        region?: string | null;
+      });
+      const locationMatched = actionableGrants.filter((grant) =>
+        grantMatchesFunderLocations(grant.funderLocations ?? undefined, userFunderLocations)
+      );
+      if (locationMatched.length === 0) continue;
+
+      const intelligenceCandidates: RankedCandidate[] = [];
+      const noIntelligenceGrants: GrantRow[] = [];
+      for (const grant of locationMatched) {
+        const intelligenceRow = intelligenceByGrantId.get(grant.id);
+        if (!intelligenceRow) {
+          noIntelligenceGrants.push(grant);
+          continue;
+        }
+
+        const intelligence = grantIntelligenceFromDb(intelligenceRow);
+        if (!isReadyGrantIntelligence(intelligence)) continue;
+
+        const match = matchProfileToGrantIntelligence(profileInfo.profile, grant, intelligence);
+        if (match.score < minScore) continue;
+        intelligenceCandidates.push({
+          grant,
+          heuristicScore: match.score,
+          reason: match.reason,
+          source: `${source}.grant_intelligence`,
+          _createdAt: dateTime(grant.createdAt),
+          _score: match.score,
+          _sourceRank: 0,
+        });
+      }
+
+      const noIntelligenceById = new Map(noIntelligenceGrants.map((grant) => [grant.id, grant]));
+      const fallbackCandidates: RankedCandidate[] = preFilterGrants(
+        profileToHeuristic(profileInfo.profile),
+        noIntelligenceGrants.map(grantPreFilterInput)
+      )
+        .filter((result) => result.score >= minScore)
+        .map((result): RankedCandidate | null => {
+          const grant = noIntelligenceById.get(result.grantId);
+          if (!grant) return null;
+          return {
+            grant,
+            heuristicScore: result.score,
+            reason: result.reasons.join("; "),
+            source: `${source}.recent_no_intelligence`,
+            _createdAt: dateTime(grant.createdAt),
+            _score: result.score,
+            _sourceRank: 1,
+          };
+        })
+        .filter((candidate): candidate is RankedCandidate => candidate != null);
+
+      const combinedCandidates = [...intelligenceCandidates, ...fallbackCandidates];
+      if (combinedCandidates.length === 0) continue;
+
+      const candidateGrantIds = Array.from(new Set(combinedCandidates.map((candidate) => candidate.grant.id)));
+      let trustedIds = new Set<string>();
+      try {
+        trustedIds = await fetchExistingTrustedAssessmentIds(supabase, {
+          organisationId: profileInfo.organisationId,
+          profileId: profileInfo.profileId,
+          grantIds: candidateGrantIds,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        errors.push(message);
+        continue;
+      }
+
+      const dedupedByGrantId = new Map<string, RankedCandidate>();
+      for (const candidate of combinedCandidates) {
+        if (trustedIds.has(candidate.grant.id)) continue;
+        const existing = dedupedByGrantId.get(candidate.grant.id);
+        if (
+          !existing ||
+          candidate._createdAt > existing._createdAt ||
+          (candidate._createdAt === existing._createdAt && candidate._sourceRank < existing._sourceRank) ||
+          (candidate._createdAt === existing._createdAt && candidate._sourceRank === existing._sourceRank && candidate._score > existing._score)
+        ) {
+          dedupedByGrantId.set(candidate.grant.id, candidate);
+        }
+      }
+
+      const candidates = Array.from(dedupedByGrantId.values())
+        .sort((a, b) => {
+          if (b._createdAt !== a._createdAt) return b._createdAt - a._createdAt;
+          if (a._sourceRank !== b._sourceRank) return a._sourceRank - b._sourceRank;
+          return b._score - a._score;
+        })
+        .slice(0, candidateLimitPerProfile)
+        .map((candidate) => ({
+          grant: candidate.grant,
+          heuristicScore: candidate.heuristicScore,
+          reason: candidate.reason,
+          source: candidate.source,
+        }));
+
+      candidatesMatched += candidates.length;
+      const result = await enqueueDeepScoreCandidates({
+        supabase,
+        organisationId: profileInfo.organisationId,
+        profileId: profileInfo.profileId,
+        profile: profileInfo.profile,
+        candidates,
+        source,
+      });
+      requested += result.requested;
+      enqueued += result.enqueued;
+      if (result.error) errors.push(result.error);
+    }
+
+    return {
+      profilesScanned: profiles.length,
+      profilesEligible: eligibleProfiles.length,
+      profilesProcessed: selectedProfiles.length,
+      grantsScanned: recentGrants.length,
+      actionableGrants: actionableGrants.length,
+      intelligenceReady: intelligenceByGrantId.size,
+      candidatesMatched,
+      requested,
+      enqueued,
+      errors,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn("[eligibility-deep-score-queue] fresh grant backfill failed:", message);
+    return {
+      profilesScanned: 0,
+      profilesEligible: 0,
+      profilesProcessed: 0,
+      grantsScanned: 0,
+      actionableGrants: 0,
+      intelligenceReady: 0,
+      candidatesMatched: 0,
+      requested: 0,
+      enqueued: 0,
+      errors: [message],
+    };
+  }
 }
 
 export async function enqueueRecentGrantsForProfileBackfill(options: {

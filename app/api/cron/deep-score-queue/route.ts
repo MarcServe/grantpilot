@@ -3,6 +3,7 @@ import { runWithCronLog } from "@/lib/cron-run-log";
 import {
   DEEP_SCORE_BATCH_SIZE,
   enqueueExistingHeuristicAssessments,
+  enqueueFreshGrantBackfillForEligibleProfiles,
   processEligibilityDeepScoreQueue,
 } from "@/lib/eligibility-deep-score-queue";
 
@@ -136,10 +137,25 @@ export async function GET(req: Request) {
           ? Math.min(100, Math.floor(configuredWorkerLimit))
           : Math.max(1, Math.ceil(totalLimit / workerCount));
         const useHttpWorkers = Boolean(process.env.DEEP_SCORE_WORKER_BASE_URL?.trim());
-        const enqueued = await enqueueExistingHeuristicAssessments({
+        const freshEnqueued = await enqueueFreshGrantBackfillForEligibleProfiles({
+          source: "deep_score_cron.fresh_grants",
+          profileScanLimit: positiveIntFromEnv("ELIGIBILITY_FRESH_BACKFILL_PROFILE_SCAN_LIMIT", 1000, 5000),
+          profileLimit: positiveIntFromEnv("ELIGIBILITY_FRESH_BACKFILL_PROFILE_LIMIT", 250, 1000),
+          grantLimit: positiveIntFromEnv("ELIGIBILITY_FRESH_BACKFILL_GRANT_LIMIT", 150, 1000),
+          candidateLimitPerProfile: positiveIntFromEnv("ELIGIBILITY_FRESH_BACKFILL_CANDIDATE_LIMIT", 30, 100),
+          minScore: minScoreFromEnv(),
+        });
+        const backlogEnqueued = await enqueueExistingHeuristicAssessments({
           limit: enqueueLimit,
           minScore: minScoreFromEnv(),
         });
+        const enqueued = {
+          requested: freshEnqueued.requested + backlogEnqueued.enqueued,
+          enqueued: freshEnqueued.enqueued + backlogEnqueued.enqueued,
+          scanned: freshEnqueued.grantsScanned + backlogEnqueued.scanned,
+          fresh: freshEnqueued,
+          backlog: backlogEnqueued,
+        };
 
         if (workerCount <= 1) {
           const processed = await processEligibilityDeepScoreQueue({

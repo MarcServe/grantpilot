@@ -147,6 +147,22 @@ assert.match(
 );
 
 const deepScoreQueue = read("lib/eligibility-deep-score-queue.ts");
+const deepScoreCronRoute = read("app/api/cron/deep-score-queue/route.ts");
+assert.match(
+  deepScoreCronRoute,
+  /enqueueFreshGrantBackfillForEligibleProfiles/,
+  "deep-score cron should enqueue fresh current grants for eligible profiles before draining old backlog"
+);
+assert.ok(
+  deepScoreCronRoute.indexOf("const freshEnqueued = await enqueueFreshGrantBackfillForEligibleProfiles") <
+    deepScoreCronRoute.indexOf("const backlogEnqueued = await enqueueExistingHeuristicAssessments"),
+  "deep-score cron should prioritize fresh grant backfill before old heuristic backlog"
+);
+assert.match(
+  deepScoreCronRoute,
+  /freshEnqueued[\s\S]*backlogEnqueued/,
+  "deep-score cron response should expose fresh-vs-backlog enqueue metadata"
+);
 assert.match(
   deepScoreQueue,
   /QUEUE_LOOKUP_BATCH_SIZE/,
