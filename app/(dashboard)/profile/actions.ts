@@ -1,5 +1,7 @@
 "use server";
 
+import { criteriaEnabled } from "@/lib/criteria-flags";
+import { criteriaProfileCompletionScore } from "@/lib/profile-completion";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg, setActiveProfileCookie } from "@/lib/auth";
 import {
@@ -20,12 +22,18 @@ import {
 } from "@/lib/validations/profile";
 import { normalizeEligibilityFacts } from "@/lib/eligibility-facts";
 import { syncGrantMemoryFromProfile } from "@/lib/grant-memory";
-import { requestEligibilityRefresh, requestProfileEligibilityBackfill } from "@/lib/eligibility-refresh-trigger";
+import {
+  requestEligibilityRefresh,
+  requestProfileEligibilityBackfill,
+} from "@/lib/eligibility-refresh-trigger";
 import { analyseWebsite } from "@/lib/website-intelligence";
 import { generateAndStoreProfileEmbedding } from "@/lib/embeddings";
 import { PLAN_LIMITS } from "@/lib/plans";
 import { PLAN_CAPABILITY_MESSAGES } from "@/lib/plan-features";
-import { getOrganisationPlanKey, organisationAllowsCapability } from "@/lib/plan-check";
+import {
+  getOrganisationPlanKey,
+  organisationAllowsCapability,
+} from "@/lib/plan-check";
 import { syncEligibilityWhatsAppPreference } from "@/lib/eligibility-preferences";
 
 const PROFILE_DOCUMENT_BATCH_SIZE = 20;
@@ -35,7 +43,10 @@ async function getOrgId(): Promise<string> {
   return orgId;
 }
 
-function calculateCompletionScore(profile: Record<string, unknown>, documentCount = 0): number {
+function calculateCompletionScore(
+  profile: Record<string, unknown>,
+  documentCount = 0,
+): number {
   const get = (camel: string, snake?: string): unknown =>
     profile[camel] ?? (snake ? profile[snake] : undefined);
 
@@ -57,9 +68,15 @@ function calculateCompletionScore(profile: Record<string, unknown>, documentCoun
   const fundingMin = get("fundingMin", "funding_min");
   const fundingMax = get("fundingMax", "funding_max");
   const fundingPurposes = get("fundingPurposes", "funding_purposes");
-  const preferredOpportunityTypes = get("preferredOpportunityTypes", "preferred_opportunity_types");
+  const preferredOpportunityTypes = get(
+    "preferredOpportunityTypes",
+    "preferred_opportunity_types",
+  );
   const coFundingCapacity = get("coFundingCapacity", "co_funding_capacity");
-  const reimbursementReadiness = get("reimbursementReadiness", "reimbursement_readiness");
+  const reimbursementReadiness = get(
+    "reimbursementReadiness",
+    "reimbursement_readiness",
+  );
   const eligibilityFacts = get("eligibilityFacts", "eligibility_facts");
 
   if (businessName && String(businessName).trim()) score++;
@@ -77,7 +94,11 @@ function calculateCompletionScore(profile: Record<string, unknown>, documentCoun
   if (fundingMin != null && Number(fundingMin) > 0) score++;
   if (fundingMax != null && Number(fundingMax) > 0) score++;
   if (Array.isArray(fundingPurposes) && fundingPurposes.length > 0) score++;
-  if (Array.isArray(preferredOpportunityTypes) && preferredOpportunityTypes.length > 0) score++;
+  if (
+    Array.isArray(preferredOpportunityTypes) &&
+    preferredOpportunityTypes.length > 0
+  )
+    score++;
   if (coFundingCapacity && String(coFundingCapacity).trim()) score++;
   if (reimbursementReadiness && String(reimbursementReadiness).trim()) score++;
   if (Array.isArray(eligibilityFacts) && eligibilityFacts.length > 0) score++;
@@ -90,7 +111,7 @@ async function recalcAndSaveCompletionScore(profileId: string): Promise<void> {
   const supabase = getSupabaseAdmin();
   const { data: profile } = await supabase
     .from("BusinessProfile")
-    .select("businessName, businessType, legalStructure, businessStage, businessSizeBand, location, localAuthority, sector, missionStatement, description, employeeCount, annualRevenue, fundingMin, fundingMax, fundingPurposes, preferredOpportunityTypes, fundingDetails, coFundingCapacity, reimbursementReadiness, eligibilityFacts, directorNames, directorProfiles, teamMembers")
+    .select("*")
     .eq("id", profileId)
     .single();
   if (!profile) return;
@@ -98,8 +119,13 @@ async function recalcAndSaveCompletionScore(profileId: string): Promise<void> {
     .from("Document")
     .select("id", { count: "exact", head: true })
     .eq("profileId", profileId);
-  const score = calculateCompletionScore(profile as Record<string, unknown>, count ?? 0);
-  await supabase.from("BusinessProfile").update({ completionScore: score }).eq("id", profileId);
+  const score = criteriaEnabled()
+    ? criteriaProfileCompletionScore(profile)
+    : calculateCompletionScore(profile as Record<string, unknown>, count ?? 0);
+  await supabase
+    .from("BusinessProfile")
+    .update({ completionScore: score })
+    .eq("id", profileId);
 }
 
 async function syncGrantMemoryForProfile(profileId: string): Promise<void> {
@@ -113,11 +139,15 @@ async function syncGrantMemoryForProfile(profileId: string): Promise<void> {
 
 async function refreshProfileEmbedding(profileId: string): Promise<void> {
   generateAndStoreProfileEmbedding(profileId).catch((err) =>
-    console.error("[profile] Embedding generation failed:", err)
+    console.error("[profile] Embedding generation failed:", err),
   );
 }
 
-async function triggerEligibilityForProfile(organisationId: string, profileId: string, source: string): Promise<void> {
+async function triggerEligibilityForProfile(
+  organisationId: string,
+  profileId: string,
+  source: string,
+): Promise<void> {
   await requestEligibilityRefresh(organisationId, source);
   await requestProfileEligibilityBackfill(organisationId, profileId, source);
 }
@@ -189,7 +219,7 @@ async function getOrCreateProfile(organisationId: string) {
   const profileLimit = PLAN_LIMITS[plan].profiles;
   if ((profileCount ?? 0) >= profileLimit) {
     throw new Error(
-      `Your plan allows up to ${profileLimit} business profile(s). Upgrade on Billing to add more.`
+      `Your plan allows up to ${profileLimit} business profile(s). Upgrade on Billing to add more.`,
     );
   }
 
@@ -232,7 +262,8 @@ export async function getProfile() {
 export async function createBusinessProfile(data: { businessName: string }) {
   const businessName = data.businessName?.trim();
   if (!businessName) return { error: "Business name is required." };
-  if (businessName.length > 140) return { error: "Business name must be 140 characters or fewer." };
+  if (businessName.length > 140)
+    return { error: "Business name must be 140 characters or fewer." };
 
   const { orgId } = await getActiveOrg();
   const supabase = getSupabaseAdmin();
@@ -292,7 +323,8 @@ export async function switchBusinessProfile(profileId: string) {
     .maybeSingle();
 
   if (error) return { error: error.message };
-  if (!profile) return { error: "Business profile not found for this account." };
+  if (!profile)
+    return { error: "Business profile not found for this account." };
 
   await setActiveProfileCookie(profile.id);
   return { success: true, profileId: profile.id };
@@ -346,16 +378,18 @@ export async function saveStep1(data: Step1Data) {
     .select()
     .single();
 
-  if (updateError || !updated) return { error: updateError?.message ?? "Update failed" };
+  if (updateError || !updated)
+    return { error: updateError?.message ?? "Update failed" };
 
   await recalcAndSaveCompletionScore(profile.id);
   await syncGrantMemoryForProfile(profile.id);
   await triggerEligibilityForProfile(orgId, profile.id, "profile.step1.saved");
 
-  const previousUrl = (profile as Record<string, unknown>).websiteUrl as string | null;
+  const previousUrl = (profile as Record<string, unknown>).websiteUrl as
+    string | null;
   if (newUrl && newUrl !== previousUrl) {
     analyseAndSaveWebsiteIntelligence(profile.id, newUrl, orgId).catch((err) =>
-      console.error("[website-intelligence] Background analysis failed:", err)
+      console.error("[website-intelligence] Background analysis failed:", err),
     );
   }
 
@@ -365,19 +399,29 @@ export async function saveStep1(data: Step1Data) {
 async function analyseAndSaveWebsiteIntelligence(
   profileId: string,
   url: string,
-  organisationId: string
+  organisationId: string,
 ): Promise<void> {
   try {
-    if (!(await organisationAllowsCapability(organisationId, "website_intelligence_refresh"))) return;
+    if (
+      !(await organisationAllowsCapability(
+        organisationId,
+        "website_intelligence_refresh",
+      ))
+    )
+      return;
 
-    console.info(`[website-intelligence] Analysing ${url} for profile ${profileId}`);
+    console.info(
+      `[website-intelligence] Analysing ${url} for profile ${profileId}`,
+    );
     const intelligence = await analyseWebsite(url);
     const supabase = getSupabaseAdmin();
     await supabase
       .from("BusinessProfile")
       .update({ websiteIntelligence: intelligence })
       .eq("id", profileId);
-    console.info(`[website-intelligence] Saved ${intelligence.length} chars for profile ${profileId}`);
+    console.info(
+      `[website-intelligence] Saved ${intelligence.length} chars for profile ${profileId}`,
+    );
   } catch (err) {
     console.error(`[website-intelligence] Failed for ${url}:`, err);
   }
@@ -402,7 +446,8 @@ export async function saveStep2(data: Step2Data) {
     .select()
     .single();
 
-  if (updateError || !updated) return { error: updateError?.message ?? "Update failed" };
+  if (updateError || !updated)
+    return { error: updateError?.message ?? "Update failed" };
 
   await recalcAndSaveCompletionScore(profile.id);
   await syncGrantMemoryForProfile(profile.id);
@@ -437,7 +482,8 @@ export async function saveStep3(data: Step3Data) {
     .select()
     .single();
 
-  if (updateError || !updated) return { error: updateError?.message ?? "Update failed" };
+  if (updateError || !updated)
+    return { error: updateError?.message ?? "Update failed" };
 
   await recalcAndSaveCompletionScore(profile.id);
   await syncGrantMemoryForProfile(profile.id);
@@ -474,7 +520,8 @@ export async function saveStep4(data: Step4Data) {
     .select()
     .single();
 
-  if (updateError || !updated) return { error: updateError?.message ?? "Update failed" };
+  if (updateError || !updated)
+    return { error: updateError?.message ?? "Update failed" };
 
   await recalcAndSaveCompletionScore(profile.id);
   await syncGrantMemoryForProfile(profile.id);
@@ -534,7 +581,8 @@ export async function saveStep6(data: Step6Data) {
     .select()
     .single();
 
-  if (updateError || !updated) return { error: updateError?.message ?? "Update failed" };
+  if (updateError || !updated)
+    return { error: updateError?.message ?? "Update failed" };
 
   await recalcAndSaveCompletionScore(profile.id);
   await syncGrantMemoryForProfile(profile.id);
@@ -550,7 +598,9 @@ export async function saveStep7(data: Step7Data) {
 
   const orgId = await getOrgId();
   const profile = await getOrCreateProfile(orgId);
-  const eligibilityFacts = normalizeEligibilityFacts(parsed.data.eligibilityFacts);
+  const eligibilityFacts = normalizeEligibilityFacts(
+    parsed.data.eligibilityFacts,
+  );
 
   const supabase = getSupabaseAdmin();
   const { data: updated, error: updateError } = await supabase
@@ -560,20 +610,31 @@ export async function saveStep7(data: Step7Data) {
     .select()
     .single();
 
-  if (updateError || !updated) return { error: updateError?.message ?? "Update failed" };
+  if (updateError || !updated)
+    return { error: updateError?.message ?? "Update failed" };
 
   await recalcAndSaveCompletionScore(profile.id);
   await syncGrantMemoryForProfile(profile.id);
   await refreshProfileEmbedding(profile.id);
-  await triggerEligibilityForProfile(orgId, profile.id, "profile.eligibility_facts.saved");
+  await triggerEligibilityForProfile(
+    orgId,
+    profile.id,
+    "profile.eligibility_facts.saved",
+  );
 
   return { success: true };
 }
 
-export async function saveTeamVault(data: Pick<
-  Step6Data,
-  "directorNames" | "directorProfiles" | "teamMembers" | "boardMembers" | "teamExpertise"
->) {
+export async function saveTeamVault(
+  data: Pick<
+    Step6Data,
+    | "directorNames"
+    | "directorProfiles"
+    | "teamMembers"
+    | "boardMembers"
+    | "teamExpertise"
+  >,
+) {
   const parsed = step6Schema
     .pick({
       directorNames: true,
@@ -602,12 +663,17 @@ export async function saveTeamVault(data: Pick<
     .select()
     .single();
 
-  if (updateError || !updated) return { error: updateError?.message ?? "Update failed" };
+  if (updateError || !updated)
+    return { error: updateError?.message ?? "Update failed" };
 
   await recalcAndSaveCompletionScore(profile.id);
   await syncGrantMemoryForProfile(profile.id);
   await refreshProfileEmbedding(profile.id);
-  await triggerEligibilityForProfile(orgId, profile.id, "data-vault.team.saved");
+  await triggerEligibilityForProfile(
+    orgId,
+    profile.id,
+    "data-vault.team.saved",
+  );
 
   return { success: true };
 }
@@ -638,7 +704,11 @@ export async function saveDocument(doc: {
   if (error) return { error: error.message };
   await recalcAndSaveCompletionScore(profile.id);
   await syncGrantMemoryForProfile(profile.id);
-  await triggerEligibilityForProfile(orgId, profile.id, "profile.document.saved");
+  await triggerEligibilityForProfile(
+    orgId,
+    profile.id,
+    "profile.document.saved",
+  );
   return { success: true };
 }
 
@@ -655,11 +725,17 @@ export async function removeDocument(documentId: string) {
 
   await recalcAndSaveCompletionScore(profile.id);
   await syncGrantMemoryForProfile(profile.id);
-  await triggerEligibilityForProfile(orgId, profile.id, "profile.document.removed");
+  await triggerEligibilityForProfile(
+    orgId,
+    profile.id,
+    "profile.document.removed",
+  );
   return { success: true };
 }
 
-export async function updateNotificationPreferences(data: NotificationPreferencesData) {
+export async function updateNotificationPreferences(
+  data: NotificationPreferencesData,
+) {
   const parsed = notificationPreferencesSchema.safeParse(data);
   if (!parsed.success) return { error: "Invalid data" };
 
@@ -688,7 +764,12 @@ export async function updateNotificationPreferences(data: NotificationPreference
   try {
     await syncEligibilityWhatsAppPreference(orgId, parsed.data.whatsappOptIn);
   } catch (e) {
-    return { error: e instanceof Error ? e.message : "Could not sync eligibility WhatsApp preference" };
+    return {
+      error:
+        e instanceof Error
+          ? e.message
+          : "Could not sync eligibility WhatsApp preference",
+    };
   }
   return { success: true };
 }

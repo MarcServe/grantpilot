@@ -1,3 +1,7 @@
+import { criteriaEnabled } from "@/lib/criteria-flags";
+import { getProfileMatches } from "@/lib/profile-matches";
+import { isResearchResource } from "@/lib/grant-actionability";
+import { profileToMatching } from "@/lib/profile-for-matching";
 import { NextResponse } from "next/server";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -6,7 +10,10 @@ import type { EligibilityResult } from "@/lib/claude";
 import { getApplicantTypeGate } from "@/lib/eligibility-hard-gates";
 import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
 import { checkUsageLimit, recordUsage } from "@/lib/plan-check";
-import { isFreeTrialActive, resolveEffectivePlanForOrg } from "@/lib/plan-features";
+import {
+  isFreeTrialActive,
+  resolveEffectivePlanForOrg,
+} from "@/lib/plan-features";
 import { getGrantFreshnessStatus } from "@/lib/grant-freshness";
 import {
   applyOutcomeScoreAdjustment,
@@ -14,47 +21,11 @@ import {
   deriveOutcomeLearningAdvisory,
 } from "@/lib/outcome-learning";
 
-function profileToMatching(profile: Record<string, unknown>) {
-  const get = (key: string) => profile[key] ?? profile[key.replace(/([A-Z])/g, "_$1").toLowerCase()];
-  return {
-    businessName: String(get("businessName") ?? ""),
-    sector: String(get("sector") ?? ""),
-    missionStatement: String(get("missionStatement") ?? ""),
-    description: String(get("description") ?? ""),
-    location: String(get("location") ?? ""),
-    employeeCount: profile.employeeCount != null ? Number(profile.employeeCount) : (profile.employee_count != null ? Number(profile.employee_count) : null),
-    annualRevenue: profile.annualRevenue != null ? Number(profile.annualRevenue) : (profile.annual_revenue != null ? Number(profile.annual_revenue) : null),
-    yearEstablished: profile.yearEstablished != null ? Number(profile.yearEstablished) : (profile.year_established != null ? Number(profile.year_established) : null),
-    incorporationDate: get("incorporationDate") != null ? String(get("incorporationDate")) : null,
-    tradingStartDate: get("tradingStartDate") != null ? String(get("tradingStartDate")) : null,
-    expectedEmployeeGrowth: get("expectedEmployeeGrowth") != null ? String(get("expectedEmployeeGrowth")) : null,
-    fundingMin: Number(get("fundingMin") ?? get("funding_min") ?? 0),
-    fundingMax: Number(get("fundingMax") ?? get("funding_max") ?? 0),
-    fundingPurposes: Array.isArray(profile.fundingPurposes) ? profile.fundingPurposes as string[] : (Array.isArray(profile.funding_purposes) ? profile.funding_purposes as string[] : []),
-    preferredOpportunityTypes: Array.isArray(get("preferredOpportunityTypes")) ? get("preferredOpportunityTypes") as string[] : [],
-    fundingDetails: profile.fundingDetails != null ? String(profile.fundingDetails) : (profile.funding_details != null ? String(profile.funding_details) : null),
-    fundingUrgency: get("fundingUrgency") != null ? String(get("fundingUrgency")) : null,
-    fundingPosition: get("fundingPosition") != null ? String(get("fundingPosition")) : null,
-    documentReadiness: get("documentReadiness") != null ? String(get("documentReadiness")) : null,
-    businessType: String(get("businessType") ?? get("business_type") ?? ""),
-    legalStructure: String(get("legalStructure") ?? ""),
-    businessStage: String(get("businessStage") ?? ""),
-    businessSizeBand: String(get("businessSizeBand") ?? ""),
-    founderEmploymentStatus: String(get("founderEmploymentStatus") ?? ""),
-    localAuthority: String(get("localAuthority") ?? ""),
-    areasServed: String(get("areasServed") ?? ""),
-    coFundingCapacity: String(get("coFundingCapacity") ?? ""),
-    reimbursementReadiness: String(get("reimbursementReadiness") ?? ""),
-    coFundingAvailable: get("coFundingAvailable") != null ? String(get("coFundingAvailable")) : null,
-    matchFundingDetails: get("matchFundingDetails") != null ? String(get("matchFundingDetails")) : null,
-    previousGrantExperience: get("previousGrantExperience") != null ? String(get("previousGrantExperience")) : null,
-    previousGrantHistory: get("previousGrantHistory") != null ? String(get("previousGrantHistory")) : null,
-    fundingOutcomeSignals: profile.fundingOutcomeSignals != null ? String(profile.fundingOutcomeSignals) : null,
-    eligibilityFacts: get("eligibilityFacts") ?? get("eligibility_facts") ?? [],
-  };
-}
-
-function closedEligibilityPayload(message: string, scoringSource: "openai" | "heuristic" | "embedding" | "intelligence" | "manual" = "manual") {
+function closedEligibilityPayload(
+  message: string,
+  scoringSource:
+    "openai" | "heuristic" | "embedding" | "intelligence" | "manual" = "manual",
+) {
   return {
     decision: "unlikely" as const,
     reason: message,
@@ -65,7 +36,9 @@ function closedEligibilityPayload(message: string, scoringSource: "openai" | "he
     alignment: [],
     improvementPlan: {
       gaps: ["Opportunity appears closed or temporally stale"],
-      actions: ["Do not apply through this listing unless the funder confirms the programme is still open."],
+      actions: [
+        "Do not apply through this listing unless the funder confirms the programme is still open.",
+      ],
       timeline: "Before applying",
     },
     met: [],
@@ -79,15 +52,18 @@ function closedEligibilityPayload(message: string, scoringSource: "openai" | "he
 
 export async function GET(
   req: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   try {
     const { org, orgId } = await getActiveOrg();
     const profile = org.profiles?.[0];
     if (!profile || (profile.completionScore ?? 0) < 50) {
       return NextResponse.json(
-        { error: "Complete at least 50% of your profile to get eligibility assessment." },
-        { status: 400 }
+        {
+          error:
+            "Complete at least 50% of your profile to get eligibility assessment.",
+        },
+        { status: 400 },
       );
     }
 
@@ -98,7 +74,7 @@ export async function GET(
 
     const { data: grant, error: grantError } = await supabase
       .from("Grant")
-      .select("id, name, funder, amount, deadline, url_status, eligibility, description, objectives, applicantTypes, sectors, regions")
+      .select("*")
       .eq("id", grantId)
       .single();
 
@@ -120,14 +96,50 @@ export async function GET(
       sectors: string[];
       regions: string[];
     };
+    if (isResearchResource(grant))
+      return NextResponse.json(
+        closedEligibilityPayload(
+          "This is a research resource, not an individual funding opportunity.",
+        ),
+      );
+    if (criteriaEnabled()) {
+      const portfolio = await getProfileMatches(orgId, profile.id);
+      const match = Object.values(portfolio.sections)
+        .flat()
+        .find((g) => g.grantId === grantId);
+      return NextResponse.json(
+        match
+          ? {
+              score: match.score,
+              confidence: match.score,
+              decision: match.decision,
+              summary: match.summary,
+              reason: match.summary,
+              criteriaAssessment: match.criteriaAssessment,
+              scoringSource: match.scoringSource,
+            }
+          : {
+              score: 0,
+              confidence: 0,
+              decision: "review",
+              reason: "Verify this opportunity's published requirements first.",
+            },
+      );
+    }
     const freshness = getGrantFreshnessStatus(g);
     if (!freshness.usable) {
-      return NextResponse.json(closedEligibilityPayload(freshness.message ?? "This opportunity appears closed or stale."));
+      return NextResponse.json(
+        closedEligibilityPayload(
+          freshness.message ?? "This opportunity appears closed or stale.",
+        ),
+      );
     }
 
     const { data: outcomeRows } = await supabase
       .from("ApplicationOutcome")
-      .select("outcome, awardedAmount, funderFeedback, learningNotes, Grant(name, funder)")
+      .select(
+        "outcome, awardedAmount, funderFeedback, learningNotes, Grant(name, funder)",
+      )
       .eq("organisationId", orgId)
       .eq("profileId", profile.id)
       .order("reportedAt", { ascending: false })
@@ -136,7 +148,9 @@ export async function GET(
     if (useCache) {
       const { data: cached } = await supabase
         .from("EligibilityAssessment")
-        .select("score, decision, summary, reasons, alignment, improvement_plan, met_criteria, missing_criteria, scoring_source")
+        .select(
+          "score, decision, summary, reasons, alignment, improvement_plan, met_criteria, missing_criteria, scoring_source",
+        )
         .eq("organisation_id", orgId)
         .eq("profile_id", profile.id)
         .eq("grant_id", grantId)
@@ -153,11 +167,18 @@ export async function GET(
           missing_criteria: unknown;
           scoring_source?: string | null;
         };
-        const scoringSource = c.scoring_source ?? (c.summary?.startsWith("Preliminary fit") ? "heuristic" : "openai");
-        const score = scoringSource === "heuristic" ? Math.min(c.score, 69) : c.score;
+        const scoringSource =
+          c.scoring_source ??
+          (c.summary?.startsWith("Preliminary fit") ? "heuristic" : "openai");
+        const score =
+          scoringSource === "heuristic" ? Math.min(c.score, 69) : c.score;
         const applicantGate = getApplicantTypeGate(
-          String((profile as Record<string, unknown>).businessType ?? (profile as Record<string, unknown>).business_type ?? ""),
-          g
+          String(
+            (profile as Record<string, unknown>).businessType ??
+              (profile as Record<string, unknown>).business_type ??
+              "",
+          ),
+          g,
         );
         if (applicantGate && !applicantGate.profileMatches) {
           const gatedScore = Math.min(score, 25);
@@ -171,7 +192,9 @@ export async function GET(
             alignment: [],
             improvementPlan: {
               gaps: [applicantGate.reason],
-              actions: ["Only apply if your organisation is registered under one of the required applicant types."],
+              actions: [
+                "Only apply if your organisation is registered under one of the required applicant types.",
+              ],
               timeline: "Before applying",
             },
             met: [],
@@ -182,25 +205,33 @@ export async function GET(
             scoringSource,
           });
         }
-        const profileMatch = profileToMatching(profile as Record<string, unknown>);
-        const cachedResult = applyOutcomeScoreAdjustment(applyEligibilityScoreGuards(
-          profileMatch,
-          g,
-          {
-            decision: c.decision === "likely_eligible" || c.decision === "review" || c.decision === "unlikely" ? c.decision : "review",
+        const profileMatch = profileToMatching(
+          profile as Record<string, unknown>,
+        );
+        const cachedResult = applyOutcomeScoreAdjustment(
+          applyEligibilityScoreGuards(profileMatch, g, {
+            decision:
+              c.decision === "likely_eligible" ||
+              c.decision === "review" ||
+              c.decision === "unlikely"
+                ? c.decision
+                : "review",
             reason: c.summary ?? "",
             confidence: score,
             score,
             summary: c.summary ?? undefined,
             reasons: (c.reasons as string[]) ?? [],
             alignment: (c.alignment as string[]) ?? undefined,
-            improvementPlan: c.improvement_plan as EligibilityResult["improvementPlan"],
+            improvementPlan:
+              c.improvement_plan as EligibilityResult["improvementPlan"],
             met: (c.met_criteria as string[]) ?? [],
             missing: (c.missing_criteria as string[]) ?? [],
             winProbability: score,
-            evidenceStrength: score >= 80 ? "strong" : score >= 55 ? "medium" : "weak",
-          }
-        ), deriveOutcomeLearningAdvisory(outcomeRows ?? []));
+            evidenceStrength:
+              score >= 80 ? "strong" : score >= 55 ? "medium" : "weak",
+          }),
+          deriveOutcomeLearningAdvisory(outcomeRows ?? []),
+        );
         const cachedScore = cachedResult.score ?? cachedResult.confidence;
         return NextResponse.json({
           ...cachedResult,
@@ -213,16 +244,16 @@ export async function GET(
     const plan = resolveEffectivePlanForOrg(org);
     const { allowed, remaining } = await checkUsageLimit(orgId, "match");
     if (!allowed) {
-      const trialExpired =
-        plan === "FREE_TRIAL" &&
-        !isFreeTrialActive(org);
-      const message =
-        trialExpired
-          ? "Your 7-day free trial has expired. Upgrade to continue full company-DNA eligibility checks."
-          : plan === "FREE_TRIAL"
+      const trialExpired = plan === "FREE_TRIAL" && !isFreeTrialActive(org);
+      const message = trialExpired
+        ? "Your 7-day free trial has expired. Upgrade to continue full company-DNA eligibility checks."
+        : plan === "FREE_TRIAL"
           ? "You've used all free-trial full eligibility checks. Cached scores still appear for grants you've already assessed. Upgrade to continue company-DNA scoring."
           : "Monthly eligibility check quota reached.";
-      return NextResponse.json({ error: message, code: "MATCH_LIMIT", remaining }, { status: 402 });
+      return NextResponse.json(
+        { error: message, code: "MATCH_LIMIT", remaining },
+        { status: 402 },
+      );
     }
 
     const result = await getEligibilityDecision(
@@ -241,9 +272,12 @@ export async function GET(
         applicantTypes: g.applicantTypes ?? [],
         sectors: g.sectors ?? [],
         regions: g.regions ?? [],
-      }
+      },
     );
-    const adjustedResult = applyOutcomeScoreAdjustment(result, deriveOutcomeLearningAdvisory(outcomeRows ?? []));
+    const adjustedResult = applyOutcomeScoreAdjustment(
+      result,
+      deriveOutcomeLearningAdvisory(outcomeRows ?? []),
+    );
 
     const score = adjustedResult.score ?? adjustedResult.confidence;
     await supabase.from("EligibilityAssessment").upsert(
@@ -262,7 +296,7 @@ export async function GET(
         scoring_source: "openai",
         updated_at: new Date().toISOString(),
       },
-      { onConflict: "organisation_id,profile_id,grant_id" }
+      { onConflict: "organisation_id,profile_id,grant_id" },
     );
 
     await recordUsage(orgId, "match");
@@ -276,7 +310,7 @@ export async function GET(
     console.error("[GRANTS_ELIGIBILITY]", e);
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

@@ -1,7 +1,13 @@
 import type { EligibilityResult } from "@/lib/claude";
 import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
-import { confirmedEligibilityFactsToText, eligibilityFactsToText } from "@/lib/eligibility-facts";
-import { applyOutcomeScoreAdjustment, type OutcomeLearningAdvisory } from "@/lib/outcome-learning";
+import {
+  confirmedEligibilityFactsToText,
+  eligibilityFactsToText,
+} from "@/lib/eligibility-facts";
+import {
+  applyOutcomeScoreAdjustment,
+  type OutcomeLearningAdvisory,
+} from "@/lib/outcome-learning";
 
 export type EligibilityAssessmentLike = {
   score?: number | null;
@@ -35,8 +41,12 @@ export function profileForEligibilityGuards(profile: Record<string, unknown>) {
   return {
     businessName: String(profile.businessName ?? profile.business_name ?? ""),
     description: String(profile.description ?? ""),
-    missionStatement: String(profile.missionStatement ?? profile.mission_statement ?? ""),
-    fundingDetails: String(profile.fundingDetails ?? profile.funding_details ?? ""),
+    missionStatement: String(
+      profile.missionStatement ?? profile.mission_statement ?? "",
+    ),
+    fundingDetails: String(
+      profile.fundingDetails ?? profile.funding_details ?? "",
+    ),
     location: String(profile.location ?? ""),
     sector: String(profile.sector ?? ""),
     fundingPurposes: Array.isArray(profile.fundingPurposes)
@@ -44,21 +54,55 @@ export function profileForEligibilityGuards(profile: Record<string, unknown>) {
       : Array.isArray(profile.funding_purposes)
         ? (profile.funding_purposes as string[])
         : [],
-    fundingUrgency: String(profile.fundingUrgency ?? profile.funding_urgency ?? "") || null,
-    fundingPosition: String(profile.fundingPosition ?? profile.funding_position ?? "") || null,
-    documentReadiness: String(profile.documentReadiness ?? profile.document_readiness ?? "") || null,
-    businessType: String(profile.businessType ?? profile.business_type ?? "") || null,
-    legalStructure: String(profile.legalStructure ?? profile.legal_structure ?? "") || null,
-    businessStage: String(profile.businessStage ?? profile.business_stage ?? "") || null,
-    businessSizeBand: String(profile.businessSizeBand ?? profile.business_size_band ?? "") || null,
-    expectedEmployeeGrowth: String(profile.expectedEmployeeGrowth ?? profile.expected_employee_growth ?? "") || null,
-    coFundingCapacity: String(profile.coFundingCapacity ?? profile.co_funding_capacity ?? "") || null,
-    reimbursementReadiness: String(profile.reimbursementReadiness ?? profile.reimbursement_readiness ?? "") || null,
-    coFundingAvailable: String(profile.coFundingAvailable ?? profile.co_funding_available ?? "") || null,
-    matchFundingDetails: String(profile.matchFundingDetails ?? profile.match_funding_details ?? "") || null,
-    previousGrantHistory: String(profile.previousGrantHistory ?? profile.previous_grant_history ?? "") || null,
-    eligibilityFactsText: eligibilityFactsToText(profile.eligibilityFacts ?? profile.eligibility_facts, 16),
-    confirmedEligibilityFactsText: confirmedEligibilityFactsToText(profile.eligibilityFacts ?? profile.eligibility_facts, 16),
+    fundingUrgency:
+      String(profile.fundingUrgency ?? profile.funding_urgency ?? "") || null,
+    fundingPosition:
+      String(profile.fundingPosition ?? profile.funding_position ?? "") || null,
+    documentReadiness:
+      String(profile.documentReadiness ?? profile.document_readiness ?? "") ||
+      null,
+    businessType:
+      String(profile.businessType ?? profile.business_type ?? "") || null,
+    legalStructure:
+      String(profile.legalStructure ?? profile.legal_structure ?? "") || null,
+    businessStage:
+      String(profile.businessStage ?? profile.business_stage ?? "") || null,
+    businessSizeBand:
+      String(profile.businessSizeBand ?? profile.business_size_band ?? "") ||
+      null,
+    expectedEmployeeGrowth:
+      String(
+        profile.expectedEmployeeGrowth ??
+          profile.expected_employee_growth ??
+          "",
+      ) || null,
+    coFundingCapacity:
+      String(profile.coFundingCapacity ?? profile.co_funding_capacity ?? "") ||
+      null,
+    reimbursementReadiness:
+      String(
+        profile.reimbursementReadiness ?? profile.reimbursement_readiness ?? "",
+      ) || null,
+    coFundingAvailable:
+      String(
+        profile.coFundingAvailable ?? profile.co_funding_available ?? "",
+      ) || null,
+    matchFundingDetails:
+      String(
+        profile.matchFundingDetails ?? profile.match_funding_details ?? "",
+      ) || null,
+    previousGrantHistory:
+      String(
+        profile.previousGrantHistory ?? profile.previous_grant_history ?? "",
+      ) || null,
+    eligibilityFactsText: eligibilityFactsToText(
+      profile.eligibilityFacts ?? profile.eligibility_facts,
+      16,
+    ),
+    confirmedEligibilityFactsText: confirmedEligibilityFactsToText(
+      profile.eligibilityFacts ?? profile.eligibility_facts,
+      16,
+    ),
     employeeCount:
       profile.employeeCount != null
         ? Number(profile.employeeCount)
@@ -71,6 +115,18 @@ export function profileForEligibilityGuards(profile: Record<string, unknown>) {
         : profile.annual_revenue != null
           ? Number(profile.annual_revenue)
           : null,
+    incorporationDate:
+      String(profile.incorporationDate ?? profile.incorporation_date ?? "") ||
+      null,
+    tradingStartDate:
+      String(profile.tradingStartDate ?? profile.trading_start_date ?? "") ||
+      null,
+    previousGrantExperience:
+      String(
+        profile.previousGrantExperience ??
+          profile.previous_grant_experience ??
+          "",
+      ) || null,
     yearEstablished:
       profile.yearEstablished != null
         ? Number(profile.yearEstablished)
@@ -80,12 +136,21 @@ export function profileForEligibilityGuards(profile: Record<string, unknown>) {
   };
 }
 
-export function resolveScoringSource(assessment: EligibilityAssessmentLike): string {
-  return assessment.scoring_source ?? (assessment.summary?.startsWith("Preliminary fit") ? "heuristic" : "openai");
+export function resolveScoringSource(
+  assessment: EligibilityAssessmentLike,
+): string {
+  return (
+    assessment.scoring_source ??
+    (assessment.summary?.startsWith("Preliminary fit") ? "heuristic" : "openai")
+  );
 }
 
-function normaliseDecision(value: string | null | undefined, score: number): EligibilityResult["decision"] {
-  if (value === "likely_eligible" || value === "review" || value === "unlikely") return value;
+function normaliseDecision(
+  value: string | null | undefined,
+  score: number,
+): EligibilityResult["decision"] {
+  if (value === "likely_eligible" || value === "review" || value === "unlikely")
+    return value;
   if (score >= 70) return "likely_eligible";
   if (score >= 40) return "review";
   return "unlikely";
@@ -95,13 +160,17 @@ export function finaliseEligibilityAssessment(
   profile: Record<string, unknown>,
   grant: EligibilityGuardGrant,
   assessment: EligibilityAssessmentLike,
-  outcomeAdvisory: OutcomeLearningAdvisory
+  outcomeAdvisory: OutcomeLearningAdvisory,
 ): EligibilityResult {
   const rawScore = Number(assessment.score ?? assessment.confidence ?? 0);
-  const safeScore = Number.isFinite(rawScore) ? Math.max(0, Math.min(100, rawScore)) : 0;
+  const safeScore = Number.isFinite(rawScore)
+    ? Math.max(0, Math.min(100, rawScore))
+    : 0;
   const scoringSource = resolveScoringSource(assessment);
-  const baseScore = scoringSource === "heuristic" ? Math.min(safeScore, 69) : safeScore;
-  const improvementPlan = assessment.improvement_plan ?? assessment.improvementPlan ?? undefined;
+  const baseScore =
+    scoringSource === "heuristic" ? Math.min(safeScore, 69) : safeScore;
+  const improvementPlan =
+    assessment.improvement_plan ?? assessment.improvementPlan ?? undefined;
   const missing = assessment.missing ?? assessment.missing_criteria ?? [];
 
   return applyOutcomeScoreAdjustment(
@@ -116,13 +185,16 @@ export function finaliseEligibilityAssessment(
       met: assessment.met ?? [],
       missing,
       winProbability: baseScore,
-      evidenceStrength: baseScore >= 80 ? "strong" : baseScore >= 55 ? "medium" : "weak",
+      evidenceStrength:
+        baseScore >= 80 ? "strong" : baseScore >= 55 ? "medium" : "weak",
     }),
-    outcomeAdvisory
+    outcomeAdvisory,
   );
 }
 
 export function finalEligibilityScore(result: EligibilityResult): number {
   const score = Number(result.score ?? result.confidence ?? 0);
-  return Number.isFinite(score) ? Math.max(0, Math.min(100, Math.round(score))) : 0;
+  return Number.isFinite(score)
+    ? Math.max(0, Math.min(100, Math.round(score)))
+    : 0;
 }

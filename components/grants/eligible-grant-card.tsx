@@ -1,20 +1,45 @@
 "use client";
+import type { CriteriaAssessment, CriteriaDocument } from "@/lib/criteria";
 
+import { CriteriaBadges } from "./criteria-panel";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowRight, AlertTriangle, CheckCircle2, FileText, LinkIcon, Loader2 } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  ArrowRight,
+  AlertTriangle,
+  CheckCircle2,
+  FileText,
+  LinkIcon,
+  Loader2,
+} from "lucide-react";
 import { toast } from "sonner";
 import type { GrantEffortSignal } from "@/lib/grant-effort";
-import { formatGrantFundingValue, type GrantFundingValue } from "@/lib/grant-value";
-import type { ConfidenceState, ScoreDimensions } from "@/lib/grant-decision-signals";
+import {
+  formatGrantFundingValue,
+  type GrantFundingValue,
+} from "@/lib/grant-value";
+import type {
+  ConfidenceState,
+  ScoreDimensions,
+} from "@/lib/grant-decision-signals";
 import { isGrantAggregatorClassificationReason } from "@/lib/grant-application-url-quality";
 
 type GrantUserState = "saved" | "viewed" | "deferred" | "applied" | "dismissed";
 
 export interface EligibleGrant {
+  criteriaAssessment?: CriteriaAssessment;
+  opportunityType?: string | null;
+  currency?: string | null;
+  fundingTerms?: CriteriaDocument["terms"];
   grantId: string;
   grantName: string;
   funder: string;
@@ -95,18 +120,26 @@ export function hasVerifiedApplicationStart(quality?: string | null): boolean {
   return quality === "verified_direct" || quality === "verified_portal";
 }
 
-function applicationLinkLabel(quality?: string | null, reason?: string | null): string {
-  if (isGrantAggregatorClassificationReason(reason)) return "Funding directory link";
+function applicationLinkLabel(
+  quality?: string | null,
+  reason?: string | null,
+): string {
+  if (isGrantAggregatorClassificationReason(reason))
+    return "Funding directory link";
   if (hasVerifiedApplicationStart(quality)) return "Direct grant form link";
   if (quality === "rejected") return "Needs official funder link";
   return "Grant page link";
 }
 
 function stateToast(status: GrantUserState): string {
-  if (status === "saved") return "Saved. This grant stays available in your active matches.";
-  if (status === "viewed") return "Marked as reviewed. It will move out of active Suggested.";
-  if (status === "deferred") return "Deferred for later. It will no longer clog active Suggested or proactive reminders.";
-  if (status === "applied") return "Added to Applications. It will no longer appear in active Suggested.";
+  if (status === "saved")
+    return "Saved. This grant stays available in your active matches.";
+  if (status === "viewed")
+    return "Marked as reviewed. It will move out of active Suggested.";
+  if (status === "deferred")
+    return "Deferred for later. It will no longer clog active Suggested or proactive reminders.";
+  if (status === "applied")
+    return "Added to Applications. It will no longer appear in active Suggested.";
   return "Dismissed. It will no longer appear in active matches.";
 }
 
@@ -120,26 +153,47 @@ export function EligibleGrantCard({
   const detailHref = `/grants/${grant.grantId}?from=matches`;
   const deadlineStr = formatDeadline(grant.deadline);
   const addedAt = formatAddedAt(grant.addedAt);
-  const [currentState, setCurrentState] = useState<GrantUserState | null>(grant.userState ?? null);
+  const [currentState, setCurrentState] = useState<GrantUserState | null>(
+    grant.userState ?? null,
+  );
   const [loadingState, setLoadingState] = useState<GrantUserState | null>(null);
-  const [feedbackSubmitting, setFeedbackSubmitting] = useState<string | null>(null);
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState<string | null>(
+    null,
+  );
   const [feedbackSent, setFeedbackSent] = useState<string | null>(null);
   const state = stateLabel(currentState);
   const isDeadlineSoon =
-    grant.deadline && new Date(grant.deadline).getTime() - pageLoadedAt < ONE_WEEK_MS;
-  const verifiedApplicationStart = hasVerifiedApplicationStart(grant.applicationUrlQuality);
-  const isAggregatorDirectoryLink = isGrantAggregatorClassificationReason(grant.applicationUrlQualityReason);
-  const canOpenReviewLink = !isAggregatorDirectoryLink && grant.applicationUrlQuality !== "rejected";
-  const linkLabel = applicationLinkLabel(grant.applicationUrlQuality, grant.applicationUrlQualityReason);
+    grant.deadline &&
+    new Date(grant.deadline).getTime() - pageLoadedAt < ONE_WEEK_MS;
+  const verifiedApplicationStart = hasVerifiedApplicationStart(
+    grant.applicationUrlQuality,
+  );
+  const isAggregatorDirectoryLink = isGrantAggregatorClassificationReason(
+    grant.applicationUrlQualityReason,
+  );
+  const canOpenReviewLink =
+    !isAggregatorDirectoryLink && grant.applicationUrlQuality !== "rejected";
+  const linkLabel = applicationLinkLabel(
+    grant.applicationUrlQuality,
+    grant.applicationUrlQualityReason,
+  );
   const externalActionHref = verifiedApplicationStart
-    ? grant.directApplicationUrl ?? grant.applicationUrl ?? grant.detailUrl ?? null
+    ? (grant.directApplicationUrl ??
+      grant.applicationUrl ??
+      grant.detailUrl ??
+      null)
     : canOpenReviewLink
-      ? grant.detailUrl ?? grant.applicationUrl ?? grant.directApplicationUrl ?? null
+      ? (grant.detailUrl ??
+        grant.applicationUrl ??
+        grant.directApplicationUrl ??
+        null)
       : null;
 
   const actions: string[] = [];
-  if (grant.improvementPlan?.actions?.length) actions.push(...grant.improvementPlan.actions);
-  if (grant.improvementPlan?.gaps?.length) actions.push(...grant.improvementPlan.gaps);
+  if (grant.improvementPlan?.actions?.length)
+    actions.push(...grant.improvementPlan.actions);
+  if (grant.improvementPlan?.gaps?.length)
+    actions.push(...grant.improvementPlan.gaps);
   if (grant.missingCriteria?.length) actions.push(...grant.missingCriteria);
   const uniqueActions = [...new Set(actions)].slice(0, 3);
 
@@ -158,13 +212,21 @@ export function EligibleGrantCard({
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(typeof body.error === "string" ? body.error : "Could not update grant status");
+        throw new Error(
+          typeof body.error === "string"
+            ? body.error
+            : "Could not update grant status",
+        );
       }
       setCurrentState(status);
       toast.success(stateToast(status));
       onStateChanged?.({ ...grant, userState: status }, status);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not update grant status");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not update grant status",
+      );
     } finally {
       setLoadingState(null);
     }
@@ -185,12 +247,18 @@ export function EligibleGrantCard({
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(typeof body.error === "string" ? body.error : "Could not save feedback");
+        throw new Error(
+          typeof body.error === "string"
+            ? body.error
+            : "Could not save feedback",
+        );
       }
       setFeedbackSent(category);
       toast.success("Feedback saved for review.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not save feedback");
+      toast.error(
+        error instanceof Error ? error.message : "Could not save feedback",
+      );
     } finally {
       setFeedbackSubmitting(null);
     }
@@ -198,6 +266,12 @@ export function EligibleGrantCard({
 
   return (
     <div className="min-w-0 rounded-lg border p-4 transition-colors hover:bg-muted/50">
+      {grant.criteriaAssessment && (
+        <CriteriaBadges
+          assessment={grant.criteriaAssessment}
+          grantId={grant.grantId}
+        />
+      )}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
           <Link
@@ -217,7 +291,9 @@ export function EligibleGrantCard({
             {deadlineStr && (
               <>
                 {" · "}
-                <span className={isDeadlineSoon ? "font-medium text-amber-600" : ""}>
+                <span
+                  className={isDeadlineSoon ? "font-medium text-amber-600" : ""}
+                >
                   Deadline: {deadlineStr}
                 </span>
               </>
@@ -225,18 +301,64 @@ export function EligibleGrantCard({
           </p>
         </div>
         <Badge variant={scoreBadgeVariant(grant.score)} className="shrink-0">
-          {grant.score}% {grant.scoringSource === "heuristic" ? "prelim" : "eligibility"}
+          {grant.score}%{" "}
+          {grant.scoringSource === "heuristic" ? "prelim" : "fit indicator"}
         </Badge>
       </div>
 
+      {grant.criteriaAssessment && (
+        <div className="my-3 space-y-2">
+          <div className="flex flex-wrap gap-2">
+            {grant.criteriaAssessment.criteria
+              .filter((c) => c.status === "met")
+              .slice(0, 3)
+              .map((c) => (
+                <span
+                  className="rounded bg-green-50 p-1 text-sm text-green-800"
+                  key={c.id}
+                >
+                  ✓ {c.label}
+                </span>
+              ))}
+          </div>
+          <p className="text-sm">
+            Funding type:{" "}
+            {grant.opportunityType?.replaceAll("_", " ") ?? "Not confirmed"}
+          </p>
+          {grant.fundingTerms?.map((t) => (
+            <p className="text-sm" key={t.label}>
+              {t.label}: {t.value}
+            </p>
+          ))}
+          <div className="flex flex-wrap gap-3 text-sm text-blue-700">
+            <Link href={`${detailHref}#verify`}>Verify eligibility</Link>
+            <Link href={`${detailHref}#readiness`}>Improve readiness</Link>
+            <Link href={`/founder-pack?grantId=${grant.grantId}`}>
+              Start preparation
+            </Link>
+            <button
+              disabled={!!loadingState}
+              onClick={() => void markGrantState("saved")}
+            >
+              Save
+            </button>
+          </div>
+        </div>
+      )}
       {grant.scoringSource === "heuristic" && (
-        <Badge variant="outline" className="w-fit border-amber-200 bg-amber-50 text-amber-700">
+        <Badge
+          variant="outline"
+          className="w-fit border-amber-200 bg-amber-50 text-amber-700"
+        >
           Needs full company-DNA AI review
         </Badge>
       )}
 
       {state && (
-        <Badge variant="outline" className="w-fit border-blue-200 bg-blue-50 text-blue-700">
+        <Badge
+          variant="outline"
+          className="w-fit border-blue-200 bg-blue-50 text-blue-700"
+        >
           {state}
         </Badge>
       )}
@@ -246,12 +368,17 @@ export function EligibleGrantCard({
         className={`w-fit gap-1.5 ${
           verifiedApplicationStart
             ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-            : isAggregatorDirectoryLink || grant.applicationUrlQuality === "rejected"
+            : isAggregatorDirectoryLink ||
+                grant.applicationUrlQuality === "rejected"
               ? "border-rose-200 bg-rose-50 text-rose-700"
-            : "border-slate-200 bg-slate-50 text-slate-700"
+              : "border-slate-200 bg-slate-50 text-slate-700"
         }`}
       >
-        {verifiedApplicationStart ? <CheckCircle2 className="h-3.5 w-3.5" /> : <LinkIcon className="h-3.5 w-3.5" />}
+        {verifiedApplicationStart ? (
+          <CheckCircle2 className="h-3.5 w-3.5" />
+        ) : (
+          <LinkIcon className="h-3.5 w-3.5" />
+        )}
         {linkLabel}
       </Badge>
 
@@ -259,34 +386,59 @@ export function EligibleGrantCard({
         <div className="grid gap-2 rounded-md border border-blue-100 bg-blue-50/60 px-3 py-2 text-xs text-blue-950 sm:grid-cols-2 lg:grid-cols-5">
           <div>
             <span className="block font-semibold">Value</span>
-            <span className="text-blue-900/80">{formatGrantFundingValue(grant.fundingValue ?? grant.amount ?? grant.effort.amount)}</span>
+            <span className="text-blue-900/80">
+              {formatGrantFundingValue(
+                grant.fundingValue ?? grant.amount ?? grant.effort.amount,
+              )}
+            </span>
             {grant.fundingValue?.label && (
-              <span className="block text-[10px] text-blue-900/60">{grant.fundingValue.label}</span>
+              <span className="block text-[10px] text-blue-900/60">
+                {grant.fundingValue.label}
+              </span>
             )}
           </div>
           <div>
             <span className="block font-semibold">Time</span>
-            <span className="text-blue-900/80">{grant.effort.estimatedTimeLabel} · {grant.effort.effortBand}</span>
-          </div>
-          <div>
-            <span className="block font-semibold">ROAT</span>
-            <span className="text-blue-900/80">{grant.effort.roatLabel}</span>
-          </div>
-          <div>
-            <span className="block font-semibold">Priority</span>
-            <span className="text-blue-900/80">{grant.effort.priorityLabel}</span>
-          </div>
-          <div>
-            <span className="block font-semibold">Readiness</span>
             <span className="text-blue-900/80">
-              {grant.scoreDimensions?.applicationReadiness ?? grant.effort.achievabilityScore}% · {grant.effort.applicationPathway}
+              Estimated {grant.effort.effortBand}
+            </span>
+            <span className="block">
+              Based on listing complexity and evidence gaps; not timed work.
             </span>
           </div>
+          {!grant.criteriaAssessment && (
+            <>
+              <div>
+                <span className="block font-semibold">ROAT</span>
+                <span className="text-blue-900/80">
+                  {grant.effort.roatLabel}
+                </span>
+              </div>
+              <div>
+                <span className="block font-semibold">Priority</span>
+                <span className="text-blue-900/80">
+                  {grant.effort.priorityLabel}
+                </span>
+              </div>
+              <div>
+                <span className="block font-semibold">Readiness</span>
+                <span className="text-blue-900/80">
+                  {grant.scoreDimensions?.applicationReadiness ??
+                    grant.effort.achievabilityScore}
+                  % · {grant.effort.applicationPathway}
+                </span>
+              </div>
+            </>
+          )}
         </div>
       )}
 
-      {(grant.recommendationCategory ?? grant.effort?.recommendationCategory) && (
-        <Badge variant="outline" className="w-fit border-emerald-200 bg-emerald-50 text-emerald-700">
+      {(grant.recommendationCategory ??
+        grant.effort?.recommendationCategory) && (
+        <Badge
+          variant="outline"
+          className="w-fit border-emerald-200 bg-emerald-50 text-emerald-700"
+        >
           {grant.recommendationCategory ?? grant.effort?.recommendationCategory}
         </Badge>
       )}
@@ -309,7 +461,9 @@ export function EligibleGrantCard({
       )}
 
       {grant.summary && (
-        <p className="text-sm text-muted-foreground line-clamp-2">{grant.summary}</p>
+        <p className="text-sm text-muted-foreground line-clamp-2">
+          {grant.summary}
+        </p>
       )}
 
       {uniqueActions.length > 0 && grant.score < 70 && (
@@ -322,7 +476,9 @@ export function EligibleGrantCard({
       {grant.effort?.whatToCheck?.length ? (
         <div className="rounded-md border border-blue-100 bg-white px-3 py-2 text-xs text-blue-950">
           <span className="font-semibold">Check before applying: </span>
-          <span className="text-blue-900/80">{grant.effort.whatToCheck.join(" ")}</span>
+          <span className="text-blue-900/80">
+            {grant.effort.whatToCheck.join(" ")}
+          </span>
         </div>
       ) : null}
 
@@ -336,7 +492,8 @@ export function EligibleGrantCard({
       {!verifiedApplicationStart && (
         <div
           className={`flex items-start gap-2 rounded-md border px-3 py-2 text-xs ${
-            isAggregatorDirectoryLink || grant.applicationUrlQuality === "rejected"
+            isAggregatorDirectoryLink ||
+            grant.applicationUrlQuality === "rejected"
               ? "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300"
               : "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-950/30 dark:text-slate-300"
           }`}
@@ -354,7 +511,9 @@ export function EligibleGrantCard({
 
       <div className="mt-2 flex flex-wrap items-center gap-2 pt-1">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-muted-foreground">Status</span>
+          <span className="text-xs font-medium text-muted-foreground">
+            Status
+          </span>
           <Select
             value={currentState ?? "active"}
             onValueChange={(value) => {
@@ -377,7 +536,9 @@ export function EligibleGrantCard({
               <SelectItem value="dismissed">Dismiss</SelectItem>
             </SelectContent>
           </Select>
-          {loadingState && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+          {loadingState && (
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+          )}
         </div>
         <Button asChild variant="outline" size="sm" className="gap-1.5">
           <Link href={detailHref}>
@@ -387,7 +548,11 @@ export function EligibleGrantCard({
         </Button>
         {externalActionHref && (
           <Button asChild size="sm" className="gap-1.5">
-            <a href={externalActionHref} target="_blank" rel="noopener noreferrer">
+            <a
+              href={externalActionHref}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
               {verifiedApplicationStart ? "Apply" : "Review grant page"}
               <ArrowRight className="h-3.5 w-3.5" />
             </a>
@@ -396,7 +561,9 @@ export function EligibleGrantCard({
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-1 border-t pt-3">
-        <span className="mr-1 text-xs font-medium text-muted-foreground">Feedback</span>
+        <span className="mr-1 text-xs font-medium text-muted-foreground">
+          Feedback
+        </span>
         {[
           ["relevant", "Relevant"],
           ["not_relevant", "Not relevant"],
@@ -414,7 +581,9 @@ export function EligibleGrantCard({
             disabled={feedbackSubmitting != null}
             onClick={() => submitFeedback(category)}
           >
-            {feedbackSubmitting === category && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+            {feedbackSubmitting === category && (
+              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+            )}
             {label}
           </Button>
         ))}

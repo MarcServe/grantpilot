@@ -9,7 +9,8 @@ export type GrantValueInput = {
   fundingValueEvidence?: string | null;
 };
 
-export type FundingValueType = "applicant_max" | "applicant_typical" | "programme_total" | "unknown";
+export type FundingValueType =
+  "applicant_max" | "applicant_typical" | "programme_total" | "unknown";
 
 export type GrantFundingValue = {
   amount: number | null;
@@ -32,10 +33,27 @@ function cleanAmount(value: unknown): number | null {
 }
 
 function normalizeFundingValueType(value: unknown): FundingValueType {
-  const text = String(value ?? "").toLowerCase().replace(/[-\s]+/g, "_");
-  if (text === "applicant_typical" || text === "typical_applicant_award" || text === "typical_award") return "applicant_typical";
-  if (text === "programme_total" || text === "program_total" || text === "total_programme_fund") return "programme_total";
-  if (text === "applicant_max" || text === "max_award" || text === "maximum_award") return "applicant_max";
+  const text = String(value ?? "")
+    .toLowerCase()
+    .replace(/[-\s]+/g, "_");
+  if (
+    text === "applicant_typical" ||
+    text === "typical_applicant_award" ||
+    text === "typical_award"
+  )
+    return "applicant_typical";
+  if (
+    text === "programme_total" ||
+    text === "program_total" ||
+    text === "total_programme_fund"
+  )
+    return "programme_total";
+  if (
+    text === "applicant_max" ||
+    text === "max_award" ||
+    text === "maximum_award"
+  )
+    return "applicant_max";
   return "unknown";
 }
 
@@ -50,7 +68,9 @@ function countsTowardApplicantTotal(type: FundingValueType): boolean {
   return type === "applicant_max" || type === "applicant_typical";
 }
 
-export function resolveGrantFundingValue(grant: GrantValueInput): GrantFundingValue {
+export function resolveGrantFundingValue(
+  grant: GrantValueInput,
+): GrantFundingValue {
   if (grant.fundingValue) {
     const type = normalizeFundingValueType(grant.fundingValue.type);
     const amount = cleanAmount(grant.fundingValue.amount);
@@ -58,8 +78,9 @@ export function resolveGrantFundingValue(grant: GrantValueInput): GrantFundingVa
       amount,
       type,
       label: grant.fundingValue.label || labelForFundingValueType(type),
-      countsTowardApplicantTotal: grant.fundingValue.countsTowardApplicantTotal ?? countsTowardApplicantTotal(type),
-      evidence: grant.fundingValue.evidence ?? grant.fundingValueEvidence ?? null,
+      countsTowardApplicantTotal: countsTowardApplicantTotal(type),
+      evidence:
+        grant.fundingValue.evidence ?? grant.fundingValueEvidence ?? null,
     };
   }
 
@@ -88,9 +109,9 @@ export function resolveGrantFundingValue(grant: GrantValueInput): GrantFundingVa
   const legacy = cleanAmount(grant.amount ?? grant.effort?.amount);
   if (legacy != null) {
     const type = normalizeFundingValueType(grant.fundingValueType);
-    const finalType = type === "programme_total" ? "programme_total" : "applicant_max";
+    const finalType = type;
     return {
-      amount: legacy,
+      amount: finalType === "unknown" ? null : legacy,
       type: finalType,
       label: labelForFundingValueType(finalType),
       countsTowardApplicantTotal: countsTowardApplicantTotal(finalType),
@@ -123,7 +144,9 @@ export function grantKnownAmount(grant: GrantValueInput): number | null {
   return funding.countsTowardApplicantTotal ? funding.amount : null;
 }
 
-export function summarizeGrantValues(grants: GrantValueInput[]): GrantValueSummary {
+export function summarizeGrantValues(
+  grants: GrantValueInput[],
+): GrantValueSummary {
   let total = 0;
   let knownCount = 0;
   let unknownCount = 0;
@@ -158,25 +181,81 @@ export function formatCurrencyCompact(amount: number): string {
 }
 
 export function formatGrantValue(amount?: number | null): string {
-  const value = typeof amount === "number" && Number.isFinite(amount) && amount > 0 ? amount : null;
-  return value == null ? "Funding varies" : `Up to ${formatCurrencyCompact(value)}`;
+  const value =
+    typeof amount === "number" && Number.isFinite(amount) && amount > 0
+      ? amount
+      : null;
+  return value == null
+    ? "Award amount not confirmed"
+    : `Up to ${formatCurrencyCompact(value)}`;
 }
 
-export function formatGrantFundingValue(value?: GrantFundingValue | number | null): string {
-  if (typeof value === "number" || value == null) return formatGrantValue(value);
-  if (value.amount == null) return "Funding varies";
-  if (value.type === "applicant_typical") return `Typical ${formatCurrencyCompact(value.amount)}`;
-  if (value.type === "programme_total") return `${formatCurrencyCompact(value.amount)} programme fund`;
+export function formatGrantFundingValue(
+  value?: GrantFundingValue | number | null,
+): string {
+  if (typeof value === "number" || value == null)
+    return formatGrantValue(value);
+  if (value.amount == null) return "Award amount not confirmed";
+  if (value.type === "applicant_typical")
+    return `Typical ${formatCurrencyCompact(value.amount)}`;
+  if (value.type === "programme_total")
+    return `${formatCurrencyCompact(value.amount)} programme fund`;
   return `Up to ${formatCurrencyCompact(value.amount)}`;
 }
 
 export function formatGrantValueSummary(summary: GrantValueSummary): string {
-  return summary.knownCount > 0 ? formatCurrencyCompact(summary.total) : "Value unknown";
+  return summary.knownCount > 0
+    ? formatCurrencyCompact(summary.total)
+    : "Value unknown";
 }
 
 export function grantValueSummaryDetail(summary: GrantValueSummary): string {
   if (summary.totalCount === 0) return "No grants loaded yet";
-  if (summary.knownCount === 0) return `${summary.totalCount} loaded, award amounts not stated`;
+  if (summary.knownCount === 0)
+    return `${summary.totalCount} loaded, award amounts not stated`;
   if (summary.unknownCount === 0) return `${summary.knownCount} known values`;
   return `${summary.knownCount} known values, ${summary.unknownCount} unstated`;
+}
+
+export function comparableAwardAverages(
+  grants: (GrantValueInput & {
+    currency?: string | null;
+    opportunityType?: string | null;
+  })[],
+) {
+  const groups = new Map<
+    string,
+    {
+      currency: string;
+      type: string;
+      basis: string;
+      total: number;
+      count: number;
+    }
+  >();
+  for (const grant of grants) {
+    const value = resolveGrantFundingValue(grant);
+    if (
+      !value.countsTowardApplicantTotal ||
+      value.amount == null ||
+      !grant.currency ||
+      !grant.opportunityType
+    )
+      continue;
+    const key = `${grant.currency}:${grant.opportunityType}:${value.type}`;
+    const group = groups.get(key) ?? {
+      currency: grant.currency,
+      type: grant.opportunityType,
+      basis: value.type,
+      total: 0,
+      count: 0,
+    };
+    group.total += value.amount;
+    group.count++;
+    groups.set(key, group);
+  }
+  return [...groups.values()].map((g) => ({
+    ...g,
+    average: g.total / g.count,
+  }));
 }

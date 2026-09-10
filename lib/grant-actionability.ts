@@ -1,8 +1,17 @@
-import { getGrantFreshnessStatus, type GrantFreshnessStatus } from "@/lib/grant-freshness";
+import {
+  isGrantAggregatorClassificationReason,
+  isGrantAggregatorUrl,
+} from "@/lib/grant-application-url-quality";
+import {
+  getGrantFreshnessStatus,
+  type GrantFreshnessStatus,
+} from "@/lib/grant-freshness";
 import { checkUrlHealth, type HealthCheckResult } from "@/lib/url-health-check";
 
 export type GrantActionabilityInput = {
   id?: string | null;
+  applicationUrlQualityReason?: string | null;
+  opportunityType?: string | null;
   name?: string | null;
   funder?: string | null;
   deadline?: string | Date | null;
@@ -26,7 +35,10 @@ type SupabaseUpdateClient = {
   };
 };
 
-type LiveCheck = (url: string, context: GrantActionabilityInput) => Promise<HealthCheckResult>;
+type LiveCheck = (
+  url: string,
+  context: GrantActionabilityInput,
+) => Promise<HealthCheckResult>;
 
 function startOfDay(value: Date): Date {
   const date = new Date(value);
@@ -40,14 +52,17 @@ function parseDateValue(value?: string | Date | null): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function hasFutureDeadline(deadline?: string | Date | null, now = new Date()): boolean {
+function hasFutureDeadline(
+  deadline?: string | Date | null,
+  now = new Date(),
+): boolean {
   const parsed = parseDateValue(deadline);
   return Boolean(parsed && startOfDay(parsed) >= startOfDay(now));
 }
 
 export function getGrantActionabilityStatus(
   grant: GrantActionabilityInput,
-  now = new Date()
+  now = new Date(),
 ): GrantActionabilityStatus {
   const freshness = getGrantFreshnessStatus(grant, now);
   if (!freshness.usable) {
@@ -72,7 +87,7 @@ export function getGrantActionabilityStatus(
 async function markGrantUrlStatus(
   supabase: SupabaseUpdateClient | undefined,
   grantId: string | null | undefined,
-  result: HealthCheckResult
+  result: HealthCheckResult,
 ): Promise<void> {
   if (!supabase || !grantId) return;
   try {
@@ -94,7 +109,7 @@ export async function verifyGrantActionable(
     supabase?: SupabaseUpdateClient;
     check?: LiveCheck;
     now?: Date;
-  }
+  },
 ): Promise<GrantActionabilityStatus> {
   const base = getGrantActionabilityStatus(grant, options?.now);
   if (!base.usable || !base.requiresLiveVerification) return base;
@@ -106,10 +121,13 @@ export async function verifyGrantActionable(
   const result = await check(applicationUrl, grant);
   if (result.status === "dead" || result.status === "expired") {
     await markGrantUrlStatus(options?.supabase, grant.id, result);
-    const status = getGrantFreshnessStatus({
-      ...grant,
-      url_status: result.status,
-    }, options?.now);
+    const status = getGrantFreshnessStatus(
+      {
+        ...grant,
+        url_status: result.status,
+      },
+      options?.now,
+    );
     return {
       ...status,
       requiresLiveVerification: false,
@@ -127,6 +145,24 @@ export async function verifyGrantActionable(
   };
 }
 
-export function isGrantActionableNow(grant: GrantActionabilityInput, now = new Date()): boolean {
-  return getGrantActionabilityStatus(grant, now).usable;
+export function isGrantActionableNow(
+  grant: GrantActionabilityInput,
+  now = new Date(),
+): boolean {
+  return (
+    !isResearchResource(grant) && getGrantActionabilityStatus(grant, now).usable
+  );
+}
+
+export function isResearchResource(grant: GrantActionabilityInput): boolean {
+  return (
+    /^(directory|guide|research_resource)$/i.test(
+      grant.opportunityType ?? "",
+    ) ||
+    isGrantAggregatorClassificationReason(grant.applicationUrlQualityReason) ||
+    isGrantAggregatorUrl(grant.applicationUrl) ||
+    /\b(funding guide|funding finder|finance support finder|grant directory)\b/i.test(
+      grant.name ?? "",
+    )
+  );
 }

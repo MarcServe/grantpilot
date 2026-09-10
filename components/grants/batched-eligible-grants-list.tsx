@@ -1,21 +1,42 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, BrainCircuit, Eye, Loader2, Search, Sparkles, Target, X } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import {
+  AlertTriangle,
+  BrainCircuit,
+  Eye,
+  Loader2,
+  Search,
+  Sparkles,
+  Target,
+  X,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { EligibleGrantCard, hasVerifiedApplicationStart, type EligibleGrant } from "./eligible-grant-card";
 import {
-  formatGrantValueSummary,
+  EligibleGrantCard,
+  hasVerifiedApplicationStart,
+  type EligibleGrant,
+} from "./eligible-grant-card";
+import {
+  comparableAwardAverages,
   grantValueSummaryDetail,
   summarizeGrantValues,
   type GrantValueSummary,
 } from "@/lib/grant-value";
 
-type MatchSection = "suggested" | "within_reach" | "other" | "needs_review" | "reviewed";
+type MatchSection =
+  "suggested" | "within_reach" | "other" | "needs_review" | "reviewed";
 type TierStatus = "idle" | "loading" | "loaded" | "error";
 type GrantUserState = "saved" | "viewed" | "deferred" | "applied" | "dismissed";
 
@@ -30,6 +51,8 @@ type TierState = {
 };
 
 type MatchesResponse = {
+  version?: string;
+  counts?: Record<MatchSection, number>;
   grants: EligibleGrant[];
   page: number;
   hasMore: boolean;
@@ -39,25 +62,35 @@ type MatchesResponse = {
   error?: string;
 };
 
-const TIER_ORDER: MatchSection[] = ["suggested", "within_reach", "other", "needs_review", "reviewed"];
-const TIER_META: Record<MatchSection, {
-  title: string;
-  subtitle: string;
-  badgeLabel: string;
-  emptyLabel: string;
-  icon: ReactNode;
-  muted?: boolean;
-}> = {
+const TIER_ORDER: MatchSection[] = [
+  "suggested",
+  "within_reach",
+  "other",
+  "needs_review",
+  "reviewed",
+];
+const TIER_META: Record<
+  MatchSection,
+  {
+    title: string;
+    subtitle: string;
+    badgeLabel: string;
+    emptyLabel: string;
+    icon: ReactNode;
+    muted?: boolean;
+  }
+> = {
   suggested: {
     title: "Strong matches",
-    subtitle: "85%+ trusted AI eligibility confidence, grouped by direct forms and grant pages.",
+    subtitle:
+      "Your strongest fits, grouped by verified application routes and funder pages.",
     badgeLabel: "Strong",
     emptyLabel: "No current strong recommendations.",
     icon: <Sparkles className="h-4 w-4 text-primary" />,
   },
   within_reach: {
     title: "Within reach",
-    subtitle: "50-84% eligibility confidence with missing evidence or readiness gaps.",
+    subtitle: "Potential fits with information or readiness gaps to resolve.",
     badgeLabel: "Within reach",
     emptyLabel: "No within-reach grants in this batch.",
     icon: <Target className="h-4 w-4 text-amber-600" />,
@@ -72,14 +105,16 @@ const TIER_META: Record<MatchSection, {
   },
   needs_review: {
     title: "Funding Readiness Roadmap",
-    subtitle: "Promising or blocked opportunities that need full AI scoring or stronger Business DNA evidence.",
+    subtitle:
+      "Promising or blocked opportunities that need full AI scoring or stronger Business DNA evidence.",
     badgeLabel: "Readiness roadmap",
     emptyLabel: "No readiness-roadmap grants in this batch.",
     icon: <BrainCircuit className="h-4 w-4 text-amber-600" />,
   },
   reviewed: {
     title: "Reviewed / seen before",
-    subtitle: "Viewed grants remain available here without counting as active Suggested matches.",
+    subtitle:
+      "Viewed grants remain available here without counting as active Suggested matches.",
     badgeLabel: "Reviewed",
     emptyLabel: "No viewed grants in this batch.",
     icon: <Eye className="h-4 w-4 text-slate-600" />,
@@ -109,7 +144,10 @@ function emptySections(): Record<MatchSection, TierState> {
   };
 }
 
-function uniqueGrants(existing: EligibleGrant[], next: EligibleGrant[]): EligibleGrant[] {
+function uniqueGrants(
+  existing: EligibleGrant[],
+  next: EligibleGrant[],
+): EligibleGrant[] {
   const seen = new Set(existing.map((grant) => grant.grantId));
   const merged = [...existing];
   for (const grant of next) {
@@ -123,23 +161,35 @@ function uniqueGrants(existing: EligibleGrant[], next: EligibleGrant[]): Eligibl
 function matchesQuery(grant: EligibleGrant, query: string): boolean {
   const q = query.toLowerCase().trim();
   if (!q) return true;
-  return grant.grantName.toLowerCase().includes(q) || grant.funder.toLowerCase().includes(q);
+  return (
+    grant.grantName.toLowerCase().includes(q) ||
+    grant.funder.toLowerCase().includes(q)
+  );
 }
 
-async function fetchTier(tier: MatchSection, page: number, pageSize: number): Promise<MatchesResponse> {
+async function fetchTier(
+  tier: MatchSection,
+  page: number,
+  pageSize: number,
+): Promise<MatchesResponse> {
   const params = new URLSearchParams({
     tier,
     page: String(page),
     pageSize: String(pageSize),
   });
 
-  const response = await fetch(`/api/grants/eligible-matches?${params.toString()}`, {
-    credentials: "same-origin",
-    cache: "no-store",
-  });
+  const response = await fetch(
+    `/api/grants/eligible-matches?${params.toString()}`,
+    {
+      credentials: "same-origin",
+      cache: "no-store",
+    },
+  );
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(typeof body.error === "string" ? body.error : "Unable to load matches");
+    throw new Error(
+      typeof body.error === "string" ? body.error : "Unable to load matches",
+    );
   }
   return body as MatchesResponse;
 }
@@ -161,8 +211,11 @@ function countAfterAddition(state: TierState): number | null {
 
 function bestFirstScore(grant: EligibleGrant): number {
   const effort = grant.effort;
-  const achievability = effort?.achievabilityScore ?? effort?.opportunityScore ?? grant.score;
-  const directBoost = hasVerifiedApplicationStart(grant.applicationUrlQuality) ? 6 : 0;
+  const achievability =
+    effort?.achievabilityScore ?? effort?.opportunityScore ?? grant.score;
+  const directBoost = hasVerifiedApplicationStart(grant.applicationUrlQuality)
+    ? 6
+    : 0;
   const priorityBoost =
     effort?.priorityLabel === "Apply today"
       ? 8
@@ -171,7 +224,12 @@ function bestFirstScore(grant: EligibleGrant): number {
         : effort?.priorityLabel === "Build readiness first"
           ? -8
           : 0;
-  const categoryBoost = effort?.recommendationCategory === "Best first" ? 8 : effort?.recommendationCategory === "Good first application" ? 4 : 0;
+  const categoryBoost =
+    effort?.recommendationCategory === "Best first"
+      ? 8
+      : effort?.recommendationCategory === "Good first application"
+        ? 4
+        : 0;
   return achievability + directBoost + priorityBoost + categoryBoost;
 }
 
@@ -184,11 +242,20 @@ export function BatchedEligibleGrantsList({
   initialPage: number;
   pageSize: number;
 }) {
-  const [activeTier, setActiveTier] = useState<MatchSection | null>(initialTier);
+  const [activeTier, setActiveTier] = useState<MatchSection | null>(
+    initialTier,
+  );
   const [query, setQuery] = useState("");
-  const [sections, setSections] = useState<Record<MatchSection, TierState>>(() => emptySections());
+  const [sections, setSections] = useState<Record<MatchSection, TierState>>(
+    () => emptySections(),
+  );
   const inFlightRequests = useRef<Set<string>>(new Set());
-  const tiersToShow = useMemo(() => activeTier ? [activeTier] : TIER_ORDER, [activeTier]);
+  const snapshot = useRef<string | null>(null);
+  const [snapshotChanged, setSnapshotChanged] = useState(false);
+  const tiersToShow = useMemo(
+    () => (activeTier ? [activeTier] : TIER_ORDER),
+    [activeTier],
+  );
 
   const loadTier = useCallback(
     async (tier: MatchSection, page: number, mode: "replace" | "append") => {
@@ -206,32 +273,62 @@ export function BatchedEligibleGrantsList({
 
       try {
         const result = await fetchTier(tier, page, pageSize);
-        setSections((current) => ({
-          ...current,
-          [tier]: {
-            grants: mode === "append" ? uniqueGrants(current[tier].grants, result.grants) : result.grants,
-            page: result.page,
-            status: "loaded",
-            hasMore: result.hasMore,
-            availableCandidateCount: result.availableCandidateCount ?? result.rawCandidateCount ?? result.grants.length,
-            availableCandidateCountIsEstimate: Boolean(result.availableCandidateCountIsEstimate),
-            error: null,
-          },
-        }));
+        if (
+          snapshot.current &&
+          result.version &&
+          snapshot.current !== result.version
+        ) {
+          setSnapshotChanged(true);
+          throw new Error("Matches changed. Reload to use the latest results.");
+        }
+        snapshot.current = result.version ?? snapshot.current;
+        setSections(
+          (current) =>
+            ({
+              ...Object.fromEntries(
+                TIER_ORDER.map((t) => [
+                  t,
+                  {
+                    ...current[t],
+                    availableCandidateCount:
+                      result.counts?.[t] ?? current[t].availableCandidateCount,
+                  },
+                ]),
+              ),
+              [tier]: {
+                grants:
+                  mode === "append"
+                    ? uniqueGrants(current[tier].grants, result.grants)
+                    : result.grants,
+                page: result.page,
+                status: "loaded",
+                hasMore: result.hasMore,
+                availableCandidateCount:
+                  result.availableCandidateCount ??
+                  result.rawCandidateCount ??
+                  result.grants.length,
+                availableCandidateCountIsEstimate: Boolean(
+                  result.availableCandidateCountIsEstimate,
+                ),
+                error: null,
+              },
+            }) as Record<MatchSection, TierState>,
+        );
       } catch (error) {
         setSections((current) => ({
           ...current,
           [tier]: {
             ...current[tier],
             status: "error",
-            error: error instanceof Error ? error.message : "Unable to load matches",
+            error:
+              error instanceof Error ? error.message : "Unable to load matches",
           },
         }));
       } finally {
         inFlightRequests.current.delete(requestKey);
       }
     },
-    [pageSize]
+    [pageSize],
   );
 
   useEffect(() => {
@@ -240,16 +337,21 @@ export function BatchedEligibleGrantsList({
     const firstTier = initialTier ?? "suggested";
     const remainingTiers = TIER_ORDER.filter((tier) => tier !== firstTier);
 
+    snapshot.current = null;
+    setSnapshotChanged(false);
     inFlightRequests.current.clear();
     setSections(emptySections());
     void loadTier(firstTier, initialTier ? initialPage : 1, "replace");
 
     remainingTiers.forEach((tier, index) => {
-      const timer = setTimeout(() => {
-        if (!cancelled) {
-          void loadTier(tier, 1, "replace");
-        }
-      }, 120 + index * 140);
+      const timer = setTimeout(
+        () => {
+          if (!cancelled) {
+            void loadTier(tier, 1, "replace");
+          }
+        },
+        120 + index * 140,
+      );
       timers.push(timer);
     });
 
@@ -268,14 +370,21 @@ export function BatchedEligibleGrantsList({
   }, [activeTier, initialPage, loadTier, sections]);
 
   const visibleLoadedGrants = useMemo(
-    () => tiersToShow.flatMap((tier) => sections[tier].grants).filter((grant) => matchesQuery(grant, query)),
-    [query, sections, tiersToShow]
+    () =>
+      tiersToShow
+        .flatMap((tier) => sections[tier].grants)
+        .filter((grant) => matchesQuery(grant, query)),
+    [query, sections, tiersToShow],
   );
   const valueSummaries = useMemo(
-    () => Object.fromEntries(
-      TIER_ORDER.map((tier) => [tier, summarizeGrantValues(sections[tier].grants)])
-    ) as Record<MatchSection, GrantValueSummary>,
-    [sections]
+    () =>
+      Object.fromEntries(
+        TIER_ORDER.map((tier) => [
+          tier,
+          summarizeGrantValues(sections[tier].grants),
+        ]),
+      ) as Record<MatchSection, GrantValueSummary>,
+    [sections],
   );
   const bestFirstGrants = useMemo(() => {
     const seen = new Set<string>();
@@ -283,7 +392,12 @@ export function BatchedEligibleGrantsList({
       .filter((grant) => {
         if (seen.has(grant.grantId)) return false;
         seen.add(grant.grantId);
-        return grant.scoringSource !== "heuristic" && grant.effort?.priorityLabel !== "Build readiness first";
+        return (
+          (!grant.criteriaAssessment ||
+            (grant.criteriaAssessment.strongEligible && grant.score >= 85)) &&
+          grant.scoringSource !== "heuristic" &&
+          grant.effort?.priorityLabel !== "Build readiness first"
+        );
       })
       .sort((a, b) => {
         const scoreDiff = bestFirstScore(b) - bestFirstScore(a);
@@ -294,56 +408,91 @@ export function BatchedEligibleGrantsList({
       })
       .slice(0, 5);
   }, [sections.suggested.grants, sections.within_reach.grants]);
-  const hasLoadedAny = TIER_ORDER.some((tier) => sections[tier].grants.length > 0);
-  const isAnyLoading = TIER_ORDER.some((tier) => sections[tier].status === "loading");
-  const allVisibleDone = tiersToShow.every((tier) => sections[tier].status === "loaded" || sections[tier].status === "error");
+  const hasLoadedAny = TIER_ORDER.some(
+    (tier) => sections[tier].grants.length > 0,
+  );
+  const isAnyLoading = TIER_ORDER.some(
+    (tier) => sections[tier].status === "loading",
+  );
+  const allVisibleDone = tiersToShow.every(
+    (tier) =>
+      sections[tier].status === "loaded" || sections[tier].status === "error",
+  );
 
-  const handleGrantStateChanged = useCallback((grant: EligibleGrant, status: GrantUserState) => {
-    setSections((current) => {
-      const updated: Record<MatchSection, TierState> = { ...current };
-      const shouldLeaveActive = status === "viewed" || status === "deferred" || status === "applied" || status === "dismissed";
+  const handleGrantStateChanged = useCallback(
+    (grant: EligibleGrant, status: GrantUserState) => {
+      setSections((current) => {
+        const updated: Record<MatchSection, TierState> = { ...current };
+        const shouldLeaveActive =
+          status === "viewed" ||
+          status === "deferred" ||
+          status === "applied" ||
+          status === "dismissed";
 
-      for (const tier of TIER_ORDER) {
-        const state = current[tier];
-        const existing = state.grants.find((item) => item.grantId === grant.grantId);
-        if (!existing) continue;
+        for (const tier of TIER_ORDER) {
+          const state = current[tier];
+          const existing = state.grants.find(
+            (item) => item.grantId === grant.grantId,
+          );
+          if (!existing) continue;
 
-        if (!shouldLeaveActive || (status === "viewed" && tier === "reviewed")) {
+          if (
+            !shouldLeaveActive ||
+            (status === "viewed" && tier === "reviewed")
+          ) {
+            updated[tier] = {
+              ...state,
+              grants: state.grants.map((item) =>
+                item.grantId === grant.grantId
+                  ? { ...item, userState: status }
+                  : item,
+              ),
+            };
+            continue;
+          }
+
           updated[tier] = {
             ...state,
-            grants: state.grants.map((item) =>
-              item.grantId === grant.grantId ? { ...item, userState: status } : item
+            grants: state.grants.filter(
+              (item) => item.grantId !== grant.grantId,
             ),
-          };
-          continue;
-        }
-
-        updated[tier] = {
-          ...state,
-          grants: state.grants.filter((item) => item.grantId !== grant.grantId),
-          availableCandidateCount: countAfterRemoval(state),
-        };
-      }
-
-      if (status === "viewed") {
-        const reviewed = updated.reviewed;
-        if (!reviewed.grants.some((item) => item.grantId === grant.grantId)) {
-          updated.reviewed = {
-            ...reviewed,
-            grants: [{ ...grant, userState: "viewed" }, ...reviewed.grants],
-            availableCandidateCount: countAfterAddition(reviewed),
+            availableCandidateCount: countAfterRemoval(state),
           };
         }
-      }
 
-      return updated;
-    });
-  }, []);
+        if (status === "viewed") {
+          const reviewed = updated.reviewed;
+          if (!reviewed.grants.some((item) => item.grantId === grant.grantId)) {
+            updated.reviewed = {
+              ...reviewed,
+              grants: [{ ...grant, userState: "viewed" }, ...reviewed.grants],
+              availableCandidateCount: countAfterAddition(reviewed),
+            };
+          }
+        }
+
+        return updated;
+      });
+    },
+    [],
+  );
 
   return (
     <div className="space-y-4">
+      {snapshotChanged && (
+        <div role="alert" className="rounded border border-amber-300 p-3">
+          Your matches changed while this page was open.{" "}
+          <Button onClick={() => window.location.reload()}>
+            Load latest matches
+          </Button>
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" onClick={() => setActiveTier(null)} className="focus-visible:outline-none">
+        <button
+          type="button"
+          onClick={() => setActiveTier(null)}
+          className="focus-visible:outline-none"
+        >
           <Badge
             variant={activeTier === null ? "default" : "outline"}
             className={`cursor-pointer gap-1 transition-all hover:opacity-80 ${activeTier === null ? "ring-2 ring-primary ring-offset-1" : ""}`}
@@ -352,7 +501,12 @@ export function BatchedEligibleGrantsList({
           </Badge>
         </button>
         {TIER_ORDER.map((tier) => (
-          <button key={tier} type="button" onClick={() => setActiveTier(tier)} className="focus-visible:outline-none">
+          <button
+            key={tier}
+            type="button"
+            onClick={() => setActiveTier(tier)}
+            className="focus-visible:outline-none"
+          >
             <Badge
               variant={activeTier === tier ? "default" : "outline"}
               className={`cursor-pointer gap-1 transition-all hover:opacity-80 ${activeTier === tier ? "ring-2 ring-primary ring-offset-1" : ""}`}
@@ -360,7 +514,9 @@ export function BatchedEligibleGrantsList({
               {TIER_META[tier].icon}
               {TIER_META[tier].badgeLabel}
               {formatCount(sections[tier]) != null && (
-                <span className="ml-0.5 text-[10px] opacity-80">{formatCount(sections[tier])}</span>
+                <span className="ml-0.5 text-[10px] opacity-80">
+                  {formatCount(sections[tier])}
+                </span>
               )}
             </Badge>
           </button>
@@ -389,7 +545,8 @@ export function BatchedEligibleGrantsList({
 
       {query.trim() && (
         <p className="text-sm text-muted-foreground">
-          {visibleLoadedGrants.length} matching loaded {visibleLoadedGrants.length === 1 ? "grant" : "grants"}.
+          {visibleLoadedGrants.length} matching loaded{" "}
+          {visibleLoadedGrants.length === 1 ? "grant" : "grants"}.
         </p>
       )}
 
@@ -428,9 +585,12 @@ export function BatchedEligibleGrantsList({
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
             <Search className="h-10 w-10 text-muted-foreground" />
-            <h2 className="mt-4 text-lg font-semibold">No current recommendations available</h2>
+            <h2 className="mt-4 text-lg font-semibold">
+              No current recommendations available
+            </h2>
             <p className="mt-1 max-w-md text-sm text-muted-foreground">
-              Grants were scored, but the current results are expired, already applied, outside your funder region, or otherwise unavailable.
+              Grants were scored, but the current results are expired, already
+              applied, outside your funder region, or otherwise unavailable.
             </p>
             <Link href="/grants" className="mt-4">
               <Button size="sm">Open Grant Library</Button>
@@ -457,7 +617,8 @@ function BestFirstSection({
           Best Next Opportunities
         </CardTitle>
         <p className="text-sm font-normal text-muted-foreground">
-          Ranked by eligibility confidence, effort, deadline, route quality, newness, and applicant-level value.
+          Ranked by eligibility confidence, effort, deadline, route quality,
+          newness, and applicant-level value.
         </p>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -491,7 +652,10 @@ function MatchTierSection({
   const meta = TIER_META[tier];
   const grants = state.grants.filter((grant) => matchesQuery(grant, query));
 
-  if (state.status === "idle" || (state.status === "loading" && state.grants.length === 0)) {
+  if (
+    state.status === "idle" ||
+    (state.status === "loading" && state.grants.length === 0)
+  ) {
     return <MatchSectionSkeleton title={meta.title} />;
   }
 
@@ -501,7 +665,9 @@ function MatchTierSection({
         <CardContent className="flex items-start gap-3 py-5 text-sm text-destructive">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <div>
-            <p className="font-medium">Could not load {meta.title.toLowerCase()}.</p>
+            <p className="font-medium">
+              Could not load {meta.title.toLowerCase()}.
+            </p>
             <p className="mt-1">{state.error}</p>
           </div>
         </CardContent>
@@ -515,40 +681,56 @@ function MatchTierSection({
         <CardHeader>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <CardTitle className={`flex items-center gap-2 text-base ${meta.muted ? "text-muted-foreground" : ""}`}>
+              <CardTitle
+                className={`flex items-center gap-2 text-base ${meta.muted ? "text-muted-foreground" : ""}`}
+              >
                 {meta.icon}
                 {meta.title}
               </CardTitle>
-              <p className="text-sm font-normal text-muted-foreground">{meta.subtitle}</p>
+              <p className="text-sm font-normal text-muted-foreground">
+                {meta.subtitle}
+              </p>
             </div>
             <SectionValuePill summary={valueSummary} />
           </div>
         </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">{meta.emptyLabel}</CardContent>
+        <CardContent className="text-sm text-muted-foreground">
+          {meta.emptyLabel}
+        </CardContent>
       </Card>
     );
   }
 
-  const directFormGrants = tier === "suggested"
-    ? grants.filter((grant) => hasVerifiedApplicationStart(grant.applicationUrlQuality))
-    : [];
-  const grantPageGrants = tier === "suggested"
-    ? grants.filter((grant) => !hasVerifiedApplicationStart(grant.applicationUrlQuality))
-    : [];
+  const directFormGrants =
+    tier === "suggested"
+      ? grants.filter((grant) =>
+          hasVerifiedApplicationStart(grant.applicationUrlQuality),
+        )
+      : [];
+  const grantPageGrants =
+    tier === "suggested"
+      ? grants.filter(
+          (grant) => !hasVerifiedApplicationStart(grant.applicationUrlQuality),
+        )
+      : [];
 
   return (
     <Card>
       <CardHeader>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <CardTitle className={`flex items-center gap-2 text-base ${meta.muted ? "text-muted-foreground" : ""}`}>
+            <CardTitle
+              className={`flex items-center gap-2 text-base ${meta.muted ? "text-muted-foreground" : ""}`}
+            >
               {meta.icon}
               {meta.title}
               <span className="ml-1 text-xs font-normal text-muted-foreground">
                 ({formatCount(state) ?? state.grants.length})
               </span>
             </CardTitle>
-            <p className="text-sm font-normal text-muted-foreground">{meta.subtitle}</p>
+            <p className="text-sm font-normal text-muted-foreground">
+              {meta.subtitle}
+            </p>
           </div>
           <SectionValuePill summary={valueSummary} />
         </div>
@@ -596,7 +778,9 @@ function MatchTierSection({
               disabled={state.status === "loading"}
               className="gap-2"
             >
-              {state.status === "loading" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {state.status === "loading" && (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              )}
               Load more {meta.badgeLabel.toLowerCase()}
             </Button>
           </div>
@@ -615,7 +799,9 @@ function FundingValueSummaryStrip({
   sections: Record<MatchSection, TierState>;
   summaries: Record<MatchSection, GrantValueSummary>;
 }) {
-  const displayTiers = tiers.filter((tier) => tier !== "reviewed" || sections[tier].grants.length > 0);
+  const displayTiers = tiers.filter(
+    (tier) => tier !== "reviewed" || sections[tier].grants.length > 0,
+  );
 
   if (displayTiers.length === 0) return null;
 
@@ -631,15 +817,28 @@ function FundingValueSummaryStrip({
           >
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.08em] text-muted-foreground">
               {TIER_META[tier].icon}
-              {tier === "suggested" ? "Strong-match value" : `${TIER_META[tier].badgeLabel} value`}
+              {TIER_META[tier].badgeLabel} opportunities
             </div>
             <div className="mt-2 text-2xl font-black tracking-tight text-[#071a3a]">
               {state.status === "loading" && summary.totalCount === 0
                 ? "Loading..."
-                : formatGrantValueSummary(summary)}
+                : (state.availableCandidateCount ?? summary.totalCount)}
             </div>
             <div className="mt-1 text-xs font-medium text-muted-foreground">
-              {grantValueSummaryDetail(summary)}
+              {grantValueSummaryDetail(summary)} · {state.grants.length} cards
+              loaded
+              {comparableAwardAverages(state.grants).map((g) => (
+                <p key={`${g.currency}:${g.type}:${g.basis}`}>
+                  Average {g.basis === "applicant_max" ? "maximum" : "typical"}{" "}
+                  {g.type} award:{" "}
+                  {new Intl.NumberFormat("en-GB", {
+                    style: "currency",
+                    currency: g.currency,
+                    maximumFractionDigits: 0,
+                  }).format(g.average)}{" "}
+                  ({g.count} known awards in loaded cards)
+                </p>
+              ))}
             </div>
           </div>
         );
@@ -651,9 +850,15 @@ function FundingValueSummaryStrip({
 function SectionValuePill({ summary }: { summary: GrantValueSummary }) {
   return (
     <div className="rounded-lg border border-blue-100 bg-blue-50/70 px-3 py-2 text-left sm:text-right">
-      <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-blue-700">Estimated value</div>
-      <div className="text-lg font-black leading-tight text-[#071a3a]">{formatGrantValueSummary(summary)}</div>
-      <div className="text-[11px] font-medium text-muted-foreground">{grantValueSummaryDetail(summary)}</div>
+      <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-blue-700">
+        Estimated value
+      </div>
+      <div className="text-lg font-black leading-tight text-[#071a3a]">
+        {summary.knownCount} confirmed award values
+      </div>
+      <div className="text-[11px] font-medium text-muted-foreground">
+        {grantValueSummaryDetail(summary)}
+      </div>
     </div>
   );
 }
@@ -686,7 +891,10 @@ function GrantLinkGroup({
     <div className="space-y-3">
       <div>
         <h3 className="text-sm font-semibold text-foreground">
-          {title} <span className="text-xs font-normal text-muted-foreground">({grants.length})</span>
+          {title}{" "}
+          <span className="text-xs font-normal text-muted-foreground">
+            ({grants.length})
+          </span>
         </h3>
         <p className="text-xs text-muted-foreground">{description}</p>
       </div>
@@ -722,7 +930,9 @@ function MatchSectionSkeleton({ title }: { title: string }) {
               <div className="min-w-0 flex-1 space-y-2">
                 <div className="h-5 w-3/4 animate-pulse rounded bg-muted" />
                 <div className="h-4 w-48 animate-pulse rounded bg-muted" />
-                {item === 0 && <div className="h-4 w-full animate-pulse rounded bg-muted" />}
+                {item === 0 && (
+                  <div className="h-4 w-full animate-pulse rounded bg-muted" />
+                )}
               </div>
               <div className="h-7 w-20 animate-pulse rounded-full bg-muted" />
             </div>

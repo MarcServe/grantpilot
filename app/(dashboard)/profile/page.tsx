@@ -1,30 +1,14 @@
+import { firstIncompleteProfileStep } from "@/lib/profile-completion";
 import { getProfile } from "./actions";
 import { getActiveOrg } from "@/lib/auth";
 import { ProfileForm } from "@/components/profile/profile-form";
 import { NotificationPreferences } from "@/components/profile/notification-preferences";
 import { BusinessProfilesManager } from "@/components/profile/business-profiles-manager";
-import { planAllowsForOrg, resolveEffectivePlanForOrg } from "@/lib/plan-features";
+import {
+  planAllowsForOrg,
+  resolveEffectivePlanForOrg,
+} from "@/lib/plan-features";
 import { PLAN_LIMITS, planNotifyDisplayName } from "@/lib/plans";
-
-function getFirstIncompleteStep(profile: {
-  businessName: string;
-  location: string;
-  sector: string;
-  missionStatement: string;
-  description: string;
-  employeeCount: number | null;
-  annualRevenue: number | null;
-  fundingMin: number;
-  fundingMax: number;
-  fundingPurposes: string[];
-  documents: unknown[];
-}): number {
-  if (!profile.businessName?.trim() || !profile.location?.trim()) return 1;
-  if (!profile.sector?.trim() || !profile.missionStatement?.trim() || !profile.description?.trim()) return 2;
-  if (profile.employeeCount == null && profile.annualRevenue == null) return 3;
-  if (!profile.fundingPurposes?.length || profile.fundingMin == null || profile.fundingMax == null) return 4;
-  return 5;
-}
 
 export default async function ProfilePage({
   searchParams,
@@ -34,13 +18,17 @@ export default async function ProfilePage({
   const sp = await searchParams;
   const stepParam = sp.step != null ? parseInt(String(sp.step), 10) : NaN;
   const stepFromQuery =
-    Number.isFinite(stepParam) && stepParam >= 1 && stepParam <= 7 ? stepParam : null;
+    Number.isFinite(stepParam) && stepParam >= 1 && stepParam <= 7
+      ? stepParam
+      : null;
 
   const activeOrg = await getActiveOrg();
   const profile = await getProfile();
   const plan = resolveEffectivePlanForOrg(activeOrg.org);
   const profileLimit = PLAN_LIMITS[plan].profiles;
-  const rawProfiles = activeOrg.org.profiles?.length ? activeOrg.org.profiles : [profile];
+  const rawProfiles = activeOrg.org.profiles?.length
+    ? activeOrg.org.profiles
+    : [profile];
   const businessProfiles = rawProfiles.map((item) => ({
     id: item.id,
     businessName: item.businessName ?? null,
@@ -50,30 +38,23 @@ export default async function ProfilePage({
   }));
   const companyDnaAutofillEnabled = planAllowsForOrg(
     activeOrg.org,
-    "website_intelligence_refresh"
+    "website_intelligence_refresh",
   );
   const whatsappAlertsEnabled = planAllowsForOrg(
     activeOrg.org,
-    "whatsapp_opportunity_alerts"
+    "whatsapp_opportunity_alerts",
   );
 
-  const userRow = activeOrg.user as { phoneNumber?: string | null; whatsappOptIn?: boolean };
+  const userRow = activeOrg.user as {
+    phoneNumber?: string | null;
+    whatsappOptIn?: boolean;
+  };
   const phoneNumber = userRow.phoneNumber ?? null;
   const whatsappOptIn = Boolean(userRow.whatsappOptIn);
 
-  const suggestedStep = getFirstIncompleteStep({
-    businessName: profile.businessName,
-    location: profile.location,
-    sector: profile.sector,
-    missionStatement: profile.missionStatement,
-    description: profile.description,
-    employeeCount: profile.employeeCount,
-    annualRevenue: profile.annualRevenue,
-    fundingMin: profile.fundingMin,
-    fundingMax: profile.fundingMax,
-    fundingPurposes: profile.fundingPurposes ?? [],
-    documents: profile.documents ?? [],
-  });
+  const suggestedStep = firstIncompleteProfileStep(
+    profile as unknown as Record<string, unknown>,
+  );
 
   const initialStep = stepFromQuery ?? suggestedStep;
 
@@ -101,7 +82,11 @@ export default async function ProfilePage({
           }}
           whatsappAlertsEnabled={whatsappAlertsEnabled}
         />
-        <ProfileForm profile={profile} initialStep={initialStep} companyDnaAutofillEnabled={companyDnaAutofillEnabled} />
+        <ProfileForm
+          profile={profile}
+          initialStep={initialStep}
+          companyDnaAutofillEnabled={companyDnaAutofillEnabled}
+        />
       </div>
     </div>
   );

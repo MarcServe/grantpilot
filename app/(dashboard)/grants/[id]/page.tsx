@@ -1,3 +1,10 @@
+import { profileForEligibilityGuards } from "@/lib/eligibility-final-score";
+import { getProfileMatches } from "@/lib/profile-matches";
+import { CriteriaBadges } from "@/components/grants/criteria-panel";
+import { isResearchResource } from "@/lib/grant-actionability";
+import { criteriaEnabled } from "@/lib/criteria-flags";
+import { CriteriaPanel } from "@/components/grants/criteria-panel";
+import { PreparationChecklist } from "@/components/grants/preparation-checklist";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -25,11 +32,12 @@ import type { RequiredAttachment } from "@/lib/grant-requirements";
 import { planAllowsForOrg } from "@/lib/plan-features";
 import { grantFinderLabel } from "@/lib/grant-source-policy";
 import { getConfidenceBand } from "@/lib/claude";
-import { markGrantUserState } from "@/lib/grant-user-state";
-import { clearEligibleMatchCaches } from "@/lib/eligible-match-cache";
 import { GrantStateActions } from "@/components/grants/grant-state-actions";
 import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
-import { applyOutcomeScoreAdjustment, deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
+import {
+  applyOutcomeScoreAdjustment,
+  deriveOutcomeLearningAdvisory,
+} from "@/lib/outcome-learning";
 import { getGrantFitPreviews } from "@/lib/grant-fit-preview";
 import type { GrantUserState } from "@/lib/eligible-match-rules";
 import { formatGrantFundingValue } from "@/lib/grant-value";
@@ -43,18 +51,6 @@ import {
   isVerifiedApplicationQuality,
 } from "@/lib/grant-application-url-quality";
 
-function profileForEligibilityGuards(profile: Record<string, unknown>) {
-  return {
-    location: String(profile.location ?? ""),
-    sector: String(profile.sector ?? ""),
-    fundingPurposes: Array.isArray(profile.fundingPurposes) ? profile.fundingPurposes as string[] : (Array.isArray(profile.funding_purposes) ? profile.funding_purposes as string[] : []),
-    businessType: String(profile.businessType ?? profile.business_type ?? "") || null,
-    employeeCount: profile.employeeCount != null ? Number(profile.employeeCount) : (profile.employee_count != null ? Number(profile.employee_count) : null),
-    annualRevenue: profile.annualRevenue != null ? Number(profile.annualRevenue) : (profile.annual_revenue != null ? Number(profile.annual_revenue) : null),
-    yearEstablished: profile.yearEstablished != null ? Number(profile.yearEstablished) : (profile.year_established != null ? Number(profile.year_established) : null),
-  };
-}
-
 const BACK_LINKS = {
   matches: { href: "/grants/eligible", label: "Back to My Matches" },
   dashboard: { href: "/dashboard", label: "Back to Dashboard" },
@@ -62,7 +58,9 @@ const BACK_LINKS = {
   grants: { href: "/grants", label: "Back to Grant Library" },
 } as const;
 
-function resolveBackLink(searchParams?: Record<string, string | string[] | undefined>) {
+function resolveBackLink(
+  searchParams?: Record<string, string | string[] | undefined>,
+) {
   const rawFrom = searchParams?.from;
   const from = Array.isArray(rawFrom) ? rawFrom[0] : rawFrom;
 
@@ -73,7 +71,8 @@ function resolveBackLink(searchParams?: Record<string, string | string[] | undef
 }
 
 function closedEligibilityResult(freshness: GrantFreshnessStatus) {
-  const message = freshness.message ?? "This opportunity appears closed or stale.";
+  const message =
+    freshness.message ?? "This opportunity appears closed or stale.";
   return {
     decision: "unlikely" as const,
     reason: message,
@@ -84,7 +83,9 @@ function closedEligibilityResult(freshness: GrantFreshnessStatus) {
     alignment: [],
     improvementPlan: {
       gaps: ["Opportunity appears closed or temporally stale"],
-      actions: ["Do not apply through this listing unless the funder confirms the programme is still open."],
+      actions: [
+        "Do not apply through this listing unless the funder confirms the programme is still open.",
+      ],
       timeline: "Before applying",
     },
     met: [],
@@ -128,16 +129,28 @@ export default async function GrantDetailPage({
   const detailUrl = grantUrlMeta.detailUrl ?? grant.applicationUrl ?? "";
   const directApplicationUrl = grantUrlMeta.directApplicationUrl ?? null;
   const applicationUrlQuality = grantUrlMeta.applicationUrlQuality ?? null;
-  const canOpenApplication = isVerifiedApplicationQuality(applicationUrlQuality);
-  const isAggregatorDirectoryLink = isGrantAggregatorClassificationReason(grantUrlMeta.applicationUrlQualityReason);
-  const applicationStartUrl = canOpenApplication ? directApplicationUrl ?? grant.applicationUrl ?? "" : null;
-  const profile = org.profiles?.[0];
-  const grantAutoImproveEnabled = planAllowsForOrg(
-    org,
-    "grant_auto_improve"
+  const canOpenApplication = isVerifiedApplicationQuality(
+    applicationUrlQuality,
   );
+  const isAggregatorDirectoryLink = isGrantAggregatorClassificationReason(
+    grantUrlMeta.applicationUrlQualityReason,
+  );
+  const applicationStartUrl = canOpenApplication
+    ? (directApplicationUrl ?? grant.applicationUrl ?? "")
+    : null;
+  const profile = org.profiles?.[0];
+  const grantAutoImproveEnabled = planAllowsForOrg(org, "grant_auto_improve");
   const hasProfile = !!profile && (profile.completionScore ?? 0) >= 50;
   const profileId = profile?.id ?? null;
+  const portfolio =
+    criteriaEnabled() && profileId
+      ? await getProfileMatches(orgId, profileId)
+      : null;
+  const canonicalMatch = portfolio
+    ? Object.values(portfolio.sections)
+        .flat()
+        .find((g) => g.grantId === grant.id)
+    : null;
   let currentGrantUserState: GrantUserState | null = null;
   if (profileId) {
     try {
@@ -148,16 +161,14 @@ export default async function GrantDetailPage({
         .eq("profile_id", profileId)
         .eq("grant_id", grant.id)
         .maybeSingle();
-      currentGrantUserState = ((savedState as { status?: GrantUserState | null } | null)?.status ?? null);
-      await markGrantUserState(supabase, {
-        organisationId: orgId,
-        profileId,
-        grantId: grant.id,
-        status: "viewed",
-      });
-      clearEligibleMatchCaches();
+      currentGrantUserState =
+        (savedState as { status?: GrantUserState | null } | null)?.status ??
+        null;
     } catch (error) {
-      console.warn("[grant-detail] could not mark viewed", error instanceof Error ? error.message : error);
+      console.warn(
+        "[grant-detail] could not mark viewed",
+        error instanceof Error ? error.message : error,
+      );
     }
   }
 
@@ -177,13 +188,18 @@ export default async function GrantDetailPage({
     summary?: string;
     reasons?: string[];
     alignment?: string[];
-    improvementPlan?: { gaps?: string[]; actions?: string[]; timeline?: string };
+    improvementPlan?: {
+      gaps?: string[];
+      actions?: string[];
+      timeline?: string;
+    };
     met?: string[];
     missing?: string[];
     confidenceBand?: "high" | "medium" | "low";
     winProbability?: number;
     evidenceStrength?: "strong" | "medium" | "weak";
-    scoringSource?: "openai" | "heuristic" | "embedding" | "intelligence" | "manual";
+    scoringSource?:
+      "openai" | "heuristic" | "embedding" | "intelligence" | "manual";
     outcomeWarnings?: string[];
     outcomeStrengths?: string[];
   } | null = null;
@@ -191,14 +207,18 @@ export default async function GrantDetailPage({
     const [{ data: assessment }, { data: outcomeRows }] = await Promise.all([
       supabase
         .from("EligibilityAssessment")
-        .select("score, decision, summary, reasons, alignment, improvement_plan, met_criteria, missing_criteria, scoring_source")
+        .select(
+          "score, decision, summary, reasons, alignment, improvement_plan, met_criteria, missing_criteria, scoring_source",
+        )
         .eq("organisation_id", orgId)
         .eq("profile_id", profileId)
         .eq("grant_id", grant.id)
         .maybeSingle(),
       supabase
         .from("ApplicationOutcome")
-        .select("outcome, awardedAmount, funderFeedback, learningNotes, Grant(name, funder)")
+        .select(
+          "outcome, awardedAmount, funderFeedback, learningNotes, Grant(name, funder)",
+        )
         .eq("organisationId", orgId)
         .eq("profileId", profileId)
         .order("reportedAt", { ascending: false })
@@ -207,20 +227,30 @@ export default async function GrantDetailPage({
     const assessmentRow = assessment as {
       score?: number;
       decision?: "likely_eligible" | "review" | "unlikely";
-      scoring_source?: "openai" | "heuristic" | "embedding" | "intelligence" | "manual" | null;
+      scoring_source?:
+        "openai" | "heuristic" | "embedding" | "intelligence" | "manual" | null;
       summary?: string | null;
       reasons?: string[] | null;
       alignment?: string[] | null;
-      improvement_plan?: { gaps?: string[]; actions?: string[]; timeline?: string } | null;
+      improvement_plan?: {
+        gaps?: string[];
+        actions?: string[];
+        timeline?: string;
+      } | null;
       met_criteria?: string[] | null;
       missing_criteria?: string[] | null;
     } | null;
-    const source = assessmentRow?.scoring_source ?? (assessmentRow?.summary?.startsWith("Preliminary fit") ? "heuristic" : "openai");
-    eligibilityScore = assessmentRow?.score == null
-      ? null
-      : source === "heuristic"
-        ? Math.min(assessmentRow.score, 69)
-        : assessmentRow.score;
+    const source =
+      assessmentRow?.scoring_source ??
+      (assessmentRow?.summary?.startsWith("Preliminary fit")
+        ? "heuristic"
+        : "openai");
+    eligibilityScore =
+      assessmentRow?.score == null
+        ? null
+        : source === "heuristic"
+          ? Math.min(assessmentRow.score, 69)
+          : assessmentRow.score;
     if (assessmentRow && eligibilityScore != null) {
       initialEligibilityResult = {
         decision: assessmentRow.decision ?? "review",
@@ -235,14 +265,22 @@ export default async function GrantDetailPage({
         missing: assessmentRow.missing_criteria ?? [],
         confidenceBand: getConfidenceBand(eligibilityScore),
         winProbability: eligibilityScore,
-        evidenceStrength: eligibilityScore >= 80 ? "strong" : eligibilityScore >= 55 ? "medium" : "weak",
+        evidenceStrength:
+          eligibilityScore >= 80
+            ? "strong"
+            : eligibilityScore >= 55
+              ? "medium"
+              : "weak",
         scoringSource: source,
       };
-      const guarded = applyOutcomeScoreAdjustment(applyEligibilityScoreGuards(
-        profileForEligibilityGuards(profile as Record<string, unknown>),
-        grant,
-        initialEligibilityResult
-      ), deriveOutcomeLearningAdvisory(outcomeRows ?? []));
+      const guarded = applyOutcomeScoreAdjustment(
+        applyEligibilityScoreGuards(
+          profileForEligibilityGuards(profile as Record<string, unknown>),
+          grant,
+          initialEligibilityResult,
+        ),
+        deriveOutcomeLearningAdvisory(outcomeRows ?? []),
+      );
       eligibilityScore = guarded.score ?? guarded.confidence;
       initialEligibilityResult = {
         ...guarded,
@@ -250,7 +288,13 @@ export default async function GrantDetailPage({
         score: eligibilityScore,
         confidenceBand: getConfidenceBand(eligibilityScore),
         winProbability: guarded.winProbability ?? eligibilityScore,
-        evidenceStrength: guarded.evidenceStrength ?? (eligibilityScore >= 80 ? "strong" : eligibilityScore >= 55 ? "medium" : "weak"),
+        evidenceStrength:
+          guarded.evidenceStrength ??
+          (eligibilityScore >= 80
+            ? "strong"
+            : eligibilityScore >= 55
+              ? "medium"
+              : "weak"),
         scoringSource: source,
       };
     }
@@ -266,8 +310,11 @@ export default async function GrantDetailPage({
 
   let missingDocLabels: string[] = [];
   if (profileId) {
-    const rawRequired = (grant as { required_attachments?: unknown }).required_attachments;
-    const required = (Array.isArray(rawRequired) ? rawRequired : []) as RequiredAttachment[];
+    const rawRequired = (grant as { required_attachments?: unknown })
+      .required_attachments;
+    const required = (
+      Array.isArray(rawRequired) ? rawRequired : []
+    ) as RequiredAttachment[];
     if (required.length > 0) {
       const { data: docRows } = await supabase
         .from("Document")
@@ -283,26 +330,38 @@ export default async function GrantDetailPage({
             .order("created_at", { ascending: false })
             .limit(20)
         : { data: docRows };
-      const documents = (docRowsAlt.data ?? []).map((d: { name: string; type?: string; category?: string }) => ({
-        name: d.name,
-        type: d.type ?? "",
-        category: d.category ?? null,
-      }));
-      const { missing } = checkRequirementsAgainstDocuments(required, documents);
+      const documents = (docRowsAlt.data ?? []).map(
+        (d: { name: string; type?: string; category?: string }) => ({
+          name: d.name,
+          type: d.type ?? "",
+          category: d.category ?? null,
+        }),
+      );
+      const { missing } = checkRequirementsAgainstDocuments(
+        required,
+        documents,
+      );
       missingDocLabels = missing.map((r) => r.label);
     }
   }
 
-  const fitPreview = hasProfile && profileId
-    ? (await getGrantFitPreviews({
-        supabase,
-        organisationId: orgId,
-        profile: profile as Record<string, unknown>,
-        grants: [grant],
-        grantUserStates: currentGrantUserState ? { [grant.id]: currentGrantUserState } : {},
-        appliedGrantIds: existingApplication ? new Set([grant.id]) : new Set<string>(),
-      }))[grant.id] ?? null
-    : null;
+  const fitPreview =
+    hasProfile && profileId
+      ? ((
+          await getGrantFitPreviews({
+            supabase,
+            organisationId: orgId,
+            profile: profile as Record<string, unknown>,
+            grants: [grant],
+            grantUserStates: currentGrantUserState
+              ? { [grant.id]: currentGrantUserState }
+              : {},
+            appliedGrantIds: existingApplication
+              ? new Set([grant.id])
+              : new Set<string>(),
+          })
+        )[grant.id] ?? null)
+      : null;
 
   return (
     <div className="mx-auto max-w-4xl min-w-0 overflow-hidden px-4 py-6 sm:p-6">
@@ -321,46 +380,82 @@ export default async function GrantDetailPage({
         {backLink.label}
       </Link>
 
-      {!freshness.usable && (() => {
-        const isDead = freshness.reason === "url_dead";
-        const applyByLinkHref = `/grants/apply-by-link?name=${encodeURIComponent(grant.name ?? "")}&funder=${encodeURIComponent(grant.funder ?? "")}&fixGrantId=${grant.id}`;
-        return (
-          <div className={`mb-6 flex gap-3 rounded-lg border p-4 ${
-            isDead
-              ? "border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/40"
-              : "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40"
-          }`}>
-            <AlertTriangle className={`h-5 w-5 shrink-0 ${
-              isDead ? "text-red-600 dark:text-red-500" : "text-amber-600 dark:text-amber-500"
-            }`} />
-            <div>
-              <p className={`font-medium ${
-                isDead ? "text-red-800 dark:text-red-200" : "text-amber-800 dark:text-amber-200"
-              }`}>
-                {isDead
-                  ? "This grant link appears to be broken"
-                  : "This grant programme appears to be closed or stale"}
-              </p>
-              <p className={`mt-1 text-sm ${
-                isDead ? "text-red-700 dark:text-red-300" : "text-amber-700 dark:text-amber-300"
-              }`}>
-                {isDead
-                  ? "Our automated check found the application link is broken or returns an error. The grant may have been removed or the URL may have changed."
-                  : freshness.message ?? "Our automated check detected that this programme may no longer be accepting applications."}
-              </p>
-              <Link
-                href={applyByLinkHref}
-                className={`mt-2 inline-block text-sm font-medium underline hover:no-underline ${
-                  isDead ? "text-red-800 dark:text-red-200" : "text-amber-800 dark:text-amber-200"
+      {!freshness.usable &&
+        (() => {
+          const isDead = freshness.reason === "url_dead";
+          const applyByLinkHref = `/grants/apply-by-link?name=${encodeURIComponent(grant.name ?? "")}&funder=${encodeURIComponent(grant.funder ?? "")}&fixGrantId=${grant.id}`;
+          return (
+            <div
+              className={`mb-6 flex gap-3 rounded-lg border p-4 ${
+                isDead
+                  ? "border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/40"
+                  : "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40"
+              }`}
+            >
+              <AlertTriangle
+                className={`h-5 w-5 shrink-0 ${
+                  isDead
+                    ? "text-red-600 dark:text-red-500"
+                    : "text-amber-600 dark:text-amber-500"
                 }`}
-              >
-                Have the correct link? Apply with it here &rarr;
-              </Link>
+              />
+              <div>
+                <p
+                  className={`font-medium ${
+                    isDead
+                      ? "text-red-800 dark:text-red-200"
+                      : "text-amber-800 dark:text-amber-200"
+                  }`}
+                >
+                  {isDead
+                    ? "This grant link appears to be broken"
+                    : "This grant programme appears to be closed or stale"}
+                </p>
+                <p
+                  className={`mt-1 text-sm ${
+                    isDead
+                      ? "text-red-700 dark:text-red-300"
+                      : "text-amber-700 dark:text-amber-300"
+                  }`}
+                >
+                  {isDead
+                    ? "Our automated check found the application link is broken or returns an error. The grant may have been removed or the URL may have changed."
+                    : (freshness.message ??
+                      "Our automated check detected that this programme may no longer be accepting applications.")}
+                </p>
+                <Link
+                  href={applyByLinkHref}
+                  className={`mt-2 inline-block text-sm font-medium underline hover:no-underline ${
+                    isDead
+                      ? "text-red-800 dark:text-red-200"
+                      : "text-amber-800 dark:text-amber-200"
+                  }`}
+                >
+                  Have the correct link? Apply with it here &rarr;
+                </Link>
+              </div>
             </div>
-          </div>
-        );
-      })()}
+          );
+        })()}
 
+      {criteriaEnabled() && canonicalMatch?.criteriaAssessment && (
+        <div className="mb-5 rounded-xl border bg-white p-4">
+          <CriteriaBadges
+            assessment={canonicalMatch.criteriaAssessment}
+            grantId={grant.id}
+          />
+          <p className="mt-2">
+            {canonicalMatch.score}% fit indicator · {canonicalMatch.summary}
+          </p>
+        </div>
+      )}
+      {isResearchResource(grant) && (
+        <p className="mb-4 rounded border p-4">
+          Research resource — this page is a guide or directory, not an
+          individual funding award. It is excluded from matches and award
+          values.
+        </p>
+      )}
       {freshness.usable && verificationWarning && (
         <div className="mb-6 flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/40">
           <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-500" />
@@ -383,8 +478,8 @@ export default async function GrantDetailPage({
               This grant may require documents you haven&apos;t uploaded
             </p>
             <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">
-              Add these in Profile → Documents so we can attach them when you apply:{" "}
-              {missingDocLabels.join(", ")}.
+              Add these in Profile → Documents so we can attach them when you
+              apply: {missingDocLabels.join(", ")}.
             </p>
             <Link
               href="/profile"
@@ -400,7 +495,9 @@ export default async function GrantDetailPage({
         <CardHeader>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
-              <CardTitle className="text-xl break-words sm:text-2xl">{grant.name}</CardTitle>
+              <CardTitle className="text-xl break-words sm:text-2xl">
+                {grant.name}
+              </CardTitle>
               <div className="mt-2 flex items-center gap-1 text-muted-foreground">
                 <Building2 className="h-4 w-4" />
                 {grant.funder}
@@ -452,14 +549,18 @@ export default async function GrantDetailPage({
               </Badge>
             ))}
             {(grant as { source?: string | null }).source && (
-              <Badge variant={(grant as { source?: string | null }).source === "openai" ? "default" : "secondary"}>
+              <Badge
+                variant={
+                  (grant as { source?: string | null }).source === "openai"
+                    ? "default"
+                    : "secondary"
+                }
+              >
                 {grantFinderLabel((grant as { source?: string | null }).source)}
               </Badge>
             )}
             {fitPreview?.opportunityType && (
-              <Badge variant="secondary">
-                {fitPreview.opportunityType}
-              </Badge>
+              <Badge variant="secondary">{fitPreview.opportunityType}</Badge>
             )}
           </div>
 
@@ -467,42 +568,62 @@ export default async function GrantDetailPage({
 
           {fitPreview?.targetSummary && (
             <div className="rounded-lg border bg-muted/20 p-4">
-              <h3 className="mb-2 font-semibold">What this grant is targeting</h3>
+              <h3 className="mb-2 font-semibold">
+                What this grant is targeting
+              </h3>
               <p className="text-sm leading-relaxed text-muted-foreground">
                 {fitPreview.targetSummary}
               </p>
             </div>
           )}
 
-          {fitPreview && (
+          {!criteriaEnabled() && fitPreview && (
             <div className="grid gap-3 rounded-lg border bg-background p-4 text-sm sm:grid-cols-3">
               <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Funding value</p>
-                <p className="mt-1 font-semibold">{formatGrantFundingValue(fitPreview.fundingValue)}</p>
-                <p className="mt-0.5 text-xs text-muted-foreground">{fitPreview.fundingValue.label}</p>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Funding value
+                </p>
+                <p className="mt-1 font-semibold">
+                  {formatGrantFundingValue(fitPreview.fundingValue)}
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {fitPreview.fundingValue.label}
+                </p>
               </div>
               <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Effort</p>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Effort
+                </p>
                 <p className="mt-1 font-semibold">
-                  {fitPreview.effort ? `${fitPreview.effort.estimatedTimeLabel} · ${fitPreview.effort.effortBand}` : "Not estimated yet"}
+                  {fitPreview.effort
+                    ? `Estimated ${fitPreview.effort.effortBand}`
+                    : "Not estimated yet"}
                 </p>
                 {fitPreview.effort?.applicationPathway && (
-                  <p className="mt-0.5 text-xs text-muted-foreground">{fitPreview.effort.applicationPathway} pathway</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {fitPreview.effort.applicationPathway} pathway
+                  </p>
                 )}
               </div>
               <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Priority</p>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Priority
+                </p>
                 <p className="mt-1 font-semibold">
-                  {fitPreview.effort?.priorityLabel ?? fitPreview.recommendationCategory ?? "Review details"}
+                  {fitPreview.effort?.priorityLabel ??
+                    fitPreview.recommendationCategory ??
+                    "Review details"}
                 </p>
                 {fitPreview.recommendationCategory && (
-                  <p className="mt-0.5 text-xs text-muted-foreground">{fitPreview.recommendationCategory}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {fitPreview.recommendationCategory}
+                  </p>
                 )}
               </div>
             </div>
           )}
 
-          {fitPreview?.whyNotSuggested?.length ? (
+          {!criteriaEnabled() && fitPreview?.whyNotSuggested?.length ? (
             <div
               className={
                 fitPreview.matchSection === "suggested"
@@ -529,7 +650,9 @@ export default async function GrantDetailPage({
                 ))}
               </ul>
               {fitPreview.nextAction && (
-                <p className="mt-3 font-medium">Next action: {fitPreview.nextAction}</p>
+                <p className="mt-3 font-medium">
+                  Next action: {fitPreview.nextAction}
+                </p>
               )}
             </div>
           ) : null}
@@ -539,10 +662,17 @@ export default async function GrantDetailPage({
               <h3 className="font-semibold">Application link</h3>
               <UrlStatusBadge
                 status={(grant as { url_status?: string }).url_status}
-                checkedAt={(grant as { url_checked_at?: string }).url_checked_at}
+                checkedAt={
+                  (grant as { url_checked_at?: string }).url_checked_at
+                }
               />
             </div>
-            <EditApplicationUrl grantId={grant.id} applicationUrl={applicationStartUrl ?? ((detailUrl || grant.applicationUrl) ?? "")} />
+            <EditApplicationUrl
+              grantId={grant.id}
+              applicationUrl={
+                applicationStartUrl ?? (detailUrl || grant.applicationUrl) ?? ""
+              }
+            />
             {freshness.usable && !canOpenApplication && (
               <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
                 {isAggregatorDirectoryLink
@@ -550,7 +680,9 @@ export default async function GrantDetailPage({
                   : applicationUrlQuality === "rejected"
                     ? "This link is not specific enough to use as an application route. Save the official funder page or direct form before preparing an application."
                     : "Direct application form not verified yet. Use Find application form or save a verified direct form/portal URL before preparing an application."}
-                {grantUrlMeta.applicationUrlQualityReason ? ` ${grantUrlMeta.applicationUrlQualityReason}` : ""}
+                {grantUrlMeta.applicationUrlQualityReason
+                  ? ` ${grantUrlMeta.applicationUrlQualityReason}`
+                  : ""}
               </p>
             )}
           </div>
@@ -589,15 +721,22 @@ export default async function GrantDetailPage({
             ) : null}
           </div>
 
-          {hasProfile && profileId && (
+          {profileId && (hasProfile || criteriaEnabled()) && (
             <>
               <Separator />
-              <EligibilityCard
-                grantId={grant.id}
-                applicationId={existingApplication?.id}
-                grantAutoImproveEnabled={grantAutoImproveEnabled}
-                initialResult={initialEligibilityResult}
-              />
+              {criteriaEnabled() ? (
+                <>
+                  <CriteriaPanel grantId={grant.id} />
+                  <PreparationChecklist grantId={grant.id} />
+                </>
+              ) : (
+                <EligibilityCard
+                  grantId={grant.id}
+                  applicationId={existingApplication?.id}
+                  grantAutoImproveEnabled={grantAutoImproveEnabled}
+                  initialResult={initialEligibilityResult}
+                />
+              )}
             </>
           )}
 
@@ -610,7 +749,10 @@ export default async function GrantDetailPage({
                   View Application
                 </Button>
               </Link>
-            ) : hasProfile && profileId && freshness.usable ? (
+            ) : hasProfile &&
+              profileId &&
+              freshness.usable &&
+              !isResearchResource(grant) ? (
               <ApplyButton
                 key={grant.id}
                 grantId={grant.id}
@@ -620,7 +762,8 @@ export default async function GrantDetailPage({
               />
             ) : hasProfile && profileId && !freshness.usable ? (
               <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
-                Application prep is disabled because this opportunity appears closed or stale.
+                Application prep is disabled because this opportunity appears
+                closed or stale.
               </div>
             ) : (
               <div className="text-sm text-muted-foreground">
@@ -641,10 +784,14 @@ export default async function GrantDetailPage({
           </div>
           {hasProfile && profileId && (
             <div className="rounded-lg border bg-muted/30 p-3">
-              <p className="mb-2 text-sm font-medium">After reviewing this grant</p>
+              <p className="mb-2 text-sm font-medium">
+                After reviewing this grant
+              </p>
               <GrantStateActions grantId={grant.id} />
               <p className="mt-2 text-xs text-muted-foreground">
-                Deferred and applied grants are removed from repeated eligibility reminders. Viewing a grant keeps it active in matches and reminders.
+                Deferred and applied grants are removed from repeated
+                eligibility reminders. Viewing a grant keeps it active in
+                matches and reminders.
               </p>
             </div>
           )}

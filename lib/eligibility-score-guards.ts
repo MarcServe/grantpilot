@@ -43,17 +43,27 @@ function norm(value: string): string {
   return value.toLowerCase().trim();
 }
 
-function regionMatches(profileLocation: string, grantRegions: string[] = []): boolean {
+function regionMatches(
+  profileLocation: string,
+  grantRegions: string[] = [],
+): boolean {
   if (grantRegions.length === 0) return true;
   const loc = norm(profileLocation);
   if (!loc) return true;
-  const uk = /\b(uk|united kingdom|england|scotland|wales|northern ireland|london|bristol|manchester|birmingham|leeds|cardiff|edinburgh|glasgow|belfast)\b/.test(loc);
+  const uk =
+    /\b(uk|united kingdom|england|scotland|wales|northern ireland|london|bristol|manchester|birmingham|leeds|cardiff|edinburgh|glasgow|belfast)\b/.test(
+      loc,
+    );
   const us = /\b(us|usa|united states|america)\b/.test(loc);
   const eu = /\b(eu|europe|european union)\b/.test(loc);
   return grantRegions.some((region) => {
     const r = norm(region);
     if (/\b(global|international|worldwide)\b/.test(r)) return true;
-    if (uk && /\b(uk|united kingdom|england|scotland|wales|northern ireland)\b/.test(r)) return true;
+    if (
+      uk &&
+      /\b(uk|united kingdom|england|scotland|wales|northern ireland)\b/.test(r)
+    )
+      return true;
     if (us && /\b(us|usa|united states|america)\b/.test(r)) return true;
     if (eu && /\b(eu|europe|european union)\b/.test(r)) return true;
     return loc.includes(r) || r.includes(loc.split(",")[0]?.trim() ?? "");
@@ -65,31 +75,49 @@ function sectorLooksAligned(profileSector: string, grant: GuardGrant): boolean {
   if (!profile) return true;
   const grantSectors = grant.sectors ?? [];
   if (grantSectors.length === 0) return true;
-  if (grantSectors.some((sector) => /\b(all|any|open|general)\b/i.test(sector))) return true;
+  if (grantSectors.some((sector) => /\b(all|any|open|general)\b/i.test(sector)))
+    return true;
   const grantText = [
     ...grantSectors,
     grant.eligibility ?? "",
     grant.description ?? "",
     grant.objectives ?? "",
-  ].join(" ").toLowerCase();
+  ]
+    .join(" ")
+    .toLowerCase();
   const terms = profile.split(/[\s/&,-]+/).filter((term) => term.length > 2);
   return terms.some((term) => grantText.includes(term));
 }
 
-function purposeLooksAligned(profilePurposes: string[], grant: GuardGrant): boolean {
+function purposeLooksAligned(
+  profilePurposes: string[],
+  grant: GuardGrant,
+): boolean {
   if (profilePurposes.length === 0) return true;
-  const grantText = [grant.eligibility ?? "", grant.description ?? "", grant.objectives ?? ""].join(" ").toLowerCase();
+  const grantText = [
+    grant.eligibility ?? "",
+    grant.description ?? "",
+    grant.objectives ?? "",
+  ]
+    .join(" ")
+    .toLowerCase();
   return profilePurposes.some((purpose) =>
     purpose
       .toLowerCase()
       .split(/[\s/&,-]+/)
       .filter((term) => term.length > 3)
-      .some((term) => grantText.includes(term))
+      .some((term) => grantText.includes(term)),
   );
 }
 
 function grantCriteriaText(grant: GuardGrant): string {
-  return [grant.eligibility ?? "", grant.description ?? "", grant.objectives ?? ""].join(" ").toLowerCase();
+  return [
+    grant.eligibility ?? "",
+    grant.description ?? "",
+    grant.objectives ?? "",
+  ]
+    .join(" ")
+    .toLowerCase();
 }
 
 const RELEVANCE_STOP_WORDS = new Set([
@@ -129,7 +157,10 @@ function relevanceTerms(value: string): string[] {
     .filter((term) => term.length > 2 && !RELEVANCE_STOP_WORDS.has(term));
 }
 
-function hasCoreRelevanceEvidence(profile: GuardProfile, grant: GuardGrant): boolean {
+function hasCoreRelevanceEvidence(
+  profile: GuardProfile,
+  grant: GuardGrant,
+): boolean {
   const profileTerms = [
     profile.sector,
     ...(profile.fundingPurposes ?? []),
@@ -146,19 +177,41 @@ function hasCoreRelevanceEvidence(profile: GuardProfile, grant: GuardGrant): boo
     grant.eligibility ?? "",
     grant.description ?? "",
     grant.objectives ?? "",
-  ].join(" ").toLowerCase();
+  ]
+    .join(" ")
+    .toLowerCase();
 
   const synonymGroups: Record<string, string[]> = {
     ai: ["ai", "artificial intelligence", "machine learning", "automation"],
-    technology: ["technology", "technologies", "digital", "software", "data", "ai", "innovation", "tech"],
-    tech: ["technology", "technologies", "digital", "software", "data", "ai", "innovation", "tech"],
+    technology: [
+      "technology",
+      "technologies",
+      "digital",
+      "software",
+      "data",
+      "ai",
+      "innovation",
+      "tech",
+    ],
+    tech: [
+      "technology",
+      "technologies",
+      "digital",
+      "software",
+      "data",
+      "ai",
+      "innovation",
+      "tech",
+    ],
     software: ["software", "platform", "digital", "saas", "automation"],
     digital: ["digital", "software", "technology", "online", "data"],
   };
 
   return uniqueTerms.some((term) => {
     if (grantText.includes(term)) return true;
-    return (synonymGroups[term] ?? []).some((synonym) => grantText.includes(synonym));
+    return (synonymGroups[term] ?? []).some((synonym) =>
+      grantText.includes(synonym),
+    );
   });
 }
 
@@ -178,63 +231,82 @@ function hasExplicitMeasurableProfileCriteria(grant: GuardGrant): boolean {
 }
 
 function isSoftProfileEvidenceGap(value: string): boolean {
-  return /\b(company registration age|company age|year established|registration date|trading history|revenue data|annual revenue|turnover|employee count|team size)\b/i.test(value);
+  return /\b(company registration age|company age|year established|registration date|trading history|revenue data|annual revenue|turnover|employee count|team size)\b/i.test(
+    value,
+  );
 }
 
-function capResult(result: EligibilityResult, maxScore: number, reason: string, actions?: string[]): EligibilityResult {
+function capResult(
+  result: EligibilityResult,
+  maxScore: number,
+  reason: string,
+  actions?: string[],
+): EligibilityResult {
   const current = result.score ?? result.confidence;
-  if (current <= maxScore) return result;
   const score = Math.max(0, Math.min(maxScore, current));
-  const missing = [...(result.missing ?? []), reason].filter((value, index, arr) => arr.indexOf(value) === index);
-  const reasons = [...(result.reasons ?? []), reason].filter((value, index, arr) => arr.indexOf(value) === index);
+  const missing = [...(result.missing ?? []), reason].filter(
+    (value, index, arr) => arr.indexOf(value) === index,
+  );
+  const reasons = missing;
   const currentActions = result.improvementPlan?.actions ?? [];
-  const nextActions = [...currentActions, ...(actions ?? ["Review the grant criteria against your company DNA before applying."])]
-    .filter((value, index, arr) => arr.indexOf(value) === index);
+  const nextActions = [
+    ...currentActions,
+    ...(actions ?? [
+      "Review the grant criteria against your company DNA before applying.",
+    ]),
+  ].filter((value, index, arr) => arr.indexOf(value) === index);
   return {
     ...result,
-    decision: score >= 75 ? "likely_eligible" : score >= 40 ? "review" : "unlikely",
+    met: [], // A cap invalidates legacy prose; structured criteria supply confirmed reasons.
+    decision:
+      score >= 75 ? "likely_eligible" : score >= 40 ? "review" : "unlikely",
     score,
     confidence: score,
     winProbability: Math.min(result.winProbability ?? score, score),
     evidenceStrength: score >= 80 ? "strong" : score >= 55 ? "medium" : "weak",
-    alignment: score >= 70 ? result.alignment ?? [] : [],
+    alignment: score >= 70 ? (result.alignment ?? []) : [],
     improvementPlan:
       score >= 75
         ? result.improvementPlan
         : {
             ...(result.improvementPlan ?? {}),
-            gaps: [...(result.improvementPlan?.gaps ?? []), reason].filter((value, index, arr) => arr.indexOf(value) === index),
+            gaps: [...(result.improvementPlan?.gaps ?? []), reason].filter(
+              (value, index, arr) => arr.indexOf(value) === index,
+            ),
             actions: nextActions,
             timeline: result.improvementPlan?.timeline ?? "Before applying",
           },
     missing,
     reasons,
-    summary:
-      result.summary && result.summary.includes(reason)
-        ? result.summary
-        : `${result.summary ?? result.reason ?? "Eligibility needs review"} Score capped because: ${reason}.`,
-    reason:
-      result.reason && result.reason.includes(reason)
-        ? result.reason
-        : `${result.reason ?? result.summary ?? "Eligibility needs review"} Score capped because: ${reason}.`,
+    summary: `Eligibility needs review: ${missing.join("; ")}.`,
+    reason: `Eligibility needs review: ${missing.join("; ")}.`,
   };
 }
 
 export function applyEligibilityScoreGuards(
   profile: GuardProfile,
   grant: GuardGrant,
-  result: EligibilityResult
+  result: EligibilityResult,
 ): EligibilityResult {
   let guarded = result;
   const freshness = getGrantFreshnessStatus(grant);
   if (!freshness.usable) {
-    return capResult(guarded, 0, freshness.message ?? "Opportunity appears closed or temporally stale", [
-      "Do not apply through this listing unless the funder confirms the programme is still open.",
-    ]);
+    return capResult(
+      guarded,
+      0,
+      freshness.message ?? "Opportunity appears closed or temporally stale",
+      [
+        "Do not apply through this listing unless the funder confirms the programme is still open.",
+      ],
+    );
   }
   const applicantGate = getApplicantTypeGate(profile.businessType, grant);
   if (applicantGate && !applicantGate.profileMatches) {
-    guarded = capResult(guarded, 25, `Applicant type mismatch: ${applicantGate.reason}`);
+    guarded = capResult(
+      guarded,
+      25,
+      `Applicant type mismatch: ${applicantGate.reason}`,
+    );
   }
   if (!regionMatches(profile.location, grant.regions ?? [])) {
     guarded = capResult(guarded, 20, "Region mismatch with company location");
@@ -243,10 +315,21 @@ export function applyEligibilityScoreGuards(
     guarded = capResult(guarded, 65, "Sector fit is weak or unclear");
   }
   if (!purposeLooksAligned(profile.fundingPurposes, grant)) {
-    guarded = capResult(guarded, 60, "Funding purpose does not clearly match the grant objectives");
+    guarded = capResult(
+      guarded,
+      60,
+      "Funding purpose does not clearly match the grant objectives",
+    );
   }
-  if ((guarded.score ?? guarded.confidence ?? 0) >= 85 && !hasCoreRelevanceEvidence(profile, grant)) {
-    guarded = capResult(guarded, 70, "Core relevance is generic; the grant does not clearly evidence the company sector or funding priorities");
+  if (
+    (guarded.score ?? guarded.confidence ?? 0) >= 85 &&
+    !hasCoreRelevanceEvidence(profile, grant)
+  ) {
+    guarded = capResult(
+      guarded,
+      70,
+      "Core relevance is generic; the grant does not clearly evidence the company sector or funding priorities",
+    );
   }
 
   const preScreen = evaluateEligibilityPreScreen(profile, grant);
@@ -255,29 +338,50 @@ export function applyEligibilityScoreGuards(
       guarded,
       preScreen.scoreCap,
       `Measurable eligibility pre-screen: ${preScreen.gaps.join("; ")}`,
-      preScreen.actions
+      preScreen.actions,
     );
     guarded = {
       ...guarded,
-      met: [...(guarded.met ?? []), ...preScreen.met].filter((value, index, arr) => arr.indexOf(value) === index),
-      missing: [...(guarded.missing ?? []), ...preScreen.gaps].filter((value, index, arr) => arr.indexOf(value) === index),
+      met: [...(guarded.met ?? []), ...preScreen.met].filter(
+        (value, index, arr) => arr.indexOf(value) === index,
+      ),
+      missing: [...(guarded.missing ?? []), ...preScreen.gaps].filter(
+        (value, index, arr) => arr.indexOf(value) === index,
+      ),
     };
   } else if (preScreen.met.length > 0) {
     guarded = {
       ...guarded,
-      met: [...(guarded.met ?? []), ...preScreen.met].filter((value, index, arr) => arr.indexOf(value) === index),
+      met: [...(guarded.met ?? []), ...preScreen.met].filter(
+        (value, index, arr) => arr.indexOf(value) === index,
+      ),
     };
   }
 
-  const explicitMeasurableCriteria = hasExplicitMeasurableProfileCriteria(grant);
+  const explicitMeasurableCriteria =
+    hasExplicitMeasurableProfileCriteria(grant);
   const scoreRelevantMissing = (guarded.missing ?? []).filter(
-    (item) => explicitMeasurableCriteria || !isSoftProfileEvidenceGap(item)
+    (item) => explicitMeasurableCriteria || !isSoftProfileEvidenceGap(item),
   );
-  const warningText = [...scoreRelevantMissing, ...(guarded.reasons ?? [])].join(" ").toLowerCase();
-  if (/\b(sector mismatch|purpose mismatch|unrelated|not related|focus required|required expertise|required capability)\b/.test(warningText)) {
-    guarded = capResult(guarded, 55, "Core grant focus does not clearly match the company DNA");
+  const warningText = [...scoreRelevantMissing, ...(guarded.reasons ?? [])]
+    .join(" ")
+    .toLowerCase();
+  if (
+    /\b(sector mismatch|purpose mismatch|unrelated|not related|focus required|required expertise|required capability)\b/.test(
+      warningText,
+    )
+  ) {
+    guarded = capResult(
+      guarded,
+      55,
+      "Core grant focus does not clearly match the company DNA",
+    );
   } else if (scoreRelevantMissing.length >= 3) {
-    guarded = capResult(guarded, 65, "Several eligibility gaps need evidence before this can be treated as high fit");
+    guarded = capResult(
+      guarded,
+      65,
+      "Several eligibility gaps need evidence before this can be treated as high fit",
+    );
   }
 
   return guarded;

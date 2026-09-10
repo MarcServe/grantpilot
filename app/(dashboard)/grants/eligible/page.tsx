@@ -1,3 +1,7 @@
+import { getProfileMatches } from "@/lib/profile-matches";
+import { criteriaEnabled } from "@/lib/criteria-flags";
+import { profileCompletionFields } from "@/lib/profile-completion";
+import { FirstApplicationGuide } from "@/components/grants/first-application-guide";
 import Link from "next/link";
 import { Suspense } from "react";
 import { ArrowLeft, ArrowRight, Brain, Building2 } from "lucide-react";
@@ -8,14 +12,23 @@ import { Button } from "@/components/ui/button";
 import { BatchedEligibleGrantsList } from "@/components/grants/batched-eligible-grants-list";
 import { BusinessDnaMatchHealth } from "@/components/profile/business-dna-match-health";
 import { getMatchHealthReport } from "@/lib/match-health";
-import { optionalEligibleMatchSection, type EligibleMatchSection } from "@/lib/eligible-match-rules";
+import {
+  optionalEligibleMatchSection,
+  type EligibleMatchSection,
+} from "@/lib/eligible-match-rules";
 import { getProfileBootstrapStatus } from "@/lib/profile-bootstrap-status";
 
 const MATCH_PAGE_SIZE_OPTIONS = [20, 30, 50] as const;
 const DEFAULT_MATCH_PAGE_SIZE = 20;
 const MATCH_HEALTH_ASSESSMENT_LIMIT = 300;
 
-type MatchSearchParams = Promise<{ page?: string; pageSize?: string; tier?: string }>;
+type MatchSearchParams = Promise<{
+  page?: string;
+  pageSize?: string;
+  tier?: string;
+  section?: string;
+  top?: string;
+}>;
 
 function normalizePage(raw: string | undefined): number {
   const parsed = Number(raw);
@@ -24,13 +37,19 @@ function normalizePage(raw: string | undefined): number {
 
 function normalizePageSize(raw: string | undefined): number {
   const parsed = Number(raw);
-  return (MATCH_PAGE_SIZE_OPTIONS as readonly number[]).includes(parsed) ? parsed : DEFAULT_MATCH_PAGE_SIZE;
+  return (MATCH_PAGE_SIZE_OPTIONS as readonly number[]).includes(parsed)
+    ? parsed
+    : DEFAULT_MATCH_PAGE_SIZE;
 }
 
-function buildMatchesHref(pageSize: number, tier: EligibleMatchSection | null): string {
+function buildMatchesHref(
+  pageSize: number,
+  tier: EligibleMatchSection | null,
+): string {
   const params = new URLSearchParams();
   if (tier) params.set("tier", tier);
-  if (pageSize !== DEFAULT_MATCH_PAGE_SIZE) params.set("pageSize", String(pageSize));
+  if (pageSize !== DEFAULT_MATCH_PAGE_SIZE)
+    params.set("pageSize", String(pageSize));
   const query = params.toString();
   return query ? `/grants/eligible?${query}` : "/grants/eligible";
 }
@@ -42,15 +61,21 @@ export default async function EligibleGrantsPage({
 }) {
   const params = await searchParams;
   const initialPage = normalizePage(params.page);
-  const pageSize = normalizePageSize(params.pageSize);
-  const activeTier = optionalEligibleMatchSection(params.tier);
+  const pageSize = params.top === "5" ? 5 : normalizePageSize(params.pageSize);
+  const activeTier = optionalEligibleMatchSection(
+    params.tier ?? params.section,
+  );
   const { org, orgId } = await getActiveOrg();
   const supabase = getSupabaseAdmin();
 
   const profile = org.profiles?.[0];
-  const completionScore = (profile as { completionScore?: number; completion_score?: number } | undefined)?.completionScore
-    ?? (profile as { completion_score?: number } | undefined)?.completion_score
-    ?? 0;
+  const completionScore =
+    (
+      profile as
+        { completionScore?: number; completion_score?: number } | undefined
+    )?.completionScore ??
+    (profile as { completion_score?: number } | undefined)?.completion_score ??
+    0;
   const profileId = (profile as { id?: string } | undefined)?.id;
 
   if (!profile || !profileId) {
@@ -66,12 +91,16 @@ export default async function EligibleGrantsPage({
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
             <Building2 className="h-10 w-10 text-muted-foreground" />
-            <h2 className="mt-4 text-lg font-semibold">Create your business profile</h2>
+            <h2 className="mt-4 text-lg font-semibold">
+              Create your business profile
+            </h2>
             <p className="mt-1 text-sm text-muted-foreground">
               We need your profile to match you with eligible grants.
             </p>
             <Link href="/profile" className="mt-4">
-              <Button size="sm">Go to Profile <ArrowRight className="ml-1 h-3 w-3" /></Button>
+              <Button size="sm">
+                Go to Profile <ArrowRight className="ml-1 h-3 w-3" />
+              </Button>
             </Link>
           </CardContent>
         </Card>
@@ -79,6 +108,7 @@ export default async function EligibleGrantsPage({
     );
   }
 
+  const portfolio = await getProfileMatches(orgId, profileId);
   const matchHealthPromise = getMatchHealthReport({
     supabase,
     orgId,
@@ -104,10 +134,31 @@ export default async function EligibleGrantsPage({
 
       <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">My Matches</h1>
+          <h1 className="text-2xl font-bold">
+            {params.top === "5" ? "Your top five matches" : "My Matches"}
+          </h1>
+          <Link
+            href="/profile?view=incomplete"
+            className="text-blue-700 underline"
+          >
+            {String(profile.businessName ?? "Business profile")} ·{" "}
+            {completionScore}% complete — complete missing facts
+          </Link>
+          {params.top === "5" && (
+            <Link
+              className="ml-3 underline"
+              href="/grants/eligible?tier=suggested"
+            >
+              View all strong matches
+            </Link>
+          )}
+          {/first.time/i.test(
+            String(profile.previousGrantExperience ?? ""),
+          ) && <FirstApplicationGuide />}
           <p className="mt-1 max-w-2xl text-muted-foreground">
-            My Matches shows grants scored against your Business DNA. Suggested 85%+ matches load first; fresh
-            sub-85% grants appear at the top of Within reach, followed by older near-matches in smaller batches.
+            Review why opportunities fit, confirm missing information, and
+            prepare the strongest applications. Counts cover the whole active
+            profile; loaded cards are shown in batches.
           </p>
         </div>
         <Link
@@ -122,7 +173,11 @@ export default async function EligibleGrantsPage({
             <Link
               key={size}
               href={buildMatchesHref(size, activeTier)}
-              className={size === pageSize ? "font-semibold text-primary" : "hover:text-foreground"}
+              className={
+                size === pageSize
+                  ? "font-semibold text-primary"
+                  : "hover:text-foreground"
+              }
             >
               {size}
             </Link>
@@ -139,8 +194,11 @@ export default async function EligibleGrantsPage({
                 Profile completion: {completionScore}%
               </p>
               <p className="text-sm text-amber-700 dark:text-amber-300">
-                Complete at least 50% of your profile to unlock full AI-powered matching.{" "}
-                <Link href="/profile" className="font-medium underline">Complete profile</Link>
+                Complete at least 50% of your profile to unlock full AI-powered
+                matching.{" "}
+                <Link href="/profile" className="font-medium underline">
+                  Complete profile
+                </Link>
               </p>
             </div>
           </CardContent>
@@ -148,29 +206,63 @@ export default async function EligibleGrantsPage({
       )}
 
       <Suspense fallback={<ProfileBootstrapStatusSkeleton />}>
-        <ProfileBootstrapStatusPanel bootstrapStatusPromise={bootstrapStatusPromise} />
+        <ProfileBootstrapStatusPanel
+          bootstrapStatusPromise={bootstrapStatusPromise}
+          counts={portfolio.counts}
+        />
       </Suspense>
 
+      {criteriaEnabled() && portfolio.missingFacts.length > 0 && (
+        <section className="mb-5 rounded-xl border bg-blue-50 p-4">
+          <h2 className="font-semibold">
+            Answer once, clarify more opportunities
+          </h2>
+          <ul className="mt-2 space-y-2">
+            {portfolio.missingFacts.slice(0, 5).map((f) => {
+              const field = profileCompletionFields(portfolio.profile).find(
+                (p) => p.key === f.field,
+              );
+              return (
+                <li key={f.field}>
+                  <Link
+                    className="text-blue-700 underline"
+                    href={`/profile?step=${field?.step ?? 7}&field=${f.field}`}
+                  >
+                    Confirm {field?.label ?? f.field} — could clarify {f.count}{" "}
+                    opportunities
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
       <BatchedEligibleGrantsList
         initialTier={activeTier}
         initialPage={initialPage}
         pageSize={pageSize}
       />
 
-      <Suspense fallback={<BusinessDnaMatchHealthSkeleton />}>
-        <BusinessDnaMatchHealthPanel
-          matchHealthPromise={matchHealthPromise}
-          profile={profile as Record<string, unknown>}
-        />
-      </Suspense>
+      {!criteriaEnabled() && (
+        <Suspense fallback={<BusinessDnaMatchHealthSkeleton />}>
+          <BusinessDnaMatchHealthPanel
+            matchHealthPromise={matchHealthPromise}
+            profile={profile as Record<string, unknown>}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }
 
 async function ProfileBootstrapStatusPanel({
   bootstrapStatusPromise,
+  counts,
 }: {
-  bootstrapStatusPromise: Promise<Awaited<ReturnType<typeof getProfileBootstrapStatus>>>;
+  counts: { suggested: number; within_reach: number };
+  bootstrapStatusPromise: Promise<
+    Awaited<ReturnType<typeof getProfileBootstrapStatus>>
+  >;
 }) {
   const status = await bootstrapStatusPromise;
   if (!status.profileReady || !status.showStatus) return null;
@@ -184,7 +276,8 @@ async function ProfileBootstrapStatusPanel({
             <Brain className="mt-0.5 h-5 w-5 shrink-0 text-blue-600" />
             <div>
               <p className="text-sm font-semibold text-blue-950 dark:text-blue-100">
-                GrantsCopilot is scoring your Business DNA against current grant intelligence.
+                GrantsCopilot is scoring your Business DNA against current grant
+                intelligence.
               </p>
               <p className="mt-1 text-sm text-blue-800 dark:text-blue-200">
                 {activeQueue > 0
@@ -194,10 +287,13 @@ async function ProfileBootstrapStatusPanel({
             </div>
           </div>
           <div className="grid min-w-0 grid-cols-2 gap-2 text-xs sm:min-w-[22rem] sm:grid-cols-4">
-            <StatusMetric label="Queued" value={status.pending + status.running} />
+            <StatusMetric
+              label="Queued"
+              value={status.pending + status.running}
+            />
             <StatusMetric label="Completed" value={status.completed} />
-            <StatusMetric label="Strong 85%+" value={status.strongMatches} />
-            <StatusMetric label="Within reach" value={status.withinReach} />
+            <StatusMetric label="Strong 85%+" value={counts.suggested} />
+            <StatusMetric label="Within reach" value={counts.within_reach} />
           </div>
         </div>
       </CardContent>
@@ -209,7 +305,9 @@ function StatusMetric({ label, value }: { label: string; value: number }) {
   return (
     <div className="rounded-md border border-blue-100 bg-background/80 p-2 dark:border-blue-900">
       <div className="text-muted-foreground">{label}</div>
-      <div className="text-base font-semibold text-blue-950 dark:text-blue-100">{value}</div>
+      <div className="text-base font-semibold text-blue-950 dark:text-blue-100">
+        {value}
+      </div>
     </div>
   );
 }

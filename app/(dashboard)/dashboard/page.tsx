@@ -1,8 +1,10 @@
+import { criteriaEnabled } from "@/lib/criteria-flags";
+import { getProfileMatches } from "@/lib/profile-matches";
+import type { CriteriaAssessment } from "@/lib/criteria";
 import Link from "next/link";
 import { Suspense } from "react";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg } from "@/lib/auth";
-import { grantMatchesFunderLocations, inferFunderLocationsFromProfile } from "@/lib/constants";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -23,67 +25,25 @@ import { ApplicationCardWithDelete } from "@/components/dashboard/application-ca
 import { DashboardNotificationChannels } from "@/components/dashboard/notification-channels-card";
 import { OutcomeFeedbackBanner } from "@/components/dashboard/outcome-feedback-banner";
 import { BusinessDnaMatchHealth } from "@/components/profile/business-dna-match-health";
-import { getAppliedGrantIds } from "@/lib/applied-grants";
-import { fetchApplicationsNeedingOutcome, applicationNeedsOutcomeReminder } from "@/lib/outcome-feedback";
-import { isOpenAIChecked } from "@/lib/grant-source-policy";
-import { getSuppressedGrantIds } from "@/lib/grant-user-state";
-import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
-import { applyOutcomeScoreAdjustment, deriveOutcomeLearningAdvisory } from "@/lib/outcome-learning";
+import {
+  fetchApplicationsNeedingOutcome,
+  applicationNeedsOutcomeReminder,
+} from "@/lib/outcome-feedback";
 import { getMatchHealthReport } from "@/lib/match-health";
-import { fetchCachedGrantRowsByIds } from "@/lib/grant-record-cache";
 import { planAllowsForOrg } from "@/lib/plan-features";
 import {
   formatGrantValue,
   formatGrantFundingValue,
-  formatGrantValueSummary,
-  grantValueSummaryDetail,
-  resolveGrantFundingValue,
   summarizeGrantValues,
   type GrantFundingValue,
-  type GrantValueInput,
   type GrantValueSummary,
 } from "@/lib/grant-value";
-import type { EligibilityResult } from "@/lib/claude";
 
-const DASHBOARD_MATCH_PREVIEW_LIMIT = 80;
-const GRANT_QUERY_BATCH_SIZE = 24;
 const DASHBOARD_MATCH_HEALTH_LIMIT = 80;
-const DASHBOARD_HEADLINE_VALUE_LIMIT = 5_000_000;
-const DASHBOARD_HEADLINE_TOTAL_LIMIT = 10_000_000;
-const DASHBOARD_GRANT_SELECT_WITH_VALUE = [
-  "id",
-  "name",
-  "amount",
-  "fundingValueType",
-  "applicantMaxAmount",
-  "applicantTypicalAmount",
-  "programmeTotalAmount",
-  "fundingValueEvidence",
-  "funderLocations",
-  "createdAt",
-  "eligibility",
-  "description",
-  "objectives",
-  "applicantTypes",
-  "sectors",
-  "regions",
-].join(", ");
-const DASHBOARD_GRANT_SELECT_BASE = [
-  "id",
-  "name",
-  "amount",
-  "funderLocations",
-  "createdAt",
-  "eligibility",
-  "description",
-  "objectives",
-  "applicantTypes",
-  "sectors",
-  "regions",
-].join(", ");
 
 type SupabaseAdmin = ReturnType<typeof getSupabaseAdmin>;
 type DashboardMatchGrant = {
+  criteriaAssessment?: CriteriaAssessment;
   grantId: string;
   grantName: string;
   score: number;
@@ -92,72 +52,23 @@ type DashboardMatchGrant = {
   summary?: string;
   addedAt?: string | null;
 };
-type DeferredGrant = { grantId: string; grantName: string; funder: string; score?: number; updatedAt?: string | null };
+type DeferredGrant = {
+  grantId: string;
+  grantName: string;
+  funder: string;
+  score?: number;
+  updatedAt?: string | null;
+};
 type DashboardMatchesData = {
   suggestedGrants: DashboardMatchGrant[];
   withinReachGrants: DashboardMatchGrant[];
   deferredGrants: DeferredGrant[];
 };
 
-function profileForEligibilityGuards(profile: Record<string, unknown>) {
-  return {
-    location: String(profile.location ?? ""),
-    sector: String(profile.sector ?? ""),
-    fundingPurposes: Array.isArray(profile.fundingPurposes) ? profile.fundingPurposes as string[] : (Array.isArray(profile.funding_purposes) ? profile.funding_purposes as string[] : []),
-    businessType: String(profile.businessType ?? profile.business_type ?? "") || null,
-    employeeCount: profile.employeeCount != null ? Number(profile.employeeCount) : (profile.employee_count != null ? Number(profile.employee_count) : null),
-    annualRevenue: profile.annualRevenue != null ? Number(profile.annualRevenue) : (profile.annual_revenue != null ? Number(profile.annual_revenue) : null),
-    yearEstablished: profile.yearEstablished != null ? Number(profile.yearEstablished) : (profile.year_established != null ? Number(profile.year_established) : null),
-  };
-}
-
-function resolveDashboardFundingValue(grant: GrantValueInput): GrantFundingValue {
-  const fundingValue = resolveGrantFundingValue(grant);
-  if (
-    fundingValue.countsTowardApplicantTotal &&
-    fundingValue.amount != null &&
-    fundingValue.amount > DASHBOARD_HEADLINE_VALUE_LIMIT
-  ) {
-    return {
-      ...fundingValue,
-      amount: null,
-      type: "unknown",
-      label: "Funding value needs review",
-      countsTowardApplicantTotal: false,
-    };
-  }
-  return fundingValue;
-}
-
-function dashboardValueReviewCount(grants: DashboardMatchGrant[]) {
-  return grants.filter((grant) => {
-    const value = grant.fundingValue;
-    return Boolean(value?.amount && !value.countsTowardApplicantTotal);
-  }).length;
-}
-
-function dashboardValueDetail(summary: GrantValueSummary, reviewCount = 0) {
-  const base = grantValueSummaryDetail(summary);
-  const totalNote =
-    summary.knownCount > 0 && summary.total > DASHBOARD_HEADLINE_TOTAL_LIMIT
-      ? "large totals shown on grant cards"
-      : null;
-  const reviewNote =
-    reviewCount > 0 ? `${reviewCount} programme or large values kept off totals` : null;
-  return [base, totalNote, reviewNote].filter(Boolean).join(" · ");
-}
-
-function formatDashboardFundingHeadline(summary: GrantValueSummary) {
-  if (summary.knownCount === 0) return "Values vary";
-  if (summary.total > DASHBOARD_HEADLINE_TOTAL_LIMIT) return `${summary.knownCount} values`;
-  return formatGrantValueSummary(summary);
-}
-
 async function loadDashboardMatches({
   supabase,
   orgId,
   profile,
-  completionScore,
 }: {
   supabase: SupabaseAdmin;
   orgId: string;
@@ -168,134 +79,20 @@ async function loadDashboardMatches({
   const withinReachGrants: DashboardMatchGrant[] = [];
   let deferredGrants: DeferredGrant[] = [];
 
-  if (!profile || completionScore < 50) {
-    return { suggestedGrants, withinReachGrants, deferredGrants };
-  }
-
-  const [
-    appliedGrantIds,
-    suppressedGrantIds,
-    assessmentsResult,
-    outcomeRowsResult,
-  ] = await Promise.all([
-    getAppliedGrantIds(supabase, orgId, profile.id),
-    getSuppressedGrantIds(supabase, orgId, profile.id),
-    supabase
-      .from("EligibilityAssessment")
-      .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, scoring_source")
-      .eq("organisation_id", orgId)
-      .eq("profile_id", profile.id)
-      .order("score", { ascending: false })
-      .limit(DASHBOARD_MATCH_PREVIEW_LIMIT),
-    supabase
-      .from("ApplicationOutcome")
-      .select("outcome, awardedAmount, funderFeedback, learningNotes, Grant(name, funder)")
-      .eq("organisationId", orgId)
-      .eq("profileId", profile.id)
-      .order("reportedAt", { ascending: false })
-      .limit(3),
-  ]);
-  const assessments = assessmentsResult.data ?? [];
-  const grantIds = [
-    ...new Set((assessments as { grant_id: string; score: number; summary: string | null; scoring_source?: string | null }[]).map((a) => a.grant_id)),
-  ];
-
-  if (grantIds.length > 0) {
-    let grantById = await fetchCachedGrantRowsByIds<{
-      id: string;
-      name: string;
-      funderLocations?: string[];
-      amount?: number | null;
-      fundingValueType?: string | null;
-      applicantMaxAmount?: number | null;
-      applicantTypicalAmount?: number | null;
-      programmeTotalAmount?: number | null;
-      fundingValueEvidence?: string | null;
-      createdAt?: string | null;
-      eligibility?: string | null;
-      description?: string | null;
-      objectives?: string | null;
-      applicantTypes?: string[];
-      sectors?: string[];
-      regions?: string[];
-    }>({
-      supabase,
-      ids: grantIds,
-      select: DASHBOARD_GRANT_SELECT_WITH_VALUE,
-      batchSize: GRANT_QUERY_BATCH_SIZE,
-      ttlMs: 60_000,
-      cacheNamespace: "dashboard-grants",
-    });
-    if (grantById.size === 0 && grantIds.length > 0) {
-      grantById = await fetchCachedGrantRowsByIds({
-        supabase,
-        ids: grantIds,
-        select: DASHBOARD_GRANT_SELECT_BASE,
-        batchSize: GRANT_QUERY_BATCH_SIZE,
-        ttlMs: 60_000,
-        cacheNamespace: "dashboard-grants-base",
-      });
-    }
-    const grantsList = [...grantById.values()];
-    const userFunderLocations = inferFunderLocationsFromProfile(profile as {
-      funderLocations?: string[] | null;
-      location?: string | null;
-      country?: string | null;
-      region?: string | null;
-    });
-    const matchesLocation = new Set(grantsList.filter((g) => grantMatchesFunderLocations(g.funderLocations, userFunderLocations)).map((g) => g.id));
-    const outcomeAdvisory = deriveOutcomeLearningAdvisory(outcomeRowsResult.data ?? []);
-    for (const a of assessments as { grant_id: string; score: number; decision?: string | null; summary: string | null; missing_criteria?: string[] | null; improvement_plan?: { gaps?: string[]; actions?: string[]; timeline?: string } | null; scoring_source?: string | null }[]) {
-      if (appliedGrantIds.has(a.grant_id)) continue;
-      if (suppressedGrantIds.has(a.grant_id)) continue;
-      if (!matchesLocation.has(a.grant_id)) continue;
-      const grant = grantById.get(a.grant_id);
-      const name = grant?.name ?? "Grant";
-      const fundingValue = grant ? resolveDashboardFundingValue(grant) : null;
-      const source = a.scoring_source ?? (a.summary?.startsWith("Preliminary fit") ? "heuristic" : "openai");
-      const baseScore = source === "heuristic" ? Math.min(a.score, 69) : a.score;
-      const guarded = grant
-        ? applyOutcomeScoreAdjustment(applyEligibilityScoreGuards(
-            profileForEligibilityGuards(profile as Record<string, unknown>),
-            grant,
-            {
-              decision: a.decision === "likely_eligible" || a.decision === "review" || a.decision === "unlikely" ? a.decision : "review",
-              reason: a.summary ?? "",
-              confidence: baseScore,
-              score: baseScore,
-              summary: a.summary ?? undefined,
-              reasons: [],
-              improvementPlan: a.improvement_plan as EligibilityResult["improvementPlan"],
-              met: [],
-              missing: a.missing_criteria ?? [],
-              winProbability: baseScore,
-              evidenceStrength: baseScore >= 85 ? "strong" : baseScore >= 55 ? "medium" : "weak",
-            }
-          ), outcomeAdvisory)
-        : null;
-      const score = guarded ? (guarded.score ?? guarded.confidence) : baseScore;
-      if (isOpenAIChecked(source) && score >= 85) {
-        suggestedGrants.push({
-          grantId: a.grant_id,
-          grantName: name,
-          score,
-          amount: grant?.amount ?? null,
-          fundingValue,
-          addedAt: grant?.createdAt ?? null,
-        });
-      } else if (score >= 50) {
-        withinReachGrants.push({
-          grantId: a.grant_id,
-          grantName: name,
-          score,
-          amount: grant?.amount ?? null,
-          fundingValue,
-          summary: guarded?.summary ?? a.summary ?? undefined,
-          addedAt: grant?.createdAt ?? null,
-        });
-      }
-    }
-  }
+  if (!profile) return { suggestedGrants, withinReachGrants, deferredGrants };
+  const portfolio = await getProfileMatches(orgId, profile.id);
+  suggestedGrants.push(
+    ...portfolio.sections.suggested.map((g) => ({
+      ...g,
+      summary: g.summary ?? undefined,
+    })),
+  );
+  withinReachGrants.push(
+    ...portfolio.sections.within_reach.map((g) => ({
+      ...g,
+      summary: g.summary ?? undefined,
+    })),
+  );
 
   const { data: deferredRows } = await supabase
     .from("SavedGrant")
@@ -305,7 +102,9 @@ async function loadDashboardMatches({
     .eq("status", "deferred")
     .order("updated_at", { ascending: false })
     .limit(5);
-  const deferredIds = (deferredRows ?? []).map((row: { grant_id: string }) => row.grant_id);
+  const deferredIds = (deferredRows ?? []).map(
+    (row: { grant_id: string }) => row.grant_id,
+  );
   const scoreByGrant = new Map<string, number>();
   if (deferredIds.length > 0) {
     const { data: deferredAssessments } = await supabase
@@ -323,7 +122,9 @@ async function loadDashboardMatches({
     const r = row as {
       grant_id: string;
       updated_at?: string | null;
-      Grant?: { name?: string; funder?: string } | { name?: string; funder?: string }[];
+      Grant?:
+        | { name?: string; funder?: string }
+        | { name?: string; funder?: string }[];
     };
     const grant = Array.isArray(r.Grant) ? r.Grant[0] : r.Grant;
     return {
@@ -341,12 +142,17 @@ async function loadDashboardMatches({
 export default async function DashboardPage() {
   const { org, orgId, user } = await getActiveOrg();
   const rawUser = user as Record<string, unknown> | undefined;
-  const phoneNumber = (rawUser?.phoneNumber ?? rawUser?.phone_number) as string | null | undefined;
-  const hasPhone = Boolean(phoneNumber && String(phoneNumber).trim().length >= 10);
-  const whatsappOptIn = Boolean(rawUser?.whatsappOptIn ?? rawUser?.whatsapp_opt_in);
+  const phoneNumber = (rawUser?.phoneNumber ?? rawUser?.phone_number) as
+    string | null | undefined;
+  const hasPhone = Boolean(
+    phoneNumber && String(phoneNumber).trim().length >= 10,
+  );
+  const whatsappOptIn = Boolean(
+    rawUser?.whatsappOptIn ?? rawUser?.whatsapp_opt_in,
+  );
   const whatsappAlertsEnabled = planAllowsForOrg(
     org,
-    "whatsapp_opportunity_alerts"
+    "whatsapp_opportunity_alerts",
   );
 
   const supabase = getSupabaseAdmin();
@@ -417,8 +223,17 @@ export default async function DashboardPage() {
   const activeApplications = activeApplicationsResult.count ?? 0;
   const submittedApplications = submittedApplicationsResult.count ?? 0;
   const upcomingTasksData = upcomingTasksResult.data ?? [];
-  const taskRows = (upcomingTasksData ?? []) as { id: string; name: string; status: string; dueDate: string | null; applicationId: string; grantId: string | null }[];
-  const grantIdsFromTasks = [...new Set(taskRows.map((t) => t.grantId).filter(Boolean))] as string[];
+  const taskRows = (upcomingTasksData ?? []) as {
+    id: string;
+    name: string;
+    status: string;
+    dueDate: string | null;
+    applicationId: string;
+    grantId: string | null;
+  }[];
+  const grantIdsFromTasks = [
+    ...new Set(taskRows.map((t) => t.grantId).filter(Boolean)),
+  ] as string[];
   const grantNameById: Record<string, string> = {};
   if (grantIdsFromTasks.length > 0) {
     const { data: grantRows } = await supabase
@@ -435,20 +250,28 @@ export default async function DashboardPage() {
     status: t.status,
     dueDate: t.dueDate,
     applicationId: t.applicationId,
-    grantName: t.grantId ? grantNameById[t.grantId] ?? null : null,
+    grantName: t.grantId ? (grantNameById[t.grantId] ?? null) : null,
   }));
 
   const appsWithGrant = (recentApplications ?? []).map(
-    (app: { Grant?: { name: string; funder: string }; createdAt: string; id: string; status: string; stopped_at?: string; stoppedAt?: string }) => {
+    (app: {
+      Grant?: { name: string; funder: string };
+      createdAt: string;
+      id: string;
+      status: string;
+      stopped_at?: string;
+      stoppedAt?: string;
+    }) => {
       const stoppedAt = app.stopped_at ?? app.stoppedAt;
-      const displayStatus = app.status === "FAILED" && stoppedAt ? "STOPPED" : app.status;
+      const displayStatus =
+        app.status === "FAILED" && stoppedAt ? "STOPPED" : app.status;
       return {
         ...app,
         grant: app.Grant ?? { name: "", funder: "" },
         createdAt: app.createdAt,
         displayStatus,
       };
-    }
+    },
   );
 
   let lastEligibilityRun: string | null = null;
@@ -472,19 +295,22 @@ export default async function DashboardPage() {
   const displayName =
     profile?.businessName?.trim() ||
     org.name?.trim() ||
-    (String(rawUser?.name ?? rawUser?.fullName ?? rawUser?.email ?? "there")
+    String(rawUser?.name ?? rawUser?.fullName ?? rawUser?.email ?? "there")
       .split("@")[0]
       .replace(/[._-]+/g, " ")
-      .replace(/\b\w/g, (char) => char.toUpperCase()) || "there");
+      .replace(/\b\w/g, (char) => char.toUpperCase()) ||
+    "there";
   const totalCount = totalApplications ?? 0;
   const activeCount = activeApplications ?? 0;
   const submittedCount = submittedApplications ?? 0;
   const draftCount = Math.max(totalCount - activeCount - submittedCount, 0);
-  const successRate = totalCount > 0 ? Math.round((submittedCount / totalCount) * 100) : 0;
+  const successRate =
+    totalCount > 0 ? Math.round((submittedCount / totalCount) * 100) : 0;
   const outcomeByApplicationId = new Map<string, string>();
   for (const row of outcomeRowsForRecent.data ?? []) {
     const r = row as { applicationId?: string; outcome?: string };
-    if (r.applicationId && r.outcome) outcomeByApplicationId.set(r.applicationId, r.outcome);
+    if (r.applicationId && r.outcome)
+      outcomeByApplicationId.set(r.applicationId, r.outcome);
   }
 
   return (
@@ -513,7 +339,10 @@ export default async function DashboardPage() {
 
             <div className="mt-6">
               <Suspense fallback={<DashboardMyMatchesStartSkeleton />}>
-                <DashboardMyMatchesStart matchesPromise={matchesPromise} completionScore={completionScore} />
+                <DashboardMyMatchesStart
+                  matchesPromise={matchesPromise}
+                  completionScore={completionScore}
+                />
               </Suspense>
             </div>
 
@@ -552,7 +381,9 @@ export default async function DashboardPage() {
                 icon={Gauge}
                 label="Success Rate"
                 value={`${successRate}%`}
-                detail={totalCount > 0 ? "Submitted ratio" : "No submissions yet"}
+                detail={
+                  totalCount > 0 ? "Submitted ratio" : "No submissions yet"
+                }
                 tone="mint"
                 href="/applications"
               />
@@ -564,30 +395,64 @@ export default async function DashboardPage() {
               </Suspense>
 
               <div className="@container/progress min-w-0 rounded-2xl border border-[#e7edf6] bg-white p-4 shadow-[0_14px_36px_rgba(7,26,58,0.06)] sm:p-5">
-                <h2 className="text-lg font-black text-[#071a3a]">Application Progress</h2>
+                <h2 className="text-lg font-black text-[#071a3a]">
+                  Application Progress
+                </h2>
                 <div className="mt-6 flex flex-col items-center gap-6 @min-[320px]/progress:flex-row @min-[320px]/progress:flex-wrap @min-[320px]/progress:justify-center">
                   <div className="grid h-36 w-36 shrink-0 place-items-center rounded-full bg-[conic-gradient(#2167e8_0_42%,#35c386_42%_73%,#4bc7ad_73%_100%)] sm:h-40 sm:w-40">
                     <div className="grid h-24 w-24 place-items-center rounded-full bg-white text-center shadow-inner">
                       <div>
-                        <p className="text-3xl font-black leading-none text-[#071a3a]">{activeCount}</p>
-                        <p className="mt-1 text-xs font-bold text-[#51627d]">In Progress</p>
+                        <p className="text-3xl font-black leading-none text-[#071a3a]">
+                          {activeCount}
+                        </p>
+                        <p className="mt-1 text-xs font-bold text-[#51627d]">
+                          In Progress
+                        </p>
                       </div>
                     </div>
                   </div>
                   <div className="w-full min-w-0 max-w-[260px] space-y-4 text-sm font-extrabold text-[#071a3a]">
-                    <ProgressLegend color="bg-[#2167e8]" label="Draft" value={draftCount} />
-                    <ProgressLegend color="bg-[#4bc7ad]" label="In Review" value={activeCount} />
-                    <ProgressLegend color="bg-[#35c386]" label="Submitted" value={submittedCount} />
+                    <ProgressLegend
+                      color="bg-[#2167e8]"
+                      label="Draft"
+                      value={draftCount}
+                    />
+                    <ProgressLegend
+                      color="bg-[#4bc7ad]"
+                      label="In Review"
+                      value={activeCount}
+                    />
+                    <ProgressLegend
+                      color="bg-[#35c386]"
+                      label="Submitted"
+                      value={submittedCount}
+                    />
                   </div>
                 </div>
               </div>
             </div>
 
             <div className="mt-5 grid gap-3 rounded-2xl bg-[#e7f1ff] p-4 sm:grid-cols-2 lg:grid-cols-4">
-              <DashboardActionButton href="/grants/eligible" icon={Sparkles} label="My Matches" />
-              <DashboardActionButton href="/founder-pack" icon={FileText} label="Founder Pack" />
-              <DashboardActionButton href="/profile" icon={Building2} label="Business DNA" />
-              <DashboardActionButton href="/grants" icon={Search} label="Grant Library" />
+              <DashboardActionButton
+                href="/grants/eligible"
+                icon={Sparkles}
+                label="My Matches"
+              />
+              <DashboardActionButton
+                href="/founder-pack"
+                icon={FileText}
+                label="Founder Pack"
+              />
+              <DashboardActionButton
+                href="/profile"
+                icon={Building2}
+                label="Business DNA"
+              />
+              <DashboardActionButton
+                href="/grants"
+                icon={Search}
+                label="Grant Library"
+              />
             </div>
           </div>
 
@@ -595,19 +460,31 @@ export default async function DashboardPage() {
             <div className="rounded-2xl border border-[#dbe7f6] bg-white p-5 shadow-[0_14px_36px_rgba(7,26,58,0.06)]">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-bold text-[#51627d]">Business DNA</p>
-                  <p className="mt-1 text-3xl font-black text-[#071a3a]">{completionScore}%</p>
+                  <p className="text-sm font-bold text-[#51627d]">
+                    Business DNA
+                  </p>
+                  <p className="mt-1 text-3xl font-black text-[#071a3a]">
+                    {completionScore}%
+                  </p>
                 </div>
                 <Building2 className="h-8 w-8 text-[#2167e8]" />
               </div>
               <div className="mt-5 h-2.5 rounded-full bg-[#e6edf7]">
-                <div className="h-full rounded-full bg-[#35c386]" style={{ width: `${completionScore}%` }} />
+                <div
+                  className="h-full rounded-full bg-[#35c386]"
+                  style={{ width: `${completionScore}%` }}
+                />
               </div>
               <p className="mt-3 text-sm font-semibold text-[#51627d]">
-                {completionScore >= 100 ? "Profile complete" : "Complete your profile to improve match quality"}
+                {completionScore >= 100
+                  ? "Profile complete"
+                  : "Complete your profile to improve match quality"}
               </p>
               {completionScore < 100 && (
-                <Link href="/profile" className="mt-4 inline-flex text-sm font-extrabold text-[#2167e8]">
+                <Link
+                  href="/profile"
+                  className="mt-4 inline-flex text-sm font-extrabold text-[#2167e8]"
+                >
                   Improve profile <ArrowRight className="ml-1 h-4 w-4" />
                 </Link>
               )}
@@ -617,7 +494,10 @@ export default async function DashboardPage() {
               initialWhatsappOptIn={whatsappOptIn}
               initialHasPhone={hasPhone}
               whatsappAlertsEnabled={whatsappAlertsEnabled}
-              preferredTimezone={(org as { preferredTimezone?: string | null }).preferredTimezone ?? null}
+              preferredTimezone={
+                (org as { preferredTimezone?: string | null })
+                  .preferredTimezone ?? null
+              }
               lastEligibilityRun={lastEligibilityRun}
               eligibilityGrantCount={eligibilityGrantCount}
             />
@@ -625,12 +505,14 @@ export default async function DashboardPage() {
         </div>
       </section>
 
-      <Suspense fallback={null}>
-        <DashboardBusinessDnaPrompt
-          matchHealthPromise={matchHealthPromise}
-          profile={profile as Record<string, unknown> | undefined}
-        />
-      </Suspense>
+      {!criteriaEnabled() && (
+        <Suspense fallback={null}>
+          <DashboardBusinessDnaPrompt
+            matchHealthPromise={matchHealthPromise}
+            profile={profile as Record<string, unknown> | undefined}
+          />
+        </Suspense>
+      )}
 
       {upcomingTasks.length > 0 && (
         <Card className="rounded-2xl border-[#e1eaf6] bg-white shadow-[0_18px_45px_rgba(7,26,58,0.07)]">
@@ -640,7 +522,8 @@ export default async function DashboardPage() {
               Upcoming tasks
             </CardTitle>
             <p className="text-sm font-normal text-muted-foreground">
-              Next steps for your active applications. Click a task to open that application and mark it done.
+              Next steps for your active applications. Click a task to open that
+              application and mark it done.
             </p>
           </CardHeader>
           <CardContent>
@@ -651,7 +534,10 @@ export default async function DashboardPage() {
                     href={`/applications/${t.applicationId}`}
                     className="flex flex-col gap-0.5 rounded-md p-2 hover:bg-muted sm:flex-row sm:items-center sm:justify-between"
                   >
-                    <span className="font-medium">{t.name}{t.grantName ? ` — ${t.grantName}` : ""}</span>
+                    <span className="font-medium">
+                      {t.name}
+                      {t.grantName ? ` — ${t.grantName}` : ""}
+                    </span>
                     {t.dueDate && (
                       <span className="text-xs text-muted-foreground">
                         Due {new Date(t.dueDate).toLocaleDateString("en-GB")}
@@ -661,7 +547,10 @@ export default async function DashboardPage() {
                 </li>
               ))}
             </ul>
-            <Link href="/applications" className="mt-3 inline-block text-sm text-primary hover:underline">
+            <Link
+              href="/applications"
+              className="mt-3 inline-block text-sm text-primary hover:underline"
+            >
               View all applications <ArrowRight className="inline h-3 w-3" />
             </Link>
           </CardContent>
@@ -690,7 +579,8 @@ export default async function DashboardPage() {
               <FileText className="h-10 w-10 text-muted-foreground" />
               <h3 className="mt-4 font-medium">No applications yet</h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                Open the Grant Library to browse all current grants, or use My Matches for personalised AI-scored recommendations.
+                Open the Grant Library to browse all current grants, or use My
+                Matches for personalised AI-scored recommendations.
               </p>
               <Link href="/grants" className="mt-4">
                 <Button size="sm">Open Grant Library</Button>
@@ -709,9 +599,13 @@ export default async function DashboardPage() {
                 createdAt={app.createdAt}
                 needsOutcomeReminder={
                   ["SUBMITTED", "APPROVED"].includes(app.status) &&
-                  applicationNeedsOutcomeReminder(outcomeByApplicationId.get(app.id))
+                  applicationNeedsOutcomeReminder(
+                    outcomeByApplicationId.get(app.id),
+                  )
                 }
-                canMarkSubmitted={!["SUBMITTED", "APPROVED"].includes(app.status)}
+                canMarkSubmitted={
+                  !["SUBMITTED", "APPROVED"].includes(app.status)
+                }
               />
             ))}
           </div>
@@ -743,7 +637,9 @@ async function DashboardBusinessDnaPrompt({
   matchHealthPromise,
   profile,
 }: {
-  matchHealthPromise: Promise<Awaited<ReturnType<typeof loadDashboardMatchHealth>>>;
+  matchHealthPromise: Promise<
+    Awaited<ReturnType<typeof loadDashboardMatchHealth>>
+  >;
   profile?: Record<string, unknown>;
 }) {
   const matchHealth = await matchHealthPromise;
@@ -767,8 +663,12 @@ async function DashboardMyMatchesStart({
     <div className="rounded-2xl border border-[#cfe1ff] bg-[linear-gradient(135deg,#f4f8ff,#ecfff7)] p-4 shadow-[0_16px_42px_rgba(7,26,58,0.07)] sm:p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
-          <p className="text-xs font-black uppercase tracking-[0.12em] text-[#2167e8]">Start here</p>
-          <h2 className="mt-1 text-2xl font-black leading-tight text-[#071a3a]">My Matches</h2>
+          <p className="text-xs font-black uppercase tracking-[0.12em] text-[#2167e8]">
+            Start here
+          </p>
+          <h2 className="mt-1 text-2xl font-black leading-tight text-[#071a3a]">
+            My Matches
+          </h2>
           <p className="mt-1 text-sm font-semibold text-[#51627d]">
             AI-scored grants for your Business DNA.
           </p>
@@ -779,13 +679,29 @@ async function DashboardMyMatchesStart({
               Open My Matches <ArrowRight className="h-4 w-4" />
             </Link>
           </Button>
-          <Button asChild variant="outline" className="rounded-xl bg-white font-black">
-            <Link href="/grants/eligible?section=suggested">Strong {suggestedGrants.length}</Link>
+          <Button
+            asChild
+            variant="outline"
+            className="rounded-xl bg-white font-black"
+          >
+            <Link href="/grants/eligible?section=suggested&top=5">
+              Strong {suggestedGrants.length}
+            </Link>
           </Button>
-          <Button asChild variant="outline" className="rounded-xl bg-white font-black">
-            <Link href="/grants/eligible?section=within_reach">Within reach {withinReachGrants.length}</Link>
+          <Button
+            asChild
+            variant="outline"
+            className="rounded-xl bg-white font-black"
+          >
+            <Link href="/grants/eligible?section=within_reach">
+              Within reach {withinReachGrants.length}
+            </Link>
           </Button>
-          <Button asChild variant="outline" className="rounded-xl bg-white font-black">
+          <Button
+            asChild
+            variant="outline"
+            className="rounded-xl bg-white font-black"
+          >
             <Link href="/founder-pack">Prepare answers</Link>
           </Button>
         </div>
@@ -805,21 +721,34 @@ async function DashboardMyMatchesStart({
                 {topGrant.grantName}
               </span>
               <span className="mt-1 block text-xs font-bold text-[#51627d]">
-                {topGrant.fundingValue ? formatGrantFundingValue(topGrant.fundingValue) : formatGrantValue(topGrant.amount)}
+                {topGrant.fundingValue
+                  ? formatGrantFundingValue(topGrant.fundingValue)
+                  : formatGrantValue(topGrant.amount)}
               </span>
             </span>
             <span className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-[#2167e8] px-4 py-2 text-sm font-black text-white">
-              Review {topGrant.score}% <ArrowRight className="h-4 w-4" />
+              Review requirements <ArrowRight className="h-4 w-4" />
             </span>
           </Link>
         ) : (
           <div className="rounded-2xl border border-[#dbe7f6] bg-white p-4">
-            <p className="text-base font-black text-[#071a3a]">No matches ready yet</p>
+            <p className="text-base font-black text-[#071a3a]">
+              No matches ready yet
+            </p>
             <div className="mt-3 flex flex-wrap gap-2">
-              <Button asChild size="sm" className="rounded-xl bg-[#2167e8] font-black">
+              <Button
+                asChild
+                size="sm"
+                className="rounded-xl bg-[#2167e8] font-black"
+              >
                 <Link href="/profile">Improve Business DNA</Link>
               </Button>
-              <Button asChild size="sm" variant="outline" className="rounded-xl bg-white font-black">
+              <Button
+                asChild
+                size="sm"
+                variant="outline"
+                className="rounded-xl bg-white font-black"
+              >
                 <Link href="/grants">Browse Grant Library</Link>
               </Button>
             </div>
@@ -827,8 +756,16 @@ async function DashboardMyMatchesStart({
         )}
 
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-1">
-          <DashboardMiniButton href="/grants/eligible" label="Known value" value={formatDashboardFundingHeadline(totalValue)} />
-          <DashboardMiniButton href="/profile" label="DNA" value={`${completionScore}%`} />
+          <DashboardMiniButton
+            href="/grants/eligible"
+            label="Confirmed award values"
+            value={String(totalValue.knownCount)}
+          />
+          <DashboardMiniButton
+            href="/profile"
+            label="Business profile"
+            value={`${completionScore}%`}
+          />
         </div>
       </div>
     </div>
@@ -837,7 +774,10 @@ async function DashboardMyMatchesStart({
 
 function DashboardMyMatchesStartSkeleton() {
   return (
-    <div className="rounded-2xl border border-[#e7edf6] bg-white p-4 sm:p-5" aria-hidden="true">
+    <div
+      className="rounded-2xl border border-[#e7edf6] bg-white p-4 sm:p-5"
+      aria-hidden="true"
+    >
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-3">
           <div className="h-3 w-24 animate-pulse rounded bg-[#eef3f8]" />
@@ -846,7 +786,10 @@ function DashboardMyMatchesStartSkeleton() {
         </div>
         <div className="flex flex-wrap gap-2">
           {[0, 1, 2, 3].map((button) => (
-            <div key={button} className="h-9 w-28 animate-pulse rounded-xl bg-[#eef3f8]" />
+            <div
+              key={button}
+              className="h-9 w-28 animate-pulse rounded-xl bg-[#eef3f8]"
+            />
           ))}
         </div>
       </div>
@@ -854,24 +797,27 @@ function DashboardMyMatchesStartSkeleton() {
   );
 }
 
-async function DashboardFundingSnapshot({ matchesPromise }: { matchesPromise: Promise<DashboardMatchesData> }) {
+async function DashboardFundingSnapshot({
+  matchesPromise,
+}: {
+  matchesPromise: Promise<DashboardMatchesData>;
+}) {
   const { suggestedGrants, withinReachGrants } = await matchesPromise;
   const allMatches = [...suggestedGrants, ...withinReachGrants];
   const totalValue = summarizeGrantValues(allMatches);
-  const valueReviewCount = dashboardValueReviewCount(allMatches);
 
   return (
     <div className="grid min-w-0 gap-3 lg:grid-cols-3">
       <FundingSnapshotCard
-        label="Known applicant funding"
-        value={formatDashboardFundingHeadline(totalValue)}
-        detail={dashboardValueDetail(totalValue, valueReviewCount)}
+        label="Opportunities with confirmed award values"
+        value={String(totalValue.knownCount)}
+        detail={`${totalValue.unknownCount} award amounts not confirmed`}
         tone="blue"
       />
       <FundingSnapshotCard
         label="Strong matches"
         value={String(suggestedGrants.length)}
-        detail="85%+ AI-scored opportunities to review first"
+        detail="Review the strongest opportunities first"
         tone="green"
       />
       <FundingSnapshotCard
@@ -903,7 +849,9 @@ function FundingSnapshotCard({
 
   return (
     <div className={`rounded-2xl border px-4 py-3 ${toneClass}`}>
-      <p className="text-xs font-black uppercase tracking-[0.08em] text-[#51627d]">{label}</p>
+      <p className="text-xs font-black uppercase tracking-[0.08em] text-[#51627d]">
+        {label}
+      </p>
       <p className="mt-1 break-words text-3xl font-black leading-none tracking-tight text-[#071a3a]">
         {value}
       </p>
@@ -916,7 +864,10 @@ function DashboardFundingSnapshotSkeleton() {
   return (
     <div className="grid min-w-0 gap-3 lg:grid-cols-3" aria-hidden="true">
       {[0, 1, 2].map((item) => (
-        <div key={item} className="rounded-2xl border border-[#e7edf6] bg-white px-4 py-3">
+        <div
+          key={item}
+          className="rounded-2xl border border-[#e7edf6] bg-white px-4 py-3"
+        >
           <div className="h-3 w-32 animate-pulse rounded bg-[#eef3f8]" />
           <div className="mt-3 h-8 w-36 animate-pulse rounded bg-[#eef3f8]" />
           <div className="mt-3 h-3 w-48 max-w-full animate-pulse rounded bg-[#eef3f8]" />
@@ -936,7 +887,11 @@ function DashboardActionButton({
   label: string;
 }) {
   return (
-    <Button asChild variant="outline" className="h-12 justify-start rounded-xl border-[#cfe1ff] bg-white font-black text-[#071a3a]">
+    <Button
+      asChild
+      variant="outline"
+      className="h-12 justify-start rounded-xl border-[#cfe1ff] bg-white font-black text-[#071a3a]"
+    >
       <Link href={href}>
         <Icon className="h-4 w-4 text-[#2167e8]" />
         {label}
@@ -945,27 +900,48 @@ function DashboardActionButton({
   );
 }
 
-function DashboardMiniButton({ href, label, value }: { href: string; label: string; value: string }) {
+function DashboardMiniButton({
+  href,
+  label,
+  value,
+}: {
+  href: string;
+  label: string;
+  value: string;
+}) {
   return (
     <Link
       href={href}
       className="rounded-2xl border border-[#dbe7f6] bg-white px-4 py-3 transition-colors hover:border-[#2167e8]/45"
     >
-      <span className="block text-xs font-black uppercase tracking-[0.08em] text-[#51627d]">{label}</span>
-      <span className="mt-1 block truncate text-xl font-black text-[#071a3a]">{value}</span>
+      <span className="block text-xs font-black uppercase tracking-[0.08em] text-[#51627d]">
+        {label}
+      </span>
+      <span className="mt-1 block truncate text-xl font-black text-[#071a3a]">
+        {value}
+      </span>
     </Link>
   );
 }
 
-async function TopMatchedOpportunities({ matchesPromise }: { matchesPromise: Promise<DashboardMatchesData> }) {
+async function TopMatchedOpportunities({
+  matchesPromise,
+}: {
+  matchesPromise: Promise<DashboardMatchesData>;
+}) {
   const { suggestedGrants, withinReachGrants } = await matchesPromise;
   const topMatches = [...suggestedGrants, ...withinReachGrants].slice(0, 3);
 
   return (
     <div className="min-w-0 rounded-2xl border border-[#e7edf6] bg-white p-4 shadow-[0_14px_36px_rgba(7,26,58,0.06)] sm:p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-lg font-black text-[#071a3a]">Top Matched Opportunities</h2>
-        <Link href="/grants/eligible" className="text-sm font-extrabold text-[#2167e8]">
+        <h2 className="text-lg font-black text-[#071a3a]">
+          Top Matched Opportunities
+        </h2>
+        <Link
+          href="/grants/eligible"
+          className="text-sm font-extrabold text-[#2167e8]"
+        >
           View all
         </Link>
       </div>
@@ -985,13 +961,19 @@ async function TopMatchedOpportunities({ matchesPromise }: { matchesPromise: Pro
                   {grant.grantName}
                 </span>
                 <span className="mt-1 block text-xs font-semibold text-[#566984]">
-                  AI-ranked funding opportunity
+                  {grant.criteriaAssessment?.criteria
+                    .filter((c) => c.status === "met")
+                    .slice(0, 3)
+                    .map((c) => c.label)
+                    .join(" · ") || "Review eligibility evidence"}
                   {grant.addedAt
                     ? ` · Added ${new Date(grant.addedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`
                     : ""}
                 </span>
                 <span className="mt-1 block text-xs font-black text-[#2167e8]">
-                  {grant.fundingValue ? formatGrantFundingValue(grant.fundingValue) : formatGrantValue(grant.amount)}
+                  {grant.fundingValue
+                    ? formatGrantFundingValue(grant.fundingValue)
+                    : formatGrantValue(grant.amount)}
                 </span>
               </span>
               <span className="shrink-0 rounded-lg bg-[#dff8ed] px-2.5 py-2 text-center text-xs font-black leading-none text-[#087f59] sm:px-3">
@@ -1005,7 +987,8 @@ async function TopMatchedOpportunities({ matchesPromise }: { matchesPromise: Pro
         ) : (
           <div className="flex flex-col items-start gap-3 py-8">
             <p className="text-sm font-semibold text-[#51627d]">
-              Complete your profile and run eligibility scoring to surface your best funding matches.
+              Complete your profile and run eligibility scoring to surface your
+              best funding matches.
             </p>
             <Link href="/grants">
               <Button size="sm" className="gap-2 rounded-lg bg-[#2167e8]">
@@ -1023,8 +1006,13 @@ function TopMatchedOpportunitiesSkeleton() {
   return (
     <div className="min-w-0 rounded-2xl border border-[#e7edf6] bg-white p-4 shadow-[0_14px_36px_rgba(7,26,58,0.06)] sm:p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-lg font-black text-[#071a3a]">Top Matched Opportunities</h2>
-        <Link href="/grants/eligible" className="text-sm font-extrabold text-[#2167e8]">
+        <h2 className="text-lg font-black text-[#071a3a]">
+          Top Matched Opportunities
+        </h2>
+        <Link
+          href="/grants/eligible"
+          className="text-sm font-extrabold text-[#2167e8]"
+        >
           View all
         </Link>
       </div>
@@ -1044,8 +1032,13 @@ function TopMatchedOpportunitiesSkeleton() {
   );
 }
 
-async function DashboardMatchSections({ matchesPromise }: { matchesPromise: Promise<DashboardMatchesData> }) {
-  const { suggestedGrants, withinReachGrants, deferredGrants } = await matchesPromise;
+async function DashboardMatchSections({
+  matchesPromise,
+}: {
+  matchesPromise: Promise<DashboardMatchesData>;
+}) {
+  const { suggestedGrants, withinReachGrants, deferredGrants } =
+    await matchesPromise;
   const suggestedValue = summarizeGrantValues(suggestedGrants);
   const withinReachValue = summarizeGrantValues(withinReachGrants);
 
@@ -1063,7 +1056,8 @@ async function DashboardMatchSections({ matchesPromise }: { matchesPromise: Prom
                       Suggested for you
                     </CardTitle>
                     <p className="text-sm font-normal text-muted-foreground">
-                      High eligibility based on your profile. We&apos;ve notified you about these.
+                      High eligibility based on your profile. We&apos;ve
+                      notified you about these.
                     </p>
                   </div>
                   <MatchValueBadge summary={suggestedValue} />
@@ -1077,13 +1071,18 @@ async function DashboardMatchSections({ matchesPromise }: { matchesPromise: Prom
                         href={`/grants/${g.grantId}?from=dashboard`}
                         className="flex min-w-0 flex-col gap-2 rounded-md p-2 hover:bg-muted min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between"
                       >
-                        <span className="min-w-0 break-words font-medium">{g.grantName}</span>
+                        <span className="min-w-0 break-words font-medium">
+                          {g.grantName}
+                        </span>
                         <Badge variant="default">{g.score}%</Badge>
                       </Link>
                     </li>
                   ))}
                 </ul>
-                <Link href="/grants/eligible" className="mt-3 inline-block text-sm text-primary hover:underline">
+                <Link
+                  href="/grants/eligible"
+                  className="mt-3 inline-block text-sm text-primary hover:underline"
+                >
                   View all matches <ArrowRight className="inline h-3 w-3" />
                 </Link>
               </CardContent>
@@ -1099,7 +1098,8 @@ async function DashboardMatchSections({ matchesPromise }: { matchesPromise: Prom
                       Within reach
                     </CardTitle>
                     <p className="text-sm font-normal text-muted-foreground">
-                      Partial fit. Open a grant to see how to improve your eligibility.
+                      Partial fit. Open a grant to see how to improve your
+                      eligibility.
                     </p>
                   </div>
                   <MatchValueBadge summary={withinReachValue} />
@@ -1113,13 +1113,18 @@ async function DashboardMatchSections({ matchesPromise }: { matchesPromise: Prom
                         href={`/grants/${g.grantId}?from=dashboard`}
                         className="flex min-w-0 flex-col gap-2 rounded-md p-2 hover:bg-muted min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between"
                       >
-                        <span className="min-w-0 break-words font-medium">{g.grantName}</span>
+                        <span className="min-w-0 break-words font-medium">
+                          {g.grantName}
+                        </span>
                         <Badge variant="secondary">{g.score}%</Badge>
                       </Link>
                     </li>
                   ))}
                 </ul>
-                <Link href="/grants/eligible" className="mt-3 inline-block text-sm text-primary hover:underline">
+                <Link
+                  href="/grants/eligible"
+                  className="mt-3 inline-block text-sm text-primary hover:underline"
+                >
                   View all matches <ArrowRight className="inline h-3 w-3" />
                 </Link>
               </CardContent>
@@ -1136,7 +1141,8 @@ async function DashboardMatchSections({ matchesPromise }: { matchesPromise: Prom
               Deferred for later
             </CardTitle>
             <p className="text-sm font-normal text-muted-foreground">
-              Grants you chose to attend to later. These are excluded from repeated eligibility reminders.
+              Grants you chose to attend to later. These are excluded from
+              repeated eligibility reminders.
             </p>
           </CardHeader>
           <CardContent>
@@ -1148,15 +1154,24 @@ async function DashboardMatchSections({ matchesPromise }: { matchesPromise: Prom
                     className="flex min-w-0 flex-col gap-2 rounded-md p-2 hover:bg-muted min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between"
                   >
                     <span className="min-w-0">
-                      <span className="block truncate font-medium">{g.grantName}</span>
-                      <span className="block truncate text-xs text-muted-foreground">{g.funder}</span>
+                      <span className="block truncate font-medium">
+                        {g.grantName}
+                      </span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {g.funder}
+                      </span>
                     </span>
-                    {g.score != null && <Badge variant="secondary">{Math.round(g.score)}%</Badge>}
+                    {g.score != null && (
+                      <Badge variant="secondary">{Math.round(g.score)}%</Badge>
+                    )}
                   </Link>
                 </li>
               ))}
             </ul>
-            <Link href="/grants/eligible" className="mt-3 inline-block text-sm text-primary hover:underline">
+            <Link
+              href="/grants/eligible"
+              className="mt-3 inline-block text-sm text-primary hover:underline"
+            >
               Review all grant matches <ArrowRight className="inline h-3 w-3" />
             </Link>
           </CardContent>
@@ -1169,9 +1184,15 @@ async function DashboardMatchSections({ matchesPromise }: { matchesPromise: Prom
 function MatchValueBadge({ summary }: { summary: GrantValueSummary }) {
   return (
     <div className="rounded-lg border border-blue-100 bg-blue-50/70 px-3 py-2 text-left sm:text-right">
-      <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-blue-700">Estimated value</p>
-      <p className="text-lg font-black leading-tight text-[#071a3a]">{formatGrantValueSummary(summary)}</p>
-      <p className="text-[11px] font-medium text-muted-foreground">{grantValueSummaryDetail(summary)}</p>
+      <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-blue-700">
+        Confirmed award information
+      </p>
+      <p className="text-lg font-black leading-tight text-[#071a3a]">
+        {summary.knownCount} opportunities
+      </p>
+      <p className="text-[11px] font-medium text-muted-foreground">
+        {summary.unknownCount} amounts not confirmed
+      </p>
     </div>
   );
 }
@@ -1204,20 +1225,36 @@ function MetricCard({
   return (
     <Link href={href} className={shellClass}>
       <div className="flex flex-col gap-3 @[220px]/metric:flex-row @[220px]/metric:items-center @[220px]/metric:gap-3">
-        <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${toneClass}`}>
+        <span
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${toneClass}`}
+        >
           <Icon className="h-5 w-5" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-bold leading-snug text-[#65748c]">{label}</p>
-          <p className="mt-1 break-words text-2xl font-black leading-none tracking-tight text-[#071a3a]">{value}</p>
-          <p className="mt-1 text-xs font-bold leading-snug text-[#071a3a]">{detail}</p>
+          <p className="text-xs font-bold leading-snug text-[#65748c]">
+            {label}
+          </p>
+          <p className="mt-1 break-words text-2xl font-black leading-none tracking-tight text-[#071a3a]">
+            {value}
+          </p>
+          <p className="mt-1 text-xs font-bold leading-snug text-[#071a3a]">
+            {detail}
+          </p>
         </div>
       </div>
     </Link>
   );
 }
 
-function ProgressLegend({ color, label, value }: { color: string; label: string; value: number }) {
+function ProgressLegend({
+  color,
+  label,
+  value,
+}: {
+  color: string;
+  label: string;
+  value: number;
+}) {
   return (
     <div className="grid min-w-0 grid-cols-[14px_minmax(0,1fr)_28px] items-center gap-2">
       <span className={`h-3 w-3 shrink-0 rounded-full ${color}`} />

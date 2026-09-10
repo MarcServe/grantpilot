@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
+import { CompletionTabs } from "./completion-tabs";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
@@ -30,7 +31,10 @@ import type {
   Step6Data,
   Step7Data,
 } from "@/lib/validations/profile";
-import { normalizeEligibilityFacts, type EligibilityFact } from "@/lib/eligibility-facts";
+import {
+  normalizeEligibilityFacts,
+  type EligibilityFact,
+} from "@/lib/eligibility-facts";
 
 interface ProfileData {
   id: string;
@@ -156,6 +160,20 @@ export function ProfileForm({
 }) {
   const router = useRouter();
   const [step, setStep] = useState(initialStep);
+  const [focusField, setFocusField] = useState<string | null>(null);
+  useEffect(() => {
+    const field =
+      focusField ?? new URLSearchParams(window.location.search).get("field");
+    if (!field) return;
+    const timer = setTimeout(() => {
+      const element = document.querySelector<HTMLElement>(
+        `[name="${CSS.escape(field)}"]`,
+      );
+      element?.focus();
+      element?.scrollIntoView({ block: "center" });
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [step, focusField]);
   const [isPending, startTransition] = useTransition();
   const [savingStep, setSavingStep] = useState<number | null>(null);
   const [docs, setDocs] = useState(profile.documents);
@@ -340,8 +358,19 @@ export function ProfileForm({
             {Math.round(progressPercent)}% complete
           </span>
         </div>
-        <Progress value={Math.min(100, Math.max(0, progressPercent))} className="h-2" />
+        <Progress
+          value={Math.min(100, Math.max(0, progressPercent))}
+          className="h-2"
+        />
       </div>
+
+      <CompletionTabs
+        profile={profile as unknown as Record<string, unknown>}
+        onSelect={(s, f) => {
+          setStep(s);
+          setFocusField(f);
+        }}
+      />
 
       <CompanyDnaAutofill
         hasWebsiteUrl={Boolean(profile.websiteUrl?.trim())}
@@ -386,7 +415,8 @@ export function ProfileForm({
                 primaryContactPhone: profile.primaryContactPhone ?? "",
                 primaryContactLinkedIn: profile.primaryContactLinkedIn ?? "",
                 preferredContactMethod: profile.preferredContactMethod ?? "",
-                funderLocations: (profile.funderLocations ?? []) as Step1Data["funderLocations"],
+                funderLocations: (profile.funderLocations ??
+                  []) as Step1Data["funderLocations"],
                 websiteUrl: profile.websiteUrl ?? "",
               }}
               onSubmit={handleStep1}
@@ -429,7 +459,8 @@ export function ProfileForm({
                 fundingMin: profile.fundingMin || undefined,
                 fundingMax: profile.fundingMax || undefined,
                 fundingPurposes: profile.fundingPurposes ?? [],
-                preferredOpportunityTypes: profile.preferredOpportunityTypes ?? [],
+                preferredOpportunityTypes:
+                  profile.preferredOpportunityTypes ?? [],
                 fundingDetails: profile.fundingDetails ?? "",
                 fundingUrgency: profile.fundingUrgency ?? "",
                 fundingPosition: profile.fundingPosition ?? "",
@@ -481,21 +512,25 @@ export function ProfileForm({
                 beneficiaryGroups: profile.beneficiaryGroups ?? "",
                 beneficiaryCount: profile.beneficiaryCount ?? "",
                 geographicImpact: profile.geographicImpact ?? "",
-                diversityInclusionImpact: profile.diversityInclusionImpact ?? "",
+                diversityInclusionImpact:
+                  profile.diversityInclusionImpact ?? "",
                 jobsCreated: profile.jobsCreated ?? "",
                 revenueGrowthExpected: profile.revenueGrowthExpected ?? "",
                 co2Reduction: profile.co2Reduction ?? "",
-                productivityImprovements: profile.productivityImprovements ?? "",
+                productivityImprovements:
+                  profile.productivityImprovements ?? "",
                 milestones: profile.milestones ?? "",
                 deliverables: profile.deliverables ?? "",
                 partnerOrganisations: profile.partnerOrganisations ?? "",
                 collaborationDetails: profile.collaborationDetails ?? "",
                 risksMitigation: profile.risksMitigation ?? "",
                 exitStrategy: profile.exitStrategy ?? "",
-                projectSustainabilityPlan: profile.projectSustainabilityPlan ?? "",
+                projectSustainabilityPlan:
+                  profile.projectSustainabilityPlan ?? "",
                 socialImpact: profile.socialImpact ?? "",
                 innovationCapabilities: profile.innovationCapabilities ?? "",
-                sustainabilityInitiatives: profile.sustainabilityInitiatives ?? "",
+                sustainabilityInitiatives:
+                  profile.sustainabilityInitiatives ?? "",
                 communityEngagement: profile.communityEngagement ?? "",
                 keyAchievements: profile.keyAchievements ?? "",
                 teamExpertise: profile.teamExpertise ?? "",
@@ -510,7 +545,9 @@ export function ProfileForm({
           {step === 7 && (
             <Step7EligibilityFacts
               defaultValues={{
-                eligibilityFacts: normalizeEligibilityFacts(profile.eligibilityFacts),
+                eligibilityFacts: normalizeEligibilityFacts(
+                  profile.eligibilityFacts,
+                ),
               }}
               onSubmit={handleStep7}
               onBack={() => setStep(6)}
