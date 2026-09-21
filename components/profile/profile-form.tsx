@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition, useEffect } from "react";
+import { criteriaProfileCompletionScore } from "@/lib/profile-completion";
 import { CompletionTabs } from "./completion-tabs";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -178,7 +179,9 @@ export function ProfileForm({
   const [savingStep, setSavingStep] = useState<number | null>(null);
   const [docs, setDocs] = useState(profile.documents);
 
-  const completionScore = profile.completionScore ?? 0;
+  const completionScore = criteriaProfileCompletionScore(
+    profile as unknown as Record<string, unknown>,
+  );
   const progressPercent = completionScore;
 
   function handleStep1(data: Step1Data) {
@@ -348,7 +351,7 @@ export function ProfileForm({
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-5 overflow-hidden px-0 sm:space-y-6">
+    <div className="mx-auto w-full max-w-3xl space-y-5 px-0 sm:space-y-6">
       <div>
         <div className="mb-2 flex flex-col gap-1 text-sm min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between">
           <span className="font-medium">
@@ -371,10 +374,12 @@ export function ProfileForm({
       </div>
 
       <CompletionTabs
+        sectionLabels={STEP_LABELS}
+        activeStep={step}
         profile={profile as unknown as Record<string, unknown>}
         onSelect={(s, f) => {
           setStep(s);
-          setFocusField(f);
+          setFocusField(f || null);
         }}
       />
 

@@ -1,3 +1,4 @@
+import { criteriaProfileCompletionScore } from "@/lib/profile-completion";
 import Image from "next/image";
 import Link from "next/link";
 import { Suspense } from "react";
@@ -10,7 +11,9 @@ import { resolveEffectivePlanForOrg } from "@/lib/plan-features";
 
 export const dynamic = "force-dynamic";
 
-function preferredAccountName(org: Awaited<ReturnType<typeof getActiveOrg>>["org"]): string | null {
+function preferredAccountName(
+  org: Awaited<ReturnType<typeof getActiveOrg>>["org"],
+): string | null {
   const profileName = org.profiles?.[0]?.businessName?.trim();
   return profileName || org.name?.trim() || null;
 }
@@ -25,7 +28,9 @@ async function loadAccountNavData() {
     profiles: (org.profiles ?? []).map((profile) => ({
       id: profile.id,
       businessName: profile.businessName ?? null,
-      completionScore: Number(profile.completionScore ?? profile.completion_score ?? 0),
+      completionScore: Number(
+        profile.completionScore ?? profile.completion_score ?? 0,
+      ),
     })),
   };
 }
@@ -33,7 +38,7 @@ async function loadAccountNavData() {
 async function SidebarNavWithProfileStrength() {
   const { org } = await getActiveOrg();
   const profile = org.profiles?.[0];
-  const profileStrength = profile?.completionScore ?? 0;
+  const profileStrength = profile ? criteriaProfileCompletionScore(profile) : 0;
 
   return <DashboardNav profileStrength={profileStrength} placement="sidebar" />;
 }
@@ -43,13 +48,16 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const accountNavPromise = loadAccountNavData()
-    .catch(() => null);
+  const accountNavPromise = loadAccountNavData().catch(() => null);
 
   return (
     <div className="min-h-screen bg-[#f4f8ff] text-[#071a3a]">
       <aside className="fixed inset-y-0 left-0 z-40 hidden h-screen max-h-screen w-[250px] flex-col overflow-hidden bg-[#041d38] px-5 py-7 text-white lg:flex">
-        <Link href="/" className="flex shrink-0 items-center gap-3" aria-label="GrantsCopilot home">
+        <Link
+          href="/"
+          className="flex shrink-0 items-center gap-3"
+          aria-label="GrantsCopilot home"
+        >
           <Image
             src="/logogc.png"
             alt=""
@@ -69,7 +77,9 @@ export default function DashboardLayout({
         </Link>
 
         <div className="mt-8 flex min-h-0 flex-1 flex-col overflow-hidden">
-          <Suspense fallback={<DashboardNav profileStrength={0} placement="sidebar" />}>
+          <Suspense
+            fallback={<DashboardNav profileStrength={0} placement="sidebar" />}
+          >
             <SidebarNavWithProfileStrength />
           </Suspense>
         </div>
@@ -80,7 +90,11 @@ export default function DashboardLayout({
           <div className="mx-auto flex h-20 max-w-[1280px] items-center justify-between gap-2 px-3 sm:px-7 lg:px-8">
             <div className="flex min-w-0 items-center gap-2 sm:gap-3">
               <DashboardNav profileStrength={0} placement="header" />
-              <Link href="/" className="flex min-w-0 items-center gap-2 lg:hidden" aria-label="GrantsCopilot home">
+              <Link
+                href="/"
+                className="flex min-w-0 items-center gap-2 lg:hidden"
+                aria-label="GrantsCopilot home"
+              >
                 <Image
                   src="/logogc.png"
                   alt=""
@@ -111,14 +125,20 @@ export default function DashboardLayout({
               >
                 <Bell className="h-5 w-5" />
               </button>
-              <Suspense fallback={<div className="h-11 w-11 animate-pulse rounded-full bg-muted" />}>
+              <Suspense
+                fallback={
+                  <div className="h-11 w-11 animate-pulse rounded-full bg-muted" />
+                }
+              >
                 <UserNavWithAccountName accountNavPromise={accountNavPromise} />
               </Suspense>
             </div>
           </div>
         </header>
 
-        <main className="mx-auto w-full min-w-0 max-w-[1280px] px-3 py-5 sm:px-7 sm:py-7 lg:px-8">{children}</main>
+        <main className="mx-auto w-full min-w-0 max-w-[1280px] px-3 py-5 sm:px-7 sm:py-7 lg:px-8">
+          {children}
+        </main>
       </div>
     </div>
   );
@@ -127,7 +147,9 @@ export default function DashboardLayout({
 async function UserNavWithAccountName({
   accountNavPromise,
 }: {
-  accountNavPromise: Promise<Awaited<ReturnType<typeof loadAccountNavData>> | null>;
+  accountNavPromise: Promise<Awaited<
+    ReturnType<typeof loadAccountNavData>
+  > | null>;
 }) {
   const accountNav = await accountNavPromise;
   return (
