@@ -177,7 +177,14 @@ export function DashboardNav({
         <NavLinks />
       </nav>
 
-      <div className="mt-4 shrink-0 rounded-2xl border border-white/18 bg-white/[0.04] p-4 text-white">
+      <Link
+        href="/profile?completion=incomplete#profile-completion"
+        onClick={() =>
+          window.dispatchEvent(new Event("profile:show-incomplete"))
+        }
+        className="mt-4 block shrink-0 rounded-2xl border border-white/18 bg-white/[0.04] p-4 text-white transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+        aria-label="Profile strength: show remaining fields"
+      >
         <p className="text-[13px] font-bold text-white/86">Profile Strength</p>
         <p className="mt-2 text-[28px] font-black leading-none">{score}%</p>
         <div className="mt-4 h-2 rounded-full bg-white/18">
@@ -193,7 +200,10 @@ export function DashboardNav({
               ? "Good progress"
               : "Needs attention"}
         </p>
-      </div>
+        <p className="mt-2 text-sm font-semibold underline">
+          See what’s left to complete →
+        </p>
+      </Link>
     </>
   );
 }

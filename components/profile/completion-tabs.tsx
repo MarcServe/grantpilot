@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { profileCompletionFields } from "@/lib/profile-completion";
 import { Button } from "@/components/ui/button";
 export function CompletionTabs({
@@ -12,8 +12,32 @@ export function CompletionTabs({
   const fields = profileCompletionFields(profile);
   const missing = fields.filter((f) => !f.complete);
   const [tab, setTab] = useState(missing.length ? "incomplete" : "complete");
+  useEffect(() => {
+    const show = () => {
+      setTab("incomplete");
+      document
+        .getElementById("profile-completion")
+        ?.scrollIntoView({ block: "start", behavior: "smooth" });
+    };
+    if (
+      new URLSearchParams(window.location.search).get("completion") ===
+      "incomplete"
+    )
+      show();
+    window.addEventListener("profile:show-incomplete", show);
+    return () => window.removeEventListener("profile:show-incomplete", show);
+  }, []);
   return (
-    <section className="rounded-xl border p-4">
+    <section
+      id="profile-completion"
+      className="scroll-mt-28 rounded-xl border bg-white p-4"
+    >
+      <h2 className="mb-1 text-lg font-semibold">Complete your profile</h2>
+      <p className="mb-4 text-sm text-muted-foreground">
+        {missing.length
+          ? `${missing.length} fields left. Select a field to fill it in.`
+          : "Core fields complete. Review your saved information below."}
+      </p>
       <div
         className="flex gap-2"
         role="tablist"

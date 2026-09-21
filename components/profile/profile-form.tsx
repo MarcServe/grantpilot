@@ -354,9 +354,15 @@ export function ProfileForm({
           <span className="font-medium">
             Step {step} of {STEP_LABELS.length}: {STEP_LABELS[step - 1]}
           </span>
-          <span className="text-muted-foreground">
-            {Math.round(progressPercent)}% complete
-          </span>
+          <button
+            type="button"
+            className="text-left text-blue-700 underline"
+            onClick={() =>
+              window.dispatchEvent(new Event("profile:show-incomplete"))
+            }
+          >
+            {Math.round(progressPercent)}% complete · See missing fields
+          </button>
         </div>
         <Progress
           value={Math.min(100, Math.max(0, progressPercent))}
