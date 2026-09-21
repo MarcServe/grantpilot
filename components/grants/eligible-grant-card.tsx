@@ -1,4 +1,5 @@
 "use client";
+import { grantDeadlineDisplay } from "@/lib/grant-deadline-display";
 import type { CriteriaAssessment, CriteriaDocument } from "@/lib/criteria";
 
 import { CriteriaBadges } from "./criteria-panel";
@@ -74,26 +75,12 @@ export interface EligibleGrant {
   profileFactsNeeded?: string[] | null;
 }
 
-const ONE_WEEK_MS = 7 * 86_400_000;
 const pageLoadedAt = Date.now();
 
 function scoreBadgeVariant(score: number): "default" | "secondary" | "outline" {
   if (score >= 85) return "default";
   if (score >= 50) return "secondary";
   return "outline";
-}
-
-function formatDeadline(deadline: string | null): string | null {
-  if (!deadline) return null;
-  try {
-    return new Date(deadline).toLocaleDateString("en-GB", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    });
-  } catch {
-    return null;
-  }
 }
 
 function formatAddedAt(value?: string | null): string | null {
@@ -151,7 +138,7 @@ export function EligibleGrantCard({
   onStateChanged?: (grant: EligibleGrant, status: GrantUserState) => void;
 }) {
   const detailHref = `/grants/${grant.grantId}?from=matches`;
-  const deadlineStr = formatDeadline(grant.deadline);
+  const deadline = grantDeadlineDisplay(grant.deadline, pageLoadedAt);
   const addedAt = formatAddedAt(grant.addedAt);
   const [currentState, setCurrentState] = useState<GrantUserState | null>(
     grant.userState ?? null,
@@ -162,9 +149,6 @@ export function EligibleGrantCard({
   );
   const [feedbackSent, setFeedbackSent] = useState<string | null>(null);
   const state = stateLabel(currentState);
-  const isDeadlineSoon =
-    grant.deadline &&
-    new Date(grant.deadline).getTime() - pageLoadedAt < ONE_WEEK_MS;
   const verifiedApplicationStart = hasVerifiedApplicationStart(
     grant.applicationUrlQuality,
   );
@@ -265,7 +249,7 @@ export function EligibleGrantCard({
   }
 
   return (
-    <div className="min-w-0 rounded-lg border p-4 transition-colors hover:bg-muted/50">
+    <div className="min-w-0 space-y-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
       {grant.criteriaAssessment && (
         <CriteriaBadges
           assessment={grant.criteriaAssessment}
@@ -276,7 +260,7 @@ export function EligibleGrantCard({
         <div className="min-w-0 flex-1">
           <Link
             href={detailHref}
-            className="break-words font-medium text-foreground hover:underline"
+            className="break-words text-lg font-semibold leading-snug text-foreground hover:underline"
           >
             {grant.grantName}
           </Link>
@@ -286,16 +270,6 @@ export function EligibleGrantCard({
               <>
                 {" · "}
                 <span>Added {addedAt}</span>
-              </>
-            )}
-            {deadlineStr && (
-              <>
-                {" · "}
-                <span
-                  className={isDeadlineSoon ? "font-medium text-amber-600" : ""}
-                >
-                  Deadline: {deadlineStr}
-                </span>
               </>
             )}
           </p>
@@ -321,15 +295,6 @@ export function EligibleGrantCard({
                 </span>
               ))}
           </div>
-          <p className="text-sm">
-            Funding type:{" "}
-            {grant.opportunityType?.replaceAll("_", " ") ?? "Not confirmed"}
-          </p>
-          {grant.fundingTerms?.map((t) => (
-            <p className="text-sm" key={t.label}>
-              {t.label}: {t.value}
-            </p>
-          ))}
           <div className="flex flex-wrap gap-3 text-sm text-blue-700">
             <Link href={`${detailHref}#verify`}>Verify eligibility</Link>
             <Link href={`${detailHref}#readiness`}>Improve readiness</Link>
@@ -382,132 +347,126 @@ export function EligibleGrantCard({
         {linkLabel}
       </Badge>
 
-      {grant.effort && (
-        <div className="grid gap-2 rounded-md border border-blue-100 bg-blue-50/60 px-3 py-2 text-xs text-blue-950 sm:grid-cols-2 lg:grid-cols-5">
-          <div>
-            <span className="block font-semibold">Value</span>
-            <span className="text-blue-900/80">
-              {formatGrantFundingValue(
-                grant.fundingValue ?? grant.amount ?? grant.effort.amount,
-              )}
-            </span>
-            {grant.fundingValue?.label && (
-              <span className="block text-[10px] text-blue-900/60">
-                {grant.fundingValue.label}
-              </span>
-            )}
-          </div>
-          <div>
-            <span className="block font-semibold">Time</span>
-            <span className="text-blue-900/80">
-              Estimated {grant.effort.effortBand}
-            </span>
-            <span className="block">
-              Based on listing complexity and evidence gaps; not timed work.
-            </span>
-          </div>
-          {!grant.criteriaAssessment && (
-            <>
-              <div>
-                <span className="block font-semibold">ROAT</span>
-                <span className="text-blue-900/80">
-                  {grant.effort.roatLabel}
-                </span>
-              </div>
-              <div>
-                <span className="block font-semibold">Priority</span>
-                <span className="text-blue-900/80">
-                  {grant.effort.priorityLabel}
-                </span>
-              </div>
-              <div>
-                <span className="block font-semibold">Readiness</span>
-                <span className="text-blue-900/80">
-                  {grant.scoreDimensions?.applicationReadiness ??
-                    grant.effort.achievabilityScore}
-                  % · {grant.effort.applicationPathway}
-                </span>
-              </div>
-            </>
-          )}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div className="rounded-xl bg-slate-50 p-3">
+          <p className="text-xs font-medium text-slate-500">Award</p>
+          <p className="mt-1 font-semibold">
+            {formatGrantFundingValue(grant.fundingValue ?? grant.amount)}
+          </p>
         </div>
-      )}
-
-      {(grant.recommendationCategory ??
-        grant.effort?.recommendationCategory) && (
-        <Badge
-          variant="outline"
-          className="w-fit border-emerald-200 bg-emerald-50 text-emerald-700"
+        <div className="rounded-xl bg-blue-50 p-3">
+          <p className="text-xs font-medium text-blue-700">Effort</p>
+          <p className="mt-1 font-semibold">
+            {grant.effort?.effortBand ?? "Not assessed"}
+          </p>
+        </div>
+        <div
+          className={`col-span-2 rounded-xl p-3 sm:col-span-1 ${deadline.urgent ? "bg-amber-50 text-amber-950" : "bg-slate-50"}`}
         >
-          {grant.recommendationCategory ?? grant.effort?.recommendationCategory}
-        </Badge>
-      )}
-
-      {(grant.primaryBlocker || grant.nextAction) && (
-        <div className="rounded-md border border-blue-100 bg-blue-50/50 px-3 py-2 text-xs text-blue-950">
-          {grant.primaryBlocker && (
-            <p>
-              <span className="font-semibold">Primary blocker: </span>
-              <span className="text-blue-900/80">{grant.primaryBlocker}</span>
-            </p>
-          )}
-          {grant.nextAction && (
-            <p className={grant.primaryBlocker ? "mt-1" : ""}>
-              <span className="font-semibold">Next action: </span>
-              <span className="text-blue-900/80">{grant.nextAction}</span>
-            </p>
-          )}
+          <p className="text-xs font-medium">Listed deadline</p>
+          <p className="mt-1 font-semibold">{deadline.date}</p>
+          <p className="mt-1 text-xs">{deadline.urgency}</p>
         </div>
-      )}
-
-      {grant.summary && (
-        <p className="text-sm text-muted-foreground line-clamp-2">
-          {grant.summary}
+      </div>
+      {grant.primaryBlocker && (
+        <p className="rounded-lg border-l-4 border-amber-400 bg-amber-50 p-3 text-sm">
+          {grant.primaryBlocker}
         </p>
       )}
+      <details className="rounded-xl border border-slate-100 p-3">
+        <summary className="cursor-pointer text-sm font-medium text-slate-700">
+          Match explanation & requirements
+        </summary>
+        <div className="mt-3 space-y-3">
+          <p className="text-sm">
+            Funding type:{" "}
+            {grant.opportunityType?.replaceAll("_", " ") ?? "Not confirmed"}
+          </p>
+          {grant.fundingTerms?.map((t) => (
+            <p className="text-sm" key={t.label}>
+              {t.label}: {t.value}
+            </p>
+          ))}
+          {(grant.recommendationCategory ??
+            grant.effort?.recommendationCategory) && (
+            <Badge
+              variant="outline"
+              className="w-fit border-emerald-200 bg-emerald-50 text-emerald-700"
+            >
+              {grant.recommendationCategory ??
+                grant.effort?.recommendationCategory}
+            </Badge>
+          )}
 
-      {uniqueActions.length > 0 && grant.score < 70 && (
-        <div className="flex items-start gap-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span>To improve: {uniqueActions.join("; ")}</span>
-        </div>
-      )}
+          {(grant.primaryBlocker || grant.nextAction) && (
+            <div className="rounded-md border border-blue-100 bg-blue-50/50 px-3 py-2 text-xs text-blue-950">
+              {grant.primaryBlocker && (
+                <p>
+                  <span className="font-semibold">Primary blocker: </span>
+                  <span className="text-blue-900/80">
+                    {grant.primaryBlocker}
+                  </span>
+                </p>
+              )}
+              {grant.nextAction && (
+                <p className={grant.primaryBlocker ? "mt-1" : ""}>
+                  <span className="font-semibold">Next action: </span>
+                  <span className="text-blue-900/80">{grant.nextAction}</span>
+                </p>
+              )}
+            </div>
+          )}
 
-      {grant.effort?.whatToCheck?.length ? (
-        <div className="rounded-md border border-blue-100 bg-white px-3 py-2 text-xs text-blue-950">
-          <span className="font-semibold">Check before applying: </span>
-          <span className="text-blue-900/80">
-            {grant.effort.whatToCheck.join(" ")}
-          </span>
-        </div>
-      ) : null}
+          {grant.summary && (
+            <p className="text-sm text-muted-foreground line-clamp-2">
+              {grant.summary}
+            </p>
+          )}
 
-      {grant.verificationWarning && (
-        <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span>{grant.verificationWarning}</span>
-        </div>
-      )}
+          {uniqueActions.length > 0 && grant.score < 70 && (
+            <div className="flex items-start gap-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>To improve: {uniqueActions.join("; ")}</span>
+            </div>
+          )}
 
-      {!verifiedApplicationStart && (
-        <div
-          className={`flex items-start gap-2 rounded-md border px-3 py-2 text-xs ${
-            isAggregatorDirectoryLink ||
-            grant.applicationUrlQuality === "rejected"
-              ? "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300"
-              : "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-950/30 dark:text-slate-300"
-          }`}
-        >
-          <LinkIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span>
-            {isAggregatorDirectoryLink
-              ? "This link opens another grant directory or funding finder, not the official funder page. Save the funder page or direct application form before applying."
-              : grant.applicationUrlQuality === "rejected"
-                ? "This link is not specific enough to use as an application route. Save the official funder page or direct form first."
-                : "This is a grant information page, not a verified direct form yet. Review the page to find the funder application route."}
-          </span>
+          {grant.effort?.whatToCheck?.length ? (
+            <div className="rounded-md border border-blue-100 bg-white px-3 py-2 text-xs text-blue-950">
+              <span className="font-semibold">Check before applying: </span>
+              <span className="text-blue-900/80">
+                {grant.effort.whatToCheck.join(" ")}
+              </span>
+            </div>
+          ) : null}
+
+          {grant.verificationWarning && (
+            <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>{grant.verificationWarning}</span>
+            </div>
+          )}
+
+          {!verifiedApplicationStart && (
+            <div
+              className={`flex items-start gap-2 rounded-md border px-3 py-2 text-xs ${
+                isAggregatorDirectoryLink ||
+                grant.applicationUrlQuality === "rejected"
+                  ? "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300"
+                  : "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-950/30 dark:text-slate-300"
+              }`}
+            >
+              <LinkIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                {isAggregatorDirectoryLink
+                  ? "This link opens another grant directory or funding finder, not the official funder page. Save the funder page or direct application form before applying."
+                  : grant.applicationUrlQuality === "rejected"
+                    ? "This link is not specific enough to use as an application route. Save the official funder page or direct form first."
+                    : "This is a grant information page, not a verified direct form yet. Review the page to find the funder application route."}
+              </span>
+            </div>
+          )}
         </div>
-      )}
+      </details>
 
       <div className="mt-2 flex flex-wrap items-center gap-2 pt-1">
         <div className="flex items-center gap-2">
@@ -560,34 +519,39 @@ export function EligibleGrantCard({
         )}
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-1 border-t pt-3">
-        <span className="mr-1 text-xs font-medium text-muted-foreground">
-          Feedback
-        </span>
-        {[
-          ["relevant", "Relevant"],
-          ["not_relevant", "Not relevant"],
-          ["expired", "Expired"],
-          ["wrong_location", "Wrong location"],
-          ["not_my_business_type", "Wrong type"],
-          ["already_applied", "Already applied"],
-        ].map(([category, label]) => (
-          <Button
-            key={category}
-            type="button"
-            variant={feedbackSent === category ? "secondary" : "outline"}
-            size="sm"
-            className="h-7 px-2 text-xs"
-            disabled={feedbackSubmitting != null}
-            onClick={() => submitFeedback(category)}
-          >
-            {feedbackSubmitting === category && (
-              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-            )}
-            {label}
-          </Button>
-        ))}
-      </div>
+      <details className="border-t pt-3">
+        <summary className="cursor-pointer text-xs text-muted-foreground">
+          Give feedback
+        </summary>
+        <div className="mt-2 flex flex-wrap items-center gap-1">
+          <span className="mr-1 text-xs font-medium text-muted-foreground">
+            Feedback
+          </span>
+          {[
+            ["relevant", "Relevant"],
+            ["not_relevant", "Not relevant"],
+            ["expired", "Expired"],
+            ["wrong_location", "Wrong location"],
+            ["not_my_business_type", "Wrong type"],
+            ["already_applied", "Already applied"],
+          ].map(([category, label]) => (
+            <Button
+              key={category}
+              type="button"
+              variant={feedbackSent === category ? "secondary" : "outline"}
+              size="sm"
+              className="h-7 px-2 text-xs"
+              disabled={feedbackSubmitting != null}
+              onClick={() => submitFeedback(category)}
+            >
+              {feedbackSubmitting === category && (
+                <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+              )}
+              {label}
+            </Button>
+          ))}
+        </div>
+      </details>
     </div>
   );
 }

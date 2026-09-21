@@ -36,7 +36,11 @@ import {
 } from "@/lib/grant-value";
 
 type MatchSection =
-  "suggested" | "within_reach" | "other" | "needs_review" | "reviewed";
+  | "suggested"
+  | "within_reach"
+  | "other"
+  | "needs_review"
+  | "reviewed";
 type TierStatus = "idle" | "loading" | "loaded" | "error";
 type GrantUserState = "saved" | "viewed" | "deferred" | "applied" | "dismissed";
 
@@ -617,8 +621,7 @@ function BestFirstSection({
           Best Next Opportunities
         </CardTitle>
         <p className="text-sm font-normal text-muted-foreground">
-          Ranked by eligibility confidence, effort, deadline, route quality,
-          newness, and applicant-level value.
+          Compare fit, award, effort and deadline at a glance.
         </p>
       </CardHeader>
       <CardContent className="space-y-3">
