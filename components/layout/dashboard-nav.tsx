@@ -31,7 +31,7 @@ import { cn } from "@/lib/utils";
 const primaryNavItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/grants/eligible", label: "Opportunities", icon: BriefcaseBusiness },
-  { href: "/grants/apply-by-link", label: "Add by link", icon: LinkIcon },
+  { href: "/apply-by-link", label: "Apply by link", icon: LinkIcon },
   { href: "/applications", label: "Applications", icon: FileText },
   {
     href: "/applications/outcomes",

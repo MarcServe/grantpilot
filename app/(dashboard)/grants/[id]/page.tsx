@@ -383,7 +383,7 @@ export default async function GrantDetailPage({
       {!freshness.usable &&
         (() => {
           const isDead = freshness.reason === "url_dead";
-          const applyByLinkHref = `/grants/apply-by-link?name=${encodeURIComponent(grant.name ?? "")}&funder=${encodeURIComponent(grant.funder ?? "")}&fixGrantId=${grant.id}`;
+          const applyByLinkHref = `/apply-by-link?name=${encodeURIComponent(grant.name ?? "")}&funder=${encodeURIComponent(grant.funder ?? "")}&fixGrantId=${grant.id}`;
           return (
             <div
               className={`mb-6 flex gap-3 rounded-lg border p-4 ${

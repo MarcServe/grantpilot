@@ -334,10 +334,10 @@ export default async function GrantsPage({
             Expired archive
           </Link>
           <Link
-            href="/grants/apply-by-link"
+            href="/apply-by-link"
             className="shrink-0 rounded-md border bg-background px-4 py-2 text-sm font-medium hover:bg-muted"
           >
-            Have a grant link? Apply here
+            Apply by link
           </Link>
         </div>
       </div>
