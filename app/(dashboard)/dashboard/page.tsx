@@ -60,10 +60,29 @@ type DeferredGrant = {
   updatedAt?: string | null;
 };
 type DashboardMatchesData = {
+  error?: string;
   suggestedGrants: DashboardMatchGrant[];
   withinReachGrants: DashboardMatchGrant[];
   deferredGrants: DeferredGrant[];
 };
+
+function MatchLoadError({ message }: { message: string }) {
+  return (
+    <div
+      role="alert"
+      className="rounded-lg border border-amber-200 bg-amber-50 p-4"
+    >
+      <p>{message}</p>
+      <a className="font-semibold underline" href="/dashboard">
+        Retry dashboard
+      </a>
+      <span className="mx-2">·</span>
+      <Link className="underline" href="/grants/eligible">
+        Open My Matches
+      </Link>
+    </div>
+  );
+}
 
 async function loadDashboardMatches({
   supabase,
@@ -143,7 +162,9 @@ export default async function DashboardPage() {
   const { org, orgId, user } = await getActiveOrg();
   const rawUser = user as Record<string, unknown> | undefined;
   const phoneNumber = (rawUser?.phoneNumber ?? rawUser?.phone_number) as
-    string | null | undefined;
+    | string
+    | null
+    | undefined;
   const hasPhone = Boolean(
     phoneNumber && String(phoneNumber).trim().length >= 10,
   );
@@ -280,12 +301,42 @@ export default async function DashboardPage() {
     lastEligibilityRun = latestAssessmentResult.data.updated_at as string;
   }
   eligibilityGrantCount = eligibilityCountResult.count ?? 0;
-  const matchesPromise = loadDashboardMatches({
+  const matchesWork = loadDashboardMatches({
     supabase,
     orgId,
     profile: profile as ({ id: string } & Record<string, unknown>) | undefined,
     completionScore,
   });
+  const matchesPromise: Promise<DashboardMatchesData> = new Promise(
+    (resolve) => {
+      const timer = setTimeout(
+        () =>
+          resolve({
+            suggestedGrants: [],
+            withinReachGrants: [],
+            deferredGrants: [],
+            error:
+              "Your matches are taking longer than expected. Please retry.",
+          }),
+        20000,
+      );
+      matchesWork.then(
+        (result) => {
+          clearTimeout(timer);
+          resolve(result);
+        },
+        () => {
+          clearTimeout(timer);
+          resolve({
+            suggestedGrants: [],
+            withinReachGrants: [],
+            deferredGrants: [],
+            error: "Matches could not be loaded. Please retry.",
+          });
+        },
+      );
+    },
+  );
   const matchHealthPromise = loadDashboardMatchHealth({
     supabase,
     orgId,
@@ -654,7 +705,9 @@ async function DashboardMyMatchesStart({
   matchesPromise: Promise<DashboardMatchesData>;
   completionScore: number;
 }) {
-  const { suggestedGrants, withinReachGrants } = await matchesPromise;
+  const result = await matchesPromise;
+  if (result.error) return <MatchLoadError message={result.error} />;
+  const { suggestedGrants, withinReachGrants } = result;
   const allMatches = [...suggestedGrants, ...withinReachGrants];
   const topGrant = suggestedGrants[0] ?? withinReachGrants[0] ?? null;
   const totalValue = summarizeGrantValues(allMatches);
@@ -802,7 +855,9 @@ async function DashboardFundingSnapshot({
 }: {
   matchesPromise: Promise<DashboardMatchesData>;
 }) {
-  const { suggestedGrants, withinReachGrants } = await matchesPromise;
+  const result = await matchesPromise;
+  if (result.error) return <MatchLoadError message={result.error} />;
+  const { suggestedGrants, withinReachGrants } = result;
   const allMatches = [...suggestedGrants, ...withinReachGrants];
   const totalValue = summarizeGrantValues(allMatches);
 
@@ -929,7 +984,9 @@ async function TopMatchedOpportunities({
 }: {
   matchesPromise: Promise<DashboardMatchesData>;
 }) {
-  const { suggestedGrants, withinReachGrants } = await matchesPromise;
+  const result = await matchesPromise;
+  if (result.error) return <MatchLoadError message={result.error} />;
+  const { suggestedGrants, withinReachGrants } = result;
   const topMatches = [...suggestedGrants, ...withinReachGrants].slice(0, 3);
 
   return (
@@ -1037,8 +1094,9 @@ async function DashboardMatchSections({
 }: {
   matchesPromise: Promise<DashboardMatchesData>;
 }) {
-  const { suggestedGrants, withinReachGrants, deferredGrants } =
-    await matchesPromise;
+  const result = await matchesPromise;
+  if (result.error) return <MatchLoadError message={result.error} />;
+  const { suggestedGrants, withinReachGrants, deferredGrants } = result;
   const suggestedValue = summarizeGrantValues(suggestedGrants);
   const withinReachValue = summarizeGrantValues(withinReachGrants);
 

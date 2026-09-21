@@ -108,9 +108,14 @@ function mapEligibleAssessmentRows(
 export default async function FounderPackPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ grantId?: string; applicationId?: string }>;
+  searchParams?: Promise<{
+    grantId?: string;
+    applicationId?: string;
+    workspace?: string;
+  }>;
 }) {
   const params = await searchParams;
+  const assistantOnly = params?.workspace === "questions";
   const initialGrantId = params?.grantId?.trim() || "";
   const initialApplicationId = params?.applicationId?.trim() || "";
   const { org, orgId, activeProfileId } = await getActiveOrg();
@@ -288,7 +293,9 @@ export default async function FounderPackPage({
     <div className="mx-auto w-full max-w-7xl space-y-6 px-0 sm:px-2">
       <div className="rounded-2xl bg-white p-5 shadow-[0_18px_45px_rgba(7,26,58,0.07)] sm:p-6">
         <h1 className="text-2xl font-black text-[#071a3a]">
-          Grant Application Workspace
+          {assistantOnly
+            ? "AI Grant Question Assistant"
+            : "Grant Application Workspace"}
         </h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground sm:text-base">
           Turn one grant into funder-ready answers, evidence steps, budgets,
@@ -303,6 +310,7 @@ export default async function FounderPackPage({
         <PreparationChecklist grantId={initialGrantId} />
       )}
       <FounderPackClient
+        assistantOnly={assistantOnly}
         profiles={profileRows}
         applications={applicationRows}
         eligibleGrants={eligibleGrantRows}

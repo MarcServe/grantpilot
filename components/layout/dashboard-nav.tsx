@@ -33,7 +33,11 @@ const primaryNavItems = [
   { href: "/grants/eligible", label: "Opportunities", icon: BriefcaseBusiness },
   { href: "/grants/apply-by-link", label: "Add by link", icon: LinkIcon },
   { href: "/applications", label: "Applications", icon: FileText },
-  { href: "/applications/outcomes", label: "Outcome feedback", icon: MessageSquareReply },
+  {
+    href: "/applications/outcomes",
+    label: "Outcome feedback",
+    icon: MessageSquareReply,
+  },
   { href: "/profile", label: "My Profile", icon: UserRound },
   { href: "/data-vault", label: "Data Vault", icon: Database },
   { href: "/intelligence", label: "Intelligence", icon: BarChart3 },
@@ -41,6 +45,11 @@ const primaryNavItems = [
 ];
 
 const secondaryNavItems = [
+  {
+    href: "/grant-assistant",
+    label: "Grant Question Assistant",
+    icon: Sparkles,
+  },
   { href: "/founder-pack", label: "Founder Pack", icon: Sparkles },
   { href: "/billing", label: "Billing", icon: CreditCard },
   { href: "/feedback", label: "Contact us", icon: MessagesSquare },
@@ -75,7 +84,10 @@ function NavLinks({
   return (
     <>
       {groups.map((items, groupIndex) => (
-        <div key={groupIndex} className={cn(groupIndex > 0 && "mt-5 border-t border-white/10 pt-4")}>
+        <div
+          key={groupIndex}
+          className={cn(groupIndex > 0 && "mt-5 border-t border-white/10 pt-4")}
+        >
           {groupIndex > 0 && !compact && (
             <p className="mb-2 px-3 text-[11px] font-bold uppercase tracking-[0.12em] text-white/45">
               Growth
@@ -102,7 +114,7 @@ function NavLinks({
                       : active
                         ? "bg-[#2f6df0] text-white shadow-[0_12px_24px_rgba(33,103,232,0.24)]"
                         : "text-white/86 hover:bg-white/9 hover:text-white",
-                    className
+                    className,
                   )}
                 >
                   <Icon className="h-4.5 w-4.5" />
@@ -142,7 +154,10 @@ export function DashboardNav({
             <Menu className="h-5 w-5" />
           </Button>
         </SheetTrigger>
-        <SheetContent side="left" className="w-[min(300px,calc(100vw-1rem))] bg-white sm:max-w-[300px]">
+        <SheetContent
+          side="left"
+          className="w-[min(300px,calc(100vw-1rem))] bg-white sm:max-w-[300px]"
+        >
           <SheetHeader>
             <SheetTitle className="text-left text-xl font-black text-[#071a3a]">
               Grants<span className="text-[#2468e8]">Copilot</span>
@@ -166,10 +181,17 @@ export function DashboardNav({
         <p className="text-[13px] font-bold text-white/86">Profile Strength</p>
         <p className="mt-2 text-[28px] font-black leading-none">{score}%</p>
         <div className="mt-4 h-2 rounded-full bg-white/18">
-          <div className="h-full rounded-full bg-[#35c386]" style={{ width: `${score}%` }} />
+          <div
+            className="h-full rounded-full bg-[#35c386]"
+            style={{ width: `${score}%` }}
+          />
         </div>
         <p className="mt-3 text-[12px] font-medium text-white/82">
-          {score >= 85 ? "Excellent" : score >= 60 ? "Good progress" : "Needs attention"}
+          {score >= 85
+            ? "Excellent"
+            : score >= 60
+              ? "Good progress"
+              : "Needs attention"}
         </p>
       </div>
     </>

@@ -1,3 +1,4 @@
+import { getServerCache } from "@/lib/server-cache";
 import { createHash } from "node:crypto";
 import { cache } from "react";
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -46,7 +47,7 @@ type Assessment = EligibilityAssessmentLike & {
 export async function loadProfileMatches(
   orgId: string,
   profileId: string,
-  db = getSupabaseAdmin(),
+  db = getSupabaseAdmin({ timeoutMs: 10000 }),
 ) {
   const profileResult = await db
     .from("BusinessProfile")
@@ -107,12 +108,20 @@ export async function loadProfileMatches(
   const assessmentById = new Map(assessments.map((a) => [a.grant_id, a]));
   const locations = inferFunderLocationsFromProfile(profile);
   const versions: string[] = [];
-  for (let i = 0; i < ids.length; i += 80) {
-    const { data: grants, error } = await db
-      .from("Grant")
-      .select("*")
-      .in("id", ids.slice(i, i + 80));
-    if (error) throw new Error(error.message);
+  for (let i = 0; i < ids.length; i += 320) {
+    const results = await Promise.all(
+      [0, 80, 160, 240]
+        .filter((offset) => i + offset < ids.length)
+        .map((offset) =>
+          db
+            .from("Grant")
+            .select("*")
+            .in("id", ids.slice(i + offset, i + offset + 80)),
+        ),
+    );
+    const failure = results.find((result) => result.error);
+    if (failure?.error) throw new Error(failure.error.message);
+    const grants = results.flatMap((result) => result.data ?? []);
     for (const grant of grants ?? []) {
       if (
         !isGrantActionableNow(grant) ||
@@ -267,7 +276,11 @@ export async function loadProfileMatches(
 }
 
 export const getProfileMatches = cache((orgId: string, profileId: string) =>
-  loadProfileMatches(orgId, profileId),
+  getServerCache(
+    `profile-portfolio:${criteriaEnabled()}:${orgId}:${profileId}`,
+    { ttlMs: 15000, maxEntries: 12 },
+    () => loadProfileMatches(orgId, profileId),
+  ),
 );
 export function pageProfileMatches(
   portfolio: Awaited<ReturnType<typeof loadProfileMatches>>,

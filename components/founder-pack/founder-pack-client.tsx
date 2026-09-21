@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
@@ -843,7 +843,9 @@ export function FounderPackClient({
   initialGrantId,
   initialRequirements = "",
   initialApplicationId,
+  assistantOnly = false,
 }: {
+  assistantOnly?: boolean;
   profiles: ProfileOption[];
   applications: ApplicationOption[];
   eligibleGrants: EligibleGrantOption[];
@@ -1182,6 +1184,414 @@ export function FounderPackClient({
     toast.success("Added to pack notes");
   }
 
+  useEffect(() => {
+    if (assistantOnly || !initialProfile?.id) return;
+    const key = `grant-assistant-handoff:${initialProfile.id}`;
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return;
+    try {
+      const saved = JSON.parse(raw);
+      setForm((prev) => ({
+        ...prev,
+        grantRequirementsNotes: saved.notes,
+        selectedEligibleGrantIds: saved.grants,
+        selectedApplicationIds: saved.applications,
+      }));
+      sessionStorage.removeItem(key);
+    } catch {
+      sessionStorage.removeItem(key);
+    }
+  }, [assistantOnly, initialProfile?.id]);
+  const grantContext = (
+    <>
+      <div className="space-y-2">
+        <Label htmlFor="profileId">Business profile</Label>
+        <select
+          id="profileId"
+          value={form.profileId}
+          onChange={(event) => selectProfile(event.target.value)}
+          className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+        >
+          {profiles.map((profile) => (
+            <option key={profile.id} value={profile.id}>
+              {profile.businessName} — {profile.sector}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="space-y-3 rounded-lg border border-dashed bg-muted/25 p-3">
+        <div>
+          <Label className="text-base">Grant context</Label>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            Choose applications and/or scored grants for this profile so we pull
+            published eligibility and your latest match assessment into the
+            pack. Grants that already have an application appear only above;
+            paste extra funder wording below when needed.
+          </p>
+        </div>
+        {applicationsForProfile.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No applications for this profile yet. Paste grant requirements below
+            or start applications from{" "}
+            <span className="font-medium text-foreground">Opportunities</span>.
+          </p>
+        ) : (
+          <div className="grid max-h-[220px] gap-2 overflow-y-auto pr-1">
+            {applicationsForProfile.map((app) => (
+              <label
+                key={app.id}
+                className="flex cursor-pointer items-start gap-3 rounded-md border bg-background p-2.5 transition-colors hover:bg-muted/40"
+              >
+                <Checkbox
+                  checked={
+                    form.selectedApplicationIds?.includes(app.id) ?? false
+                  }
+                  onCheckedChange={(value) =>
+                    toggleGrantApplication(app.id, value === true)
+                  }
+                  className="mt-0.5"
+                />
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium leading-snug">
+                    {app.grantName}
+                  </span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">
+                    {app.funder ? `${app.funder} · ` : ""}
+                    Status: {app.status.replace(/_/g, " ")}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
+        {eligibleForProfile.length > 0 && (
+          <div className="space-y-2 pt-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Label className="text-sm font-medium">
+                Eligible opportunities (no application yet)
+              </Label>
+              <Badge variant="outline">{selectedEligibleCount}/15</Badge>
+            </div>
+            <p className="text-xs leading-5 text-muted-foreground">
+              From eligibility scoring for this profile. Start an application
+              for a grant if you want it in the list above instead.
+            </p>
+            <div className="grid max-h-[220px] gap-2 overflow-y-auto pr-1">
+              {eligibleForProfile.map((row) => {
+                const checked =
+                  form.selectedEligibleGrantIds?.includes(row.grantId) ?? false;
+                const atCap = selectedEligibleCount >= 15 && !checked;
+                const band = row.decision
+                  ? row.decision.replace(/_/g, " ")
+                  : "";
+                return (
+                  <label
+                    key={`${row.profileId}-${row.grantId}`}
+                    className={`flex cursor-pointer items-start gap-3 rounded-md border bg-background p-2.5 transition-colors hover:bg-muted/40 ${atCap ? "opacity-60" : ""}`}
+                  >
+                    <Checkbox
+                      checked={checked}
+                      disabled={atCap}
+                      onCheckedChange={(value) =>
+                        toggleEligibleGrant(row.grantId, value === true)
+                      }
+                      className="mt-0.5"
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium leading-snug">
+                        {row.grantName}
+                      </span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        {row.funder ? `${row.funder} · ` : ""}
+                        Score {Number.isFinite(row.score) ? row.score : "—"}%
+                        {band ? ` · ${band}` : ""}
+                        {formatAddedAt(row.addedAt)
+                          ? ` · Added ${formatAddedAt(row.addedAt)}`
+                          : ""}
+                      </span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        <div className="space-y-2 pt-1">
+          <Label htmlFor="grantRequirementsNotes">
+            Grant requirements & notes (optional)
+          </Label>
+          <Textarea
+            id="grantRequirementsNotes"
+            rows={4}
+            placeholder="Paste eligibility text, assessment criteria, word limits, mandatory documents, evaluation priorities, or grants not yet in your workspace…"
+            value={form.grantRequirementsNotes ?? ""}
+            onChange={(event) =>
+              update("grantRequirementsNotes", event.target.value)
+            }
+            className="text-sm"
+          />
+        </div>
+      </div>
+    </>
+  );
+  const assistant = (
+    <div className="space-y-4 rounded-lg border border-blue-100 bg-blue-50/50 p-3">
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
+          <Wand2 className="h-4 w-4" />
+        </div>
+        <div>
+          <Label className="text-base">AI Grant Question Assistant</Label>
+          <p className="mt-1 text-xs leading-5 text-blue-950/75">
+            Paste funder form questions and get editable answers using your
+            Business DNA, selected grant context, eligibility reasoning, and any
+            criteria pasted above.
+          </p>
+          {!allowed && (
+            <p className="mt-2 text-xs font-medium text-blue-950">
+              {freeQuestionPreviewAvailable
+                ? "Free preview: generate one answer before the full Founder Pack gate."
+                : "Preview used. Upgrade to continue drafting and export the full pack."}
+            </p>
+          )}
+        </div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+        <div className="space-y-2">
+          <Label htmlFor="questionAssistantMode">Assistant mode</Label>
+          <select
+            id="questionAssistantMode"
+            value={questionAssistantMode}
+            onChange={(event) =>
+              setQuestionAssistantMode(
+                event.target.value as
+                  | "draft_answer"
+                  | "evidence_check"
+                  | "improve_existing_answer",
+              )
+            }
+            className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+          >
+            <option value="draft_answer">Draft answer</option>
+            <option value="evidence_check">Evidence check</option>
+            <option value="improve_existing_answer">
+              Improve existing answer
+            </option>
+          </select>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="questionAssistantWordLimit">
+            Word limit (optional)
+          </Label>
+          <Input
+            id="questionAssistantWordLimit"
+            inputMode="numeric"
+            placeholder="e.g. 500"
+            value={questionAssistantWordLimit}
+            onChange={(event) =>
+              setQuestionAssistantWordLimit(event.target.value)
+            }
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="questionAssistantText">Grant form question(s)</Label>
+        <Textarea
+          id="questionAssistantText"
+          rows={5}
+          placeholder="Paste one or more questions, for example: Describe the innovation and commercial potential of your project."
+          value={questionAssistantText}
+          onChange={(event) => setQuestionAssistantText(event.target.value)}
+          className="bg-white text-sm"
+        />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="questionAssistantGuidance">
+          Extra answer guidance (optional)
+        </Label>
+        <Textarea
+          id="questionAssistantGuidance"
+          rows={3}
+          placeholder="Add tone, funder priorities, scoring guidance, or points you want included."
+          value={questionAssistantGuidance}
+          onChange={(event) => setQuestionAssistantGuidance(event.target.value)}
+          className="bg-white text-sm"
+        />
+      </div>
+      {questionAssistantMode === "improve_existing_answer" && (
+        <div className="space-y-2">
+          <Label htmlFor="questionAssistantExistingAnswer">
+            Existing answer to improve
+          </Label>
+          <Textarea
+            id="questionAssistantExistingAnswer"
+            rows={4}
+            placeholder="Paste the draft you already wrote."
+            value={questionAssistantExistingAnswer}
+            onChange={(event) =>
+              setQuestionAssistantExistingAnswer(event.target.value)
+            }
+            className="bg-white text-sm"
+          />
+        </div>
+      )}
+
+      <Button
+        type="button"
+        className="w-full gap-2"
+        disabled={
+          questionAssistantLoading ||
+          !canUseQuestionAssistant ||
+          !questionAssistantText.trim()
+        }
+        onClick={generateQuestionAnswers}
+      >
+        {questionAssistantLoading ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <Sparkles className="h-4 w-4" />
+        )}
+        {questionAssistantCta}
+      </Button>
+      {!allowed && !freeQuestionPreviewAvailable && (
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full bg-white"
+          onClick={() => router.push("/billing")}
+        >
+          Upgrade to complete this application pack
+        </Button>
+      )}
+
+      {questionAssistantAnswers.length > 0 && (
+        <div className="space-y-3">
+          {questionAssistantAnswers.map((answer, index) => (
+            <div
+              key={`${answer.question}-${index}`}
+              className="rounded-md border bg-white p-3"
+            >
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-[#071a3a]">
+                    {answer.question}
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    <Badge variant="secondary">
+                      Confidence: {answer.confidence}
+                    </Badge>
+                    <Badge variant="outline">
+                      Evidence: {answer.evidenceStrength}
+                    </Badge>
+                  </div>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="xs"
+                    className="gap-1"
+                    onClick={() => copyQuestionAnswer(answer)}
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                    Copy
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="xs"
+                    className="gap-1"
+                    onClick={() => addAnswerToPackNotes(answer)}
+                  >
+                    <PlusCircle className="h-3.5 w-3.5" />
+                    Add to pack
+                  </Button>
+                </div>
+              </div>
+              <Textarea
+                aria-label={`Draft answer ${index + 1}`}
+                className="mt-3"
+                rows={8}
+                value={answer.draftAnswer}
+                onChange={(event) =>
+                  setQuestionAssistantAnswers((current) =>
+                    current.map((item, i) =>
+                      i === index
+                        ? { ...item, draftAnswer: event.target.value }
+                        : item,
+                    ),
+                  )
+                }
+              />
+              {answer.rationale && (
+                <p className="mt-3 rounded-md bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-950">
+                  <span className="font-semibold">Why this positioning: </span>
+                  {answer.rationale}
+                </p>
+              )}
+              {(answer.missingEvidence.length > 0 ||
+                answer.suggestedProfileUpdates.length > 0 ||
+                answer.warnings.length > 0) && (
+                <div className="mt-3 grid gap-2 text-xs leading-5 text-muted-foreground">
+                  {answer.missingEvidence.length > 0 && (
+                    <p>
+                      <span className="font-semibold text-foreground">
+                        Missing evidence:{" "}
+                      </span>
+                      {answer.missingEvidence.join("; ")}
+                    </p>
+                  )}
+                  {answer.suggestedProfileUpdates.length > 0 && (
+                    <p>
+                      <span className="font-semibold text-foreground">
+                        Business DNA updates:{" "}
+                      </span>
+                      {answer.suggestedProfileUpdates.join("; ")}
+                    </p>
+                  )}
+                  {answer.warnings.length > 0 && (
+                    <p>
+                      <span className="font-semibold text-foreground">
+                        Warnings:{" "}
+                      </span>
+                      {answer.warnings.join("; ")}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+  if (assistantOnly && profiles.length)
+    return (
+      <div className="mx-auto max-w-5xl space-y-6">
+        <Card>
+          <CardContent className="space-y-4 pt-6">{grantContext}</CardContent>
+        </Card>
+        {assistant}
+        <Button
+          onClick={() => {
+            sessionStorage.setItem(
+              `grant-assistant-handoff:${form.profileId}`,
+              JSON.stringify({
+                notes: form.grantRequirementsNotes ?? "",
+                grants: form.selectedEligibleGrantIds ?? [],
+                applications: form.selectedApplicationIds ?? [],
+              }),
+            );
+            router.push("/founder-pack");
+          }}
+        >
+          Continue in Founder Pack with selected context and added answers →
+        </Button>
+      </div>
+    );
+
   if (profiles.length === 0) {
     return (
       <Card>
@@ -1355,378 +1765,19 @@ export function FounderPackClient({
                 )}
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="profileId">Business profile</Label>
-                <select
-                  id="profileId"
-                  value={form.profileId}
-                  onChange={(event) => selectProfile(event.target.value)}
-                  className="h-10 w-full rounded-md border bg-background px-3 text-sm"
-                >
-                  {profiles.map((profile) => (
-                    <option key={profile.id} value={profile.id}>
-                      {profile.businessName} — {profile.sector}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {grantContext}
 
-              <div className="space-y-3 rounded-lg border border-dashed bg-muted/25 p-3">
-                <div>
-                  <Label className="text-base">Grant context</Label>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    Choose applications and/or scored grants for this profile so
-                    we pull published eligibility and your latest match
-                    assessment into the pack. Grants that already have an
-                    application appear only above; paste extra funder wording
-                    below when needed.
-                  </p>
-                </div>
-                {applicationsForProfile.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    No applications for this profile yet. Paste grant
-                    requirements below or start applications from{" "}
-                    <span className="font-medium text-foreground">
-                      Opportunities
-                    </span>
-                    .
-                  </p>
-                ) : (
-                  <div className="grid max-h-[220px] gap-2 overflow-y-auto pr-1">
-                    {applicationsForProfile.map((app) => (
-                      <label
-                        key={app.id}
-                        className="flex cursor-pointer items-start gap-3 rounded-md border bg-background p-2.5 transition-colors hover:bg-muted/40"
-                      >
-                        <Checkbox
-                          checked={
-                            form.selectedApplicationIds?.includes(app.id) ??
-                            false
-                          }
-                          onCheckedChange={(value) =>
-                            toggleGrantApplication(app.id, value === true)
-                          }
-                          className="mt-0.5"
-                        />
-                        <span className="min-w-0">
-                          <span className="block text-sm font-medium leading-snug">
-                            {app.grantName}
-                          </span>
-                          <span className="mt-0.5 block text-xs text-muted-foreground">
-                            {app.funder ? `${app.funder} · ` : ""}
-                            Status: {app.status.replace(/_/g, " ")}
-                          </span>
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                )}
-                {eligibleForProfile.length > 0 && (
-                  <div className="space-y-2 pt-2">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <Label className="text-sm font-medium">
-                        Eligible opportunities (no application yet)
-                      </Label>
-                      <Badge variant="outline">
-                        {selectedEligibleCount}/15
-                      </Badge>
-                    </div>
-                    <p className="text-xs leading-5 text-muted-foreground">
-                      From eligibility scoring for this profile. Start an
-                      application for a grant if you want it in the list above
-                      instead.
-                    </p>
-                    <div className="grid max-h-[220px] gap-2 overflow-y-auto pr-1">
-                      {eligibleForProfile.map((row) => {
-                        const checked =
-                          form.selectedEligibleGrantIds?.includes(
-                            row.grantId,
-                          ) ?? false;
-                        const atCap = selectedEligibleCount >= 15 && !checked;
-                        const band = row.decision
-                          ? row.decision.replace(/_/g, " ")
-                          : "";
-                        return (
-                          <label
-                            key={`${row.profileId}-${row.grantId}`}
-                            className={`flex cursor-pointer items-start gap-3 rounded-md border bg-background p-2.5 transition-colors hover:bg-muted/40 ${atCap ? "opacity-60" : ""}`}
-                          >
-                            <Checkbox
-                              checked={checked}
-                              disabled={atCap}
-                              onCheckedChange={(value) =>
-                                toggleEligibleGrant(row.grantId, value === true)
-                              }
-                              className="mt-0.5"
-                            />
-                            <span className="min-w-0">
-                              <span className="block text-sm font-medium leading-snug">
-                                {row.grantName}
-                              </span>
-                              <span className="mt-0.5 block text-xs text-muted-foreground">
-                                {row.funder ? `${row.funder} · ` : ""}
-                                Score{" "}
-                                {Number.isFinite(row.score) ? row.score : "—"}%
-                                {band ? ` · ${band}` : ""}
-                                {formatAddedAt(row.addedAt)
-                                  ? ` · Added ${formatAddedAt(row.addedAt)}`
-                                  : ""}
-                              </span>
-                            </span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-                <div className="space-y-2 pt-1">
-                  <Label htmlFor="grantRequirementsNotes">
-                    Grant requirements & notes (optional)
-                  </Label>
-                  <Textarea
-                    id="grantRequirementsNotes"
-                    rows={4}
-                    placeholder="Paste eligibility text, assessment criteria, word limits, mandatory documents, evaluation priorities, or grants not yet in your workspace…"
-                    value={form.grantRequirementsNotes ?? ""}
-                    onChange={(event) =>
-                      update("grantRequirementsNotes", event.target.value)
-                    }
-                    className="text-sm"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-4 rounded-lg border border-blue-100 bg-blue-50/50 p-3">
-                <div className="flex items-start gap-3">
-                  <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
-                    <Wand2 className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <Label className="text-base">
-                      AI Grant Question Assistant
-                    </Label>
-                    <p className="mt-1 text-xs leading-5 text-blue-950/75">
-                      Paste funder form questions and get editable answers using
-                      your Business DNA, selected grant context, eligibility
-                      reasoning, and any criteria pasted above.
-                    </p>
-                    {!allowed && (
-                      <p className="mt-2 text-xs font-medium text-blue-950">
-                        {freeQuestionPreviewAvailable
-                          ? "Free preview: generate one answer before the full Founder Pack gate."
-                          : "Preview used. Upgrade to continue drafting and export the full pack."}
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-                  <div className="space-y-2">
-                    <Label htmlFor="questionAssistantMode">
-                      Assistant mode
-                    </Label>
-                    <select
-                      id="questionAssistantMode"
-                      value={questionAssistantMode}
-                      onChange={(event) =>
-                        setQuestionAssistantMode(
-                          event.target.value as
-                            | "draft_answer"
-                            | "evidence_check"
-                            | "improve_existing_answer",
-                        )
-                      }
-                      className="h-10 w-full rounded-md border bg-background px-3 text-sm"
-                    >
-                      <option value="draft_answer">Draft answer</option>
-                      <option value="evidence_check">Evidence check</option>
-                      <option value="improve_existing_answer">
-                        Improve existing answer
-                      </option>
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="questionAssistantWordLimit">
-                      Word limit (optional)
-                    </Label>
-                    <Input
-                      id="questionAssistantWordLimit"
-                      inputMode="numeric"
-                      placeholder="e.g. 500"
-                      value={questionAssistantWordLimit}
-                      onChange={(event) =>
-                        setQuestionAssistantWordLimit(event.target.value)
-                      }
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="questionAssistantText">
-                    Grant form question(s)
-                  </Label>
-                  <Textarea
-                    id="questionAssistantText"
-                    rows={5}
-                    placeholder="Paste one or more questions, for example: Describe the innovation and commercial potential of your project."
-                    value={questionAssistantText}
-                    onChange={(event) =>
-                      setQuestionAssistantText(event.target.value)
-                    }
-                    className="bg-white text-sm"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="questionAssistantGuidance">
-                    Extra answer guidance (optional)
-                  </Label>
-                  <Textarea
-                    id="questionAssistantGuidance"
-                    rows={3}
-                    placeholder="Add tone, funder priorities, scoring guidance, or points you want included."
-                    value={questionAssistantGuidance}
-                    onChange={(event) =>
-                      setQuestionAssistantGuidance(event.target.value)
-                    }
-                    className="bg-white text-sm"
-                  />
-                </div>
-                {questionAssistantMode === "improve_existing_answer" && (
-                  <div className="space-y-2">
-                    <Label htmlFor="questionAssistantExistingAnswer">
-                      Existing answer to improve
-                    </Label>
-                    <Textarea
-                      id="questionAssistantExistingAnswer"
-                      rows={4}
-                      placeholder="Paste the draft you already wrote."
-                      value={questionAssistantExistingAnswer}
-                      onChange={(event) =>
-                        setQuestionAssistantExistingAnswer(event.target.value)
-                      }
-                      className="bg-white text-sm"
-                    />
-                  </div>
-                )}
-
-                <Button
-                  type="button"
-                  className="w-full gap-2"
-                  disabled={
-                    questionAssistantLoading ||
-                    !canUseQuestionAssistant ||
-                    !questionAssistantText.trim()
-                  }
-                  onClick={generateQuestionAnswers}
-                >
-                  {questionAssistantLoading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Sparkles className="h-4 w-4" />
-                  )}
-                  {questionAssistantCta}
-                </Button>
-                {!allowed && !freeQuestionPreviewAvailable && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full bg-white"
-                    onClick={() => router.push("/billing")}
-                  >
-                    Upgrade to complete this application pack
-                  </Button>
-                )}
-
-                {questionAssistantAnswers.length > 0 && (
-                  <div className="space-y-3">
-                    {questionAssistantAnswers.map((answer, index) => (
-                      <div
-                        key={`${answer.question}-${index}`}
-                        className="rounded-md border bg-white p-3"
-                      >
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                          <div className="min-w-0">
-                            <p className="text-sm font-semibold text-[#071a3a]">
-                              {answer.question}
-                            </p>
-                            <div className="mt-2 flex flex-wrap gap-1.5">
-                              <Badge variant="secondary">
-                                Confidence: {answer.confidence}
-                              </Badge>
-                              <Badge variant="outline">
-                                Evidence: {answer.evidenceStrength}
-                              </Badge>
-                            </div>
-                          </div>
-                          <div className="flex shrink-0 gap-2">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="xs"
-                              className="gap-1"
-                              onClick={() => copyQuestionAnswer(answer)}
-                            >
-                              <Copy className="h-3.5 w-3.5" />
-                              Copy
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="xs"
-                              className="gap-1"
-                              onClick={() => addAnswerToPackNotes(answer)}
-                            >
-                              <PlusCircle className="h-3.5 w-3.5" />
-                              Add to pack
-                            </Button>
-                          </div>
-                        </div>
-                        <p className="mt-3 whitespace-pre-line text-sm leading-6 text-muted-foreground">
-                          {answer.draftAnswer}
-                        </p>
-                        {answer.rationale && (
-                          <p className="mt-3 rounded-md bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-950">
-                            <span className="font-semibold">
-                              Why this positioning:{" "}
-                            </span>
-                            {answer.rationale}
-                          </p>
-                        )}
-                        {(answer.missingEvidence.length > 0 ||
-                          answer.suggestedProfileUpdates.length > 0 ||
-                          answer.warnings.length > 0) && (
-                          <div className="mt-3 grid gap-2 text-xs leading-5 text-muted-foreground">
-                            {answer.missingEvidence.length > 0 && (
-                              <p>
-                                <span className="font-semibold text-foreground">
-                                  Missing evidence:{" "}
-                                </span>
-                                {answer.missingEvidence.join("; ")}
-                              </p>
-                            )}
-                            {answer.suggestedProfileUpdates.length > 0 && (
-                              <p>
-                                <span className="font-semibold text-foreground">
-                                  Business DNA updates:{" "}
-                                </span>
-                                {answer.suggestedProfileUpdates.join("; ")}
-                              </p>
-                            )}
-                            {answer.warnings.length > 0 && (
-                              <p>
-                                <span className="font-semibold text-foreground">
-                                  Warnings:{" "}
-                                </span>
-                                {answer.warnings.join("; ")}
-                              </p>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() =>
+                  router.push(
+                    `/grant-assistant?grantId=${encodeURIComponent(form.selectedEligibleGrantIds?.[0] ?? "")}&applicationId=${encodeURIComponent(form.selectedApplicationIds?.[0] ?? "")}`,
+                  )
+                }
+              >
+                Open AI Grant Question Assistant →
+              </Button>
 
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
                 <div className="space-y-2">

@@ -176,6 +176,25 @@ async function main() {
     0,
     "never fall back to another profile",
   );
+  for (let i = 0; i < 401; i++) {
+    const id = `scale${i}`;
+    tables.Grant.push({ ...grants[0], id });
+    tables.EligibilityAssessment.push({
+      ...tables.EligibilityAssessment[0],
+      grant_id: id,
+    });
+    tables.grant_criteria_documents.push({ grant_id: id, document: doc });
+  }
+  const scaled = await loadProfileMatches("org", "p1", db);
+  assert.equal(
+    scaled.counts.suggested,
+    409,
+    "parallel batches retain every opportunity across batch boundaries",
+  );
+  assert.equal(
+    new Set(scaled.sections.suggested.map((g) => g.grantId)).size,
+    409,
+  );
   console.log(
     "Shared portfolio filtering, exact counts, pagination and profile isolation tests passed",
   );
