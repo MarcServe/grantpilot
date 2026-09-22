@@ -1,6 +1,5 @@
 "use server";
 
-import { criteriaEnabled } from "@/lib/criteria-flags";
 import { criteriaProfileCompletionScore } from "@/lib/profile-completion";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg, setActiveProfileCookie } from "@/lib/auth";
@@ -43,70 +42,6 @@ async function getOrgId(): Promise<string> {
   return orgId;
 }
 
-function calculateCompletionScore(
-  profile: Record<string, unknown>,
-  documentCount = 0,
-): number {
-  const get = (camel: string, snake?: string): unknown =>
-    profile[camel] ?? (snake ? profile[snake] : undefined);
-
-  let score = 0;
-  const total = 20; // core Business DNA, readiness facts, and supporting documents
-
-  const businessName = get("businessName", "business_name");
-  const businessType = get("businessType", "business_type");
-  const legalStructure = get("legalStructure", "legal_structure");
-  const businessStage = get("businessStage", "business_stage");
-  const businessSizeBand = get("businessSizeBand", "business_size_band");
-  const location = get("location");
-  const localAuthority = get("localAuthority", "local_authority");
-  const sector = get("sector");
-  const missionStatement = get("missionStatement", "mission_statement");
-  const description = get("description");
-  const employeeCount = get("employeeCount", "employee_count");
-  const annualRevenue = get("annualRevenue", "annual_revenue");
-  const fundingMin = get("fundingMin", "funding_min");
-  const fundingMax = get("fundingMax", "funding_max");
-  const fundingPurposes = get("fundingPurposes", "funding_purposes");
-  const preferredOpportunityTypes = get(
-    "preferredOpportunityTypes",
-    "preferred_opportunity_types",
-  );
-  const coFundingCapacity = get("coFundingCapacity", "co_funding_capacity");
-  const reimbursementReadiness = get(
-    "reimbursementReadiness",
-    "reimbursement_readiness",
-  );
-  const eligibilityFacts = get("eligibilityFacts", "eligibility_facts");
-
-  if (businessName && String(businessName).trim()) score++;
-  if (businessType && String(businessType).trim()) score++;
-  if (legalStructure && String(legalStructure).trim()) score++;
-  if (businessStage && String(businessStage).trim()) score++;
-  if (businessSizeBand && String(businessSizeBand).trim()) score++;
-  if (location && String(location).trim()) score++;
-  if (localAuthority && String(localAuthority).trim()) score++;
-  if (sector && String(sector).trim()) score++;
-  if (missionStatement && String(missionStatement).trim()) score++;
-  if (description && String(description).trim()) score++;
-  if (employeeCount != null && Number(employeeCount) >= 0) score++;
-  if (annualRevenue != null && Number(annualRevenue) >= 0) score++;
-  if (fundingMin != null && Number(fundingMin) > 0) score++;
-  if (fundingMax != null && Number(fundingMax) > 0) score++;
-  if (Array.isArray(fundingPurposes) && fundingPurposes.length > 0) score++;
-  if (
-    Array.isArray(preferredOpportunityTypes) &&
-    preferredOpportunityTypes.length > 0
-  )
-    score++;
-  if (coFundingCapacity && String(coFundingCapacity).trim()) score++;
-  if (reimbursementReadiness && String(reimbursementReadiness).trim()) score++;
-  if (Array.isArray(eligibilityFacts) && eligibilityFacts.length > 0) score++;
-  if (documentCount >= 1) score++;
-
-  return Math.round((score / total) * 100);
-}
-
 async function recalcAndSaveCompletionScore(profileId: string): Promise<void> {
   const supabase = getSupabaseAdmin();
   const { data: profile } = await supabase
@@ -115,13 +50,7 @@ async function recalcAndSaveCompletionScore(profileId: string): Promise<void> {
     .eq("id", profileId)
     .single();
   if (!profile) return;
-  const { count } = await supabase
-    .from("Document")
-    .select("id", { count: "exact", head: true })
-    .eq("profileId", profileId);
-  const score = criteriaEnabled()
-    ? criteriaProfileCompletionScore(profile)
-    : calculateCompletionScore(profile as Record<string, unknown>, count ?? 0);
+  const score = criteriaProfileCompletionScore(profile);
   await supabase
     .from("BusinessProfile")
     .update({ completionScore: score })
@@ -386,7 +315,8 @@ export async function saveStep1(data: Step1Data) {
   await triggerEligibilityForProfile(orgId, profile.id, "profile.step1.saved");
 
   const previousUrl = (profile as Record<string, unknown>).websiteUrl as
-    string | null;
+    | string
+    | null;
   if (newUrl && newUrl !== previousUrl) {
     analyseAndSaveWebsiteIntelligence(profile.id, newUrl, orgId).catch((err) =>
       console.error("[website-intelligence] Background analysis failed:", err),
@@ -476,7 +406,13 @@ export async function saveStep3(data: Step3Data) {
       financialProjections: parsed.data.financialProjections || null,
       previousGrantExperience: parsed.data.previousGrantExperience || null,
       previousGrants: parsed.data.previousGrants ?? null,
-      previousGrantHistory: parsed.data.previousGrantHistory || null,
+      // Older deployments may not have migration 063 yet. Empty optional
+      // history must not block saving the rest of Financials. Preserve edits
+      // (including clearing an existing value) whenever the column exists.
+      ...("previousGrantHistory" in profile ||
+      parsed.data.previousGrantHistory?.trim()
+        ? { previousGrantHistory: parsed.data.previousGrantHistory || null }
+        : {}),
     })
     .eq("id", profile.id)
     .select()

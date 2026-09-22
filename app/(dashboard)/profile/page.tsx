@@ -1,4 +1,4 @@
-import { firstIncompleteProfileStep } from "@/lib/profile-completion";
+import { criteriaProfileCompletionScore } from "@/lib/profile-completion";
 import { getProfile } from "./actions";
 import { getActiveOrg } from "@/lib/auth";
 import { ProfileForm } from "@/components/profile/profile-form";
@@ -34,7 +34,7 @@ export default async function ProfilePage({
     businessName: item.businessName ?? null,
     location: typeof item.location === "string" ? item.location : null,
     sector: typeof item.sector === "string" ? item.sector : null,
-    completionScore: Number(item.completionScore ?? item.completion_score ?? 0),
+    completionScore: criteriaProfileCompletionScore(item),
   }));
   const companyDnaAutofillEnabled = planAllowsForOrg(
     activeOrg.org,
@@ -52,11 +52,7 @@ export default async function ProfilePage({
   const phoneNumber = userRow.phoneNumber ?? null;
   const whatsappOptIn = Boolean(userRow.whatsappOptIn);
 
-  const suggestedStep = firstIncompleteProfileStep(
-    profile as unknown as Record<string, unknown>,
-  );
-
-  const initialStep = stepFromQuery ?? suggestedStep;
+  const initialStep = stepFromQuery ?? 1;
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-6 px-0 sm:px-2">

@@ -1,3 +1,4 @@
+import { criteriaProfileCompletionScore } from "../lib/profile-completion";
 import assert from "node:assert/strict";
 import {
   assessCriteria,
@@ -232,4 +233,21 @@ assert.equal(
 assert.equal(firstIncompleteProfileStep({}), 1);
 console.log(
   "Criteria, source freshness, OR groups, evidence, values and profile completion tests passed",
+);
+
+// Stored legacy ratings must never override the current checklist.
+assert.equal(criteriaProfileCompletionScore({ completionScore: 100 }), 0);
+const completeProfile = Object.fromEntries(
+  profileCompletionFields({}).map((f) => [f.key, "Provided"]),
+);
+assert.equal(criteriaProfileCompletionScore(completeProfile), 100);
+assert.ok(
+  criteriaProfileCompletionScore({ ...completeProfile, legalStructure: "" }) <
+    100,
+);
+assert.equal(
+  profileCompletionFields({ annualRevenue: 0 }).find(
+    (f) => f.key === "annualRevenue",
+  )?.complete,
+  true,
 );
