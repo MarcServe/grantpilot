@@ -34,7 +34,7 @@ export function CompletionTabs({
   return (
     <section
       id="profile-completion"
-      className="sticky top-24 z-20 scroll-mt-28 rounded-xl border bg-white p-4 shadow-sm"
+      className="sticky top-36 z-20 scroll-mt-36 rounded-xl border bg-white p-4 shadow-sm"
     >
       <h2 className="mb-1 text-lg font-semibold">Complete your profile</h2>
       <p className="mb-4 text-sm text-muted-foreground">
@@ -63,7 +63,7 @@ export function CompletionTabs({
               onClick={() =>
                 onSelect(index + 1, gaps[0]?.key ?? sectionFields[0]?.key ?? "")
               }
-              className={`min-w-32 flex-1 rounded-lg border p-3 text-left text-sm transition-colors focus-visible:outline-2 focus-visible:outline-blue-600 ${complete ? "border-emerald-200 bg-emerald-50 text-emerald-900" : gaps.length ? "border-amber-200 bg-amber-50 text-amber-950" : "border-slate-200 bg-slate-50 text-slate-700"} ${activeStep === index + 1 ? "ring-2 ring-blue-500 ring-offset-1" : "hover:brightness-95"}`}
+              className={`min-w-32 flex-1 rounded-lg border p-3 text-left text-sm transition hover:shadow-md active:scale-[0.98] motion-reduce:transform-none focus-visible:outline-2 focus-visible:outline-blue-600 ${complete ? "border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100" : gaps.length ? "border-amber-200 bg-amber-50 text-amber-950 hover:bg-amber-100" : "border-slate-200 bg-slate-50 text-slate-700"} ${activeStep === index + 1 ? "ring-2 ring-blue-500 ring-offset-1" : "hover:brightness-95"}`}
             >
               <span className="block font-semibold">{label}</span>
               <span className="mt-1 block text-xs">{status}</span>
@@ -82,6 +82,7 @@ export function CompletionTabs({
             role="tab"
             aria-selected={tab === t}
             variant="outline"
+            className={`transition hover:shadow-md active:scale-[0.98] motion-reduce:transform-none ${t === "complete" ? "border-emerald-300 bg-emerald-50 text-emerald-900 hover:bg-emerald-100 hover:text-emerald-950" : "border-amber-300 bg-amber-50 text-amber-950 hover:bg-amber-100 hover:text-amber-950"} ${tab === t ? "ring-2 ring-current ring-offset-1" : ""}`}
             onClick={() => setTab(t)}
           >
             {t === "incomplete" ? "Incomplete" : "Complete"} (
@@ -98,7 +99,7 @@ export function CompletionTabs({
           .map((f) => (
             <button
               type="button"
-              className={`rounded-lg border px-3 py-2 text-left text-sm focus-visible:outline-2 focus-visible:outline-blue-600 ${f.complete ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-950"}`}
+              className={`rounded-lg border px-3 py-2 text-left text-sm transition hover:shadow-md active:scale-[0.98] motion-reduce:transform-none focus-visible:outline-2 focus-visible:outline-blue-600 ${f.complete ? "border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100" : "border-amber-200 bg-amber-50 text-amber-950 hover:bg-amber-100"}`}
               key={f.key}
               onClick={() => onSelect(f.step, f.key)}
             >

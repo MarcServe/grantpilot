@@ -1,4 +1,7 @@
-import { criteriaProfileCompletionScore } from "@/lib/profile-completion";
+import {
+  criteriaProfileCompletionScore,
+  profileCompletionFields,
+} from "@/lib/profile-completion";
 import Image from "next/image";
 import Link from "next/link";
 import { Suspense } from "react";
@@ -134,6 +137,9 @@ export default function DashboardLayout({
               </Suspense>
             </div>
           </div>
+          <Suspense fallback={null}>
+            <HeaderProfileCompletion />
+          </Suspense>
         </header>
 
         <main className="mx-auto w-full min-w-0 max-w-[1280px] px-3 py-5 sm:px-7 sm:py-7 lg:px-8">
@@ -159,5 +165,51 @@ async function UserNavWithAccountName({
       activeProfileId={accountNav?.activeProfileId ?? null}
       profileLimit={accountNav?.profileLimit ?? 1}
     />
+  );
+}
+
+async function HeaderProfileCompletion() {
+  const { org } = await getActiveOrg();
+  const profile = org.profiles?.[0];
+  const missing = profileCompletionFields(profile ?? {}).filter(
+    (field) => !field.complete,
+  );
+  if (!missing.length) return null;
+  return (
+    <div className="relative border-t border-amber-200 bg-amber-50">
+      <details className="group mx-auto max-w-[1280px]">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm font-semibold text-amber-950 transition-colors hover:bg-amber-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-600 sm:px-7 lg:px-8 [&::-webkit-details-marker]:hidden">
+          <span>
+            Complete your profile{" "}
+            <span className="font-normal">· {missing.length} fields left</span>
+          </span>
+          <span
+            aria-hidden="true"
+            className="transition-transform group-open:rotate-180"
+          >
+            ⌄
+          </span>
+        </summary>
+        <div className="absolute inset-x-0 top-full max-h-[50vh] overflow-y-auto border-b border-amber-200 bg-white p-4 shadow-lg">
+          <div className="mx-auto max-w-[1216px]">
+            <p className="mb-3 text-sm text-slate-600">
+              {profile?.businessName || "Your business"} · Select a field to
+              complete it.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {missing.map((field) => (
+                <a
+                  key={field.key}
+                  href={`/profile?step=${field.step}&field=${encodeURIComponent(field.key)}&completion=incomplete#profile-completion`}
+                  className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-950 transition hover:bg-amber-100 hover:shadow-md active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-600 motion-reduce:transform-none"
+                >
+                  ○ {field.label} →
+                </a>
+              ))}
+            </div>
+          </div>
+        </div>
+      </details>
+    </div>
   );
 }
