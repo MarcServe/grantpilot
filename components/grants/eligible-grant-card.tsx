@@ -1,4 +1,5 @@
 "use client";
+import { preliminaryScoreStatus } from "@/lib/preliminary-score-status";
 import { grantDeadlineDisplay } from "@/lib/grant-deadline-display";
 import type { CriteriaAssessment, CriteriaDocument } from "@/lib/criteria";
 
@@ -315,7 +316,7 @@ export function EligibleGrantCard({
           variant="outline"
           className="w-fit border-amber-200 bg-amber-50 text-amber-700"
         >
-          Needs full company-DNA AI review
+          {preliminaryScoreStatus({ name: grant.grantName, deadline: grant.deadline }, grant.score)}
         </Badge>
       )}
 

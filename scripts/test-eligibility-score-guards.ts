@@ -96,3 +96,6 @@ assert.equal(
 );
 
 console.log("Eligibility score guard tests passed");
+
+const researchResult = applyEligibilityScoreGuards({...profile, fundingPurposes: ["R&D"]}, {...broadGrant, description: "Supports research and experimental development."}, strongBase);
+assert.ok(!researchResult.missing?.includes("Funding purpose does not clearly match the grant objectives"));

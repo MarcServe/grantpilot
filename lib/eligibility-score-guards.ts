@@ -89,25 +89,16 @@ function sectorLooksAligned(profileSector: string, grant: GuardGrant): boolean {
   return terms.some((term) => grantText.includes(term));
 }
 
-function purposeLooksAligned(
-  profilePurposes: string[],
-  grant: GuardGrant,
-): boolean {
+function purposeLooksAligned(profilePurposes: string[], grant: GuardGrant): boolean {
   if (profilePurposes.length === 0) return true;
-  const grantText = [
-    grant.eligibility ?? "",
-    grant.description ?? "",
-    grant.objectives ?? "",
-  ]
-    .join(" ")
-    .toLowerCase();
-  return profilePurposes.some((purpose) =>
-    purpose
-      .toLowerCase()
-      .split(/[\s/&,-]+/)
-      .filter((term) => term.length > 3)
-      .some((term) => grantText.includes(term)),
-  );
+  // Preserve meaningful short funding-purpose abbreviations before tokenising.
+  // R&D previously became two discarded one-letter tokens, capping valid matches.
+  const expand = (text: string) => text.toLowerCase()
+    .replace(/\br\s*&\s*d\b/g, "research development")
+    .replace(/\bai\b/g, "artificial intelligence");
+  const grantText = expand([grant.eligibility, grant.description, grant.objectives].filter(Boolean).join(" "));
+  return profilePurposes.some(purpose => expand(purpose).split(/[\s/&,-]+/)
+    .filter(term => term.length > 3).some(term => grantText.includes(term)));
 }
 
 function grantCriteriaText(grant: GuardGrant): string {

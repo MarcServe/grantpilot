@@ -1,4 +1,5 @@
 "use client";
+import { preliminaryScoreStatus } from "@/lib/preliminary-score-status";
 
 import type { ReactNode } from "react";
 import Link from "next/link";
@@ -165,7 +166,7 @@ export function GrantCard({
       : matchSection === "within_reach"
         ? "Why this is within reach"
         : matchSection === "needs_review"
-          ? "Needs full AI review"
+          ? "{preliminaryScoreStatus({ name, deadline, urlStatus }, matchScore)}"
           : matchSection === "reviewed"
             ? "Reviewed before"
             : "Why not in My Matches?";
@@ -250,7 +251,7 @@ export function GrantCard({
           )}
           {scoringSource === "heuristic" && (
             <Badge variant="outline" className="w-fit border-amber-200 bg-amber-50 text-xs text-amber-700">
-              Needs full AI review
+              {preliminaryScoreStatus({ name, deadline, urlStatus }, matchScore)}
             </Badge>
           )}
           {showUnscoredState && matchScore === undefined && (

@@ -1,3 +1,4 @@
+import { shouldRecoverDeepScore } from "@/lib/deep-score-recovery";
 import { getEligibilityDecision } from "@/lib/claude";
 import {
   grantContentHashForEligibility,
@@ -363,6 +364,9 @@ export async function enqueueDeepScoreCandidates(options: {
     const profileHash = dedupedRows[0]?.profile_hash;
     const grantIds = Array.from(new Set(dedupedRows.map((row) => row.grant_id)));
     const existingRows: Array<{
+      id: string;
+      last_error: string | null;
+      updated_at: string | null;
       grant_id: string;
       profile_hash: string | null;
       grant_content_hash: string | null;
@@ -373,7 +377,7 @@ export async function enqueueDeepScoreCandidates(options: {
         const grantIdBatch = grantIds.slice(offset, offset + QUEUE_LOOKUP_BATCH_SIZE);
         const existingResult = await supabase
           .from("eligibility_deep_score_queue")
-          .select("grant_id, profile_hash, grant_content_hash, status")
+          .select("id, grant_id, profile_hash, grant_content_hash, status, last_error, updated_at")
           .eq("organisation_id", options.organisationId)
           .eq("profile_id", options.profileId)
           .eq("profile_hash", profileHash)
@@ -390,9 +394,30 @@ export async function enqueueDeepScoreCandidates(options: {
       const existing = existingByKey.get(`${row.grant_id}:${row.profile_hash}:${row.grant_content_hash}`);
       return !existing;
     });
-    if (rowsToInsert.length === 0) return { requested, enqueued: 0 };
-
     let enqueued = 0;
+    // A historical completed/skipped job is not proof the current assessment
+    // is still scored. Recover only eligible candidates, using a conditional
+    // update so concurrent enqueuers cannot reset running work.
+    for (let offset = 0; offset < grantIds.length; offset += QUEUE_LOOKUP_BATCH_SIZE) {
+      const assessmentResult = await supabase.from("EligibilityAssessment")
+        .select("grant_id, scoring_source")
+        .eq("organisation_id", options.organisationId).eq("profile_id", options.profileId)
+        .in("grant_id", grantIds.slice(offset, offset + QUEUE_LOOKUP_BATCH_SIZE));
+      if (assessmentResult.error) throw assessmentResult.error;
+      for (const assessment of assessmentResult.data ?? []) {
+        const desired = dedupedRows.find(row => row.grant_id === assessment.grant_id);
+        if (!desired) continue;
+        const existing = existingByKey.get(`${desired.grant_id}:${desired.profile_hash}:${desired.grant_content_hash}`);
+        if (!existing || !shouldRecoverDeepScore(existing, assessment.scoring_source)) continue;
+        const recovered = await supabase.from("eligibility_deep_score_queue")
+          .update({ status: "pending", attempts: 0, locked_at: null, completed_at: null, last_error: null, updated_at: now })
+          .eq("id", existing.id).eq("status", existing.status!).eq("updated_at", existing.updated_at!)
+          .select("id");
+        if (recovered.error) throw recovered.error;
+        enqueued += recovered.data?.length ?? 0;
+      }
+    }
+
     for (let offset = 0; offset < rowsToInsert.length; offset += QUEUE_INSERT_BATCH_SIZE) {
       const batch = rowsToInsert.slice(offset, offset + QUEUE_INSERT_BATCH_SIZE);
       const { data, error } = await supabase.from("eligibility_deep_score_queue").insert(batch).select("id");

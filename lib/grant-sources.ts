@@ -394,8 +394,8 @@ export async function claimDueGrantSources(options?: ClaimDueGrantSourcesOptions
   const due = await getDueGrantSources();
   return [...due]
     .sort((a, b) =>
-      sourceRunPriority(a) - sourceRunPriority(b) ||
       sourceLastCrawledTime(a) - sourceLastCrawledTime(b) ||
+      sourceRunPriority(a) - sourceRunPriority(b) ||
       a.source_name.localeCompare(b.source_name)
     )
     .slice(0, limit);

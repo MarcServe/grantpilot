@@ -46,8 +46,8 @@ assert.match(
 );
 assert.match(
   dailyDigestSafeguard,
-  /\{\s*includeViewed:\s*false\s*\}/,
-  "daily digest reminder candidates should keep viewed grants available until actioned"
+  /previous:\s*\[\]/,
+  "daily match digests should not recycle previous grants"
 );
 assert.match(
   dailyDigestSafeguard,
@@ -56,8 +56,8 @@ assert.match(
 );
 assert.match(
   dailyDigestSafeguard,
-  /\.not\("notified_at",\s*"is",\s*null\)/,
-  "daily digest should keep already-notified 85%+ matches as still-eligible reminders"
+  /\.is\("notified_at",\s*null\)/,
+  "daily digest should select unseen matches before pagination"
 );
 assert.doesNotMatch(
   dailyDigestSafeguard,
@@ -98,8 +98,8 @@ assert.match(
 );
 assert.match(
   eligibilityRefresh,
-  /\.not\("notified_at",\s*"is",\s*null\)/,
-  "eligibility refresh should include already-notified 85%+ matches in reminder digest"
+  /\.is\("notified_at",\s*null\)/,
+  "eligibility refresh should select unseen matches before pagination"
 );
 assert.doesNotMatch(
   eligibilityRefresh,
