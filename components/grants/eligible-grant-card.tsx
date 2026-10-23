@@ -239,7 +239,13 @@ export function EligibleGrantCard({
         );
       }
       setFeedbackSent(category);
-      toast.success("Feedback saved for review.");
+      if (body.grantState === "applied") {
+        setCurrentState("applied");
+        onStateChanged?.({ ...grant, userState: "applied" }, "applied");
+        toast.success("Marked as already applied. Removed from active matches.");
+      } else {
+        toast.success("Feedback saved for review.");
+      }
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Could not save feedback",

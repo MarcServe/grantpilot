@@ -1,3 +1,4 @@
+import { saveRecommendationFeedback } from "@/lib/recommendation-feedback";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getActiveOrg } from "@/lib/auth";
@@ -55,21 +56,11 @@ export async function POST(req: Request): Promise<NextResponse> {
       return NextResponse.json({ error: "Grant not found" }, { status: 404 });
     }
 
-    const { error } = await supabase.from("RecommendationFeedback").insert({
-      organisation_id: orgId,
-      profile_id: profile.id,
-      grant_id: grant.id,
-      user_id: user.id,
-      category: parsed.data.category,
-      note: parsed.data.note?.trim() || null,
-      source: parsed.data.source?.trim() || "grant_card",
+    const result = await saveRecommendationFeedback(supabase, {
+      organisationId: orgId, profileId: profile.id, grantId: grant.id, userId: user.id,
+      category: parsed.data.category, note: parsed.data.note, source: parsed.data.source,
     });
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 502 });
-    }
-
-    return NextResponse.json({ ok: true });
+    return NextResponse.json(result);
   } catch (error) {
     console.error("[RECOMMENDATION_FEEDBACK]", error);
     return NextResponse.json(
