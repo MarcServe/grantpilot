@@ -1421,12 +1421,16 @@ export function FounderPackClient({
         </Label>
         <Textarea
           id="questionAssistantGuidance"
+          aria-describedby="questionAssistantGuidanceCount"
           rows={3}
           placeholder="Add tone, funder priorities, scoring guidance, or points you want included."
           value={questionAssistantGuidance}
           onChange={(event) => setQuestionAssistantGuidance(event.target.value)}
           className="bg-white text-sm"
         />
+        <p id="questionAssistantGuidanceCount" className="text-xs text-muted-foreground">
+          {questionAssistantGuidance.length.toLocaleString("en-GB")} / 10,000 characters
+        </p>
       </div>
       {questionAssistantMode === "improve_existing_answer" && (
         <div className="space-y-2">

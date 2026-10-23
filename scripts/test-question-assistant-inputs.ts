@@ -21,3 +21,8 @@ assert.equal(tooManyGrants.success, false);
 if (!tooManyGrants.success) assert.match(tooManyGrants.error.issues[0].message, /at most 5 grants/);
 assert.equal(questionAssistantRequestSchema.safeParse({ ...input, questions: Array.from({ length: 5 }, () => ({ question: "x".repeat(12000) })) }).success, false);
 console.log("Question assistant input checks passed");
+
+assert.equal(questionAssistantRequestSchema.safeParse({ ...input, questions: [{ question: "Describe the project", guidance: "x".repeat(10_000) }] }).success, true);
+const oversizedGuidance = questionAssistantRequestSchema.safeParse({ ...input, questions: [{ question: "Describe the project", guidance: "x".repeat(10_001) }] });
+assert.equal(oversizedGuidance.success, false);
+if (!oversizedGuidance.success) assert.match(oversizedGuidance.error.issues[0].message, /10,000/);
