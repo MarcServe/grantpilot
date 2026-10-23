@@ -1,3 +1,4 @@
+import { loadFounderPackDraftContext } from "@/lib/founder-pack-vault";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getActiveOrg } from "@/lib/auth";
@@ -160,7 +161,8 @@ export async function POST(req: Request): Promise<NextResponse> {
       ? grantContext.trim().slice(0, MAX_FOUNDER_PACK_GRANT_CONTEXT_CHARS)
       : undefined;
 
-    const content = await generateFounderPack(profile as Record<string, unknown>, inputs, trimmedCtx);
+    const vaultDraftContext = await loadFounderPackDraftContext(supabase, orgId, inputs.profileId);
+    const content = await generateFounderPack(profile as Record<string, unknown>, inputs, `${trimmedCtx ?? ""}${vaultDraftContext}`);
     const { data: pack, error: insertError } = await supabase
       .from("FounderFundingPack")
       .insert({

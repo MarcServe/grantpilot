@@ -1091,8 +1091,8 @@ export function FounderPackClient({
       };
       setHistory((prev) => [next, ...prev]);
       setSelectedPackId(next.id);
-      setGenerationStatus("Generated and saved. Preview is ready.");
-      toast.success("Founder Funding Pack generated");
+      setGenerationStatus("Generated and saved to Data Vault. Preview is ready.");
+      toast.success("Founder Pack saved and available in Data Vault");
       router.refresh();
     } catch {
       toast.error("Could not generate pack");

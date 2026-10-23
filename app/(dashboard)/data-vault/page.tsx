@@ -1,3 +1,6 @@
+import { getActiveOrg } from "@/lib/auth";
+import { getSupabaseAdmin } from "@/lib/supabase";
+import { savedPackDocumentTypes } from "@/lib/founder-pack-vault";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { getProfile } from "@/app/(dashboard)/profile/actions";
@@ -14,7 +17,11 @@ type RawDocument = {
 };
 
 export default async function DataVaultPage() {
-  const profile = await getProfile();
+  const [{ orgId }, profile] = await Promise.all([getActiveOrg(), getProfile()]);
+  const { data: packs, error: packError } = await getSupabaseAdmin()
+    .from("FounderFundingPack").select("id, inputs, createdAt")
+    .eq("organisationId", orgId).eq("profileId", profile.id)
+    .order("createdAt", { ascending: false }).limit(20);
   const documents = Array.isArray(profile.documents)
     ? profile.documents.map((document: RawDocument) => ({
         id: String(document.id ?? ""),
@@ -43,6 +50,29 @@ export default async function DataVaultPage() {
           </Link>
         </Button>
       </div>
+
+      <section className="rounded-2xl border bg-white p-5 sm:p-6" aria-labelledby="saved-founder-documents">
+        <h2 id="saved-founder-documents" className="text-xl font-bold">Founder Pack documents</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Generated documents are saved here automatically for this business, including existing packs.
+          The assistant can reuse the three latest packs as draft reference material.
+          Review drafts before use; they do not replace confirmed business facts or verified supporting evidence.
+        </p>
+        {packError ? <p role="status" className="mt-4">Saved documents could not be loaded. Refresh to try again.</p> :
+          !packs?.length ? <p className="mt-4 text-sm">Create your first documents in <Link href="/founder-pack" className="underline">Founder Pack</Link>.</p> :
+          <div className="mt-4 space-y-3">{packs.map(pack => <details key={pack.id} className="rounded-xl border p-4">
+            <summary className="cursor-pointer font-medium">Saved pack · {new Date(pack.createdAt).toLocaleDateString("en-GB", { timeZone: "Europe/London" })} · AI draft</summary>
+            <ul className="mt-3 space-y-3">{savedPackDocumentTypes(pack.inputs).map(type => <li key={type.value} className="flex flex-wrap items-center justify-between gap-3">
+              <span>{type.label}</span>
+              <span className="flex gap-4">{["pdf", "docx"].map(format => <a key={format} className="text-sm text-blue-700 underline" href={`/api/founder-pack/${encodeURIComponent(pack.id)}/export?format=${format}&documentType=${type.value}`} aria-label={`Download ${type.label} as ${format.toUpperCase()}`}>{format.toUpperCase()}</a>)}</span>
+            </li>)}</ul>
+            <div className="mt-3 flex flex-wrap gap-4 text-sm">
+              <a className="underline" href={`/api/founder-pack/${encodeURIComponent(pack.id)}/export?format=pdf`}>Download complete pack PDF</a>
+              <Link className="underline" href="/founder-pack">Open Founder Pack workspace</Link>
+            </div>
+          </details>)}</div>}
+        <p className="mt-3 text-xs text-muted-foreground">Showing the latest 20 packs. Full-pack history remains in Founder Pack. Downloads follow your application-pack access.</p>
+      </section>
 
       <DataVaultClient
         profile={{

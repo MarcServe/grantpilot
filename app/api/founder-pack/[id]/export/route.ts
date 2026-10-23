@@ -1,3 +1,4 @@
+import { savedPackDocumentTypes } from "@/lib/founder-pack-vault";
 import { NextResponse } from "next/server";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -68,6 +69,14 @@ export async function GET(req: Request, context: RouteContext): Promise<NextResp
         includePitchDeckNotes,
       },
     };
+    const documentType = url.searchParams.get("documentType");
+    if (documentType) {
+      const selected = savedPackDocumentTypes(pack.inputs).find(type => type.value === documentType);
+      if (!selected || (format !== "pdf" && format !== "docx" && format !== "pptx")) {
+        return NextResponse.json({ error: "Unsupported document export" }, { status: 400 });
+      }
+      exportPack.inputs = { ...exportPack.inputs, documentTypes: [selected.value] };
+    }
     const body = generateFounderPackExport(exportPack, format);
 
     return new NextResponse(new Uint8Array(body), {
