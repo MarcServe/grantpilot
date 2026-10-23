@@ -95,8 +95,8 @@ async function main() {
 
   assert.equal(
     profileQualifiesForDeepScoring(completeProfile, { plan: "FREE_TRIAL", createdAt: expiredTrialCreatedAt }),
-    false,
-    "expired-trial profiles should not consume platform deep-scoring"
+    true,
+    "older free accounts should continue qualifying for deep scoring"
   );
 
   assert.equal(

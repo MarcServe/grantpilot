@@ -1,7 +1,6 @@
 import { getSupabaseAdmin } from "./supabase";
 import { PLAN_LIMITS, type PlanKey } from "./plans";
 import {
-  isFreeTrialActive,
   planAllowsForOrg,
   resolveEffectivePlanForOrg,
   resolvePlanKey,
@@ -132,9 +131,6 @@ export async function checkUsageLimit(
         plan: stripePlan,
       });
     }
-  }
-  if (plan === "FREE_TRIAL" && !isFreeTrialActive(orgAccess)) {
-    return { allowed: false, remaining: 0 };
   }
 
   const limits = PLAN_LIMITS[plan];

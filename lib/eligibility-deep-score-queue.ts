@@ -1438,7 +1438,7 @@ export async function processEligibilityDeepScoreQueue(options?: {
       .from("eligibility_deep_score_queue")
       .update({
         status: "skipped",
-        last_error: "Profile is incomplete or organisation trial is inactive for platform deep scoring.",
+        last_error: "Profile is incomplete for platform deep scoring.",
         updated_at: new Date().toISOString(),
       })
       .in("id", ineligibleRows.map((row) => row.id));

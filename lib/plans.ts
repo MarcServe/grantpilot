@@ -1,9 +1,9 @@
 export const PLAN_LIMITS = {
   FREE_TRIAL: {
     profiles: 1,
-    matchesPerMonth: 5,
+    matchesPerMonth: Infinity,
     autoFillsPerMonth: 1,
-    trialDays: 7,
+    trialDays: 0, // Free discovery access does not expire.
   },
   STARTER: {
     profiles: 1,
@@ -75,39 +75,38 @@ export type PlanCatalogRow = {
 
 export const PLAN_CATALOG: PlanCatalogRow[] = [
   {
-    name: "Free Trial",
+    name: "Free",
     value: "FREE_TRIAL",
-    marketingName: "Free Trial",
+    marketingName: "Free",
     price: "Free",
     detail: "For founders validating funding fit",
     features: [
       {
         heading: "Workspace",
-        bullets: ["7-day full-access trial", "1 business profile"],
+        bullets: ["Free access with no time limit", "1 business profile"],
       },
       {
         heading: "Discovery & scoring",
         bullets: [
-          "5 full company-DNA eligibility checks during the trial (cached scores don’t count)",
+          "Ongoing company-DNA eligibility matching",
           "Preliminary fit signals while browsing grants",
         ],
       },
       {
         heading: "Applications",
-        bullets: ["1 grant-specific application prep run during the trial"],
+        bullets: ["1 grant-specific application prep run per month"],
       },
       {
-        heading: "Trial access",
+        heading: "Discovery access",
         bullets: [
           "Company DNA autofill and website intelligence refresh",
-          "Grant auto-improve",
-          "Founder Funding Pack",
+          "One free answer preview; upgrade for the full application pack",
           "AI outcome learning insights",
           "Email reminders and WhatsApp opportunity alerts",
         ],
       },
     ],
-    homepageFeatures: ["7-day full-access trial", "Browse grants with preliminary fit", "5 full DNA scores during trial"],
+    homepageFeatures: ["Free access with no time limit", "Browse grants with preliminary fit", "Ongoing matching and grant alerts"],
     cta: "Start Free",
     href: "/sign-up",
   },

@@ -10,10 +10,6 @@ import type { EligibilityResult } from "@/lib/claude";
 import { getApplicantTypeGate } from "@/lib/eligibility-hard-gates";
 import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
 import { checkUsageLimit, recordUsage } from "@/lib/plan-check";
-import {
-  isFreeTrialActive,
-  resolveEffectivePlanForOrg,
-} from "@/lib/plan-features";
 import { getGrantFreshnessStatus } from "@/lib/grant-freshness";
 import {
   applyOutcomeScoreAdjustment,
@@ -241,15 +237,9 @@ export async function GET(
       }
     }
 
-    const plan = resolveEffectivePlanForOrg(org);
     const { allowed, remaining } = await checkUsageLimit(orgId, "match");
     if (!allowed) {
-      const trialExpired = plan === "FREE_TRIAL" && !isFreeTrialActive(org);
-      const message = trialExpired
-        ? "Your 7-day free trial has expired. Upgrade to continue full company-DNA eligibility checks."
-        : plan === "FREE_TRIAL"
-          ? "You've used all free-trial full eligibility checks. Cached scores still appear for grants you've already assessed. Upgrade to continue company-DNA scoring."
-          : "Monthly eligibility check quota reached.";
+      const message = "Monthly eligibility check quota reached.";
       return NextResponse.json(
         { error: message, code: "MATCH_LIMIT", remaining },
         { status: 402 },

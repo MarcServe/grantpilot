@@ -60,8 +60,8 @@ assert.equal(
     },
     "whatsapp_opportunity_alerts"
   ),
-  false,
-  "expired community access should fall back to expired trial gating"
+  true,
+  "expired community access should retain ongoing free notifications"
 );
 
 assert.equal(

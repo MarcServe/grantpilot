@@ -22,8 +22,8 @@ assert.equal(
 
 assert.equal(
   planAllowsForOrg({ plan: "FREE_TRIAL", createdAt: expiredTrialCreatedAt }, "proactive_notifications"),
-  false,
-  "expired free-trial organisations should be gated from proactive notifications"
+  true,
+  "older free accounts should continue receiving proactive notifications"
 );
 
 assert.equal(
@@ -88,3 +88,14 @@ assert.equal(
 );
 
 console.log("plan gating tests passed");
+
+for (const createdAt of [new Date("2020-01-01"), undefined]) {
+  const org = { plan: "FREE_TRIAL", createdAt };
+  for (const capability of ["company_dna_ai", "proactive_notifications", "whatsapp_opportunity_alerts"] as const) {
+    assert.equal(planAllowsForOrg(org, capability), true);
+  }
+  assert.equal(planAllowsForOrg(org, "founder_pack"), false, "full pack requires contextual upgrade");
+  assert.equal(planAllowsForOrg(org, "grant_auto_improve"), false);
+}
+
+assert.equal(planAllowsForOrg(null, "company_dna_ai"), false);
