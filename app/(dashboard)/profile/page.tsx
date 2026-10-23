@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { criteriaProfileCompletionScore } from "@/lib/profile-completion";
 import { getProfile } from "./actions";
 import { getActiveOrg } from "@/lib/auth";
@@ -13,7 +14,7 @@ import { PLAN_LIMITS, planNotifyDisplayName } from "@/lib/plans";
 export default async function ProfilePage({
   searchParams,
 }: {
-  searchParams: Promise<{ step?: string }>;
+  searchParams: Promise<{ step?: string; grantId?: string }>;
 }) {
   const sp = await searchParams;
   const stepParam = sp.step != null ? parseInt(String(sp.step), 10) : NaN;
@@ -57,6 +58,7 @@ export default async function ProfilePage({
   return (
     <div className="mx-auto w-full max-w-5xl space-y-6 px-0 sm:px-2">
       <div className="rounded-2xl bg-white p-5 shadow-[0_18px_45px_rgba(7,26,58,0.07)] sm:p-6">
+        {sp.grantId && <Link className="mb-3 inline-block text-sm font-medium text-primary underline" href={`/grants/${encodeURIComponent(sp.grantId)}?from=matches`}>Back to this grant after saving</Link>}
         <h1 className="text-2xl font-black text-[#071a3a]">Business Profile</h1>
         <p className="mt-2 text-sm leading-6 text-muted-foreground sm:text-base">
           Complete your business profile to get matched with relevant grants.

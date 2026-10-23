@@ -139,6 +139,7 @@ export function Step3Financials({
               <FormLabel>Previous grant experience</FormLabel>
               <FormControl>
                 <select
+              name={field.name}
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                   value={field.value ?? ""}
                   onChange={field.onChange}

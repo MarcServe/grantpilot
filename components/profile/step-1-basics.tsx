@@ -84,6 +84,7 @@ function SelectField({
           <FormLabel>{label}</FormLabel>
           <FormControl>
             <select
+              name={field.name}
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               value={typeof field.value === "string" ? field.value : ""}
               onChange={field.onChange}

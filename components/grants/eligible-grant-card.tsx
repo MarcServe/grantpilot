@@ -1,4 +1,5 @@
 "use client";
+import { grantBlockerAction } from "@/lib/grant-blocker-actions";
 import { preliminaryScoreStatus } from "@/lib/preliminary-score-status";
 import { grantDeadlineDisplay } from "@/lib/grant-deadline-display";
 import type { CriteriaAssessment, CriteriaDocument } from "@/lib/criteria";
@@ -413,12 +414,18 @@ export function EligibleGrantCard({
                   <span className="text-blue-900/80">
                     {grant.primaryBlocker}
                   </span>
+                  <Button asChild size="sm" variant="outline" className="mt-2 flex w-fit gap-1">
+                    <Link href={grantBlockerAction(grant.primaryBlocker, grant.grantId).href}>{grantBlockerAction(grant.primaryBlocker, grant.grantId).label}<ArrowRight className="h-3 w-3" /></Link>
+                  </Button>
                 </p>
               )}
               {grant.nextAction && (
                 <p className={grant.primaryBlocker ? "mt-1" : ""}>
                   <span className="font-semibold">Next action: </span>
                   <span className="text-blue-900/80">{grant.nextAction}</span>
+                  <Button asChild size="sm" variant="outline" className="mt-2 flex w-fit gap-1">
+                    <Link href={grantBlockerAction(grant.nextAction, grant.grantId).href}>{grantBlockerAction(grant.nextAction, grant.grantId).label}<ArrowRight className="h-3 w-3" /></Link>
+                  </Button>
                 </p>
               )}
             </div>
@@ -433,7 +440,7 @@ export function EligibleGrantCard({
           {uniqueActions.length > 0 && grant.score < 70 && (
             <div className="flex items-start gap-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              <span>To improve: {uniqueActions.join("; ")}</span>
+              <div className="space-y-2"><span className="font-medium">To improve:</span>{uniqueActions.map((action) => <div key={action} className="space-y-1"><p>{action}</p><Button asChild variant="outline" size="sm"><Link href={grantBlockerAction(action, grant.grantId).href}>{grantBlockerAction(action, grant.grantId).label}</Link></Button></div>)}</div>
             </div>
           )}
 
@@ -443,6 +450,7 @@ export function EligibleGrantCard({
               <span className="text-blue-900/80">
                 {grant.effort.whatToCheck.join(" ")}
               </span>
+              <Button asChild variant="outline" size="sm" className="mt-2 w-fit"><Link href={grantBlockerAction(grant.effort.whatToCheck.join(" "), grant.grantId).href}>Review requirements <ArrowRight className="h-3 w-3" /></Link></Button>
             </div>
           ) : null}
 

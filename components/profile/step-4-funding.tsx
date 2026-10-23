@@ -356,6 +356,7 @@ export function Step4Funding({
                 <FormLabel>Funding urgency</FormLabel>
                 <FormControl>
                   <select
+              name={field.name}
                     className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                     value={field.value ?? ""}
                     onChange={field.onChange}
@@ -384,6 +385,7 @@ export function Step4Funding({
                 <FormLabel>Funding position</FormLabel>
                 <FormControl>
                   <select
+              name={field.name}
                     className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                     value={field.value ?? ""}
                     onChange={field.onChange}
@@ -412,6 +414,7 @@ export function Step4Funding({
                 <FormLabel>Document readiness</FormLabel>
                 <FormControl>
                   <select
+              name={field.name}
                     className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                     value={field.value ?? ""}
                     onChange={field.onChange}
@@ -543,6 +546,7 @@ export function Step4Funding({
                 <FormLabel>Co-funding capacity</FormLabel>
                 <FormControl>
                   <select
+              name={field.name}
                     className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                     value={field.value ?? ""}
                     onChange={field.onChange}
@@ -568,6 +572,7 @@ export function Step4Funding({
                 <FormLabel>Reimbursement readiness</FormLabel>
                 <FormControl>
                   <select
+              name={field.name}
                     className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                     value={field.value ?? ""}
                     onChange={field.onChange}
