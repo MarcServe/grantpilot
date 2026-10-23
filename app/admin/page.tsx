@@ -1292,7 +1292,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
     adminOverviewCacheKey,
     { ttlMs: ADMIN_OVERVIEW_CACHE_TTL_MS, maxEntries: 60 },
     () => Promise.all([
-      supabase.from("Grant").select("id", { count: "exact", head: true }).gte("createdAt", todayStart.toISOString()),
+      supabase.from("Grant").select("id, name, funder, createdAt", { count: "exact" }).gte("createdAt", todayStart.toISOString()).order("createdAt", { ascending: false }).limit(20),
       supabase
         .from("Grant")
         .select("id, name, funder, source, deadline, createdAt", { count: "exact" })
@@ -1794,7 +1794,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
           </div>
 
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-            <Card>
+            <Link href="#today-grants" aria-label="View grants added today" className="block rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"><Card className="h-full transition-colors hover:border-blue-400 hover:bg-blue-50/40">
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
                   <Database className="h-4 w-4 text-blue-600" />
@@ -1805,8 +1805,8 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                 <div className="text-3xl font-bold">{grantsTodayResult.count ?? 0}</div>
                 <p className="mt-1 text-sm text-muted-foreground">Added today</p>
               </CardContent>
-            </Card>
-            <Card>
+            </Card></Link>
+            <Link href="#notification-deliveries" aria-label="View accounts notified today" className="block rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"><Card className="h-full transition-colors hover:border-blue-400 hover:bg-blue-50/40">
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
                   <Users className="h-4 w-4 text-blue-600" />
@@ -1819,8 +1819,8 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                   {organisationCountToday} organisations reached today
                 </p>
               </CardContent>
-            </Card>
-            <Card>
+            </Card></Link>
+            <Link href="#notification-deliveries" aria-label="View notification deliveries" className="block rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"><Card className="h-full transition-colors hover:border-blue-400 hover:bg-blue-50/40">
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
                   <Bell className="h-4 w-4 text-blue-600" />
@@ -1833,8 +1833,8 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                   {totalFailedToday} failed - {totalSkippedToday} skipped today
                 </p>
               </CardContent>
-            </Card>
-            <Card>
+            </Card></Link>
+            <Link href="#deep-scoring" aria-label="View scoring details" className="block rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"><Card className="h-full transition-colors hover:border-blue-400 hover:bg-blue-50/40">
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
                   <SearchCheck className="h-4 w-4 text-blue-600" />
@@ -1845,8 +1845,8 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                 <div className="text-3xl font-bold">{assessmentTodayResult.count ?? 0}</div>
                 <p className="mt-1 text-sm text-muted-foreground">Score rows updated today</p>
               </CardContent>
-            </Card>
-            <Card className={failedCronRunsTodayCount > 0 ? "border-red-200 bg-red-50/60" : ""}>
+            </Card></Link>
+            <Link href="#cron-runs" aria-label="View cron failures and runs" className="block rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"><Card className={failedCronRunsTodayCount > 0 ? "border-red-200 bg-red-50/60" : ""}>
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
                   <ServerCrash className={`h-4 w-4 ${failedCronRunsTodayCount > 0 ? "text-red-600" : "text-blue-600"}`} />
@@ -1860,8 +1860,20 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                   {latestCronRun?.started_at && <> · latest {formatRelative(latestCronRun.started_at)}</>}
                 </p>
               </CardContent>
-            </Card>
+            </Card></Link>
           </div>
+
+          <Card id="today-grants" tabIndex={-1} className="scroll-mt-6">
+            <CardHeader><CardTitle className="text-base">Grants added today · {reportDateLabel}</CardTitle></CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">{grantsTodayResult.count ?? 0} added today. Select a grant to view its information.</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {(grantsTodayResult.data ?? []).map((grant) => <Link key={grant.id} href={`/grants/${encodeURIComponent(grant.id)}`} className="block rounded-lg border p-4 transition-colors hover:border-blue-400 hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-primary"><span className="block font-medium">{grant.name ?? "Untitled grant"}</span><span className="mt-1 block text-sm text-muted-foreground">{grant.funder ?? "Unknown funder"}</span><span className="mt-2 block text-xs text-muted-foreground">{formatDateTime(grant.createdAt)}</span></Link>)}
+              </div>
+              {(grantsTodayResult.count ?? 0) === 0 && <p className="text-sm text-muted-foreground">No new grants added today.</p>}
+              {(grantsTodayResult.count ?? 0) > 20 && <p className="text-xs text-muted-foreground">Showing the latest 20 additions. <Link href="#latest-grants" className="underline">View the grant activity list</Link></p>}
+            </CardContent>
+          </Card>
 
           <div className="grid items-start gap-4 xl:grid-cols-2 2xl:grid-cols-4">
             <Card className="min-w-0 overflow-hidden">
@@ -2384,7 +2396,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
               </CardContent>
             </Card>
 
-            <Card className="min-w-0 overflow-hidden">
+            <Card id="deep-scoring" tabIndex={-1} className="scroll-mt-6 min-w-0 overflow-hidden">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
                   <Brain className="h-4 w-4 text-blue-600" />
@@ -2582,7 +2594,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
               </CardContent>
             </Card>
 
-            <Card className="min-w-0 overflow-hidden">
+            <Card id="cron-runs" tabIndex={-1} className="scroll-mt-6 min-w-0 overflow-hidden">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
                   <ServerCrash className={`h-4 w-4 ${failedCronRunsTodayCount > 0 ? "text-red-600" : "text-blue-600"}`} />
@@ -2694,7 +2706,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
             </CardContent>
           </Card>
 
-          <Card>
+          <Card id="notification-deliveries" tabIndex={-1} className="scroll-mt-6">
             <CardHeader>
               <CardTitle className="text-base">Recent notification deliveries</CardTitle>
             </CardHeader>
@@ -2854,7 +2866,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
             </CardContent>
           </Card>
 
-          <Card>
+          <Card id="latest-grants" tabIndex={-1} className="scroll-mt-6">
             <CardHeader>
               <CardTitle className="text-base">Latest grants added</CardTitle>
               <p className="text-sm text-muted-foreground">
@@ -2875,13 +2887,13 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
                   {latestGrants.length > 0 ? (
                     latestGrants.map((grant) => (
-                      <div key={grant.id} className="rounded-md border p-3 text-sm">
+                      <Link key={grant.id} href={`/grants/${encodeURIComponent(grant.id)}`} className="block rounded-md border p-3 text-sm hover:border-blue-400 hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-primary">
                         <div className="line-clamp-2 font-medium">{grant.name ?? "Untitled grant"}</div>
                         <div className="mt-1 text-xs text-muted-foreground">{grant.funder ?? "Unknown funder"}</div>
                         <div className="mt-2 text-xs text-muted-foreground">
                           {grantSourceLabel(grant.source)} - {formatRelative(grant.createdAt)}
                         </div>
-                      </div>
+                      </Link>
                     ))
                   ) : (
                     <p className="text-sm text-muted-foreground">No grants found in the database.</p>
