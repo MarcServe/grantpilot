@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { isResolvedProfileBlocker, reconcileProfileBlockers } from "../lib/resolved-profile-blockers";
+import { isResolvedProfileBlocker, reconcileProfileBlockers, reconcileEligibilityDisplay } from "../lib/resolved-profile-blockers";
 const profile = { incorporationDate: "2021-05-12", employeeCount: 0 };
 assert.equal(isResolvedProfileBlocker("Company incorporation date not provided", profile), true);
 assert.equal(isResolvedProfileBlocker("Confirm incorporation date", profile), true);
@@ -16,3 +16,14 @@ assert.deepEqual(result.assessment.missing, ["Partner evidence required"]);
 assert.deepEqual(result.assessment.improvementPlan?.actions, []);
 assert.equal(result.assessment.score, 65);
 console.log("Resolved profile blocker checks passed");
+
+const complete = { incorporationDate: "2021-05-12", legalStructure: "Limited company" };
+const detail = reconcileEligibilityDisplay(complete, {
+  decision: "likely_eligible", confidence: 85, score: 85, reason: "Cached assessment", summary: "Old profile details",
+  missing: ["Company incorporation date not provided", "Year established not provided", "Legal structure not specified", "Independent audit evidence required"],
+});
+assert.deepEqual(detail.missing, ["Independent audit evidence required"]);
+assert.equal(detail.assessmentRefreshPending, true);
+assert.equal(detail.score, 85, "display reconciliation cannot increase a score");
+assert.equal(detail.decision, "likely_eligible");
+assert.equal(reconcileEligibilityDisplay(complete, { decision: "review", confidence: 50, missing: ["Company must be under 3 years old"], reason: "Age restriction" }).assessmentRefreshPending, false);

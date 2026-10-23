@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,7 @@ interface EligibilityResult {
   winProbability?: number;
   evidenceStrength?: "strong" | "medium" | "weak";
   scoringSource?: "openai" | "heuristic" | "embedding" | "intelligence" | "manual";
+  assessmentRefreshPending?: boolean;
   outcomeWarnings?: string[];
   outcomeStrengths?: string[];
 }
@@ -246,10 +247,9 @@ export function EligibilityCard({
   const [result, setResult] = useState<EligibilityResult | null>(initialResult);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleCheck(skipCache = false) {
+  const handleCheck = useCallback(async (skipCache = false) => {
     setLoading(true);
     setError(null);
-    if (!result) setResult(null);
     try {
       const url = skipCache ? `/api/grants/${grantId}/eligibility?skipCache=true` : `/api/grants/${grantId}/eligibility`;
       const res = await fetch(url);
@@ -275,7 +275,15 @@ export function EligibilityCard({
     } finally {
       setLoading(false);
     }
-  }
+  }, [grantId, router]);
+
+  const autoChecked = useRef(false);
+  useEffect(() => {
+    if (initialResult?.assessmentRefreshPending && !autoChecked.current) {
+      autoChecked.current = true;
+      void handleCheck(true);
+    }
+  }, [initialResult?.assessmentRefreshPending, handleCheck]);
 
   const score = result?.score ?? result?.confidence ?? 0;
 
@@ -335,6 +343,7 @@ export function EligibilityCard({
                 {result.decision.replace(/_/g, " ")}
               </Badge>
             </div>
+            {result.assessmentRefreshPending && <p role="status" className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">Your saved profile information is connected. {loading ? "Rechecking this grant against your updated Business DNA…" : "The previous score is shown until reassessment completes. Use Re-check eligibility to retry."}</p>}
             <p className="text-sm leading-relaxed">{result.summary ?? result.reason}</p>
             {(result.met?.length || result.missing?.length) ? (
               <div className="rounded-md border bg-muted/30 p-3">

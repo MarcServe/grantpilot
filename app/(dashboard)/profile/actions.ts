@@ -81,6 +81,7 @@ async function triggerEligibilityForProfile(
 ): Promise<void> {
   revalidatePath("/grants/eligible");
   revalidatePath("/dashboard");
+  revalidatePath("/grants/[id]", "page");
   await requestEligibilityRefresh(organisationId, source);
   await requestProfileEligibilityBackfill(organisationId, profileId, source);
 }

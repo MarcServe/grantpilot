@@ -1,3 +1,5 @@
+import { reconcileEligibilityDisplay } from "@/lib/resolved-profile-blockers";
+import { profileHashForEligibility } from "@/lib/eligibility-ai-cache";
 import { profileForEligibilityGuards } from "@/lib/eligibility-final-score";
 import { getProfileMatches } from "@/lib/profile-matches";
 import { CriteriaBadges } from "@/components/grants/criteria-panel";
@@ -200,6 +202,7 @@ export default async function GrantDetailPage({
     evidenceStrength?: "strong" | "medium" | "weak";
     scoringSource?:
       "openai" | "heuristic" | "embedding" | "intelligence" | "manual";
+    assessmentRefreshPending?: boolean;
     outcomeWarnings?: string[];
     outcomeStrengths?: string[];
   } | null = null;
@@ -273,14 +276,14 @@ export default async function GrantDetailPage({
               : "weak",
         scoringSource: source,
       };
-      const guarded = applyOutcomeScoreAdjustment(
+      const guarded = reconcileEligibilityDisplay(profile as Record<string, unknown>, applyOutcomeScoreAdjustment(
         applyEligibilityScoreGuards(
           profileForEligibilityGuards(profile as Record<string, unknown>),
           grant,
           initialEligibilityResult,
         ),
         deriveOutcomeLearningAdvisory(outcomeRows ?? []),
-      );
+      ));
       eligibilityScore = guarded.score ?? guarded.confidence;
       initialEligibilityResult = {
         ...guarded,
@@ -730,7 +733,7 @@ export default async function GrantDetailPage({
                   <PreparationChecklist grantId={grant.id} />
                 </>
               ) : (
-                <EligibilityCard
+                <EligibilityCard key={`${grant.id}:${profileId}:${profileHashForEligibility(profile as Record<string, unknown>)}`}
                   grantId={grant.id}
                   applicationId={existingApplication?.id}
                   grantAutoImproveEnabled={grantAutoImproveEnabled}

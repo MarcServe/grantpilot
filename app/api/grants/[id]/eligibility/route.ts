@@ -1,3 +1,4 @@
+import { reconcileEligibilityDisplay } from "@/lib/resolved-profile-blockers";
 import { criteriaEnabled } from "@/lib/criteria-flags";
 import { getProfileMatches } from "@/lib/profile-matches";
 import { isResearchResource } from "@/lib/grant-actionability";
@@ -204,7 +205,7 @@ export async function GET(
         const profileMatch = profileToMatching(
           profile as Record<string, unknown>,
         );
-        const cachedResult = applyOutcomeScoreAdjustment(
+        const cachedResult = reconcileEligibilityDisplay(profile as Record<string, unknown>, applyOutcomeScoreAdjustment(
           applyEligibilityScoreGuards(profileMatch, g, {
             decision:
               c.decision === "likely_eligible" ||
@@ -227,7 +228,7 @@ export async function GET(
               score >= 80 ? "strong" : score >= 55 ? "medium" : "weak",
           }),
           deriveOutcomeLearningAdvisory(outcomeRows ?? []),
-        );
+        ));
         const cachedScore = cachedResult.score ?? cachedResult.confidence;
         return NextResponse.json({
           ...cachedResult,
@@ -263,6 +264,7 @@ export async function GET(
         sectors: g.sectors ?? [],
         regions: g.regions ?? [],
       },
+      { bypassCache: !useCache },
     );
     const adjustedResult = applyOutcomeScoreAdjustment(
       result,

@@ -116,11 +116,12 @@ export function getConfidenceBand(score: number): ConfidenceBand {
  */
 export async function getEligibilityDecision(
   profile: ProfileForMatching,
-  grant: GrantForMatching
+  grant: GrantForMatching,
+  options?: { bypassCache?: boolean },
 ): Promise<EligibilityResult> {
   const companyAge = profile.yearEstablished ? Math.max(0, new Date().getFullYear() - profile.yearEstablished) : null;
   const eligibilityFacts = eligibilityFactsToText(profile.eligibilityFacts, 16);
-  const cached = await getCachedEligibilityDecision(profile as unknown as Record<string, unknown>, grant);
+  const cached = options?.bypassCache ? null : await getCachedEligibilityDecision(profile as unknown as Record<string, unknown>, grant);
   if (cached) return cached;
   await touchEligibilityAiCaches(profile as unknown as Record<string, unknown>, grant);
 
@@ -157,6 +158,7 @@ Rules:
 - Treat explicit measurable criteria as hard qualification gates. If the grant requires minimum revenue, minimum employee count, maximum employee count, or minimum trading/company age and the profile does not meet it, decision must be unlikely and score must be below 40.
 - Treat legal structure, business stage, size band, co-funding, reimbursement, property, consortium, and academic-partner requirements as qualification gates when the grant explicitly states them.
 - Treat micro/small/medium businesses as eligible for generic SME grants unless the funder gives a stricter threshold.
+- When an incorporation date is supplied, use it to check company age; do not report year established as missing merely because the legacy year field is empty. Incorporation and trading start dates are separate facts.
 - If revenue, employee count, or year established is missing and the grant explicitly depends on it, do not recommend as high fit; mark it review and call out the missing profile data.
 - Do not penalise missing revenue, employee count, or company age when the grant text does not state a measurable threshold or clearly depend on that fact.
 - Do not invent revenue, employee-count, company-age, traction, or investment-readiness criteria that are not stated in the current grant. Missing profile data can be an advisory note only when useful, not a scoring blocker.
