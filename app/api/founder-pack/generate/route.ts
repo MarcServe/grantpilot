@@ -1,3 +1,4 @@
+import { loadFounderPackLabels } from "@/lib/founder-pack-labels";
 import { loadFounderPackDraftContext } from "@/lib/founder-pack-vault";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -84,6 +85,8 @@ export async function POST(req: Request): Promise<NextResponse> {
       founderRole: fallbackFounderRole,
     };
 
+    const packLabels = await loadFounderPackLabels(supabase, orgId, [{ id: "new", inputs }]);
+    const packName = packLabels.get("new") ?? "Generic funding pack";
     const profileId = inputs.profileId;
     const uniqueAppIds = [...new Set(inputs.selectedApplicationIds ?? [])];
     const uniqueEligGrantIds = [...new Set(inputs.selectedEligibleGrantIds ?? [])];
@@ -171,7 +174,7 @@ export async function POST(req: Request): Promise<NextResponse> {
         createdById: (user as { id?: string }).id ?? null,
         type: inputs.targetUse,
         status: "generated",
-        inputs,
+        inputs: { ...inputs, packName },
         content,
       })
       .select("id, createdAt, content")
@@ -183,7 +186,7 @@ export async function POST(req: Request): Promise<NextResponse> {
 
     await recordUsage(orgId, "founder_pack").catch(() => {});
 
-    return NextResponse.json({ pack });
+    return NextResponse.json({ pack: { ...pack, name: packName } });
   } catch (e) {
     console.error("[FOUNDER_PACK_GENERATE]", e);
     const message = e instanceof Error ? e.message : "Internal server error";

@@ -1,3 +1,4 @@
+import { loadFounderPackLabels } from "@/lib/founder-pack-labels";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { savedPackDocumentTypes } from "@/lib/founder-pack-vault";
@@ -22,6 +23,7 @@ export default async function DataVaultPage() {
     .from("FounderFundingPack").select("id, inputs, createdAt")
     .eq("organisationId", orgId).eq("profileId", profile.id)
     .order("createdAt", { ascending: false }).limit(20);
+  const packLabels = await loadFounderPackLabels(getSupabaseAdmin(), orgId, packs ?? []);
   const documents = Array.isArray(profile.documents)
     ? profile.documents.map((document: RawDocument) => ({
         id: String(document.id ?? ""),
@@ -61,7 +63,7 @@ export default async function DataVaultPage() {
         {packError ? <p role="status" className="mt-4">Saved documents could not be loaded. Refresh to try again.</p> :
           !packs?.length ? <p className="mt-4 text-sm">Create your first documents in <Link href="/founder-pack" className="underline">Founder Pack</Link>.</p> :
           <div className="mt-4 space-y-3">{packs.map(pack => <details key={pack.id} className="rounded-xl border p-4">
-            <summary className="cursor-pointer font-medium">Saved pack · {new Date(pack.createdAt).toLocaleDateString("en-GB", { timeZone: "Europe/London" })} · AI draft</summary>
+            <summary className="cursor-pointer font-medium">{packLabels.get(pack.id)}<span className="mt-1 block text-xs font-normal text-muted-foreground">{new Date(pack.createdAt).toLocaleString("en-GB", { timeZone: "Europe/London", dateStyle: "medium", timeStyle: "short" })} · AI draft</span></summary>
             <ul className="mt-3 space-y-3">{savedPackDocumentTypes(pack.inputs).map(type => <li key={type.value} className="flex flex-wrap items-center justify-between gap-3">
               <span>{type.label}</span>
               <span className="flex gap-4">{["pdf", "docx"].map(format => <a key={format} className="text-sm text-blue-700 underline" href={`/api/founder-pack/${encodeURIComponent(pack.id)}/export?format=${format}&documentType=${type.value}`} aria-label={`Download ${type.label} as ${format.toUpperCase()}`}>{format.toUpperCase()}</a>)}</span>

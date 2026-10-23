@@ -40,6 +40,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
 interface PackSummary {
+  name?: string;
   id: string;
   createdAt: string;
   createdAtLabel: string;
@@ -1072,6 +1073,7 @@ export function FounderPackClient({
         return;
       }
       const pack = data.pack as {
+        name?: string;
         id: string;
         createdAt: string;
         content: FounderPackContent;
@@ -1080,6 +1082,7 @@ export function FounderPackClient({
         (profile) => profile.id === form.profileId,
       );
       const next: PackSummary = {
+        name: pack.name,
         id: pack.id,
         createdAt: pack.createdAt,
         createdAtLabel: "just now",
@@ -1955,7 +1958,7 @@ export function FounderPackClient({
                   >
                     <span className="flex items-center justify-between gap-3">
                       <span className="font-medium">
-                        {pack.profileBusinessName ?? "Founder pack"}
+                        {pack.name ?? pack.profileBusinessName ?? "Generic funding pack"}
                       </span>
                       <Badge
                         variant={

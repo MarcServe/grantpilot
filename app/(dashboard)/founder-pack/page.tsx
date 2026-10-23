@@ -1,3 +1,4 @@
+import { loadFounderPackLabels } from "@/lib/founder-pack-labels";
 import { loadCriteria } from "@/lib/criteria-store";
 import { criteriaEnabled } from "@/lib/criteria-flags";
 import { PreparationChecklist } from "@/components/grants/preparation-checklist";
@@ -261,12 +262,14 @@ export default async function FounderPackPage({
   const profileById = new Map(
     profileRows.map((profile) => [profile.id, profile]),
   );
+  const packLabels = await loadFounderPackLabels(supabase, orgId, (packs ?? []) as PackRow[]);
   const packRows = ((packs ?? []) as PackRow[]).map((pack) => {
     const profile = profileById.get(pack.profileId);
     return {
       id: pack.id,
       createdAt: pack.createdAt,
       createdAtLabel: formatDateLabel(pack.createdAt),
+      name: packLabels.get(pack.id),
       type: pack.type,
       content: sanitiseFounderPackContent(pack.content, {
         businessName: profile?.businessName,
