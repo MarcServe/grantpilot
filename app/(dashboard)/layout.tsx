@@ -1,3 +1,4 @@
+import { ProfileOpportunityPreview } from "@/components/profile/profile-opportunity-preview";
 import {
   criteriaProfileCompletionScore,
   profileCompletionFields,
@@ -169,19 +170,22 @@ async function UserNavWithAccountName({
 }
 
 async function HeaderProfileCompletion() {
-  const { org } = await getActiveOrg();
+  const { org, orgId } = await getActiveOrg();
   const profile = org.profiles?.[0];
   const missing = profileCompletionFields(profile ?? {}).filter(
     (field) => !field.complete,
   );
   if (!missing.length) return null;
+  const completion = criteriaProfileCompletionScore(profile ?? {});
+  const nextField = missing[0];
+  const nextHref = `/profile?step=${nextField.step}&field=${encodeURIComponent(nextField.key)}&completion=incomplete#profile-completion`;
   return (
-    <div className="relative border-t border-amber-200 bg-amber-50">
+    <div className="relative border-t border-blue-200 bg-gradient-to-r from-blue-50 to-emerald-50">
       <details className="group mx-auto max-w-[1280px]">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm font-semibold text-amber-950 transition-colors hover:bg-amber-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-600 sm:px-7 lg:px-8 [&::-webkit-details-marker]:hidden">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm font-semibold text-blue-950 transition-colors hover:bg-blue-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 sm:px-7 lg:px-8 [&::-webkit-details-marker]:hidden">
           <span>
-            Complete your profile{" "}
-            <span className="font-normal">· {missing.length} fields left</span>
+            Find funding that fits your business{" "}
+            <span className="font-normal">· Business DNA {completion}% complete</span>
           </span>
           <span
             aria-hidden="true"
@@ -190,12 +194,22 @@ async function HeaderProfileCompletion() {
             ⌄
           </span>
         </summary>
-        <div className="absolute inset-x-0 top-full max-h-[50vh] overflow-y-auto border-b border-amber-200 bg-white p-4 shadow-lg">
+        <div className="absolute inset-x-0 top-full max-h-[50vh] overflow-y-auto border-b border-blue-200 bg-white p-4 shadow-lg">
           <div className="mx-auto max-w-[1216px]">
-            <p className="mb-3 text-sm text-slate-600">
-              {profile?.businessName || "Your business"} · Select a field to
-              complete it.
-            </p>
+            <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
+              <div className="max-w-2xl">
+                <h2 className="text-lg font-bold text-[#071a3a]">Your next grant could start with your Business DNA</h2>
+                <p className="mt-1 text-sm text-slate-600">Tell us more about {profile?.businessName || "your business"} so we can check grant eligibility and send a personalised daily digest when relevant opportunities are available.</p>
+                <p className="mt-2 text-xs text-slate-500">Daily alerts depend on profile readiness, eligible matches and your notification preferences. Free discovery access has no time limit.</p>
+              </div>
+              <Link href={nextHref} className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">Complete Business DNA →</Link>
+            </div>
+            <div className="mb-2 flex justify-between text-xs font-semibold text-slate-600"><span>{completion}% complete</span><span>{missing.length} fields to strengthen your profile</span></div>
+            <div role="progressbar" aria-label="Business DNA completion" aria-valuenow={completion} aria-valuemin={0} aria-valuemax={100} className="mb-4 h-2 overflow-hidden rounded-full bg-blue-100"><div className="h-full rounded-full bg-blue-600" style={{ width: `${completion}%` }} /></div>
+            <Suspense fallback={<p className="mt-4 text-xs text-slate-500" role="status">Finding a few opportunities to explore…</p>}>
+              <ProfileOpportunityPreview orgId={orgId} profile={profile ?? {}} />
+            </Suspense>
+            <p className="mb-2 mt-4 text-sm font-semibold">Start with {nextField.label.toLowerCase()}, or choose a field:</p>
             <div className="flex flex-wrap gap-2">
               {missing.map((field) => (
                 <a
