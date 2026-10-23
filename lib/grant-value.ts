@@ -1,4 +1,5 @@
-export type GrantValueInput = {
+import { resolveGrantCurrency, formatCurrencyAmount, type GrantCurrencyInput } from "@/lib/grant-currency";
+export type GrantValueInput = GrantCurrencyInput & {
   amount?: number | null;
   effort?: { amount?: number | null } | null;
   fundingValue?: GrantFundingValue | null;
@@ -13,6 +14,7 @@ export type FundingValueType =
   "applicant_max" | "applicant_typical" | "programme_total" | "unknown";
 
 export type GrantFundingValue = {
+  currency?: string | null;
   amount: number | null;
   type: FundingValueType;
   label: string;
@@ -25,6 +27,9 @@ export type GrantValueSummary = {
   knownCount: number;
   unknownCount: number;
   totalCount: number;
+  currencyTotals: { currency: string; total: number; count: number }[];
+  listedCurrencyTotals: { currency: string; total: number; count: number }[];
+  unknownCurrencyCount: number;
 };
 
 function cleanAmount(value: unknown): number | null {
@@ -68,9 +73,11 @@ function countsTowardApplicantTotal(type: FundingValueType): boolean {
   return type === "applicant_max" || type === "applicant_typical";
 }
 
-export function resolveGrantFundingValue(
-  grant: GrantValueInput,
-): GrantFundingValue {
+export function resolveGrantFundingValue(grant: GrantValueInput): GrantFundingValue {
+  return { ...resolveFundingBasis(grant), currency: resolveGrantCurrency(grant) };
+}
+
+function resolveFundingBasis(grant: GrantValueInput): GrantFundingValue {
   if (grant.fundingValue) {
     const type = normalizeFundingValueType(grant.fundingValue.type);
     const amount = cleanAmount(grant.fundingValue.amount);
@@ -148,47 +155,59 @@ export function grantKnownAmount(grant: GrantValueInput): number | null {
 export function summarizeGrantValues(
   grants: GrantValueInput[],
 ): GrantValueSummary {
-  let total = 0;
   let knownCount = 0;
   let unknownCount = 0;
-
+  let unknownCurrencyCount = 0;
+  const confirmed = new Map<string, { currency: string; total: number; count: number }>();
+  const listed = new Map<string, { currency: string; total: number; count: number }>();
   for (const grant of grants) {
-    const amount = grantKnownAmount(grant);
-    if (amount == null) {
-      unknownCount += 1;
-      continue;
-    }
-    total += amount;
-    knownCount += 1;
+    const value = resolveGrantFundingValue(grant);
+    const currency = value.currency ?? null;
+    if (value.amount != null && !currency) unknownCurrencyCount++;
+    if (value.countsTowardApplicantTotal && value.amount != null) knownCount++;
+    else unknownCount++;
+    if (value.amount == null || !currency || value.type === "programme_total") continue;
+    const groups = value.countsTowardApplicantTotal ? confirmed : listed;
+    const group = groups.get(currency) ?? { currency, total: 0, count: 0 };
+    group.total += value.amount; group.count++;
+    groups.set(currency, group);
   }
-
+  const currencyTotals = [...confirmed.values()].sort((a, b) => a.currency.localeCompare(b.currency));
+  const listedCurrencyTotals = [...listed.values()].sort((a, b) => a.currency.localeCompare(b.currency));
   return {
-    total,
-    knownCount,
-    unknownCount,
-    totalCount: grants.length,
+    // Compatibility value exists only for a single confirmed currency; never sum currencies.
+    total: currencyTotals.length === 1 ? currencyTotals[0].total : 0,
+    knownCount, unknownCount, totalCount: grants.length,
+    currencyTotals, listedCurrencyTotals, unknownCurrencyCount,
   };
 }
 
-export function formatCurrencyCompact(amount: number): string {
+export function grantCurrencyTotalLines(summary: GrantValueSummary): string[] {
+  return [
+    ...summary.currencyTotals.map(group => `${formatCurrencyAmount(group.total, group.currency)} · ${group.count} confirmed award values`),
+    ...summary.listedCurrencyTotals.map(group => `${formatCurrencyAmount(group.total, group.currency)} listed · ${group.count} values; award terms unverified`),
+    ...(summary.unknownCurrencyCount ? [`${summary.unknownCurrencyCount} values have unconfirmed currency; excluded from totals`] : []),
+  ];
+}
+
+export function formatCurrencyCompact(amount: number, currency: string | null = null): string {
   if (!Number.isFinite(amount) || amount <= 0) return "Value unknown";
 
   return amount.toLocaleString("en-GB", {
-    style: "currency",
-    currency: "GBP",
+    ...(currency ? { style: "currency" as const, currency, currencyDisplay: "code" as const } : {}),
     maximumFractionDigits: 0,
     notation: amount >= 1_000_000 ? "compact" : "standard",
   });
 }
 
-export function formatGrantValue(amount?: number | null): string {
+export function formatGrantValue(amount?: number | null, currency: string | null = null): string {
   const value =
     typeof amount === "number" && Number.isFinite(amount) && amount > 0
       ? amount
       : null;
   return value == null
     ? "Award amount not confirmed"
-    : `Up to ${formatCurrencyCompact(value)}`;
+    : `Listed ${formatCurrencyAmount(value, currency)}`;
 }
 
 export function formatGrantFundingValue(
@@ -197,19 +216,20 @@ export function formatGrantFundingValue(
   if (typeof value === "number" || value == null)
     return formatGrantValue(value);
   if (value.amount == null) return "Award amount not confirmed";
+  const amount = formatCurrencyAmount(value.amount, value.currency ?? null);
   if (value.type === "unknown")
-    return `Listed ${value.amount.toLocaleString("en-GB")} · verify currency/terms`;
+    return `Listed ${amount} · verify terms`;
   if (value.type === "applicant_typical")
-    return `Typical ${formatCurrencyCompact(value.amount)}`;
+    return `Typical ${amount}`;
   if (value.type === "programme_total")
-    return `${formatCurrencyCompact(value.amount)} programme fund`;
-  return `Up to ${formatCurrencyCompact(value.amount)}`;
+    return `${amount} programme fund`;
+  return `Up to ${amount}`;
 }
 
 export function formatGrantValueSummary(summary: GrantValueSummary): string {
-  return summary.knownCount > 0
-    ? formatCurrencyCompact(summary.total)
-    : "Value unknown";
+  return summary.currencyTotals.length
+    ? summary.currencyTotals.map(group => formatCurrencyAmount(group.total, group.currency)).join(" · ")
+    : "Confirmed currency totals unavailable";
 }
 
 export function grantValueSummaryDetail(summary: GrantValueSummary): string {
@@ -241,13 +261,13 @@ export function comparableAwardAverages(
     if (
       !value.countsTowardApplicantTotal ||
       value.amount == null ||
-      !grant.currency ||
+      !value.currency ||
       !grant.opportunityType
     )
       continue;
-    const key = `${grant.currency}:${grant.opportunityType}:${value.type}`;
+    const key = `${value.currency}:${grant.opportunityType}:${value.type}`;
     const group = groups.get(key) ?? {
-      currency: grant.currency,
+      currency: value.currency!,
       type: grant.opportunityType,
       basis: value.type,
       total: 0,

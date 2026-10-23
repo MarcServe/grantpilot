@@ -363,6 +363,7 @@ export function EligibleGrantCard({
           <p className="mt-1 font-semibold">
             {formatGrantFundingValue(grant.fundingValue ?? grant.amount)}
           </p>
+          <p className="mt-1 text-xs text-slate-500">Currency: {grant.fundingValue?.currency ?? grant.currency ?? "Unconfirmed"}</p>
         </div>
         <div className="rounded-xl bg-blue-50 p-3">
           <p className="text-xs font-medium text-blue-700">Effort</p>

@@ -35,6 +35,7 @@ import {
   formatGrantValue,
   formatGrantFundingValue,
   summarizeGrantValues,
+  grantCurrencyTotalLines,
   type GrantFundingValue,
   type GrantValueSummary,
 } from "@/lib/grant-value";
@@ -1246,13 +1247,14 @@ function MatchValueBadge({ summary }: { summary: GrantValueSummary }) {
   return (
     <div className="rounded-lg border border-blue-100 bg-blue-50/70 px-3 py-2 text-left sm:text-right">
       <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-blue-700">
-        Confirmed award information
+        Funding by currency
       </p>
       <p className="text-lg font-black leading-tight text-[#071a3a]">
         {summary.knownCount} opportunities
       </p>
       <p className="text-[11px] font-medium text-muted-foreground">
         {summary.unknownCount} amounts not confirmed
+        {grantCurrencyTotalLines(summary).map(line => <span className="mt-1 block" key={line}>{line}</span>)}
       </p>
     </div>
   );

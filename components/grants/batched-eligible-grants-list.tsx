@@ -32,6 +32,7 @@ import {
   comparableAwardAverages,
   grantValueSummaryDetail,
   summarizeGrantValues,
+  grantCurrencyTotalLines,
   type GrantValueSummary,
 } from "@/lib/grant-value";
 
@@ -876,6 +877,7 @@ function FundingValueSummaryStrip({
             <span className="block mt-1 text-xs font-medium text-muted-foreground">
               {grantValueSummaryDetail(summary)} · {state.grants.length} cards
               loaded
+              {grantCurrencyTotalLines(summary).map(line => <span className="mt-1 block" key={line}>{line}</span>)}
               {comparableAwardAverages(state.grants).map((g) => (
                 <span className="block" key={`${g.currency}:${g.type}:${g.basis}`}>
                   Average {g.basis === "applicant_max" ? "maximum" : "typical"}{" "}
@@ -900,13 +902,14 @@ function SectionValuePill({ summary }: { summary: GrantValueSummary }) {
   return (
     <div className="rounded-lg border border-blue-100 bg-blue-50/70 px-3 py-2 text-left sm:text-right">
       <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-blue-700">
-        Estimated value
+        Funding by currency
       </div>
       <div className="text-lg font-black leading-tight text-[#071a3a]">
         {summary.knownCount} confirmed award values
       </div>
       <div className="text-[11px] font-medium text-muted-foreground">
         {grantValueSummaryDetail(summary)}
+        {grantCurrencyTotalLines(summary).map(line => <span className="mt-1 block" key={line}>{line}</span>)}
       </div>
     </div>
   );

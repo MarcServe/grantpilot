@@ -590,7 +590,7 @@ export default async function GrantDetailPage({
                   {formatGrantFundingValue(fitPreview.fundingValue)}
                 </p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  {fitPreview.fundingValue.label}
+                  {fitPreview.fundingValue.label} · Currency: {fitPreview.fundingValue.currency ?? "Unconfirmed"}
                 </p>
               </div>
               <div>

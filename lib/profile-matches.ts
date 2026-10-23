@@ -226,7 +226,7 @@ export async function loadProfileMatches(
         criteriaAssessment: checked,
         opportunityType: grant.opportunityType ?? "unknown",
         currency:
-          grant.currency ??
+          fundingValue.currency ??
           doc?.terms.find(
             (t) => /currency/i.test(t.label) && /^[A-Z]{3}$/.test(t.value),
           )?.value ??
