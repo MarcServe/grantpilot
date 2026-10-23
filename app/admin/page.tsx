@@ -1,3 +1,4 @@
+import { DeadlineSocialBulk } from "@/components/admin/deadline-social-bulk";
 import { DeadlineSocialPost } from "@/components/admin/deadline-social-post";
 import { AIProviderSettings } from "@/components/admin/ai-provider-settings";
 import Image from "next/image";
@@ -1941,6 +1942,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                   <div className="text-3xl font-bold">{upcomingDeadlineResult.count ?? 0}</div>
                   <p className="text-muted-foreground">grant deadlines in the next 7 days</p>
                 </div>
+                <DeadlineSocialBulk key={`deadline-bulk-${deadlinesPage}`} grants={upcomingDeadlines.map(grant => ({ id: grant.id, name: grant.name ?? "Untitled grant" }))} />
                 <PaginationControls
                   params={params}
                   pageKey="deadlinesPage"

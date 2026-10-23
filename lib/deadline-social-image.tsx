@@ -34,7 +34,7 @@ export function createDeadlinePost(grant: DeadlinePostGrant, format: "square" | 
           <span style={{ fontSize: 29, fontWeight: 700 }}>Find your funding opportunity</span>
           <span style={{ fontSize: 27 }}>grantscopilot.com</span>
         </div>
-        <div style={{ display: "flex", fontSize: 20, lineHeight: 1.4, color: "#a6c6e9", marginTop: 22 }}>Check eligibility, closing time and the latest deadline with the funder before applying.</div>
+        <div style={{ display: "flex", fontSize: 20, lineHeight: 1.4, color: "#a6c6e9", marginTop: 22 }}>Powered by GrantsCopilot · grantscopilot.com. Verify eligibility and closing time with the funder.</div>
       </div>
     </div>,
     { width: 1080, height },
