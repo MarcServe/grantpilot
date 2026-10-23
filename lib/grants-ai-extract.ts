@@ -1,3 +1,4 @@
+import { getAIProviderKey } from "@/lib/ai-provider-settings";
 /**
  * AI-powered extraction of grant opportunities from unstructured HTML or page text.
  * Uses OpenAI to map content to a fixed schema; caller upserts with hash dedup.
@@ -25,7 +26,7 @@ function stripHtmlToText(html: string): string {
  * Prefer yes if the text mentions deadline/closing date or funding amounts (£, €, $).
  */
 export async function isGrantPage(htmlOrText: string): Promise<boolean> {
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  const apiKey = await getAIProviderKey("openai");
   if (!apiKey) return true;
 
   const text = htmlOrText.length > 20_000 ? htmlOrText.slice(0, 20_000) + "…" : htmlOrText;
@@ -66,7 +67,7 @@ export async function extractGrantsFromPage(
   htmlOrText: string,
   pageUrl: string
 ): Promise<GrantInput[]> {
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  const apiKey = await getAIProviderKey("openai");
   if (!apiKey) return [];
 
   const isHtml = /<[a-z][\s\S]*>/i.test(htmlOrText);
@@ -171,7 +172,7 @@ export async function extractGrantsFromPageWithPerplexity(
   htmlOrText: string,
   pageUrl: string
 ): Promise<GrantInput[]> {
-  const apiKey = process.env.PERPLEXITY_API_KEY?.trim();
+  const apiKey = await getAIProviderKey("perplexity", true);
   if (!apiKey) return [];
 
   const isHtml = /<[a-z][\s\S]*>/i.test(htmlOrText);

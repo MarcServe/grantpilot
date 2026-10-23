@@ -1,3 +1,4 @@
+import { getAIProviderKey } from "@/lib/ai-provider-settings";
 import { NextResponse } from "next/server";
 import { discoverGrantSourcesWithApify } from "@/lib/apify-grant-source-discovery";
 import { runWithCronLog } from "@/lib/cron-run-log";
@@ -22,9 +23,9 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const apifyToken = process.env.APIFY_TOKEN?.trim();
+  const apifyToken = await getAIProviderKey("apify", true);
   if (!apifyToken) {
-    return NextResponse.json({ error: "APIFY_TOKEN is not configured." }, { status: 500 });
+    return NextResponse.json({ ok: true, skipped: true, reason: "Apify discovery is disabled or has no API key." });
   }
 
   try {

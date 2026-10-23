@@ -1,3 +1,4 @@
+import { getAIProviderKey } from "@/lib/ai-provider-settings";
 /**
  * Primary grant discovery via OpenAI Responses API with web_search.
  * Searches the live internet for real grant opportunities with verified URLs.
@@ -92,7 +93,7 @@ function extractText(output: unknown[]): string {
 export async function discoverGrantsWithOpenAI(
   profile: DiscoveryProfile
 ): Promise<GrantInput[]> {
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  const apiKey = await getAIProviderKey("openai", true);
   if (!apiKey) return [];
 
   const openai = new OpenAI({ apiKey });

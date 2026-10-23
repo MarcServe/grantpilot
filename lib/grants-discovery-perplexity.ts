@@ -1,3 +1,4 @@
+import { getAIProviderKey } from "@/lib/ai-provider-settings";
 /**
  * Grant discovery via Perplexity Sonar (web-grounded search + JSON).
  * Uses OpenAI-compatible API at api.perplexity.ai.
@@ -58,7 +59,7 @@ Limit ${MAX_GRANTS} grants.`;
 export async function discoverGrantsWithPerplexity(
   profile: DiscoveryProfile
 ): Promise<GrantInput[]> {
-  const apiKey = process.env.PERPLEXITY_API_KEY?.trim();
+  const apiKey = await getAIProviderKey("perplexity", true);
   if (!apiKey) return [];
 
   const client = new OpenAI({

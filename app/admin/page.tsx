@@ -1,4 +1,5 @@
 import { DeadlineSocialPost } from "@/components/admin/deadline-social-post";
+import { AIProviderSettings } from "@/components/admin/ai-provider-settings";
 import Image from "next/image";
 import { redirect } from "next/navigation";
 import Link from "next/link";
@@ -34,17 +35,7 @@ import { WhatsAppDiagnosticsPanel } from "@/components/admin/whatsapp-diagnostic
 import { CommunityAccessManager } from "@/components/admin/community-access-manager";
 import { ProfileMatchAuditPanel } from "@/components/admin/profile-match-audit-panel";
 import { getServerCache } from "@/lib/server-cache";
-import {
-  CLAUDE_DISCOVERY_ENABLE_ENV,
-  CLAUDE_DISCOVERY_KEY_ENV,
-  GEMINI_DISCOVERY_ENABLE_ENV,
-  GEMINI_DISCOVERY_KEY_ENV,
-  envNamesList,
-  hasAnyEnv,
-  isClaudeGrantDiscoveryEnabled,
-  isGeminiGrantDiscoveryEnabled,
-  isOptionalProviderQuotaOrBillingError,
-} from "@/lib/grants-discovery-provider-config";
+import { isOptionalProviderQuotaOrBillingError } from "@/lib/grants-discovery-provider-config";
 
 export const dynamic = "force-dynamic";
 
@@ -284,13 +275,6 @@ type UpstreamCrawlerHealth = {
   claimSchemaReady: boolean;
   claimSchemaWarning: string | null;
   warnings: string[];
-};
-
-type DiscoveryProviderStatus = {
-  label: string;
-  configured: boolean;
-  statusLabel: string;
-  detail: string;
 };
 
 type QueueStatus = {
@@ -608,60 +592,6 @@ function summarizeSourceImportRuns(rows: GrantSourceImportRunRow[]): SourceImpor
   });
 }
 
-function hasEnv(...names: string[]): boolean {
-  return names.some((name) => Boolean(process.env[name]?.trim()));
-}
-
-function discoveryProviderStatuses(): DiscoveryProviderStatus[] {
-  const openaiConfigured = hasEnv("OPENAI_API_KEY");
-  const perplexityConfigured = hasEnv("PERPLEXITY_API_KEY");
-  const apifyConfigured = hasEnv("APIFY_TOKEN");
-  const claudeKeyPresent = hasAnyEnv(CLAUDE_DISCOVERY_KEY_ENV);
-  const geminiKeyPresent = hasAnyEnv(GEMINI_DISCOVERY_KEY_ENV);
-  const claudeEnabled = isClaudeGrantDiscoveryEnabled();
-  const geminiEnabled = isGeminiGrantDiscoveryEnabled();
-
-  return [
-    {
-      label: "OpenAI",
-      configured: openaiConfigured,
-      statusLabel: openaiConfigured ? "Configured" : "Missing",
-      detail: "Trusted eligibility scoring and web discovery",
-    },
-    {
-      label: "Perplexity",
-      configured: perplexityConfigured,
-      statusLabel: perplexityConfigured ? "Configured" : "Missing",
-      detail: "Web-grounded grant discovery",
-    },
-    {
-      label: "Claude",
-      configured: claudeEnabled,
-      statusLabel: claudeEnabled ? "Enabled" : claudeKeyPresent ? "Disabled" : "Missing",
-      detail: claudeEnabled
-        ? "Web-search grant discovery"
-        : claudeKeyPresent
-          ? `Key present; set ${envNamesList(CLAUDE_DISCOVERY_ENABLE_ENV)} after billing/quota is healthy.`
-          : `Optional; requires ${envNamesList(CLAUDE_DISCOVERY_KEY_ENV)} plus ${envNamesList(CLAUDE_DISCOVERY_ENABLE_ENV)}.`,
-    },
-    {
-      label: "Gemini",
-      configured: geminiEnabled,
-      statusLabel: geminiEnabled ? "Enabled" : geminiKeyPresent ? "Disabled" : "Missing",
-      detail: geminiEnabled
-        ? "Grant discovery enrichment"
-        : geminiKeyPresent
-          ? `Key present; set ${envNamesList(GEMINI_DISCOVERY_ENABLE_ENV)} after billing/quota is healthy.`
-          : `Optional; requires ${envNamesList(GEMINI_DISCOVERY_KEY_ENV)} plus ${envNamesList(GEMINI_DISCOVERY_ENABLE_ENV)}.`,
-    },
-    {
-      label: "Apify",
-      configured: apifyConfigured,
-      statusLabel: apifyConfigured ? "Configured" : "Missing",
-      detail: "Daily source-discovery cron",
-    },
-  ];
-}
 
 function readNumber(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
@@ -1661,7 +1591,6 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
           total: today,
           today,
         }));
-  const aiDiscoveryProviders = discoveryProviderStatuses();
   const discoveryQueue: QueueStatus = {
     pending: discoveryPendingResult.count ?? 0,
     failed: discoveryFailedResult.count ?? 0,
@@ -2044,33 +1973,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                   AI discovery providers
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3 text-sm">
-                <p className="text-sm text-muted-foreground">
-                  Runtime key status for grant discovery providers. Secret values are never displayed.
-                </p>
-                <div className="space-y-2">
-                  {aiDiscoveryProviders.map((provider) => (
-                    <div key={provider.label} className="flex items-center justify-between gap-3 rounded-md border bg-muted/30 p-3">
-                      <div className="min-w-0">
-                        <div className="font-medium">{provider.label}</div>
-                        <div className="text-xs text-muted-foreground">{provider.detail}</div>
-                      </div>
-                      <span
-                        className={`shrink-0 rounded-full border px-2 py-1 text-xs font-medium ${
-                          provider.configured
-                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                            : "border-amber-200 bg-amber-50 text-amber-700"
-                        }`}
-                      >
-                        {provider.statusLabel}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  OpenAI remains required for trusted eligibility scoring; optional providers enrich source discovery when enabled.
-                </p>
-              </CardContent>
+              <CardContent><AIProviderSettings /></CardContent>
             </Card>
 
             <Card className="min-w-0 overflow-hidden">

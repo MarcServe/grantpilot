@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import OpenAI from "openai";
+import { getOpenAIClient } from "@/lib/openai-client";
 import { z } from "zod";
 import { getActiveOrg } from "@/lib/auth";
 
@@ -16,11 +16,6 @@ const requestSchema = z.object({
   fundingMax: z.number().optional(),
 });
 
-function getOpenAI() {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY not configured");
-  return new OpenAI({ apiKey });
-}
 
 export async function POST(req: Request): Promise<NextResponse> {
   try {
@@ -32,7 +27,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     }
 
     const { action, businessName, sector, description, missionStatement, employeeCount, annualRevenue, selectedPurposes, fundingMin, fundingMax } = parsed.data;
-    const openai = getOpenAI();
+    const openai = await getOpenAIClient();
 
     const profileContext = `Business: ${businessName}\nSector: ${sector}\nDescription: ${description}${missionStatement ? `\nMission: ${missionStatement}` : ""}${employeeCount ? `\nEmployees: ${employeeCount}` : ""}${annualRevenue ? `\nAnnual Revenue: £${annualRevenue.toLocaleString()}` : ""}`;
 

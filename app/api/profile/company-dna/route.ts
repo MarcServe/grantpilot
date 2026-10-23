@@ -1,7 +1,7 @@
 import { preserveReadinessMetadata, restoreReadinessMetadata } from "@/lib/profile-readiness-compat";
 import { criteriaProfileCompletionScore } from "@/lib/profile-completion";
 import { NextResponse } from "next/server";
-import OpenAI from "openai";
+import { getOpenAIClient } from "@/lib/openai-client";
 import { z } from "zod";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -40,11 +40,6 @@ const applySchema = z.object({
   updates: z.record(z.string(), z.string().min(1)).default({}),
 });
 
-function getOpenAI(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
-  if (!apiKey) throw new Error("OPENAI_API_KEY not configured");
-  return new OpenAI({ apiKey });
-}
 
 function profileText(profile: Record<string, unknown>): string {
   const keys = [
@@ -178,7 +173,7 @@ The website could not be extracted reliably. Use the current business profile be
       );
     }
 
-    const openai = getOpenAI();
+    const openai = await getOpenAIClient();
     const fields = Object.entries(PROFILE_DNA_FIELDS)
       .map(([field, label]) => `- ${field}: ${label}`)
       .join("\n");

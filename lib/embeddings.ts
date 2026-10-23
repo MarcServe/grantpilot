@@ -5,28 +5,18 @@
  * Replaces the expensive Claude matchGrantsToProfile call.
  */
 
-import OpenAI from "openai";
+import { getOpenAIClient } from "@/lib/openai-client";
 import { eligibilityFactsToText } from "@/lib/eligibility-facts";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 const EMBEDDING_MODEL = "text-embedding-3-small";
 const EMBEDDING_DIMENSIONS = 512;
 
-let _openai: OpenAI | null = null;
-function getOpenAI(): OpenAI {
-  if (!_openai) {
-    const key = process.env.OPENAI_API_KEY;
-    if (!key) throw new Error("OPENAI_API_KEY is not set — required for embeddings");
-    _openai = new OpenAI({ apiKey: key });
-  }
-  return _openai;
-}
-
 export async function generateEmbedding(text: string): Promise<number[]> {
   const cleaned = text.replace(/\s+/g, " ").trim().slice(0, 8000);
   if (!cleaned) return [];
 
-  const res = await getOpenAI().embeddings.create({
+  const res = await (await getOpenAIClient()).embeddings.create({
     model: EMBEDDING_MODEL,
     input: cleaned,
     dimensions: EMBEDDING_DIMENSIONS,

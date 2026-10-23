@@ -1,3 +1,5 @@
+import { getAIProviderStatuses } from "@/lib/ai-provider-settings";
+import { AI_PROVIDERS, type AIProvider } from "@/lib/ai-provider-catalog";
 import { NextResponse } from "next/server";
 import {
   CLAUDE_DISCOVERY_ENABLE_ENV,
@@ -5,8 +7,6 @@ import {
   GEMINI_DISCOVERY_ENABLE_ENV,
   GEMINI_DISCOVERY_KEY_ENV,
   envNamesList,
-  isClaudeGrantDiscoveryEnabled,
-  isGeminiGrantDiscoveryEnabled,
 } from "@/lib/grants-discovery-provider-config";
 
 type Check = {
@@ -53,9 +53,6 @@ function envCheck(name: string, required: boolean): Check {
   };
 }
 
-function anyEnv(names: string[]): boolean {
-  return names.some((name) => Boolean(process.env[name]?.trim()));
-}
 
 export async function GET(req: Request): Promise<NextResponse> {
   const internalSecret = process.env.INTERNAL_API_SECRET?.trim();
@@ -63,41 +60,49 @@ export async function GET(req: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const providerState = await getAIProviderStatuses().catch(() => null);
+  const configured = (provider: AIProvider) => Boolean(providerState?.providers.find((item) => item.provider === provider)?.configured);
+  const enabled = (provider: AIProvider) => Boolean(providerState?.providers.find((item) => item.provider === provider)?.enabled && configured(provider));
   const checks = [
     ...REQUIRED_ENV.map((name) => envCheck(name, true)),
     ...RECOMMENDED_ENV.map((name) => envCheck(name, false)),
     {
       name: "OPENAI_CHECKER_FUNNEL",
       required: true,
-      ok: Boolean(process.env.OPENAI_API_KEY?.trim()),
+      ok: configured("openai"),
       detail: "Trusted matching, digests, and deadline reminders require OpenAI-scored eligibility assessments.",
     },
     {
       name: "GRANT_DISCOVERY_AI_PROVIDERS",
       required: false,
-      ok: anyEnv(["OPENAI_API_KEY", "PERPLEXITY_API_KEY"]) || isClaudeGrantDiscoveryEnabled() || isGeminiGrantDiscoveryEnabled(),
+      ok: enabled("openai") || enabled("perplexity") || enabled("claude") || enabled("gemini"),
       detail: "Grant discovery uses OpenAI, Perplexity, and optional Claude/Gemini providers when explicitly enabled.",
     },
     {
       name: "CLAUDE_DISCOVERY",
       required: false,
-      ok: isClaudeGrantDiscoveryEnabled(),
-      detail: `Optional; requires ${envNamesList(CLAUDE_DISCOVERY_KEY_ENV)} plus ${envNamesList(CLAUDE_DISCOVERY_ENABLE_ENV)}.`,
+      ok: enabled("claude"),
+      detail: `Configure and enable in Admin, or set ${envNamesList(CLAUDE_DISCOVERY_KEY_ENV)} plus ${envNamesList(CLAUDE_DISCOVERY_ENABLE_ENV)}.`,
     },
     {
       name: "GEMINI_DISCOVERY",
       required: false,
-      ok: isGeminiGrantDiscoveryEnabled(),
-      detail: `Optional; requires ${envNamesList(GEMINI_DISCOVERY_KEY_ENV)} plus ${envNamesList(GEMINI_DISCOVERY_ENABLE_ENV)}.`,
+      ok: enabled("gemini"),
+      detail: `Configure and enable in Admin, or set ${envNamesList(GEMINI_DISCOVERY_KEY_ENV)} plus ${envNamesList(GEMINI_DISCOVERY_ENABLE_ENV)}.`,
     },
     {
       name: "APIFY_SOURCE_DISCOVERY",
       required: false,
-      ok: anyEnv(["APIFY_TOKEN"]),
+      ok: enabled("apify"),
       detail: "The Apify source-discovery cron uses APIFY_TOKEN plus CRON_SECRET and INTERNAL_API_SECRET.",
     },
   ];
 
+  for (const check of checks) {
+    const provider = (Object.entries(AI_PROVIDERS) as Array<[AIProvider, { keyEnv: readonly string[] }]>).find(([, meta]) => meta.keyEnv.includes(check.name));
+    if (provider) check.ok = configured(provider[0]);
+  }
+  checks.push({ name: "AI_PROVIDER_SETTINGS", required: true, ok: Boolean(providerState), detail: "Admin-managed keys take precedence over environment keys." });
   const failedRequired = checks.filter((check) => check.required && !check.ok);
   const status = failedRequired.length > 0 ? "degraded" : "ok";
 

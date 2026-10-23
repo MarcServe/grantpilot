@@ -1,3 +1,4 @@
+import { getAIProviderKey } from "@/lib/ai-provider-settings";
 /**
  * Grant discovery via Google Gemini: given a business profile, ask the model to list
  * relevant grants, including global programmes open to UK applicants. Results are tagged source "gemini" and upserted.
@@ -6,7 +7,6 @@
 import { GoogleGenAI } from "@google/genai";
 import type { DiscoveryProfile, DiscoveryGrantRow } from "./grants-discovery-types";
 import { parseJsonArray, toGrantInput } from "./grants-discovery-types";
-import { isGeminiGrantDiscoveryEnabled } from "./grants-discovery-provider-config";
 import type { GrantInput } from "./grants-ingest";
 
 const DISCOVERY_MODEL = "gemini-2.0-flash";
@@ -104,8 +104,8 @@ function parseDiscoveryRows(text: string): DiscoveryGrantRow[] {
 export async function discoverGrantsWithGemini(
   profile: DiscoveryProfile
 ): Promise<GrantInput[]> {
-  const apiKey = (process.env.GEMINI_API_KEY ?? process.env.GOOGLE_AI_API_KEY)?.trim();
-  if (!apiKey || !isGeminiGrantDiscoveryEnabled()) return [];
+  const apiKey = await getAIProviderKey("gemini", true);
+  if (!apiKey) return [];
 
   const ai = new GoogleGenAI({ apiKey });
   const response = await ai.models.generateContent({
