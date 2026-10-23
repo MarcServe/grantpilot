@@ -1,9 +1,17 @@
+import { deadlineExportEnd, DEADLINE_EXPORT_DAY_OPTIONS } from "../lib/deadline-export-options";
 import { deadlineSocialContent } from "../lib/deadline-social-content";
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { socialGrantDetails, socialDetailsCsv } from "../lib/deadline-social-bundle";
 import { createZip } from "../lib/zip-archive";
 async function main() {
+  const now = new Date("2026-10-23T18:00:00Z");
+  for (const days of DEADLINE_EXPORT_DAY_OPTIONS) {
+    assert.equal(deadlineExportEnd(days, now).getTime() - now.getTime(), days * 86400000);
+  }
+  assert.throws(() => deadlineExportEnd(0, now));
+  assert.throws(() => deadlineExportEnd(365, now));
+  assert.throws(() => deadlineExportEnd(14.5, now));
   const grant = socialGrantDetails({ id: "g-1", name: '=HYPERLINK("bad")', funder: "Example Fund", deadline: "2026-10-27T00:00:00Z", description: "Details, including commas", programmeTotalAmount: 2000000 });
   assert.match(grant.caption, /Powered by GrantsCopilot/);
   assert.match(grant.caption, /https:\/\/www.grantscopilot.com/);

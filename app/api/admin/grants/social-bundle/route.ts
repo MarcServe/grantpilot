@@ -1,3 +1,4 @@
+import { DEADLINE_EXPORT_DAY_OPTIONS, deadlineExportEnd } from "@/lib/deadline-export-options";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { isAdmin } from "@/lib/admin-auth";
@@ -9,6 +10,7 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 const schema = z.object({
   scope: z.enum(["upcoming", "selected"]),
+  deadlineDays: z.number().int().refine(value => (DEADLINE_EXPORT_DAY_OPTIONS as readonly number[]).includes(value)).default(7),
   grantIds: z.array(z.string().min(1).max(200)).max(SOCIAL_EXPORT_LIMIT).default([]),
   format: z.enum(["square", "portrait", "both", "details"]).default("both"),
 });
@@ -20,7 +22,7 @@ export async function POST(request: Request) {
   if (!parsed.success || (parsed.data.scope === "selected" && !parsed.data.grantIds.length)) return NextResponse.json({ error: "Select at least one grant and a valid export format." }, { status: 400 });
   try {
     const now = new Date();
-    const end = new Date(now.getTime() + 7 * 86400000);
+    const end = deadlineExportEnd(parsed.data.deadlineDays, now);
     let query = getSupabaseAdmin({ timeoutMs: 10000 }).from("Grant")
       .select("id,name,funder,deadline,description,eligibility,objectives,applicationUrl,amount,fundingValueType,applicantMaxAmount,applicantTypicalAmount,programmeTotalAmount,fundingValueEvidence,regions,sectors,applicantTypes")
       .gte("deadline", now.toISOString()).lte("deadline", end.toISOString())
@@ -48,9 +50,9 @@ export async function POST(request: Request) {
       }
     }
     const more = (result.data?.length ?? 0) > SOCIAL_EXPORT_LIMIT;
-    files["README.txt"] = `GrantsCopilot deadline social pack\nGenerated: ${now.toISOString()}\nGrants: ${rows.length}\nImages: ${parsed.data.format}\n\nEach caption includes Powered by GrantsCopilot and https://www.grantscopilot.com.\nReview all details and confirm eligibility, funding terms and closing times with the funder before publishing. No posts have been published automatically.\nDates are displayed in Europe/London; original deadline timestamps are in the CSV/JSON.\n${more ? "This archive contains the nearest 25 deadlines. More grants remain; select other grants on subsequent admin pages for another export.\n" : ""}${skipped.length ? `Images that could not be rendered (captions and details are included):\n${skipped.join("\n")}` : "All requested images rendered successfully."}`;
+    files["README.txt"] = `GrantsCopilot deadline social pack\nGenerated: ${now.toISOString()}\nDeadline window: next ${parsed.data.deadlineDays} days (${now.toISOString()} through ${end.toISOString()})\nGrants: ${rows.length}\nImages: ${parsed.data.format}\n\nEach caption includes Powered by GrantsCopilot and https://www.grantscopilot.com.\nReview all details and confirm eligibility, funding terms and closing times with the funder before publishing. No posts have been published automatically.\nDates are displayed in Europe/London; original deadline timestamps are in the CSV/JSON.\n${more ? "This archive contains the nearest 25 deadlines. More grants remain outside this 25-grant batch.\n" : ""}${skipped.length ? `Images that could not be rendered (captions and details are included):\n${skipped.join("\n")}` : "All requested images rendered successfully."}`;
     return new NextResponse(new Uint8Array(createZip(files)), { headers: {
-      "Content-Type": "application/zip", "Content-Disposition": `attachment; filename="grantscopilot-deadlines-${now.toISOString().slice(0, 10)}.zip"`,
+      "Content-Type": "application/zip", "Content-Disposition": `attachment; filename="grantscopilot-deadlines-${parsed.data.deadlineDays}days-${now.toISOString().slice(0, 10)}.zip"`,
       "Cache-Control": "private, no-store", "X-Export-Count": String(rows.length), "X-Export-More": String(more), "X-Export-Skipped-Images": String(skipped.length),
     } });
   } catch (error) {
