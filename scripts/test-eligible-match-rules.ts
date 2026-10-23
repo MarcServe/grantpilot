@@ -52,8 +52,8 @@ assert.equal(suggested[0].grantName, "Older higher score", "Suggested should kee
 const eligibleMatchesRoute = readFileSync("app/api/grants/eligible-matches/route.ts", "utf8");
 assert.match(
   eligibleMatchesRoute,
-  /section !== "suggested" && matches\.length >= minimumMatchesForPage/,
-  "non-Suggested tiers should stop scanning once the requested page window is filled"
+  /if \(matches\.length >= minimumMatchesForPage\)/,
+  "all tiers should stop scanning once the requested page window is filled"
 );
 assert.match(
   eligibleMatchesRoute,

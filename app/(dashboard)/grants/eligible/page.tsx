@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import Link from "next/link";
 import { Suspense } from "react";
 import { ArrowLeft, ArrowRight, Brain, Building2 } from "lucide-react";
@@ -44,7 +45,7 @@ export default async function EligibleGrantsPage({
   const initialPage = normalizePage(params.page);
   const pageSize = normalizePageSize(params.pageSize);
   const activeTier = optionalEligibleMatchSection(params.tier);
-  const { org, orgId } = await getActiveOrg();
+  const { org, orgId, user } = await getActiveOrg();
   const supabase = getSupabaseAdmin();
 
   const profile = org.profiles?.[0];
@@ -152,6 +153,9 @@ export default async function EligibleGrantsPage({
       </Suspense>
 
       <BatchedEligibleGrantsList
+        key={profileId}
+        cacheScope={createHash("sha256").update(JSON.stringify([user.id, orgId, profileId, profile])).digest("hex")}
+        profileId={profileId}
         initialTier={activeTier}
         initialPage={initialPage}
         pageSize={pageSize}

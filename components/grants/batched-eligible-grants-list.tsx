@@ -1,5 +1,6 @@
 "use client";
 
+import { clearMatchesCache, matchesCacheKey, readMatchesCache, writeMatchesCache } from "@/lib/eligible-matches-browser-cache";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, BrainCircuit, Eye, Loader2, Search, Sparkles, Target, X } from "lucide-react";
@@ -126,14 +127,16 @@ function matchesQuery(grant: EligibleGrant, query: string): boolean {
   return grant.grantName.toLowerCase().includes(q) || grant.funder.toLowerCase().includes(q);
 }
 
-async function fetchTier(tier: MatchSection, page: number, pageSize: number): Promise<MatchesResponse> {
+async function fetchTier(tier: MatchSection, page: number, pageSize: number, profileId: string, signal: AbortSignal): Promise<MatchesResponse> {
   const params = new URLSearchParams({
     tier,
+    profileId,
     page: String(page),
     pageSize: String(pageSize),
   });
 
   const response = await fetch(`/api/grants/eligible-matches?${params.toString()}`, {
+    signal,
     credentials: "same-origin",
     cache: "no-store",
   });
@@ -179,7 +182,11 @@ export function BatchedEligibleGrantsList({
   initialTier,
   initialPage,
   pageSize,
+  cacheScope,
+  profileId,
 }: {
+  cacheScope: string;
+  profileId: string;
   initialTier: MatchSection | null;
   initialPage: number;
   pageSize: number;
@@ -188,14 +195,31 @@ export function BatchedEligibleGrantsList({
   const [query, setQuery] = useState("");
   const [sections, setSections] = useState<Record<MatchSection, TierState>>(() => emptySections());
   const resultsRef = useRef<HTMLDivElement>(null);
-  const inFlightRequests = useRef<Set<string>>(new Set());
+  const inFlightRequests = useRef<Map<string, AbortController>>(new Map());
+  const cacheVersion = useRef(0);
+  const localGrantStates = useRef(new Map<string, GrantUserState>());
   const tiersToShow = useMemo(() => activeTier ? [activeTier] : TIER_ORDER, [activeTier]);
 
   const loadTier = useCallback(
     async (tier: MatchSection, page: number, mode: "replace" | "append") => {
       const requestKey = `${tier}:${page}:${pageSize}:${mode}`;
       if (inFlightRequests.current.has(requestKey)) return;
-      inFlightRequests.current.add(requestKey);
+      const controller = new AbortController();
+      inFlightRequests.current.set(requestKey, controller);
+      const version = cacheVersion.current;
+      const cacheKey = matchesCacheKey(cacheScope, tier, page, pageSize);
+      let cached: ReturnType<typeof readMatchesCache<MatchesResponse>> = null;
+      try { cached = readMatchesCache<MatchesResponse>(window.sessionStorage, cacheKey); } catch { /* Optional cache. */ }
+      if (cached) {
+        const result = cached.value;
+        setSections((current) => ({ ...current, [tier]: {
+          grants: mode === "append" ? uniqueGrants(current[tier].grants, result.grants) : result.grants,
+          page: result.page, status: "loaded", hasMore: result.hasMore,
+          availableCandidateCount: result.availableCandidateCount ?? result.rawCandidateCount ?? result.grants.length,
+          availableCandidateCountIsEstimate: Boolean(result.availableCandidateCountIsEstimate), error: null,
+        } }));
+        if (!cached.stale) { inFlightRequests.current.delete(requestKey); return; }
+      }
       setSections((current) => ({
         ...current,
         [tier]: {
@@ -206,7 +230,15 @@ export function BatchedEligibleGrantsList({
       }));
 
       try {
-        const result = await fetchTier(tier, page, pageSize);
+        const result = await fetchTier(tier, page, pageSize, profileId, controller.signal);
+        if (controller.signal.aborted) return;
+        if (version === cacheVersion.current) {
+          try { writeMatchesCache(window.sessionStorage, cacheKey, result); } catch { /* Optional cache. */ }
+        }
+        result.grants = result.grants.filter((grant) => {
+          const status = localGrantStates.current.get(grant.grantId);
+          return !status || status === "saved" || (status === "viewed" && tier === "reviewed");
+        }).map((grant) => ({ ...grant, userState: localGrantStates.current.get(grant.grantId) ?? grant.userState }));
         setSections((current) => ({
           ...current,
           [tier]: {
@@ -220,47 +252,58 @@ export function BatchedEligibleGrantsList({
           },
         }));
       } catch (error) {
+        if (controller.signal.aborted) return;
         setSections((current) => ({
           ...current,
           [tier]: {
             ...current[tier],
-            status: "error",
+            status: current[tier].grants.length ? "loaded" : "error",
             error: error instanceof Error ? error.message : "Unable to load matches",
           },
         }));
       } finally {
-        inFlightRequests.current.delete(requestKey);
+        if (inFlightRequests.current.get(requestKey) === controller) inFlightRequests.current.delete(requestKey);
       }
     },
-    [pageSize]
+    [pageSize, cacheScope, profileId]
   );
 
   useEffect(() => {
     let cancelled = false;
-    const timers: Array<ReturnType<typeof setTimeout>> = [];
     const firstTier = initialTier ?? "suggested";
-    const remainingTiers = TIER_ORDER.filter((tier) => tier !== firstTier);
-
-    inFlightRequests.current.clear();
-    setSections(emptySections());
-    void loadTier(firstTier, initialTier ? initialPage : 1, "replace");
-
-    remainingTiers.forEach((tier, index) => {
-      const timer = setTimeout(() => {
-        if (!cancelled) {
-          void loadTier(tier, 1, "replace");
+    const queue = [firstTier, ...TIER_ORDER.filter((tier) => tier !== firstTier)];
+    const requests = inFlightRequests.current;
+    const restored = emptySections();
+    for (const tier of TIER_ORDER) {
+      const page = tier === initialTier ? initialPage : 1;
+      try {
+        const cached = readMatchesCache<MatchesResponse>(window.sessionStorage, matchesCacheKey(cacheScope, tier, page, pageSize));
+        if (cached) {
+          const result = cached.value;
+          restored[tier] = {
+            grants: result.grants, page: result.page, status: "loaded", hasMore: result.hasMore,
+            availableCandidateCount: result.availableCandidateCount ?? result.rawCandidateCount ?? result.grants.length,
+            availableCandidateCountIsEstimate: Boolean(result.availableCandidateCountIsEstimate), error: null,
+          };
         }
-      }, 120 + index * 140);
-      timers.push(timer);
-    });
-
+      } catch { /* Storage is optional. */ }
+    }
+    setSections(restored);
+    // Two workers keep the first batches independent without flooding the DB.
+    async function worker() {
+      while (!cancelled && queue.length) {
+        const tier = queue.shift()!;
+        await loadTier(tier, tier === initialTier ? initialPage : 1, "replace");
+      }
+    }
+    void worker();
+    void worker();
     return () => {
       cancelled = true;
-      for (const timer of timers) {
-        clearTimeout(timer);
-      }
+      for (const controller of requests.values()) controller.abort();
+      requests.clear();
     };
-  }, [initialPage, initialTier, loadTier]);
+  }, [initialPage, initialTier, loadTier, cacheScope, pageSize]);
 
   useEffect(() => {
     if (!activeTier) return;
@@ -300,6 +343,9 @@ export function BatchedEligibleGrantsList({
   const allVisibleDone = tiersToShow.every((tier) => sections[tier].status === "loaded" || sections[tier].status === "error");
 
   const handleGrantStateChanged = useCallback((grant: EligibleGrant, status: GrantUserState) => {
+    localGrantStates.current.set(grant.grantId, status);
+    cacheVersion.current++;
+    try { clearMatchesCache(window.sessionStorage, cacheScope); } catch { /* Optional cache. */ }
     setSections((current) => {
       const updated: Record<MatchSection, TierState> = { ...current };
       const shouldLeaveActive = status === "viewed" || status === "deferred" || status === "applied" || status === "dismissed";
@@ -339,7 +385,7 @@ export function BatchedEligibleGrantsList({
 
       return updated;
     });
-  }, []);
+  }, [cacheScope]);
 
   return (
     <div className="space-y-4">
@@ -409,6 +455,15 @@ export function BatchedEligibleGrantsList({
           });
         }}
       />
+
+      {hasLoadedAny && isAnyLoading && (
+        <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin" /> Updating opportunities in the background…
+        </p>
+      )}
+      {hasLoadedAny && TIER_ORDER.some((tier) => sections[tier].error && sections[tier].grants.length > 0) && (
+        <p role="status" className="text-xs text-amber-700">Showing saved results. Some opportunities could not be refreshed; try again shortly.</p>
+      )}
 
       {!activeTier && bestFirstGrants.length > 0 && (
         <BestFirstSection

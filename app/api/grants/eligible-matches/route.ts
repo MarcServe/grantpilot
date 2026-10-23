@@ -376,7 +376,7 @@ async function buildTierMatches({
   pageSize: number;
 }): Promise<TierMatchResult> {
   const supabase = getSupabaseAdmin();
-  const cacheKey = `eligible-match-tier:v7:${orgId}:${profileId}:${section}:${page}:${pageSize}`;
+  const cacheKey = `eligible-match-tier:v8:${orgId}:${profileId}:${section}:${page}:${pageSize}`;
 
   return getServerCache(cacheKey, { ttlMs: 30_000, maxEntries: 100 }, async () => {
     const outcomePromise = supabase
@@ -524,7 +524,7 @@ async function buildTierMatches({
       }
 
       if (scannedAssessmentCount >= rawAssessmentCount) break;
-      if (section !== "suggested" && matches.length >= minimumMatchesForPage) {
+      if (matches.length >= minimumMatchesForPage) {
         stoppedAfterPageWindow = true;
         break;
       }
@@ -561,6 +561,10 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Profile required" }, { status: 400 });
     }
 
+    if (url.searchParams.get("profileId") && url.searchParams.get("profileId") !== profileId) {
+      return NextResponse.json({ error: "The active business changed. Refresh to load its opportunities." }, { status: 409 });
+    }
+
     const tierMatches = await buildTierMatches({
       orgId,
       profile: profile as Record<string, unknown>,
@@ -592,7 +596,7 @@ export async function GET(request: Request) {
       },
       {
         headers: {
-          "Cache-Control": "private, max-age=15, stale-while-revalidate=45",
+          "Cache-Control": "private, no-store",
         },
       }
     );
