@@ -1,3 +1,4 @@
+import { ensureUserRecord, USER_WITH_MEMBERSHIPS_SELECT } from "@/lib/auth-user-record";
 import { criteriaProfileCompletionScore } from "@/lib/profile-completion";
 import { cache } from "react";
 import { cookies } from "next/headers";
@@ -125,13 +126,13 @@ async function fetchFullUserBySupabaseId(
 ) {
   const { data, error } = await admin
     .from("User")
-    .select("*, OrganisationMember(*, Organisation(*, BusinessProfile(*)))")
+    .select(USER_WITH_MEMBERSHIPS_SELECT)
     .eq("supabaseId", supabaseId)
     .maybeSingle();
 
   if (error) {
     console.error("Fetch user failed:", error);
-    return null;
+    throw new Error("Unable to load account", { cause: error });
   }
   return data ? normaliseUserMemberships(data as UserRow) : null;
 }
@@ -141,22 +142,14 @@ async function ensureProvisionedUser(
   supabaseId: string,
   email: string,
 ): Promise<NormalisedUser | null> {
-  const deterministicUserId = `user-${supabaseId}`;
-  const { data: newUser, error: userError } = await admin
-    .from("User")
-    .upsert(
-      { id: deterministicUserId, supabaseId, email },
-      { onConflict: "supabaseId", ignoreDuplicates: false },
-    )
-    .select("id")
-    .single();
-
-  if (userError || !newUser) {
-    console.error("Create user failed:", userError);
+  let userId: string;
+  try {
+    const user = await ensureUserRecord(admin, supabaseId, email);
+    userId = user.id;
+  } catch (error) {
+    console.error("Create user failed:", error);
     return null;
   }
-
-  const userId = (newUser as { id: string }).id;
   const existingFullUser = await fetchFullUserBySupabaseId(admin, supabaseId);
   if (existingFullUser?.memberships?.length) {
     return existingFullUser;
