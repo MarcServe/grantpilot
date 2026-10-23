@@ -359,7 +359,7 @@ export function EligibleGrantCard({
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <div className="rounded-xl bg-slate-50 p-3">
-          <p className="text-xs font-medium text-slate-500">Award</p>
+          <p className="text-xs font-medium text-slate-500">{grant.fundingValue?.type === "unknown" && grant.fundingValue.amount != null ? "Listed funding" : "Award"}</p>
           <p className="mt-1 font-semibold">
             {formatGrantFundingValue(grant.fundingValue ?? grant.amount)}
           </p>

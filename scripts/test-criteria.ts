@@ -181,7 +181,7 @@ assert.equal(
   resolveGrantFundingValue({ amount: 500_000_000 }).countsTowardApplicantTotal,
   false,
 );
-assert.equal(resolveGrantFundingValue({ amount: 500_000_000 }).amount, null);
+assert.equal(resolveGrantFundingValue({ amount: 500_000_000 }).amount, 500_000_000, "historical values stay visible without being counted as applicant awards");
 assert.equal(
   resolveGrantFundingValue({ programmeTotalAmount: 500_000_000 })
     .countsTowardApplicantTotal,

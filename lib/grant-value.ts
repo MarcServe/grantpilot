@@ -106,20 +106,21 @@ export function resolveGrantFundingValue(
     };
   }
 
+  const programme = cleanAmount(grant.programmeTotalAmount);
   const legacy = cleanAmount(grant.amount ?? grant.effort?.amount);
-  if (legacy != null) {
+  if (legacy != null && (normalizeFundingValueType(grant.fundingValueType) !== "unknown" || programme == null)) {
     const type = normalizeFundingValueType(grant.fundingValueType);
     const finalType = type;
     return {
-      amount: finalType === "unknown" ? null : legacy,
+      // Keep historical values visible without treating them as verified awards.
+      amount: legacy,
       type: finalType,
-      label: labelForFundingValueType(finalType),
+      label: finalType === "unknown" ? "Listed funding amount (unverified)" : labelForFundingValueType(finalType),
       countsTowardApplicantTotal: countsTowardApplicantTotal(finalType),
       evidence: grant.fundingValueEvidence ?? null,
     };
   }
 
-  const programme = cleanAmount(grant.programmeTotalAmount);
   if (programme != null) {
     return {
       amount: programme,
@@ -196,6 +197,8 @@ export function formatGrantFundingValue(
   if (typeof value === "number" || value == null)
     return formatGrantValue(value);
   if (value.amount == null) return "Award amount not confirmed";
+  if (value.type === "unknown")
+    return `Listed ${value.amount.toLocaleString("en-GB")} · verify currency/terms`;
   if (value.type === "applicant_typical")
     return `Typical ${formatCurrencyCompact(value.amount)}`;
   if (value.type === "programme_total")
@@ -212,9 +215,9 @@ export function formatGrantValueSummary(summary: GrantValueSummary): string {
 export function grantValueSummaryDetail(summary: GrantValueSummary): string {
   if (summary.totalCount === 0) return "No grants loaded yet";
   if (summary.knownCount === 0)
-    return `${summary.totalCount} loaded, award amounts not stated`;
+    return `${summary.totalCount} loaded, individual award values unconfirmed`;
   if (summary.unknownCount === 0) return `${summary.knownCount} known values`;
-  return `${summary.knownCount} known values, ${summary.unknownCount} unstated`;
+  return `${summary.knownCount} known values, ${summary.unknownCount} unconfirmed`;
 }
 
 export function comparableAwardAverages(
