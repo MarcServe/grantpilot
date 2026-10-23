@@ -1,3 +1,4 @@
+import { DeadlineSocialPost } from "@/components/admin/deadline-social-post";
 import Image from "next/image";
 import { redirect } from "next/navigation";
 import Link from "next/link";
@@ -2026,6 +2027,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
                         <div className="text-xs text-muted-foreground">
                           {grant.funder ?? "Unknown funder"} - due {formatDateTime(grant.deadline)}
                         </div>
+                        <DeadlineSocialPost grantId={grant.id} grantName={grant.name ?? "Untitled grant"} />
                       </div>
                     ))
                   ) : (
