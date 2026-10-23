@@ -31,6 +31,7 @@ const primaryNavItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/grants/eligible", label: "Opportunities", icon: BriefcaseBusiness },
   { href: "/grants/apply-by-link", label: "Add by link", icon: LinkIcon },
+  { href: "/question-assistant", label: "Question Assistant", icon: Sparkles },
   { href: "/applications", label: "Applications", icon: FileText },
   { href: "/applications/outcomes", label: "Outcome feedback", icon: MessageSquareReply },
   { href: "/profile", label: "My Profile", icon: UserRound },
@@ -40,7 +41,7 @@ const primaryNavItems = [
 ];
 
 const secondaryNavItems = [
-  { href: "/founder-pack", label: "Founder Pack", icon: Sparkles },
+  { href: "/founder-pack", label: "Application Packs", icon: Sparkles },
   { href: "/feedback", label: "Contact us", icon: MessagesSquare },
 ];
 

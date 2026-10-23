@@ -11,6 +11,7 @@ const protectedPaths = [
   "/feedback",
   "/intelligence",
   "/founder-pack",
+  "/question-assistant",
   "/admin",
   "/settings",
 ];

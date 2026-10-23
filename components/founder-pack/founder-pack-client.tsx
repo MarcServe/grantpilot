@@ -29,6 +29,7 @@ import {
   type FounderPackDocumentType,
   type FounderPackInputs,
 } from "@/lib/founder-pack";
+import { parseQuestionBlocks, questionAssistantRequestSchema } from "@/lib/validations/question-assistant";
 import { ApplicationUpgradeDialog } from "@/components/billing/application-upgrade-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -149,20 +150,6 @@ function formatAddedAt(value?: string | null): string | null {
   return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
-function parseQuestionBlocks(value: string): string[] {
-  const trimmed = value.trim();
-  if (!trimmed) return [];
-  const blankLineBlocks = trimmed
-    .split(/\n{2,}/)
-    .map((item) => item.replace(/^[-*\d.)\s]+/, "").trim())
-    .filter(Boolean);
-  if (blankLineBlocks.length > 1) return blankLineBlocks.slice(0, 8);
-  return trimmed
-    .split("\n")
-    .map((item) => item.replace(/^[-*\d.)\s]+/, "").trim())
-    .filter(Boolean)
-    .slice(0, 8);
-}
 
 function inferLegacyDocumentTypes(content: FounderPackContent): FounderPackDocumentType[] {
   const inferred: FounderPackDocumentType[] = [];
@@ -918,29 +905,26 @@ export function FounderPackClient({
       toast.error("The free preview supports one grant question. Upgrade to draft the full application.");
       return;
     }
-    const parsedWordLimit = Number(questionAssistantWordLimit);
-    const wordLimit = Number.isFinite(parsedWordLimit) && parsedWordLimit > 0
-      ? Math.floor(parsedWordLimit)
-      : undefined;
+    const input = {
+      profileId: form.profileId,
+      selectedApplicationIds: form.selectedApplicationIds?.length ? form.selectedApplicationIds : undefined,
+      selectedEligibleGrantIds: form.selectedEligibleGrantIds?.length ? form.selectedEligibleGrantIds : undefined,
+      pastedGrantContext: form.grantRequirementsNotes?.trim() || undefined,
+      questions: questions.map((question) => ({ question,
+        wordLimit: questionAssistantWordLimit.trim() ? Number(questionAssistantWordLimit) : undefined,
+        guidance: questionAssistantGuidance.trim() || undefined })),
+      outputMode: questionAssistantMode,
+      existingAnswer: questionAssistantExistingAnswer.trim() || undefined,
+    };
+    const validation = questionAssistantRequestSchema.safeParse(input);
+    if (!validation.success) { toast.error(validation.error.issues.map((issue) => issue.message).join(" ")); return; }
 
     setQuestionAssistantLoading(true);
     try {
       const res = await fetch("/api/founder-pack/question-assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          profileId: form.profileId,
-          selectedApplicationIds: form.selectedApplicationIds?.length ? form.selectedApplicationIds : undefined,
-          selectedEligibleGrantIds: form.selectedEligibleGrantIds?.length ? form.selectedEligibleGrantIds : undefined,
-          pastedGrantContext: form.grantRequirementsNotes?.trim() || undefined,
-          questions: questions.map((question) => ({
-            question,
-            wordLimit,
-            guidance: questionAssistantGuidance.trim() || undefined,
-          })),
-          outputMode: questionAssistantMode,
-          existingAnswer: questionAssistantExistingAnswer.trim() || undefined,
-        }),
+        body: JSON.stringify(validation.data),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -1294,6 +1278,7 @@ export function FounderPackClient({
 
               <div className="space-y-2">
                 <Label htmlFor="questionAssistantText">Grant form question(s)</Label>
+                <p className="text-xs text-muted-foreground">Keep paragraphs and answer options together. Separate different questions with a line containing --- . Up to 12,000 characters per question.</p>
                 <Textarea
                   id="questionAssistantText"
                   rows={5}

@@ -7,7 +7,7 @@ import { PLAN_CATALOG, getPublicStripePriceId } from "@/lib/plans";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
-export function ApplicationUpgradeDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+export function ApplicationUpgradeDialog({ open, onOpenChange, returnTo = "/founder-pack" }: { open: boolean; onOpenChange: (open: boolean) => void; returnTo?: "/founder-pack" | "/question-assistant" }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const growth = PLAN_CATALOG.find((plan) => plan.value === "GROWTH")!;
@@ -16,7 +16,7 @@ export function ApplicationUpgradeDialog({ open, onOpenChange }: { open: boolean
     try {
       const res = await fetch("/api/billing/checkout", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ priceId: getPublicStripePriceId("GROWTH"), returnTo: "/founder-pack" }),
+        body: JSON.stringify({ priceId: getPublicStripePriceId("GROWTH"), returnTo }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Could not open checkout");

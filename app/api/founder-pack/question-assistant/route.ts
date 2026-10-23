@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
+import { questionAssistantRequestSchema } from "@/lib/validations/question-assistant";
 import { getActiveOrg } from "@/lib/auth";
 import { generateFounderPackQuestionAnswers } from "@/lib/founder-pack";
 import {
@@ -10,24 +10,6 @@ import { recordUsage } from "@/lib/plan-check";
 import { planAllowsForOrg } from "@/lib/plan-features";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
-const questionSchema = z.object({
-  question: z.string().min(5).max(2000),
-  wordLimit: z.number().int().min(30).max(1500).optional(),
-  guidance: z.string().max(1000).optional(),
-});
-
-const requestSchema = z.object({
-  profileId: z.string().min(1),
-  applicationId: z.string().min(1).optional(),
-  eligibleGrantId: z.string().min(1).optional(),
-  selectedApplicationIds: z.array(z.string().min(1)).max(5).optional(),
-  selectedEligibleGrantIds: z.array(z.string().min(1)).max(5).optional(),
-  pastedGrantContext: z.string().max(8000).optional(),
-  questions: z.array(questionSchema).min(1).max(8),
-  outputMode: z.enum(["draft_answer", "evidence_check", "improve_existing_answer"]).optional(),
-  existingAnswer: z.string().max(6000).optional(),
-});
-
 function uniqueIds(...groups: Array<string[] | undefined>): string[] {
   return [...new Set(groups.flatMap((group) => group ?? []).map((id) => id.trim()).filter(Boolean))];
 }
@@ -36,10 +18,10 @@ export async function POST(req: Request): Promise<NextResponse> {
   try {
     const { org, orgId } = await getActiveOrg();
     const body = await req.json().catch(() => ({}));
-    const parsed = requestSchema.safeParse(body);
+    const parsed = questionAssistantRequestSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
-        { error: "Invalid question assistant inputs", details: parsed.error.flatten() },
+        { error: parsed.error.issues.map((issue) => issue.message).join(" "), details: parsed.error.flatten() },
         { status: 400 }
       );
     }

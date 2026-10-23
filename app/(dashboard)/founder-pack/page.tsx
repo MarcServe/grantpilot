@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { sanitiseFounderPackContent, type FounderPackContent, type FounderPackDocumentType } from "@/lib/founder-pack";
@@ -233,9 +234,10 @@ export default async function FounderPackPage({
         <h1 className="text-2xl font-black text-[#071a3a]">Grant Application Workspace</h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground sm:text-base">
           Turn one grant into funder-ready answers, evidence steps, budgets, workplans, and exportable documents. Pick a
-          matched grant or in-progress application, paste the funder's questions, and GrantsCopilot uses your Business DNA
+          matched grant or in-progress application, paste the funder’s questions, and GrantsCopilot uses your Business DNA
           and eligibility reasoning to help you prepare the application.
         </p>
+        <Link href="/question-assistant" className="mt-3 inline-block text-sm font-medium text-primary underline">Just need an answer? Open the standalone Question Assistant</Link>
       </div>
 
       <FounderPackClient
