@@ -16,7 +16,7 @@ const PROFILE_ACTIONS: Array<{ match: RegExp; field: string; step: number; label
   { match: /document|upload|accounts|supporting evidence/i, field: "documents", step: 5, label: "Add supporting documents" },
   { match: /eligibility fact|verified fact/i, field: "eligibilityFacts", step: 7, label: "Confirm eligibility facts" },
 ];
-export function grantBlockerAction(text: string, grantId: string): GrantBlockerAction {
+export function grantBlockerAction(text: string, grantId: string, currentProfile?: Record<string, unknown>): GrantBlockerAction {
   const grant = encodeURIComponent(grantId);
   // Funder dates and application routes belong to the grant, not company dates.
   if (/deadline|funder page|application (route|link)|direct (form|application)/i.test(text)) {
@@ -24,6 +24,11 @@ export function grantBlockerAction(text: string, grantId: string): GrantBlockerA
   }
   const profile = PROFILE_ACTIONS.find((item) => item.match.test(text));
   if (profile) {
+    const supplied = currentProfile?.[profile.field];
+    const ageSupplied = profile.field === "incorporationDate" && currentProfile?.yearEstablished != null;
+    if ((supplied != null && String(supplied).trim() !== "") || ageSupplied) {
+      return { label: "Review grant requirement", href: `/grants/${grant}?from=matches#verify` };
+    }
     const params = new URLSearchParams({ step: String(profile.step), field: profile.field, grantId });
     return { label: profile.label, href: `/profile?${params}` };
   }

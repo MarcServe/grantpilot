@@ -76,7 +76,6 @@ export function deriveDecisionSignals(params: {
     params.suppressionReason,
     ...(params.missingCriteria ?? []),
     ...(params.improvementPlan?.gaps ?? []),
-    ...(params.improvementPlan?.actions ?? []),
   ]);
   const missingPenalty = Math.min(35, blockers.length * 5);
   const base = score ?? 0;

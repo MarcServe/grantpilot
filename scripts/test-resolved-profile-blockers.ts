@@ -27,3 +27,11 @@ assert.equal(detail.assessmentRefreshPending, true);
 assert.equal(detail.score, 85, "display reconciliation cannot increase a score");
 assert.equal(detail.decision, "likely_eligible");
 assert.equal(reconcileEligibilityDisplay(complete, { decision: "review", confidence: 50, missing: ["Company must be under 3 years old"], reason: "Age restriction" }).assessmentRefreshPending, false);
+
+assert.equal(isResolvedProfileBlocker("Company age and year established data", complete, true), true);
+assert.equal(isResolvedProfileBlocker("Company age and year established details", complete, true), true);
+assert.equal(isResolvedProfileBlocker("Company age and year established data", {}, true), false);
+assert.equal(isResolvedProfileBlocker("Company age and year established data", complete), false, "plain narrative is not a missing-field assertion");
+assert.equal(isResolvedProfileBlocker("Company age evidence required", complete, true), false);
+assert.equal(isResolvedProfileBlocker("Company must have traded for at least 3 years", complete, true), false);
+assert.deepEqual(reconcileProfileBlockers(complete, { missing_criteria: ["Company age and year established data"], improvement_plan: { gaps: ["Missing company age and year established information"], actions: ["Provide evidence of registration"] } }).assessment.missing, []);

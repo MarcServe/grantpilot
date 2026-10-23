@@ -4,15 +4,16 @@ import type { EligibilityAssessmentLike } from "@/lib/eligibility-final-score";
 const FIELDS = [
   { pattern: /incorporation date|date of incorporation/i, key: "incorporationDate" },
   { pattern: /trading start date|start of trading/i, key: "tradingStartDate" },
-  { pattern: /year established|year of establishment/i, key: "yearEstablished" },
+  { pattern: /year established|year of establishment|establishment year|founding year|company age|business age/i, key: "yearEstablished" },
   { pattern: /legal structure/i, key: "legalStructure" },
   { pattern: /employee count|headcount/i, key: "employeeCount" },
   { pattern: /annual revenue|annual turnover/i, key: "annualRevenue" },
 ];
 
 /** Remove only missing-value claims. Supplying a date does not prove an age rule. */
-export function isResolvedProfileBlocker(text: string, profile: Record<string, unknown>): boolean {
-  if (!/not provided|not supplied|not recorded|missing|unknown|not specified|not available|\b(add|provide|enter|confirm)\b/i.test(text)) return false;
+export function isResolvedProfileBlocker(text: string, profile: Record<string, unknown>, missingContext = false): boolean {
+  const nominalAgeGap = missingContext && /^(?:exact )?(?:(?:company|business|registration) age(?: and )?)?(?:(?:company )?(?:year established|year of establishment|establishment year|founding year))?(?: (?:data|details|information))?$/i.test(text.trim()) && /age|year/i.test(text);
+  if (!nominalAgeGap && !/not provided|not supplied|not recorded|missing|unknown|not specified|not available|\b(add|provide|enter|confirm)\b/i.test(text)) return false;
   if (/\d|must|at least|at most|younger|older|before|after|exceed|ineligible|not eligible|evidence|certificate|verification|does not meet|mismatch/i.test(text)) return false;
   const fields = FIELDS.filter(field => field.pattern.test(text));
   return fields.length > 0 && fields.every(field => {
@@ -29,15 +30,15 @@ export function isResolvedProfileBlocker(text: string, profile: Record<string, u
 
 export function reconcileProfileBlockers(profile: Record<string, unknown>, assessment: EligibilityAssessmentLike) {
   let resolved = false;
-  const filter = (values: string[] | null | undefined) => values?.filter(value => {
-    if (!isResolvedProfileBlocker(value, profile)) return true;
+  const filter = (values: string[] | null | undefined, missingContext = false) => values?.filter(value => {
+    if (!isResolvedProfileBlocker(value, profile, missingContext)) return true;
     resolved = true;
     return false;
   });
-  const missing = filter(assessment.missing ?? assessment.missing_criteria);
+  const missing = filter(assessment.missing ?? assessment.missing_criteria, true);
   const reasons = filter(assessment.reasons);
   const plan = assessment.improvement_plan ?? assessment.improvementPlan;
-  const improvementPlan = plan ? { ...plan, gaps: filter(plan.gaps) ?? [], actions: filter(plan.actions) ?? [] } : plan;
+  const improvementPlan = plan ? { ...plan, gaps: filter(plan.gaps, true) ?? [], actions: filter(plan.actions) ?? [] } : plan;
   const summaryResolved = isResolvedProfileBlocker(assessment.summary ?? "", profile);
   resolved ||= summaryResolved;
   const summary = resolved

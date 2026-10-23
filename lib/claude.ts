@@ -1,3 +1,5 @@
+import { companyAgeYears } from "@/lib/company-age";
+import { reconcileProfileBlockers } from "@/lib/resolved-profile-blockers";
 import { getApplicantTypeGate } from "@/lib/eligibility-hard-gates";
 import { cleanJsonResponse, completeJson } from "@/lib/openai-client";
 import { applyEligibilityScoreGuards } from "@/lib/eligibility-score-guards";
@@ -119,10 +121,10 @@ export async function getEligibilityDecision(
   grant: GrantForMatching,
   options?: { bypassCache?: boolean },
 ): Promise<EligibilityResult> {
-  const companyAge = profile.yearEstablished ? Math.max(0, new Date().getFullYear() - profile.yearEstablished) : null;
+  const companyAge = companyAgeYears(profile);
   const eligibilityFacts = eligibilityFactsToText(profile.eligibilityFacts, 16);
   const cached = options?.bypassCache ? null : await getCachedEligibilityDecision(profile as unknown as Record<string, unknown>, grant);
-  if (cached) return cached;
+  if (cached && !reconcileProfileBlockers(profile as unknown as Record<string, unknown>, cached).resolved) return cached;
   await touchEligibilityAiCaches(profile as unknown as Record<string, unknown>, grant);
 
   const rawText = await completeJson(

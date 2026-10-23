@@ -1,3 +1,4 @@
+import { grantBlockerAction } from "@/lib/grant-blocker-actions";
 import { reconcileProfileBlockers } from "@/lib/resolved-profile-blockers";
 import { after } from "next/server";
 import { getServerCache } from "@/lib/server-cache";
@@ -221,6 +222,7 @@ export async function loadProfileMatches(
         userState,
         effort,
         ...signals,
+        primaryBlockerAction: signals.primaryBlocker ? grantBlockerAction(signals.primaryBlocker, grant.id, profile) : null,
         criteriaAssessment: checked,
         opportunityType: grant.opportunityType ?? "unknown",
         currency:

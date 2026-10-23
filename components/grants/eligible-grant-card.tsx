@@ -73,6 +73,7 @@ export interface EligibleGrant {
   confidenceState?: ConfidenceState | null;
   recommendationCategory?: string | null;
   primaryBlocker?: string | null;
+  primaryBlockerAction?: { label: string; href: string } | null;
   assessmentRefreshPending?: boolean;
   nextAction?: string | null;
   profileFactsNeeded?: string[] | null;
@@ -421,7 +422,7 @@ export function EligibleGrantCard({
                     {grant.primaryBlocker}
                   </span>
                   <Button asChild size="sm" variant="outline" className="mt-2 flex w-fit gap-1">
-                    <Link href={grantBlockerAction(grant.primaryBlocker, grant.grantId).href}>{grantBlockerAction(grant.primaryBlocker, grant.grantId).label}<ArrowRight className="h-3 w-3" /></Link>
+                    <Link href={(grant.primaryBlockerAction ?? grantBlockerAction(grant.primaryBlocker, grant.grantId)).href}>{(grant.primaryBlockerAction ?? grantBlockerAction(grant.primaryBlocker, grant.grantId)).label}<ArrowRight className="h-3 w-3" /></Link>
                   </Button>
                 </p>
               )}
