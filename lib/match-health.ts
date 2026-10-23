@@ -367,8 +367,8 @@ export async function getMatchHealthReport(params: {
   const latestScoreAt = assessments[0]?.updated_at ?? null;
   const storedHighMatches = assessments.filter((row) => Number(row.score ?? 0) >= highThreshold).length;
 
-  const grantMap = await fetchGrantsById(supabase, assessments.map((row) => row.grant_id));
-  const [appliedGrantIds, suppressedGrantIds, outcomeAdvisory] = await Promise.all([
+  const [grantMap, appliedGrantIds, suppressedGrantIds, outcomeAdvisory] = await Promise.all([
+    fetchGrantsById(supabase, assessments.map((row) => row.grant_id)),
     getAppliedGrantIds(supabase, params.orgId, profileId),
     getSuppressedGrantIds(supabase, params.orgId, profileId),
     getOutcomeAdvisory(supabase, params.orgId, profileId),

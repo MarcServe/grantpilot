@@ -26,7 +26,7 @@ import {
   Users,
 } from "lucide-react";
 import { PLAN_CATALOG } from "@/lib/plans";
-import { createClient } from "@/lib/supabase/server";
+import { cookies } from "next/headers";
 import { HeroMotionVideo } from "@/components/marketing/hero-motion-video";
 
 const navItems = [
@@ -169,11 +169,9 @@ const toneClasses: Record<string, string> = {
 export const dynamic = "force-dynamic";
 
 export default async function LandingPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const isSignedIn = Boolean(user);
+  // Cosmetic CTA selection only. Protected destinations still verify the session.
+  const cookieStore = await cookies();
+  const isSignedIn = cookieStore.getAll().some(({ name }) => /^sb-.+-auth-token(?:\.\d+)?$/.test(name));
 
   return (
     <div className="min-h-screen overflow-hidden bg-[#f7fbff] text-[#071a3a]">

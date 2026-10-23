@@ -82,6 +82,7 @@ export function BusinessDnaMatchHealth({
   const [suggestions, setSuggestions] = useState<SuggestionMap | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+  const [suggestionError, setSuggestionError] = useState<string | null>(null);
   const [isApplying, setIsApplying] = useState(false);
 
   const fields = useMemo(() => suggestedFieldEntries(suggestions ?? {}), [suggestions]);
@@ -91,6 +92,7 @@ export function BusinessDnaMatchHealth({
   function loadSuggestions() {
     setOpen(true);
     if (suggestions || isLoadingSuggestions) return;
+    setSuggestionError(null);
     setIsLoadingSuggestions(true);
     void (async () => {
       try {
@@ -105,7 +107,9 @@ export function BusinessDnaMatchHealth({
           toast.info("No safe AI rewrite found. Add the missing evidence manually in your profile.");
         }
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Could not generate readiness suggestions");
+        const message = error instanceof Error ? error.message : "Could not generate readiness suggestions";
+        setSuggestionError(message);
+        toast.error(message);
       } finally {
         setIsLoadingSuggestions(false);
       }
@@ -193,10 +197,16 @@ export function BusinessDnaMatchHealth({
           </DialogHeader>
 
           {isLoadingSuggestions && !suggestions ? (
-            <div className="space-y-3 py-6">
-              <div className="h-4 w-2/3 animate-pulse rounded bg-muted" />
-              <div className="h-24 animate-pulse rounded bg-muted" />
-              <div className="h-24 animate-pulse rounded bg-muted" />
+            <div className="space-y-3 py-3">
+              <p role="status" className="text-sm font-medium">Preparing AI suggestions from your Business DNA…</p>
+              <p className="text-xs text-muted-foreground">Your current readiness gaps are available below while the suggestions are prepared.</p>
+              {report.profileGaps.map((gap) => <p key={gap} className="rounded-md border bg-muted/30 p-3 text-sm">{gap}</p>)}
+              {report.recommendedActions.slice(0, 3).map((action) => <p key={action} className="text-sm text-muted-foreground">{action}</p>)}
+            </div>
+          ) : suggestionError ? (
+            <div role="alert" className="space-y-3 rounded-md border p-4 text-sm">
+              <p>{suggestionError}</p>
+              <Button variant="outline" onClick={loadSuggestions}>Try again</Button>
             </div>
           ) : fields.length === 0 ? (
             <div className="rounded-md border p-4 text-sm text-muted-foreground">

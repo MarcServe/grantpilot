@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { getServerCache } from "@/lib/server-cache";
 import { createHash } from "node:crypto";
 import { cache } from "react";
@@ -49,45 +50,28 @@ export async function loadProfileMatches(
   profileId: string,
   db = getSupabaseAdmin({ timeoutMs: 10000 }),
 ) {
-  const profileResult = await db
-    .from("BusinessProfile")
-    .select("*")
-    .eq("id", profileId)
-    .eq("organisationId", orgId)
-    .single();
-  if (profileResult.error || !profileResult.data)
-    throw new Error("Profile not found");
-  const profile = profileResult.data as Record<string, unknown>;
-  const assessments: Assessment[] = [];
-  for (let offset = 0; ; offset += 500) {
-    const { data, error } = await db
-      .from("EligibilityAssessment")
-      .select("*")
-      .eq("organisation_id", orgId)
-      .eq("profile_id", profileId)
-      .order("grant_id")
-      .range(offset, offset + 499);
-    if (error) throw new Error(error.message);
-    assessments.push(...((data ?? []) as Assessment[]));
-    if ((data?.length ?? 0) < 500) break;
-  }
-  const [saved, applied, outcomes] = await Promise.all([
-    db
-      .from("SavedGrant")
-      .select("grant_id,status")
-      .eq("organisation_id", orgId)
-      .eq("profile_id", profileId),
+  const profilePromise = db.from("BusinessProfile").select("*").eq("id", profileId).eq("organisationId", orgId).single();
+  const assessmentsPromise = (async () => {
+    const rows: Assessment[] = [];
+    for (let offset = 0; ; offset += 1000) {
+      const { data, error } = await db.from("EligibilityAssessment").select("*")
+        .eq("organisation_id", orgId).eq("profile_id", profileId).order("grant_id").range(offset, offset + 999);
+      if (error) throw new Error(error.message);
+      rows.push(...((data ?? []) as Assessment[]));
+      if ((data?.length ?? 0) < 1000) break;
+    }
+    return rows;
+  })();
+  const [profileResult, assessments, saved, applied, outcomes] = await Promise.all([
+    profilePromise,
+    assessmentsPromise,
+    db.from("SavedGrant").select("grant_id,status").eq("organisation_id", orgId).eq("profile_id", profileId),
     getAppliedGrantIds(db, orgId, profileId),
-    db
-      .from("ApplicationOutcome")
-      .select(
-        "outcome,awardedAmount,funderFeedback,learningNotes,Grant(name,funder)",
-      )
-      .eq("organisationId", orgId)
-      .eq("profileId", profileId)
-      .order("reportedAt", { ascending: false })
-      .limit(8),
+    db.from("ApplicationOutcome").select("outcome,awardedAmount,funderFeedback,learningNotes,Grant(name,funder)")
+      .eq("organisationId", orgId).eq("profileId", profileId).order("reportedAt", { ascending: false }).limit(8),
   ]);
+  if (profileResult.error || !profileResult.data) throw new Error("Profile not found");
+  const profile = profileResult.data as Record<string, unknown>;
   if (saved.error || outcomes.error)
     throw new Error(saved.error?.message ?? outcomes.error?.message);
   const states = new Map<string, GrantUserState>(
@@ -108,15 +92,15 @@ export async function loadProfileMatches(
   const assessmentById = new Map(assessments.map((a) => [a.grant_id, a]));
   const locations = inferFunderLocationsFromProfile(profile);
   const versions: string[] = [];
-  for (let i = 0; i < ids.length; i += 320) {
+  for (let i = 0; i < ids.length; i += 512) {
     const results = await Promise.all(
-      [0, 80, 160, 240]
+      [0, 128, 256, 384]
         .filter((offset) => i + offset < ids.length)
         .map((offset) =>
           db
             .from("Grant")
             .select("*")
-            .in("id", ids.slice(i + offset, i + offset + 80)),
+            .in("id", ids.slice(i + offset, i + offset + 128)),
         ),
     );
     const failure = results.find((result) => result.error);
@@ -278,7 +262,7 @@ export async function loadProfileMatches(
 export const getProfileMatches = cache((orgId: string, profileId: string) =>
   getServerCache(
     `profile-portfolio:${criteriaEnabled()}:${orgId}:${profileId}`,
-    { ttlMs: 15000, maxEntries: 12 },
+    { ttlMs: 30_000, staleWhileRevalidateMs: 120_000, maxEntries: 30, keepAlive: (work) => after(() => work) },
     () => loadProfileMatches(orgId, profileId),
   ),
 );

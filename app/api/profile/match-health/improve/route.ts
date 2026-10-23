@@ -1,3 +1,5 @@
+import { createHash } from "crypto";
+import { getServerCache } from "@/lib/server-cache";
 import { NextResponse } from "next/server";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -6,7 +8,7 @@ import { getMatchHealthReport } from "@/lib/match-health";
 import { suggestBusinessDnaCoverageImprovements } from "@/lib/claude";
 
 async function getProfileForOrg(orgId: string, profileId: string): Promise<Record<string, unknown> | null> {
-  const { data } = await getSupabaseAdmin()
+  const { data } = await getSupabaseAdmin({ timeoutMs: 8000 })
     .from("BusinessProfile")
     .select("*")
     .eq("id", profileId)
@@ -28,20 +30,19 @@ export async function POST(): Promise<NextResponse> {
       return NextResponse.json({ error: "Profile not found" }, { status: 404 });
     }
 
-    const supabase = getSupabaseAdmin();
+    const supabase = getSupabaseAdmin({ timeoutMs: 8000 });
     const profile = await getProfileForOrg(orgId, activeProfile.id);
     if (!profile?.id) {
       return NextResponse.json({ error: "Profile not found" }, { status: 404 });
     }
 
-    const report = await getMatchHealthReport({
-      supabase,
-      orgId,
-      profile: profile as Record<string, unknown> & { id: string },
+    const revision = createHash("sha256").update(JSON.stringify(profile)).digest("hex");
+    const result = await getServerCache(`readiness-suggestions:${orgId}:${profile.id}:${revision}`, { ttlMs: 10 * 60_000, maxEntries: 50 }, async () => {
+      const report = await getMatchHealthReport({ supabase, orgId, profile: profile as Record<string, unknown> & { id: string }, assessmentLimit: 200 });
+      const suggestions = await suggestBusinessDnaCoverageImprovements(profile, report);
+      return { suggestions, report };
     });
-    const suggestions = await suggestBusinessDnaCoverageImprovements(profile, report);
-
-    return NextResponse.json({ suggestions, report });
+    return NextResponse.json(result, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     console.error("[PROFILE_MATCH_HEALTH_IMPROVE]", error);
     const message = error instanceof Error ? error.message : "Internal server error";

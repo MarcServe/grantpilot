@@ -19,6 +19,10 @@ const protectedPaths = [
 ];
 
 export async function middleware(request: NextRequest) {
+  // Public marketing content does not need a network authentication check.
+  if (["/", "/privacy", "/terms", "/refund"].includes(request.nextUrl.pathname)) {
+    return NextResponse.next({ request });
+  }
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(

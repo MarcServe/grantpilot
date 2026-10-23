@@ -99,7 +99,11 @@ async function loadDashboardMatches({
   let deferredGrants: DeferredGrant[] = [];
 
   if (!profile) return { suggestedGrants, withinReachGrants, deferredGrants };
-  const portfolio = await getProfileMatches(orgId, profile.id);
+  const deferredWork = supabase.from("SavedGrant")
+    .select("grant_id, updated_at, Grant(id, name, funder)")
+    .eq("organisation_id", orgId).eq("profile_id", profile.id).eq("status", "deferred")
+    .order("updated_at", { ascending: false }).limit(5);
+  const [portfolio, { data: deferredRows }] = await Promise.all([getProfileMatches(orgId, profile.id), deferredWork]);
   suggestedGrants.push(
     ...portfolio.sections.suggested.map((g) => ({
       ...g,
@@ -113,14 +117,6 @@ async function loadDashboardMatches({
     })),
   );
 
-  const { data: deferredRows } = await supabase
-    .from("SavedGrant")
-    .select("grant_id, updated_at, Grant(id, name, funder)")
-    .eq("organisation_id", orgId)
-    .eq("profile_id", profile.id)
-    .eq("status", "deferred")
-    .order("updated_at", { ascending: false })
-    .limit(5);
   const deferredIds = (deferredRows ?? []).map(
     (row: { grant_id: string }) => row.grant_id,
   );
@@ -180,6 +176,49 @@ export default async function DashboardPage() {
 
   const profile = org.profiles?.[0];
   const completionScore = profile?.completionScore ?? 0;
+
+  const matchesWork = loadDashboardMatches({
+    supabase,
+    orgId,
+    profile: profile as ({ id: string } & Record<string, unknown>) | undefined,
+    completionScore,
+  });
+  const matchesPromise: Promise<DashboardMatchesData> = new Promise(
+    (resolve) => {
+      const timer = setTimeout(
+        () =>
+          resolve({
+            suggestedGrants: [],
+            withinReachGrants: [],
+            deferredGrants: [],
+            error:
+              "Your matches are taking longer than expected. Please retry.",
+          }),
+        20000,
+      );
+      matchesWork.then(
+        (result) => {
+          clearTimeout(timer);
+          resolve(result);
+        },
+        () => {
+          clearTimeout(timer);
+          resolve({
+            suggestedGrants: [],
+            withinReachGrants: [],
+            deferredGrants: [],
+            error: "Matches could not be loaded. Please retry.",
+          });
+        },
+      );
+    },
+  );
+  const matchHealthPromise = loadDashboardMatchHealth({
+    supabase,
+    orgId,
+    profile: profile as (Record<string, unknown> & { id: string }) | undefined,
+  });
+
 
   const [
     recentApplicationsResult,
@@ -301,47 +340,6 @@ export default async function DashboardPage() {
     lastEligibilityRun = latestAssessmentResult.data.updated_at as string;
   }
   eligibilityGrantCount = eligibilityCountResult.count ?? 0;
-  const matchesWork = loadDashboardMatches({
-    supabase,
-    orgId,
-    profile: profile as ({ id: string } & Record<string, unknown>) | undefined,
-    completionScore,
-  });
-  const matchesPromise: Promise<DashboardMatchesData> = new Promise(
-    (resolve) => {
-      const timer = setTimeout(
-        () =>
-          resolve({
-            suggestedGrants: [],
-            withinReachGrants: [],
-            deferredGrants: [],
-            error:
-              "Your matches are taking longer than expected. Please retry.",
-          }),
-        20000,
-      );
-      matchesWork.then(
-        (result) => {
-          clearTimeout(timer);
-          resolve(result);
-        },
-        () => {
-          clearTimeout(timer);
-          resolve({
-            suggestedGrants: [],
-            withinReachGrants: [],
-            deferredGrants: [],
-            error: "Matches could not be loaded. Please retry.",
-          });
-        },
-      );
-    },
-  );
-  const matchHealthPromise = loadDashboardMatchHealth({
-    supabase,
-    orgId,
-    profile: profile as (Record<string, unknown> & { id: string }) | undefined,
-  });
 
   const displayName =
     profile?.businessName?.trim() ||

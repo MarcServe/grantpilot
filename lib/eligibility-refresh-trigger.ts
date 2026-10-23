@@ -1,3 +1,4 @@
+import { clearEligibleMatchCaches } from "@/lib/eligible-match-cache";
 import { inngest } from "@/inngest/client";
 
 /**
@@ -11,6 +12,7 @@ export async function requestEligibilityRefresh(
   try {
     const id = orgId?.trim();
     if (id) {
+      clearEligibleMatchCaches();
       await inngest.send({
         name: "eligibility/refresh.requested",
         data: { orgId: id, source },

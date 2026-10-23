@@ -31,22 +31,22 @@ export async function fetchCachedGrantRowsByIds<T extends { id: string }>({
   const rows: T[] = [];
   const selectHash = hashKey(select);
 
-  for (let i = 0; i < uniqueIds.length; i += batchSize) {
-    const batch = uniqueIds.slice(i, i + batchSize);
-    const batchKey = `${cacheNamespace}:${selectHash}:${hashKey(batch.join(","))}`;
-    const batchRows = await getServerCache<T[]>(
-      batchKey,
-      { ttlMs, maxEntries: 300 },
-      async () => {
+  // Bound parallelism: avoid one network round trip per batch while keeping
+  // database load predictable for large profiles.
+  const size = Math.max(1, batchSize);
+  for (let group = 0; group < uniqueIds.length; group += size * 4) {
+    const results = await Promise.all([0, 1, 2, 3].map(async (index) => {
+      const start = group + index * size;
+      const batch = uniqueIds.slice(start, start + size);
+      if (!batch.length) return [] as T[];
+      const batchKey = `${cacheNamespace}:${selectHash}:${hashKey(batch.join(","))}`;
+      return getServerCache<T[]>(batchKey, { ttlMs, maxEntries: 300 }, async () => {
         const { data, error } = await supabase.from("Grant").select(select).in("id", batch);
-        if (error) {
-          console.warn("[grant-cache] Grant batch lookup failed:", error.message);
-          return [];
-        }
+        if (error) throw new Error(`Grant records could not be loaded: ${error.message}`);
         return (data ?? []) as unknown as T[];
-      }
-    );
-    rows.push(...batchRows);
+      });
+    }));
+    rows.push(...results.flat());
   }
 
   return new Map(rows.map((row) => [row.id, row]));

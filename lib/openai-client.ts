@@ -15,14 +15,14 @@ export function cleanJsonResponse(raw: string): string {
   return fenceMatch ? fenceMatch[1].trim() : text;
 }
 
-export async function completeJson(prompt: string, maxTokens = 1600): Promise<string> {
+export async function completeJson(prompt: string, maxTokens = 1600, options?: { timeout?: number; maxRetries?: number }): Promise<string> {
   const response = await getOpenAIClient().chat.completions.create({
     model: process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini",
     temperature: 0.2,
     max_tokens: maxTokens,
     response_format: { type: "json_object" },
     messages: [{ role: "user", content: prompt }],
-  });
+  }, options);
   return response.choices[0]?.message?.content ?? "{}";
 }
 

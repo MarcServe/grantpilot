@@ -336,7 +336,8 @@ Return ONLY valid JSON with this shape. Omit fields where no safe improvement is
   "rationale": ["why these safe edits may improve matching"],
   "safeguards": ["facts the user should add manually instead of AI inventing them"]
 }`,
-    2200
+    1600,
+    { timeout: 30_000, maxRetries: 0 }
   );
 
   try {
