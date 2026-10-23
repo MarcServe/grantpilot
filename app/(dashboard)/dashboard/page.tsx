@@ -862,18 +862,21 @@ async function DashboardFundingSnapshot({
   return (
     <div className="grid min-w-0 gap-3 lg:grid-cols-3">
       <FundingSnapshotCard
+        href="/grants/eligible"
         label="Opportunities with confirmed award values"
         value={String(totalValue.knownCount)}
         detail={`${totalValue.unknownCount} award amounts not confirmed`}
         tone="blue"
       />
       <FundingSnapshotCard
+        href="/grants/eligible?tier=suggested"
         label="Strong in preview"
         value={String(suggestedGrants.length)}
         detail="Review the strongest opportunities first"
         tone="green"
       />
       <FundingSnapshotCard
+        href="/grants/eligible?tier=within_reach"
         label="Within reach in preview"
         value={String(withinReachGrants.length)}
         detail="Near matches with evidence gaps to improve"
@@ -884,11 +887,13 @@ async function DashboardFundingSnapshot({
 }
 
 function FundingSnapshotCard({
+  href,
   label,
   value,
   detail,
   tone,
 }: {
+  href: string;
   label: string;
   value: string;
   detail: string;
@@ -901,7 +906,7 @@ function FundingSnapshotCard({
   }[tone];
 
   return (
-    <div className={`rounded-2xl border px-4 py-3 ${toneClass}`}>
+    <Link href={href} aria-label={`View ${label.toLowerCase()}`} className={`block rounded-2xl border px-4 py-3 transition-shadow hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${toneClass}`}>
       <p className="text-xs font-black uppercase tracking-[0.08em] text-[#51627d]">
         {label}
       </p>
@@ -909,7 +914,7 @@ function FundingSnapshotCard({
         {value}
       </p>
       <p className="mt-2 text-xs font-bold text-[#51627d]">{detail}</p>
-    </div>
+    </Link>
   );
 }
 
