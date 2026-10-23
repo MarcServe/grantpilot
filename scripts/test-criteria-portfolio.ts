@@ -195,6 +195,12 @@ async function main() {
     new Set(scaled.sections.suggested.map((g) => g.grantId)).size,
     409,
   );
+  const firstWindow = await loadProfileMatches("org", "p1", db, { offset: 0, limit: 80 });
+  const nextWindow = await loadProfileMatches("org", "p1", db, { offset: 80, limit: 80 });
+  assert.equal(firstWindow.scannedCount, 80, "Initial display must read only 80 assessments");
+  assert.equal(nextWindow.scannedCount, 80);
+  const firstIds = new Set(Object.values(firstWindow.sections).flat().map((grant) => grant.grantId));
+  assert.ok(Object.values(nextWindow.sections).flat().every((grant) => !firstIds.has(grant.grantId)), "Assessment windows must not overlap");
   console.log(
     "Shared portfolio filtering, exact counts, pagination and profile isolation tests passed",
   );

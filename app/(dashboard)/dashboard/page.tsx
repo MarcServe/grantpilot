@@ -1,5 +1,5 @@
 import { criteriaEnabled } from "@/lib/criteria-flags";
-import { getProfileMatches } from "@/lib/profile-matches";
+import { getProfileMatchWindow } from "@/lib/profile-matches";
 import type { CriteriaAssessment } from "@/lib/criteria";
 import Link from "next/link";
 import { Suspense } from "react";
@@ -103,7 +103,7 @@ async function loadDashboardMatches({
     .select("grant_id, updated_at, Grant(id, name, funder)")
     .eq("organisation_id", orgId).eq("profile_id", profile.id).eq("status", "deferred")
     .order("updated_at", { ascending: false }).limit(5);
-  const [portfolio, { data: deferredRows }] = await Promise.all([getProfileMatches(orgId, profile.id), deferredWork]);
+  const [portfolio, { data: deferredRows }] = await Promise.all([getProfileMatchWindow(orgId, profile.id, 0), deferredWork]);
   suggestedGrants.push(
     ...portfolio.sections.suggested.map((g) => ({
       ...g,
@@ -721,7 +721,7 @@ async function DashboardMyMatchesStart({
             My Matches
           </h2>
           <p className="mt-1 text-sm font-semibold text-[#51627d]">
-            AI-scored grants for your Business DNA.
+            A first batch of AI-scored grants for your Business DNA. Open My Matches to load more.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -736,7 +736,7 @@ async function DashboardMyMatchesStart({
             className="rounded-xl bg-white font-black"
           >
             <Link href="/grants/eligible?section=suggested&top=5">
-              Strong {suggestedGrants.length}
+              Strong in preview {suggestedGrants.length}
             </Link>
           </Button>
           <Button
@@ -745,7 +745,7 @@ async function DashboardMyMatchesStart({
             className="rounded-xl bg-white font-black"
           >
             <Link href="/grants/eligible?section=within_reach">
-              Within reach {withinReachGrants.length}
+              Within reach in preview {withinReachGrants.length}
             </Link>
           </Button>
           <Button
@@ -784,7 +784,7 @@ async function DashboardMyMatchesStart({
         ) : (
           <div className="rounded-2xl border border-[#dbe7f6] bg-white p-4">
             <p className="text-base font-black text-[#071a3a]">
-              No matches ready yet
+              No matches in this first batch
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               <Button
@@ -868,13 +868,13 @@ async function DashboardFundingSnapshot({
         tone="blue"
       />
       <FundingSnapshotCard
-        label="Strong matches"
+        label="Strong in preview"
         value={String(suggestedGrants.length)}
         detail="Review the strongest opportunities first"
         tone="green"
       />
       <FundingSnapshotCard
-        label="Within reach"
+        label="Within reach in preview"
         value={String(withinReachGrants.length)}
         detail="Near matches with evidence gaps to improve"
         tone="amber"

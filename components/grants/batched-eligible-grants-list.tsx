@@ -55,6 +55,7 @@ type TierState = {
 };
 
 export type MatchesResponse = {
+  nextCursor?: string | null;
   version?: string;
   counts?: Record<MatchSection, number>;
   grants: EligibleGrant[];
@@ -175,12 +176,17 @@ async function fetchTier(
   tier: MatchSection,
   page: number,
   pageSize: number,
+  cursor?: string | null,
+  profileId?: string,
 ): Promise<MatchesResponse> {
   const params = new URLSearchParams({
     tier,
     page: String(page),
     pageSize: String(pageSize),
   });
+
+  if (cursor) params.set("cursor", cursor);
+  if (profileId) params.set("profileId", profileId);
 
   const response = await fetch(
     `/api/grants/eligible-matches?${params.toString()}`,
@@ -242,7 +248,9 @@ export function BatchedEligibleGrantsList({
   initialPage,
   pageSize,
   initialBatches,
+  profileId,
 }: {
+  profileId?: string;
   initialBatches?: Record<MatchSection, MatchesResponse>;
   initialTier: MatchSection | null;
   initialPage: number;
@@ -257,6 +265,7 @@ export function BatchedEligibleGrantsList({
   );
   const resultsRef = useRef<HTMLDivElement>(null);
   const inFlightRequests = useRef<Set<string>>(new Set());
+  const nextCursors = useRef<Partial<Record<MatchSection, string | null>>>({});
   const snapshot = useRef<string | null>(null);
   const [snapshotChanged, setSnapshotChanged] = useState(false);
   const tiersToShow = useMemo(
@@ -279,7 +288,8 @@ export function BatchedEligibleGrantsList({
       }));
 
       try {
-        const result = await fetchTier(tier, page, pageSize);
+        const result = await fetchTier(tier, page, pageSize, mode === "append" ? nextCursors.current[tier] : undefined, profileId);
+        nextCursors.current[tier] = result.nextCursor;
         if (
           snapshot.current &&
           result.version &&
@@ -310,10 +320,9 @@ export function BatchedEligibleGrantsList({
                 page: result.page,
                 status: "loaded",
                 hasMore: result.hasMore,
-                availableCandidateCount:
-                  result.availableCandidateCount ??
-                  result.rawCandidateCount ??
-                  result.grants.length,
+                availableCandidateCount: mode === "append"
+                  ? result.hasMore ? Math.max(current[tier].availableCandidateCount ?? 0, uniqueGrants(current[tier].grants, result.grants).length) : uniqueGrants(current[tier].grants, result.grants).length
+                  : result.availableCandidateCount ?? result.rawCandidateCount ?? result.grants.length,
                 availableCandidateCountIsEstimate: Boolean(
                   result.availableCandidateCountIsEstimate,
                 ),
@@ -335,7 +344,7 @@ export function BatchedEligibleGrantsList({
         inFlightRequests.current.delete(requestKey);
       }
     },
-    [pageSize],
+    [pageSize, profileId],
   );
 
   useEffect(() => {
@@ -343,9 +352,10 @@ export function BatchedEligibleGrantsList({
       const seeded = emptySections();
       for (const tier of TIER_ORDER) {
         const batch = initialBatches[tier];
+        nextCursors.current[tier] = batch.nextCursor;
         seeded[tier] = { grants: batch.grants, page: batch.page, status: "loaded", hasMore: batch.hasMore,
           availableCandidateCount: batch.availableCandidateCount ?? batch.grants.length,
-          availableCandidateCountIsEstimate: false, error: null };
+          availableCandidateCountIsEstimate: Boolean(batch.availableCandidateCountIsEstimate), error: null };
       }
       snapshot.current = initialBatches.suggested.version ?? null;
       setSnapshotChanged(false);
@@ -725,7 +735,8 @@ function MatchTierSection({
           </div>
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">
-          {meta.emptyLabel}
+          {state.hasMore ? "No matches in this batch. More opportunities are available to check." : meta.emptyLabel}
+          {state.hasMore && <Button variant="outline" className="mt-3 block" disabled={state.status === "loading"} onClick={onLoadMore}>{state.status === "loading" ? "Loading next batch…" : "Check next batch"}</Button>}
         </CardContent>
       </Card>
     );
@@ -860,7 +871,7 @@ function FundingValueSummaryStrip({
             <span className="block mt-2 text-2xl font-black tracking-tight text-[#071a3a]">
               {state.status === "loading" && summary.totalCount === 0
                 ? "Loading..."
-                : (state.availableCandidateCount ?? summary.totalCount)}
+                : `${state.availableCandidateCount ?? summary.totalCount}${state.availableCandidateCountIsEstimate ? "+" : ""}`}
             </span>
             <span className="block mt-1 text-xs font-medium text-muted-foreground">
               {grantValueSummaryDetail(summary)} · {state.grants.length} cards

@@ -1,6 +1,7 @@
+import { loadMatchBatch } from "@/lib/profile-match-batch";
 import { NextResponse } from "next/server";
 import { getActiveOrg } from "@/lib/auth";
-import { getProfileMatches, pageProfileMatches } from "@/lib/profile-matches";
+import { getProfileMatchWindow } from "@/lib/profile-matches";
 import { normalizeEligibleMatchSection } from "@/lib/eligible-match-rules";
 export async function GET(request: Request) {
   try {
@@ -19,26 +20,20 @@ export async function GET(request: Request) {
     if (url.searchParams.get("profileId") && url.searchParams.get("profileId") !== profileId) {
       return NextResponse.json({ error: "Active business changed. Refresh to load its opportunities." }, { status: 409 });
     }
-    const matches = await getProfileMatches(orgId, profileId);
-    const all = matches.sections[tier];
-    const { grants } = pageProfileMatches(matches, tier, page, pageSize);
-    return NextResponse.json(
-      {
-        grants,
-        page,
-        pageSize,
-        tier,
-        hasMore: all.length > page * pageSize,
-        availableCandidateCount: all.length,
-        availableCandidateCountIsEstimate: false,
-        rawCandidateCount: all.length,
-        returnedCount: grants.length,
-        counts: matches.counts,
-        version: matches.version,
-        missingFacts: matches.missingFacts,
-      },
-      { headers: { "Cache-Control": "private, no-store" } },
-    );
+    let result;
+    try {
+      result = await loadMatchBatch(tier, pageSize, url.searchParams.get("cursor"), (offset) => getProfileMatchWindow(orgId, profileId, offset));
+    } catch (error) {
+      if (error instanceof Error && error.message === "Invalid batch cursor") return NextResponse.json({ error: error.message }, { status: 400 });
+      throw error;
+    }
+    const { grants, hasMore, nextCursor } = result;
+    return NextResponse.json({ grants, page, pageSize, tier, hasMore,
+      nextCursor,
+      availableCandidateCount: grants.length,
+      availableCandidateCountIsEstimate: hasMore,
+      returnedCount: grants.length,
+    }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     return NextResponse.json(
       {

@@ -49,16 +49,20 @@ export async function loadProfileMatches(
   orgId: string,
   profileId: string,
   db = getSupabaseAdmin({ timeoutMs: 10000 }),
+  window?: { offset: number; limit: number },
 ) {
   const profilePromise = db.from("BusinessProfile").select("*").eq("id", profileId).eq("organisationId", orgId).single();
   const assessmentsPromise = (async () => {
     const rows: Assessment[] = [];
-    for (let offset = 0; ; offset += 1000) {
-      const { data, error } = await db.from("EligibilityAssessment").select("*")
-        .eq("organisation_id", orgId).eq("profile_id", profileId).order("grant_id").range(offset, offset + 999);
+    const start = window?.offset ?? 0;
+    const size = window?.limit ?? 1000;
+    for (let offset = start; ; offset += size) {
+      let query = db.from("EligibilityAssessment").select("*").eq("organisation_id", orgId).eq("profile_id", profileId);
+      if (window) query = query.order("score", { ascending: false });
+      const { data, error } = await query.order("grant_id").range(offset, offset + size - 1);
       if (error) throw new Error(error.message);
       rows.push(...((data ?? []) as Assessment[]));
-      if ((data?.length ?? 0) < 1000) break;
+      if (window || (data?.length ?? 0) < size) break;
     }
     return rows;
   })();
@@ -249,6 +253,7 @@ export async function loadProfileMatches(
       .update(JSON.stringify([profile, versions.sort()]))
       .digest("hex")
       .slice(0, 24),
+    scannedCount: assessments.length,
     missingFacts: missingFactImpact(
       active.flatMap((g) =>
         g.criteriaAssessment
@@ -281,4 +286,11 @@ export function pageProfileMatches(
     counts: portfolio.counts,
     version: portfolio.version,
   };
+}
+
+/** Evaluate a bounded assessment window. Remaining windows are loaded on demand. */
+export function getProfileMatchWindow(orgId: string, profileId: string, offset: number) {
+  return getServerCache(`profile-portfolio:window:${criteriaEnabled()}:${orgId}:${profileId}:${offset}`,
+    { ttlMs: 30_000, maxEntries: 120 },
+    () => loadProfileMatches(orgId, profileId, getSupabaseAdmin({ timeoutMs: 10_000 }), { offset, limit: 80 }));
 }

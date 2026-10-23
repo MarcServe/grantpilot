@@ -1,6 +1,6 @@
-import { getProfileMatches, pageProfileMatches, MATCH_SECTIONS } from "@/lib/profile-matches";
-import { criteriaEnabled } from "@/lib/criteria-flags";
+import { getProfileMatchWindow } from "@/lib/profile-matches";
 import { profileCompletionFields } from "@/lib/profile-completion";
+import { criteriaEnabled } from "@/lib/criteria-flags";
 import { FirstApplicationGuide } from "@/components/grants/first-application-guide";
 import Link from "next/link";
 import { Suspense } from "react";
@@ -108,7 +108,7 @@ export default async function EligibleGrantsPage({
     );
   }
 
-  const portfolio = await getProfileMatches(orgId, profileId);
+  const previewPromise = getProfileMatchWindow(orgId, profileId, 0);
   const matchHealthPromise = getMatchHealthReport({
     supabase,
     orgId,
@@ -157,8 +157,8 @@ export default async function EligibleGrantsPage({
           ) && <FirstApplicationGuide />}
           <p className="mt-1 max-w-2xl text-muted-foreground">
             Review why opportunities fit, confirm missing information, and
-            prepare the strongest applications. Counts cover the whole active
-            profile; loaded cards are shown in batches.
+            prepare the strongest applications. Cards load in small batches for the active profile. Counts reflect
+            loaded results; select Load more to continue.
           </p>
         </div>
         <Link
@@ -206,47 +206,12 @@ export default async function EligibleGrantsPage({
       )}
 
       <Suspense fallback={<ProfileBootstrapStatusSkeleton />}>
-        <ProfileBootstrapStatusPanel
-          bootstrapStatusPromise={bootstrapStatusPromise}
-          counts={portfolio.counts}
-        />
+        <ProfileBootstrapStatusPanel bootstrapStatusPromise={bootstrapStatusPromise} />
       </Suspense>
 
-      {criteriaEnabled() && portfolio.missingFacts.length > 0 && (
-        <section className="mb-5 rounded-xl border bg-blue-50 p-4">
-          <h2 className="font-semibold">
-            Answer once, clarify more opportunities
-          </h2>
-          <ul className="mt-2 space-y-2">
-            {portfolio.missingFacts.slice(0, 5).map((f) => {
-              const field = profileCompletionFields(portfolio.profile).find(
-                (p) => p.key === f.field,
-              );
-              return (
-                <li key={f.field}>
-                  <Link
-                    className="text-blue-700 underline"
-                    href={`/profile?step=${field?.step ?? 7}&field=${f.field}`}
-                  >
-                    Confirm {field?.label ?? f.field} — could clarify {f.count}{" "}
-                    opportunities
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      )}
-      <BatchedEligibleGrantsList
-        key={`${profileId}:${portfolio.version}:${pageSize}:${initialPage}`}
-        initialBatches={Object.fromEntries(MATCH_SECTIONS.map((tier) => {
-          const page = tier === activeTier ? initialPage : 1;
-          return [tier, { ...pageProfileMatches(portfolio, tier, page, pageSize), page }];
-        })) as Record<EligibleMatchSection, MatchesResponse>}
-        initialTier={activeTier}
-        initialPage={initialPage}
-        pageSize={pageSize}
-      />
+      <Suspense fallback={<p role="status" className="py-4 text-sm text-muted-foreground">Loading the first small batch of opportunities…</p>}>
+        <InitialOpportunityBatch previewPromise={previewPromise} activeTier={activeTier} initialPage={initialPage} pageSize={pageSize} profileId={profileId} />
+      </Suspense>
 
       {!criteriaEnabled() && (
         <Suspense fallback={<BusinessDnaMatchHealthSkeleton />}>
@@ -264,7 +229,7 @@ async function ProfileBootstrapStatusPanel({
   bootstrapStatusPromise,
   counts,
 }: {
-  counts: { suggested: number; within_reach: number };
+  counts?: { suggested: number; within_reach: number };
   bootstrapStatusPromise: Promise<
     Awaited<ReturnType<typeof getProfileBootstrapStatus>>
   >;
@@ -297,8 +262,8 @@ async function ProfileBootstrapStatusPanel({
               value={status.pending + status.running}
             />
             <StatusMetric label="Completed" value={status.completed} />
-            <StatusMetric label="Strong 85%+" value={counts.suggested} />
-            <StatusMetric label="Within reach" value={counts.within_reach} />
+            {counts && <StatusMetric label="Strong 85%+" value={counts.suggested} />}
+            {counts && <StatusMetric label="Within reach" value={counts.within_reach} />}
           </div>
         </div>
       </CardContent>
@@ -350,4 +315,45 @@ function BusinessDnaMatchHealthSkeleton() {
       </div>
     </div>
   );
+}
+
+async function InitialOpportunityBatch({ previewPromise, activeTier, initialPage, pageSize, profileId }: {
+  previewPromise: ReturnType<typeof getProfileMatchWindow>; activeTier: EligibleMatchSection | null;
+  initialPage: number; pageSize: number; profileId: string;
+}) {
+  const preview = await previewPromise;
+  return <>
+      {criteriaEnabled() && preview.missingFacts.length > 0 && (
+        <section className="mb-5 rounded-xl border bg-blue-50 p-4">
+          <h2 className="font-semibold">
+            Answer once, clarify more opportunities in this batch
+          </h2>
+          <ul className="mt-2 space-y-2">
+            {preview.missingFacts.slice(0, 5).map((f) => {
+              const field = profileCompletionFields(preview.profile).find(
+                (p) => p.key === f.field,
+              );
+              return (
+                <li key={f.field}>
+                  <Link
+                    className="text-blue-700 underline"
+                    href={`/profile?step=${field?.step ?? 7}&field=${f.field}`}
+                  >
+                    Confirm {field?.label ?? f.field} — could clarify {f.count}{" "}
+                    opportunities in this batch
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+<BatchedEligibleGrantsList profileId={profileId} key={`${profileId}:${preview.version}:${pageSize}`} initialTier={activeTier} initialPage={initialPage} pageSize={pageSize}
+    initialBatches={Object.fromEntries(Object.entries(preview.sections).map(([tier, grants]) => {
+      const take = grants.slice(0, pageSize);
+      const moreInWindow = grants.length > pageSize;
+      const hasMore = moreInWindow || preview.scannedCount === 80;
+      return [tier, { grants: take, page: 1, hasMore, availableCandidateCount: grants.length,
+        availableCandidateCountIsEstimate: hasMore, nextCursor: hasMore ? moreInWindow ? `0:${take.length}` : "80:0" : null }];
+    })) as Record<EligibleMatchSection, MatchesResponse>} /></>;
 }
