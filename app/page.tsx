@@ -6,8 +6,6 @@ import {
   Bell,
   Bot,
   BriefcaseBusiness,
-  CheckCircle2,
-  ChevronDown,
   ChevronRight,
   ClipboardCheck,
   Database,
@@ -25,12 +23,10 @@ import {
   Trophy,
   Users,
 } from "lucide-react";
-import { PLAN_CATALOG } from "@/lib/plans";
 import { cookies } from "next/headers";
 import { HeroMotionVideo } from "@/components/marketing/hero-motion-video";
 
 const navItems = [
-  "Pricing",
   "Features",
   "How It Works",
   "Resources",
@@ -127,19 +123,6 @@ const featureCards = [
     text: "Prioritises live opportunities, separates direct applications from login-required portals, and avoids stale grant links.",
   },
 ];
-
-const pricingTiers = PLAN_CATALOG.map((plan) => ({
-  name: plan.marketingName,
-  price: plan.price,
-  detail: plan.detail,
-  /** Short bullets above the fold */
-  summaryFeatures: plan.homepageFeatures,
-  /** Same grouped breakdown as Billing */
-  featureBlocks: plan.features,
-  cta: plan.cta,
-  href: plan.href,
-  featured: plan.featured,
-}));
 
 const resources = [
   {
@@ -347,117 +330,6 @@ export default async function LandingPage() {
         >
           <div className="flex justify-center lg:justify-end">
             <DashboardPreview />
-          </div>
-        </section>
-
-        <section
-          id="pricing"
-          className="mx-auto max-w-[1480px] px-4 py-10 sm:px-6 sm:py-12 lg:px-10"
-        >
-          <div className="text-center">
-            <p className="text-sm font-black uppercase tracking-[0.14em] text-[#2167e8]">
-              Pricing
-            </p>
-            <h2 className="mt-4 text-[32px] font-black leading-tight text-[#071a3a] sm:text-[40px]">
-              Start with funding intelligence. Scale into automation.
-            </h2>
-            <p className="mx-auto mt-4 max-w-2xl text-lg font-medium leading-8 text-[#51627d]">
-              Pick the level of funding support that matches your team. Upgrade
-              when you are ready for deeper scoring, application preparation,
-              and founder pack generation. Today, GrantsCopilot focuses on
-              discovery, scoring, preparation, and reminders; full auto-filing
-              remains a V2 workflow.
-            </p>
-          </div>
-
-          <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-            {pricingTiers.map((tier) => (
-              <div
-                key={tier.name}
-                className={`rounded-2xl border p-5 shadow-[0_18px_45px_rgba(7,26,58,0.07)] sm:p-7 ${
-                  tier.featured
-                    ? "border-[#2167e8] bg-[#071a3a] text-white"
-                    : "border-[#e2ebf6] bg-white text-[#071a3a]"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h3 className="text-2xl font-black">{tier.name}</h3>
-                    <p
-                      className={`mt-2 text-sm font-semibold ${tier.featured ? "text-white/72" : "text-[#51627d]"}`}
-                    >
-                      {tier.detail}
-                    </p>
-                  </div>
-                  {tier.featured && (
-                    <span className="rounded-full bg-[#35c386] px-3 py-1 text-xs font-black text-white">
-                      Most useful
-                    </span>
-                  )}
-                </div>
-                <p className="mt-7 text-4xl font-black">{tier.price}</p>
-                <ul className="mt-7 space-y-3">
-                  {tier.summaryFeatures.map((item) => (
-                    <li key={item} className="flex gap-3 text-sm font-bold">
-                      <CheckCircle2
-                        className={`mt-0.5 h-4 w-4 shrink-0 ${tier.featured ? "text-[#35c386]" : "text-[#2167e8]"}`}
-                      />
-                      <span>{item}</span>
-                    </li>
-                  ))}
-                </ul>
-                <details
-                  className={`group mt-6 border-t pt-5 ${tier.featured ? "border-white/25" : "border-[#e2ebf6]"}`}
-                >
-                  <summary
-                    className={`flex cursor-pointer list-none items-center justify-between gap-2 text-sm font-black [&::-webkit-details-marker]:hidden ${
-                      tier.featured ? "text-white/95" : "text-[#2167e8]"
-                    }`}
-                  >
-                    <span>See full plan details</span>
-                    <ChevronDown className="h-4 w-4 shrink-0 transition-transform duration-200 group-open:rotate-180" />
-                  </summary>
-                  <div
-                    className={`mt-4 space-y-4 text-left ${tier.featured ? "text-white/92" : "text-[#071a3a]"}`}
-                  >
-                    {tier.featureBlocks.map((block) => (
-                      <div key={block.heading}>
-                        <p
-                          className={`text-[11px] font-black uppercase tracking-[0.12em] ${
-                            tier.featured ? "text-white/55" : "text-[#51627d]"
-                          }`}
-                        >
-                          {block.heading}
-                        </p>
-                        <ul className="mt-2 space-y-2">
-                          {block.bullets.map((bullet) => (
-                            <li
-                              key={bullet}
-                              className="flex gap-2 text-xs font-bold leading-snug sm:text-sm"
-                            >
-                              <CheckCircle2
-                                className={`mt-0.5 h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4 ${tier.featured ? "text-[#35c386]" : "text-[#2167e8]"}`}
-                              />
-                              <span>{bullet}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ))}
-                  </div>
-                </details>
-                <Link
-                  href={tier.href}
-                  className={`mt-8 inline-flex h-12 w-full items-center justify-center rounded-lg text-sm font-black ${
-                    tier.featured
-                      ? "bg-white text-[#071a3a]"
-                      : "bg-[#2167e8] text-white"
-                  }`}
-                >
-                  {tier.cta}
-                </Link>
-              </div>
-            ))}
           </div>
         </section>
 
