@@ -26,3 +26,8 @@ assert.equal(questionAssistantRequestSchema.safeParse({ ...input, questions: [{ 
 const oversizedGuidance = questionAssistantRequestSchema.safeParse({ ...input, questions: [{ question: "Describe the project", guidance: "x".repeat(10_001) }] });
 assert.equal(oversizedGuidance.success, false);
 if (!oversizedGuidance.success) assert.match(oversizedGuidance.error.issues[0].message, /10,000/);
+
+const formQuestions = ["Estimated total project cost (£)", "Grant amount you're seeking (£)", "If the grant doesn't cover the full cost, where will the rest come from?", "Indicative project start date", "Why is public funding needed?", "Why wouldn't this asset get built without grant support?"];
+assert.deepEqual(parseQuestionBlocks(formQuestions.join("\n"), "lines"), formQuestions);
+assert.deepEqual(parseQuestionBlocks("First question?\r\n\r\nSecond question?", "lines"), ["First question?", "Second question?"]);
+assert.deepEqual(parseQuestionBlocks("Question with guidance\ncontinued paragraph\n---\nNext question?", "lines"), ["Question with guidance\ncontinued paragraph", "Next question?"]);

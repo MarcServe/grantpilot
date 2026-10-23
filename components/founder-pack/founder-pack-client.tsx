@@ -882,6 +882,7 @@ export function FounderPackClient({
   const [questionAssistantMode, setQuestionAssistantMode] = useState<
     "draft_answer" | "evidence_check" | "improve_existing_answer"
   >("draft_answer");
+  const [questionLayout, setQuestionLayout] = useState<"lines" | "paragraphs">("lines");
   const [questionAssistantText, setQuestionAssistantText] = useState("");
   const [questionAssistantGuidance, setQuestionAssistantGuidance] =
     useState("");
@@ -905,6 +906,7 @@ export function FounderPackClient({
         const draft = JSON.parse(raw);
         if (draft.form?.profileId && profiles.some((profile) => profile.id === draft.form.profileId)) {
           setForm(draft.form);
+          if (draft.questionLayout === "lines" || draft.questionLayout === "paragraphs") setQuestionLayout(draft.questionLayout);
           if (typeof draft.question === "string") setQuestionAssistantText(draft.question);
           if (typeof draft.guidance === "string") setQuestionAssistantGuidance(draft.guidance);
           if (typeof draft.wordLimit === "string") setQuestionAssistantWordLimit(draft.wordLimit);
@@ -929,7 +931,7 @@ export function FounderPackClient({
 
   function offerUpgrade() {
     try {
-      window.sessionStorage.setItem(draftKey, JSON.stringify({ form, question: questionAssistantText, answers: questionAssistantAnswers,
+      window.sessionStorage.setItem(draftKey, JSON.stringify({ form, questionLayout, question: questionAssistantText, answers: questionAssistantAnswers,
         guidance: questionAssistantGuidance, wordLimit: questionAssistantWordLimit, existingAnswer: questionAssistantExistingAnswer, mode: questionAssistantMode }));
     } catch { toast.error("Your browser could not preserve this draft for checkout. Copy your answers before continuing."); return; }
     setUpgradeOpen(true);
@@ -1105,7 +1107,7 @@ export function FounderPackClient({
       toast.error("Upgrade to Growth, Pro, or Business to continue using the AI Grant Question Assistant.");
       return;
     }
-    const questions = parseQuestionBlocks(questionAssistantText);
+    const questions = parseQuestionBlocks(questionAssistantText, questionLayout);
     if (questions.length === 0) {
       toast.error("Paste at least one grant form question.");
       return;
@@ -1405,15 +1407,21 @@ export function FounderPackClient({
 
       <div className="space-y-2">
         <Label htmlFor="questionAssistantText">Grant form question(s)</Label>
-          <p className="text-xs text-muted-foreground">Keep paragraphs together. Separate different questions with a line containing --- . Up to 12,000 characters per question.</p>
+        <Label htmlFor="questionLayout" className="text-xs">Question layout</Label>
+        <select id="questionLayout" value={questionLayout} onChange={(event) => setQuestionLayout(event.target.value as "lines" | "paragraphs")} className="h-10 w-full rounded-md border bg-white px-3 text-sm">
+          <option value="lines">One question per line</option>
+          <option value="paragraphs">Questions include paragraphs or answer options</option>
+        </select>
+        <p className="text-xs text-muted-foreground">{questionLayout === "lines" ? "Each non-empty line gets its own answer, in the same order." : "Keep each question’s paragraphs together. Separate different questions with a line containing --- ."} Up to 8 questions, 12,000 characters each.</p>
         <Textarea
           id="questionAssistantText"
           rows={5}
-          placeholder="Paste a full question, including paragraphs and answer options. Separate different questions with a line containing --- . Up to 12,000 characters per question."
+          placeholder="Paste your questions, one per line."
           value={questionAssistantText}
           onChange={(event) => setQuestionAssistantText(event.target.value)}
           className="bg-white text-sm"
         />
+        {questionAssistantText.trim() && <p role="status" className="text-xs font-medium text-blue-800">{parseQuestionBlocks(questionAssistantText, questionLayout).length} question(s) detected · one separate answer per question</p>}
       </div>
       <div className="space-y-2">
         <Label htmlFor="questionAssistantGuidance">
@@ -1488,8 +1496,9 @@ export function FounderPackClient({
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-[#071a3a]">
-                    {answer.question}
+                    Question {index + 1}
                   </p>
+                  <p className="mt-1 whitespace-pre-wrap text-sm font-medium">{answer.question}</p>
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     <Badge variant="secondary">
                       Confidence: {answer.confidence}

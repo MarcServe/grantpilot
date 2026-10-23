@@ -26,6 +26,9 @@ export const questionAssistantRequestSchema = z.object({
 
 // A pasted question often contains paragraphs and numbered answer options.
 // Only an explicit separator creates another question; never truncate silently.
-export function parseQuestionBlocks(value: string): string[] {
-  return value.trim().split(/^\s*---\s*$/m).map((item) => item.trim()).filter(Boolean);
+export function parseQuestionBlocks(value: string, layout: "paragraphs" | "lines" = "paragraphs"): string[] {
+  const text = value.trim();
+  const separator = /^\s*---\s*$/m;
+  const blocks = separator.test(text) ? text.split(separator) : layout === "lines" ? text.split(/\r?\n/) : [text];
+  return blocks.map((item) => item.trim()).filter(Boolean);
 }

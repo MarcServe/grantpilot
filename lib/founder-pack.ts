@@ -635,6 +635,9 @@ Questions:
 ${formatQuestionList(questions)}
 
 Rules:
+- Return exactly one separate answers entry for each of the ${questions.length} questions, in the original order. Never combine questions into a single answer.
+- Each draftAnswer must answer only its corresponding question. Keep each question as its own heading in the structured output, not embedded in a combined essay.
+- Never invent project costs, requested grant amounts, matching-fund sources or project start dates. If not supported by the profile or supplied guidance, state "To be confirmed" and list the information needed.
 - Write in polished UK business English.
 - Never invent customers, awards, revenue, partnerships, accreditations, patents, or funding history.
 - If evidence is missing, use cautious language and list the missing proof.
@@ -668,7 +671,7 @@ Return ONLY valid JSON with this exact shape:
       questions,
       context
     );
-    if (answers.length > 0) return { answers };
+    if (answers.length === questions.length) return { answers };
   } catch (err) {
     console.warn("[founder-pack-question-assistant] Initial JSON generation failed, retrying", err);
   }
@@ -683,8 +686,8 @@ Keep each draft answer under the requested word limit, or under 220 words where 
     questions,
     context
   );
-  if (answers.length === 0) {
-    throw new Error("The AI could not return usable question answers. Add more grant context and try again.");
+  if (answers.length !== questions.length) {
+    throw new Error("The AI did not return a separate answer for every question. Please try again with fewer questions.");
   }
   return { answers };
 }
