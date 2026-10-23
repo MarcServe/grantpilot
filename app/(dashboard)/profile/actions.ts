@@ -1,5 +1,6 @@
 "use server";
 
+import { missingReadinessColumn, preserveReadinessMetadata, restoreReadinessMetadata } from "@/lib/profile-readiness-compat";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getActiveOrg, setActiveProfileCookie } from "@/lib/auth";
 import {
@@ -163,7 +164,7 @@ async function getOrCreateProfile(organisationId: string) {
     if (activeProfile) {
       const documents = await loadProfileDocuments(activeProfile.id);
       return {
-        ...activeProfile,
+        ...restoreReadinessMetadata(activeProfile),
         documents,
       };
     }
@@ -180,7 +181,7 @@ async function getOrCreateProfile(organisationId: string) {
   if (existing) {
     const documents = await loadProfileDocuments(existing.id);
     return {
-      ...existing,
+      ...restoreReadinessMetadata(existing),
       documents,
     };
   }
@@ -412,6 +413,23 @@ export async function saveStep2(data: Step2Data) {
   return { success: true };
 }
 
+async function saveProfileWithReadinessCompat(orgId: string, profile: Record<string, unknown>, updates: Record<string, unknown>) {
+  const metadata = { ...profile, ...updates };
+  const details = typeof updates.fundingDetails === "string" ? updates.fundingDetails
+    : updates.fundingDetails === null ? null : typeof profile.fundingDetails === "string" ? profile.fundingDetails : null;
+  const supabase = getSupabaseAdmin();
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const result = await supabase.from("BusinessProfile").update(updates)
+      .eq("id", String(profile.id)).eq("organisationId", orgId).select().single();
+    if (!result.error) return result;
+    const missing = missingReadinessColumn(result.error);
+    if (!missing || !(missing in updates)) return result;
+    delete updates[missing];
+    updates.fundingDetails = preserveReadinessMetadata(details, metadata);
+  }
+  return { data: null, error: { message: "Unable to save profile. Your answers are still in the form. Please try again." } };
+}
+
 export async function saveStep3(data: Step3Data) {
   const parsed = step3Schema.safeParse(data);
   if (!parsed.success) return { error: "Invalid data" };
@@ -419,10 +437,7 @@ export async function saveStep3(data: Step3Data) {
   const orgId = await getOrgId();
   const profile = await getOrCreateProfile(orgId);
 
-  const supabase = getSupabaseAdmin();
-  const { data: updated, error: updateError } = await supabase
-    .from("BusinessProfile")
-    .update({
+  const { data: updated, error: updateError } = await saveProfileWithReadinessCompat(orgId, profile, {
       employeeCount: parsed.data.employeeCount ?? null,
       contractorCount: optionalNumber(parsed.data.contractorCount),
       annualRevenue: parsed.data.annualRevenue ?? null,
@@ -432,10 +447,7 @@ export async function saveStep3(data: Step3Data) {
       previousGrantExperience: parsed.data.previousGrantExperience || null,
       previousGrants: parsed.data.previousGrants ?? null,
       previousGrantHistory: parsed.data.previousGrantHistory || null,
-    })
-    .eq("id", profile.id)
-    .select()
-    .single();
+    });
 
   if (updateError || !updated) return { error: updateError?.message ?? "Update failed" };
 
@@ -453,27 +465,21 @@ export async function saveStep4(data: Step4Data) {
   const orgId = await getOrgId();
   const profile = await getOrCreateProfile(orgId);
 
-  const supabase = getSupabaseAdmin();
-  const { data: updated, error: updateError } = await supabase
-    .from("BusinessProfile")
-    .update({
-      fundingMin: parsed.data.fundingMin,
-      fundingMax: parsed.data.fundingMax,
-      fundingPurposes: parsed.data.fundingPurposes,
-      preferredOpportunityTypes: parsed.data.preferredOpportunityTypes ?? [],
-      fundingDetails: parsed.data.fundingDetails ?? null,
-      fundingUrgency: parsed.data.fundingUrgency || null,
-      fundingPosition: parsed.data.fundingPosition || null,
-      documentReadiness: parsed.data.documentReadiness || null,
-      coFundingCapacity: parsed.data.coFundingCapacity || null,
-      reimbursementReadiness: parsed.data.reimbursementReadiness || null,
-      coFundingAvailable: parsed.data.coFundingAvailable || null,
-      matchFundingDetails: parsed.data.matchFundingDetails || null,
-    })
-    .eq("id", profile.id)
-    .select()
-    .single();
-
+  const updates: Record<string, unknown> = {
+    fundingMin: parsed.data.fundingMin,
+    fundingMax: parsed.data.fundingMax,
+    fundingPurposes: parsed.data.fundingPurposes,
+    preferredOpportunityTypes: parsed.data.preferredOpportunityTypes ?? [],
+    fundingDetails: parsed.data.fundingDetails ?? null,
+    fundingUrgency: parsed.data.fundingUrgency || null,
+    fundingPosition: parsed.data.fundingPosition || null,
+    documentReadiness: parsed.data.documentReadiness || null,
+    coFundingCapacity: parsed.data.coFundingCapacity || null,
+    reimbursementReadiness: parsed.data.reimbursementReadiness || null,
+    coFundingAvailable: parsed.data.coFundingAvailable || null,
+    matchFundingDetails: parsed.data.matchFundingDetails || null,
+  };
+  const { data: updated, error: updateError } = await saveProfileWithReadinessCompat(orgId, profile, updates);
   if (updateError || !updated) return { error: updateError?.message ?? "Update failed" };
 
   await recalcAndSaveCompletionScore(profile.id);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
@@ -29,6 +29,7 @@ import {
   type FounderPackDocumentType,
   type FounderPackInputs,
 } from "@/lib/founder-pack";
+import { ApplicationUpgradeDialog } from "@/components/billing/application-upgrade-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -692,6 +693,7 @@ export function FounderPackClient({
   initialApplicationId?: string;
 }) {
   const router = useRouter();
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
   const initialProfile = profiles[0];
   const inferredFounderName = firstText(
     initialProfile?.primaryContactName,
@@ -728,6 +730,44 @@ export function FounderPackClient({
   const [questionAssistantLoading, setQuestionAssistantLoading] = useState(false);
   const [questionAssistantAnswers, setQuestionAssistantAnswers] = useState<QuestionAssistantAnswer[]>([]);
   const [freeQuestionPreviewAvailable, setFreeQuestionPreviewAvailable] = useState(questionPreviewAvailable);
+
+  const draftKey = `grantpilot.application-pack-draft.v1:${initialProfile?.id ?? "none"}`;
+  useEffect(() => {
+    try {
+      const raw = window.sessionStorage.getItem(draftKey);
+      if (raw) {
+        const draft = JSON.parse(raw);
+        if (draft.form?.profileId && profiles.some((profile) => profile.id === draft.form.profileId)) {
+          setForm(draft.form);
+          if (typeof draft.question === "string") setQuestionAssistantText(draft.question);
+          if (typeof draft.guidance === "string") setQuestionAssistantGuidance(draft.guidance);
+          if (typeof draft.wordLimit === "string") setQuestionAssistantWordLimit(draft.wordLimit);
+          if (typeof draft.existingAnswer === "string") setQuestionAssistantExistingAnswer(draft.existingAnswer);
+          if (["draft_answer", "evidence_check", "improve_existing_answer"].includes(draft.mode)) setQuestionAssistantMode(draft.mode);
+          if (Array.isArray(draft.answers)) setQuestionAssistantAnswers(draft.answers);
+        }
+        window.sessionStorage.removeItem(draftKey);
+      }
+    } catch { /* A blocked browser storage must not prevent editing. */ }
+    if (new URLSearchParams(window.location.search).get("billing") === "success") {
+      fetch("/api/billing/sync", { method: "POST" }).then(async (res) => {
+        if (!res.ok) throw new Error("Subscription confirmation is pending. Refresh shortly or manage your subscription in Settings.");
+        toast.success("Subscription confirmed. Continue with your application.");
+        router.replace("/founder-pack");
+        router.refresh();
+      }).catch((error) => toast.error(error.message));
+    }
+  // Restore only when entering this workspace; later edits stay in local state.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftKey]);
+
+  function offerUpgrade() {
+    try {
+      window.sessionStorage.setItem(draftKey, JSON.stringify({ form, question: questionAssistantText, answers: questionAssistantAnswers,
+        guidance: questionAssistantGuidance, wordLimit: questionAssistantWordLimit, existingAnswer: questionAssistantExistingAnswer, mode: questionAssistantMode }));
+    } catch { toast.error("Your browser could not preserve this draft for checkout. Copy your answers before continuing."); return; }
+    setUpgradeOpen(true);
+  }
 
   const selectedPack = useMemo(
     () => history.find((pack) => pack.id === selectedPackId) ?? history[0] ?? null,
@@ -808,7 +848,7 @@ export function FounderPackClient({
 
   async function generate() {
     if (!allowed) {
-      toast.error("Upgrade to Growth, Pro, or Business to complete and export Founder Funding Packs.");
+      offerUpgrade();
       return;
     }
     if (!form.documentTypes?.length) {
@@ -966,6 +1006,7 @@ export function FounderPackClient({
 
   return (
     <div className="space-y-6">
+      <ApplicationUpgradeDialog open={upgradeOpen} onOpenChange={setUpgradeOpen} />
       <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
         <Card className="overflow-hidden border-blue-100 bg-gradient-to-br from-white via-white to-blue-50">
           <CardContent className="p-5 sm:p-6">
@@ -1047,7 +1088,7 @@ export function FounderPackClient({
               <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
                 <div className="flex items-center gap-2 font-medium">
                   <Lock className="h-4 w-4" />
-                  Progressive access
+                  Try before you upgrade
                 </div>
                 <p className="mt-1">
                   Try one AI grant answer first. Upgrade when you are ready to complete the remaining answers, evidence
@@ -1058,9 +1099,9 @@ export function FounderPackClient({
                   variant="outline"
                   size="sm"
                   className="mt-3 bg-white"
-                  onClick={() => router.push("/billing")}
+                  onClick={offerUpgrade}
                 >
-                  Upgrade when ready
+                  See full pack pricing
                 </Button>
               </div>
             )}
@@ -1297,7 +1338,7 @@ export function FounderPackClient({
                 {questionAssistantCta}
               </Button>
               {!allowed && !freeQuestionPreviewAvailable && (
-                <Button type="button" variant="outline" className="w-full bg-white" onClick={() => router.push("/billing")}>
+                <Button type="button" variant="outline" className="w-full bg-white" onClick={offerUpgrade}>
                   Upgrade to complete this application pack
                 </Button>
               )}
@@ -1412,7 +1453,7 @@ export function FounderPackClient({
               <Textarea id="additionalNotes" rows={3} value={form.additionalNotes} onChange={(event) => update("additionalNotes", event.target.value)} />
             </div>
 
-            <Button type="button" className="w-full gap-2" disabled={loading || !allowed || !form.documentTypes?.length} onClick={generate}>
+            <Button type="button" className="w-full gap-2" disabled={loading || !form.documentTypes?.length} onClick={generate}>
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
               Generate pitch deck & selected documents
             </Button>

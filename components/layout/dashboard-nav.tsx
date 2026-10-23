@@ -6,7 +6,6 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart3,
   BriefcaseBusiness,
-  CreditCard,
   Database,
   FileText,
   LayoutDashboard,
@@ -42,7 +41,6 @@ const primaryNavItems = [
 
 const secondaryNavItems = [
   { href: "/founder-pack", label: "Founder Pack", icon: Sparkles },
-  { href: "/billing", label: "Billing", icon: CreditCard },
   { href: "/feedback", label: "Contact us", icon: MessagesSquare },
 ];
 

@@ -187,6 +187,7 @@ export function BatchedEligibleGrantsList({
   const [activeTier, setActiveTier] = useState<MatchSection | null>(initialTier);
   const [query, setQuery] = useState("");
   const [sections, setSections] = useState<Record<MatchSection, TierState>>(() => emptySections());
+  const resultsRef = useRef<HTMLDivElement>(null);
   const inFlightRequests = useRef<Set<string>>(new Set());
   const tiersToShow = useMemo(() => activeTier ? [activeTier] : TIER_ORDER, [activeTier]);
 
@@ -397,6 +398,16 @@ export function BatchedEligibleGrantsList({
         tiers={tiersToShow}
         sections={sections}
         summaries={valueSummaries}
+        activeTier={activeTier}
+        onSelectTier={(tier) => {
+          setActiveTier(tier);
+          setQuery("");
+          requestAnimationFrame(() => {
+            const results = resultsRef.current;
+            results?.focus({ preventScroll: true });
+            results?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start" });
+          });
+        }}
       />
 
       {!activeTier && bestFirstGrants.length > 0 && (
@@ -406,6 +417,7 @@ export function BatchedEligibleGrantsList({
         />
       )}
 
+      <div ref={resultsRef} tabIndex={-1} aria-label="Opportunity results" className="scroll-mt-28 space-y-4 rounded-xl focus-visible:outline-2 focus-visible:outline-primary">
       {tiersToShow.map((tier, index) => {
         const state = sections[tier];
         if (!activeTier && state.status === "idle" && index > 0) {
@@ -423,6 +435,8 @@ export function BatchedEligibleGrantsList({
           />
         );
       })}
+
+      </div>
 
       {!hasLoadedAny && allVisibleDone && !isAnyLoading && (
         <Card>
@@ -610,7 +624,11 @@ function FundingValueSummaryStrip({
   tiers,
   sections,
   summaries,
+  activeTier,
+  onSelectTier,
 }: {
+  activeTier: MatchSection | null;
+  onSelectTier: (tier: MatchSection) => void;
   tiers: MatchSection[];
   sections: Record<MatchSection, TierState>;
   summaries: Record<MatchSection, GrantValueSummary>;
@@ -625,23 +643,27 @@ function FundingValueSummaryStrip({
         const summary = summaries[tier];
         const state = sections[tier];
         return (
-          <div
+          <button
+            type="button"
+            onClick={() => onSelectTier(tier)}
+            aria-pressed={activeTier === tier}
+            aria-label={`Show ${TIER_META[tier].title.toLowerCase()}`}
             key={tier}
-            className="rounded-xl border border-blue-100 bg-white px-4 py-3 shadow-[0_10px_28px_rgba(7,26,58,0.05)]"
+            className={`cursor-pointer rounded-xl border bg-white px-4 py-3 text-left shadow-[0_10px_28px_rgba(7,26,58,0.05)] transition-colors hover:border-blue-400 hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${activeTier === tier ? "border-primary ring-1 ring-primary" : "border-blue-100"}`}
           >
-            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.08em] text-muted-foreground">
+            <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.08em] text-muted-foreground">
               {TIER_META[tier].icon}
               {tier === "suggested" ? "Strong-match value" : `${TIER_META[tier].badgeLabel} value`}
-            </div>
-            <div className="mt-2 text-2xl font-black tracking-tight text-[#071a3a]">
+            </span>
+            <span className="block mt-2 text-2xl font-black tracking-tight text-[#071a3a]">
               {state.status === "loading" && summary.totalCount === 0
                 ? "Loading..."
                 : formatGrantValueSummary(summary)}
-            </div>
-            <div className="mt-1 text-xs font-medium text-muted-foreground">
+            </span>
+            <span className="block mt-1 text-xs font-medium text-muted-foreground">
               {grantValueSummaryDetail(summary)}
-            </div>
-          </div>
+            </span>
+          </button>
         );
       })}
     </div>

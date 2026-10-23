@@ -8,6 +8,7 @@ import type Stripe from "stripe";
 
 const checkoutSchema = z.object({
   priceId: z.string().min(1),
+  returnTo: z.enum(["/founder-pack"]).optional(),
 });
 
 const ACTIVE_GRANTSCOPILOT_SUBSCRIPTION_STATUSES = new Set(["active", "trialing"]);
@@ -231,8 +232,8 @@ export async function POST(req: Request): Promise<NextResponse> {
     }
 
     const appUrl = normaliseAppUrl(req);
-    const billingSuccess = new URL("/billing?billing=success", appUrl).toString();
-    const billingCancel = new URL("/billing?billing=cancelled", appUrl).toString();
+    const billingSuccess = new URL(`${parsed.data.returnTo ?? "/billing"}?billing=success`, appUrl).toString();
+    const billingCancel = new URL(`${parsed.data.returnTo ?? "/billing"}?billing=cancelled`, appUrl).toString();
 
     const session = await stripe.checkout.sessions.create({
       customer: customerId,

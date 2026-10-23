@@ -22,15 +22,23 @@ interface DnaSuggestion {
 }
 
 export function CompanyDnaAutofill({
+  profileId,
+  onApplied,
   hasWebsiteUrl,
+  hasProfileEvidence,
   hasWebsiteIntelligence,
   companyDnaAutofillEnabled,
 }: {
+  profileId: string;
+  onApplied: () => void;
   hasWebsiteUrl: boolean;
+  hasProfileEvidence: boolean;
   hasWebsiteIntelligence: boolean;
   companyDnaAutofillEnabled: boolean;
 }) {
   const router = useRouter();
+  const draftStorageKey = `${DNA_DRAFT_STORAGE_KEY}:${profileId}`;
+  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [applying, setApplying] = useState(false);
   const [suggestions, setSuggestions] = useState<DnaSuggestion[]>([]);
@@ -50,7 +58,7 @@ export function CompanyDnaAutofill({
 
   useEffect(() => {
     try {
-      const raw = window.localStorage.getItem(DNA_DRAFT_STORAGE_KEY);
+      const raw = window.localStorage.getItem(draftStorageKey);
       if (!raw) return;
       const parsed = JSON.parse(raw) as {
         suggestions?: DnaSuggestion[];
@@ -71,9 +79,9 @@ export function CompanyDnaAutofill({
       setEditedValues(parsed.editedValues && typeof parsed.editedValues === "object" ? parsed.editedValues : {});
       setDraftRestored(true);
     } catch {
-      window.localStorage.removeItem(DNA_DRAFT_STORAGE_KEY);
+      window.localStorage.removeItem(draftStorageKey);
     }
-  }, []);
+  }, [draftStorageKey]);
 
   if (!companyDnaAutofillEnabled) {
     return (
@@ -102,11 +110,11 @@ export function CompanyDnaAutofill({
     nextEditedValues: Record<string, string>
   ) {
     if (nextSuggestions.length === 0) {
-      window.localStorage.removeItem(DNA_DRAFT_STORAGE_KEY);
+      window.localStorage.removeItem(draftStorageKey);
       return;
     }
     window.localStorage.setItem(
-      DNA_DRAFT_STORAGE_KEY,
+      draftStorageKey,
       JSON.stringify({
         suggestions: nextSuggestions,
         selected: [...nextSelected],
@@ -117,11 +125,13 @@ export function CompanyDnaAutofill({
   }
 
   async function generate() {
+    setError(null);
     setLoading(true);
     try {
       const res = await fetch("/api/profile/company-dna", { method: "POST" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        setError(data.error ?? "Generation failed. Please try again.");
         if (res.status === 402) {
           toast.error(data.error ?? "Upgrade required", {
             action: { label: "Billing", onClick: () => router.push("/billing") },
@@ -135,7 +145,7 @@ export function CompanyDnaAutofill({
       const nextEditedValues = Object.fromEntries(
         next.map((item: DnaSuggestion) => [item.field, item.value])
       );
-      const nextSelected = new Set<string>(next.slice(0, 6).map((item: DnaSuggestion) => item.field));
+      const nextSelected = new Set<string>(next.map((item: DnaSuggestion) => item.field));
       setSuggestions(next);
       setEditedValues(nextEditedValues);
       setSelected(nextSelected);
@@ -147,6 +157,7 @@ export function CompanyDnaAutofill({
         toast.success(`Found ${next.length} profile suggestions`);
       }
     } catch {
+      setError("Could not connect to the generator. Please try again.");
       toast.error("Could not generate Company DNA suggestions");
     } finally {
       setLoading(false);
@@ -182,6 +193,7 @@ export function CompanyDnaAutofill({
       setSelected(new Set());
       setDraftRestored(false);
       persistDraft([], new Set(), {});
+      onApplied();
       router.refresh();
     } catch {
       toast.error("Could not apply profile updates");
@@ -227,22 +239,24 @@ export function CompanyDnaAutofill({
       <CardContent className="min-w-0 space-y-4 px-4 sm:px-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-muted-foreground">
-            Generate structured Business DNA from the company website, then approve the fields you want to save.
+            Draft written profile sections from your saved website and business information, then review and apply them. Use the checklist above for dropdowns, finances and uploads.
           </p>
           <Button
             type="button"
             onClick={generate}
-            disabled={loading || !hasWebsiteUrl}
+            disabled={loading || applying || (!hasWebsiteUrl && !hasProfileEvidence)}
             className="w-full shrink-0 gap-2 sm:w-auto"
           >
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            Generate
+            {loading ? "Generating suggestions…" : "Generate suggestions"}
           </Button>
         </div>
 
-        {!hasWebsiteUrl && (
+        {error && <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
+
+        {!hasWebsiteUrl && !hasProfileEvidence && (
           <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-            Add your company website in Business Basics first.
+            Add your company website in Business Basics, or save a business description in Description first.
           </p>
         )}
 

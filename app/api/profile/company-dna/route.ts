@@ -1,3 +1,4 @@
+import { preserveReadinessMetadata, restoreReadinessMetadata } from "@/lib/profile-readiness-compat";
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { z } from "zod";
@@ -109,7 +110,7 @@ function parseSuggestions(raw: string): {
       const row = item as Record<string, unknown>;
       const field = row.field;
       const value = typeof row.value === "string" ? row.value.trim() : "";
-      if (typeof field !== "string" || !(field in PROFILE_DNA_FIELDS) || value.length < 8) return null;
+      if (typeof field !== "string" || !(field in PROFILE_DNA_FIELDS) || value.length === 0) return null;
       return {
         field: field as ProfileDnaField,
         label: PROFILE_DNA_FIELDS[field as ProfileDnaField],
@@ -147,8 +148,8 @@ async function recalcCompletionScore(profileId: string): Promise<void> {
   if (profile.description?.trim()) score++;
   if (profile.employeeCount != null) score++;
   if (profile.annualRevenue != null) score++;
-  if (profile.fundingMin != null && Number(profile.fundingMin) >= 0) score++;
-  if (profile.fundingMax != null && Number(profile.fundingMax) >= 0) score++;
+  if (profile.fundingMin != null && Number(profile.fundingMin) > 0) score++;
+  if (profile.fundingMax != null && Number(profile.fundingMax) > 0) score++;
   if (Array.isArray(profile.fundingPurposes) && profile.fundingPurposes.length > 0) score++;
   if (Array.isArray(profile.preferredOpportunityTypes) && profile.preferredOpportunityTypes.length > 0) score++;
   if (profile.coFundingCapacity?.trim()) score++;
@@ -204,9 +205,9 @@ The website could not be extracted reliably. Use the current business profile be
       });
       await supabase.from("BusinessProfile").update({ websiteIntelligence }).eq("id", profile.id as string);
     }
-    if (!websiteIntelligence) {
+    if (!websiteIntelligence && !String(profile.description ?? "").trim() && !String(profile.missionStatement ?? "").trim()) {
       return NextResponse.json(
-        { error: "Add a company website URL first so Company DNA can analyse it." },
+        { error: "Add a company website or save a business description first so AI has evidence to work from." },
         { status: 400 }
       );
     }
@@ -231,7 +232,7 @@ Supported fields:
 ${fields}
 
 Current profile:
-${profileText(profile)}
+${profileText(restoreReadinessMetadata(profile))}
 
 Company DNA / website intelligence:
 ${websiteIntelligence}
@@ -295,6 +296,11 @@ export async function PATCH(req: Request): Promise<NextResponse> {
     const profile = await getProfileForOrg(orgId, activeProfile.id);
     if (!profile?.id) {
       return NextResponse.json({ error: "Profile not found" }, { status: 404 });
+    }
+
+    const restoredProfile = restoreReadinessMetadata(profile);
+    if (updates.fundingDetails && restoredProfile.fundingDetails !== profile.fundingDetails) {
+      updates.fundingDetails = preserveReadinessMetadata(updates.fundingDetails, restoredProfile);
     }
 
     const { error } = await supabase

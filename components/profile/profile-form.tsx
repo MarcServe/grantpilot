@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Step1Basics } from "./step-1-basics";
@@ -155,12 +156,42 @@ export function ProfileForm({
   companyDnaAutofillEnabled: boolean;
 }) {
   const router = useRouter();
+  const [formRevision, setFormRevision] = useState(0);
   const [step, setStep] = useState(initialStep);
   const [isPending, startTransition] = useTransition();
   const [savingStep, setSavingStep] = useState<number | null>(null);
   const [docs, setDocs] = useState(profile.documents);
 
-  const completionScore = profile.completionScore ?? 0;
+  const completionFields = [
+    ["businessName", "Business name", 1, "Enter your registered or trading name"],
+    ["businessType", "Business type", 1, "Choose a dropdown option"],
+    ["legalStructure", "Legal structure", 1, "Choose your registered legal structure"],
+    ["businessStage", "Business stage", 1, "Choose your current stage"],
+    ["businessSizeBand", "Business size", 1, "Choose your business size band"],
+    ["location", "Location", 1, "Confirm where your business operates"],
+    ["localAuthority", "Local authority", 1, "Confirm your council or local authority"],
+    ["sector", "Sector", 2, "AI can suggest this; confirm the sector"],
+    ["missionStatement", "Mission statement", 2, "AI can draft this from your website"],
+    ["description", "Business description", 2, "AI can draft this from your website"],
+    ["employeeCount", "Employee count", 3, "Enter the actual number; zero is valid"],
+    ["annualRevenue", "Annual revenue", 3, "Enter your actual revenue; zero is valid"],
+    ["fundingMin", "Minimum funding", 4, "Set the minimum amount you want to seek"],
+    ["fundingMax", "Maximum funding", 4, "Set the maximum amount you want to seek"],
+    ["fundingPurposes", "Funding purposes", 4, "Select what you want funding for"],
+    ["preferredOpportunityTypes", "Opportunity types", 4, "Select the opportunities you want"],
+    ["coFundingCapacity", "Co-funding capacity", 4, "Confirm whether you can contribute funding"],
+    ["reimbursementReadiness", "Reimbursement readiness", 4, "Confirm whether you can pay costs upfront"],
+    ["eligibilityFacts", "Eligibility facts", 7, "Add a verified fact with supporting evidence"],
+    ["documents", "Supporting document", 5, "Upload at least one supporting document"],
+  ] as const;
+  const missingFields = completionFields.filter(([field]) => {
+    const value = field === "documents" ? docs : profile[field];
+    if (Array.isArray(value)) return value.length === 0;
+    if (field === "fundingMin" || field === "fundingMax") return value == null || Number(value) <= 0;
+    if (field === "employeeCount" || field === "annualRevenue") return value == null || Number(value) < 0;
+    return value == null || !String(value).trim();
+  });
+  const completionScore = Math.round(((completionFields.length - missingFields.length) / completionFields.length) * 100);
   const progressPercent = completionScore;
 
   function handleStep1(data: Step1Data) {
@@ -325,7 +356,7 @@ export function ProfileForm({
   }
 
   function handleComplete() {
-    toast.success("Profile complete! You can now browse and apply for grants.");
+    toast.success(missingFields.length ? "Progress saved. You can return to complete the remaining items." : "Profile complete! You can now browse and apply for grants.");
     router.push("/dashboard");
   }
 
@@ -343,17 +374,38 @@ export function ProfileForm({
         <Progress value={Math.min(100, Math.max(0, progressPercent))} className="h-2" />
       </div>
 
+      <Card>
+        <CardHeader><CardTitle className="text-base">{missingFields.length ? `${missingFields.length} items left to complete` : "Core profile complete"}</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">AI drafts your written sections. Dropdown choices, financial figures, funding preferences, verified facts and uploads need your confirmation. Improving an already completed section may not increase your score.</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {missingFields.map(([field, label, targetStep, help]) => (
+              <Button key={field} type="button" variant="outline" className="h-auto justify-start whitespace-normal py-3 text-left" onClick={() => {
+                setStep(targetStep);
+                document.getElementById("profile-step")?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}>
+                <span><span className="block font-medium">{label}</span><span className="block text-xs font-normal text-muted-foreground">{help}</span></span>
+              </Button>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
       <CompanyDnaAutofill
+        key={profile.id}
+        profileId={profile.id}
+        onApplied={() => setFormRevision((value) => value + 1)}
+        hasProfileEvidence={Boolean(profile.description?.trim() || profile.missionStatement?.trim())}
         hasWebsiteUrl={Boolean(profile.websiteUrl?.trim())}
         hasWebsiteIntelligence={Boolean(profile.websiteIntelligence?.trim())}
         companyDnaAutofillEnabled={companyDnaAutofillEnabled}
       />
 
-      <Card className="overflow-hidden rounded-2xl">
+      <Card id="profile-step" className="scroll-mt-24 overflow-hidden rounded-2xl">
         <CardHeader className="px-4 sm:px-6">
           <CardTitle>{STEP_LABELS[step - 1]}</CardTitle>
         </CardHeader>
-        <CardContent className="min-w-0 px-4 sm:px-6">
+        <CardContent key={`${formRevision}:${JSON.stringify(profile)}`} className="min-w-0 px-4 sm:px-6">
           {step === 1 && (
             <Step1Basics
               defaultValues={{
