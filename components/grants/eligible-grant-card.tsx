@@ -73,6 +73,7 @@ export interface EligibleGrant {
   confidenceState?: ConfidenceState | null;
   recommendationCategory?: string | null;
   primaryBlocker?: string | null;
+  assessmentRefreshPending?: boolean;
   nextAction?: string | null;
   profileFactsNeeded?: string[] | null;
 }
@@ -376,6 +377,11 @@ export function EligibleGrantCard({
           <p className="mt-1 text-xs">{deadline.urgency}</p>
         </div>
       </div>
+      {grant.assessmentRefreshPending && (
+        <p role="status" className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+          Profile updated. Completed missing-field blockers have been cleared; the previous score remains until eligibility is reassessed.
+        </p>
+      )}
       {grant.primaryBlocker && (
         <p className="rounded-lg border-l-4 border-amber-400 bg-amber-50 p-3 text-sm">
           {grant.primaryBlocker}

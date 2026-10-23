@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { criteriaProfileCompletionScore } from "@/lib/profile-completion";
 import { missingReadinessColumn, preserveReadinessMetadata, restoreReadinessMetadata } from "@/lib/profile-readiness-compat";
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -78,6 +79,8 @@ async function triggerEligibilityForProfile(
   profileId: string,
   source: string,
 ): Promise<void> {
+  revalidatePath("/grants/eligible");
+  revalidatePath("/dashboard");
   await requestEligibilityRefresh(organisationId, source);
   await requestProfileEligibilityBackfill(organisationId, profileId, source);
 }

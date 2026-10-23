@@ -1,3 +1,4 @@
+import { reconcileProfileBlockers } from "@/lib/resolved-profile-blockers";
 import { after } from "next/server";
 import { getServerCache } from "@/lib/server-cache";
 import { createHash } from "node:crypto";
@@ -119,12 +120,19 @@ export async function loadProfileMatches(
         continue;
       const assessment = assessmentById.get(grant.id)!;
       const source = resolveScoringSource(assessment);
+      const reconciled = reconcileProfileBlockers(profile, assessment);
       const guarded = finaliseEligibilityAssessment(
         profile,
         grant,
-        { ...assessment, met: assessment.met_criteria },
+        { ...reconciled.assessment, met: assessment.met_criteria },
         advisory,
       );
+      if (reconciled.resolved) {
+        const previous = finaliseEligibilityAssessment(profile, grant, { ...assessment, met: assessment.met_criteria }, advisory);
+        guarded.score = Math.min(finalEligibilityScore(previous), finalEligibilityScore(guarded));
+        guarded.confidence = guarded.score;
+        guarded.decision = previous.decision;
+      }
       const checked = criteria?.assess(grant.id, profile);
       const rawScore = finalEligibilityScore(guarded);
       const failed = checked?.criteria.some(
@@ -191,6 +199,7 @@ export async function loadProfileMatches(
         deadline: grant.deadline,
         addedAt: grant.createdAt,
         scoredAt: assessment.updated_at,
+        assessmentRefreshPending: reconciled.resolved,
         score,
         decision: failed
           ? "unlikely"
@@ -264,13 +273,14 @@ export async function loadProfileMatches(
   };
 }
 
-export const getProfileMatches = cache((orgId: string, profileId: string) =>
-  getServerCache(
-    `profile-portfolio:${criteriaEnabled()}:${orgId}:${profileId}`,
+export const getProfileMatches = cache(async (orgId: string, profileId: string) => {
+  const revision = await currentProfileRevision(orgId, profileId);
+  return getServerCache(
+    `profile-portfolio:${criteriaEnabled()}:${orgId}:${profileId}:${revision}`,
     { ttlMs: 30_000, staleWhileRevalidateMs: 120_000, maxEntries: 30, keepAlive: (work) => after(() => work) },
     () => loadProfileMatches(orgId, profileId),
-  ),
-);
+  );
+});
 export function pageProfileMatches(
   portfolio: Awaited<ReturnType<typeof loadProfileMatches>>,
   tier: EligibleMatchSection,
@@ -289,8 +299,16 @@ export function pageProfileMatches(
 }
 
 /** Evaluate a bounded assessment window. Remaining windows are loaded on demand. */
-export function getProfileMatchWindow(orgId: string, profileId: string, offset: number) {
-  return getServerCache(`profile-portfolio:window:${criteriaEnabled()}:${orgId}:${profileId}:${offset}`,
+export async function getProfileMatchWindow(orgId: string, profileId: string, offset: number) {
+  const revision = await currentProfileRevision(orgId, profileId);
+  return getServerCache(`profile-portfolio:window:${criteriaEnabled()}:${orgId}:${profileId}:${revision}:${offset}`,
     { ttlMs: 30_000, maxEntries: 120 },
     () => loadProfileMatches(orgId, profileId, getSupabaseAdmin({ timeoutMs: 10_000 }), { offset, limit: 80 }));
+}
+
+async function currentProfileRevision(orgId: string, profileId: string): Promise<string> {
+  const db = getSupabaseAdmin({ timeoutMs: 10_000 });
+  const current = await db.from("BusinessProfile").select("*").eq("id", profileId).eq("organisationId", orgId).single();
+  if (current.error || !current.data) throw new Error("Unable to load current business profile");
+  return createHash("sha256").update(JSON.stringify(current.data)).digest("hex");
 }
