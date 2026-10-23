@@ -12,6 +12,8 @@ const protectedPaths = [
   "/intelligence",
   "/founder-pack",
   "/question-assistant",
+  "/grant-assistant",
+  "/apply-by-link",
   "/admin",
   "/settings",
 ];

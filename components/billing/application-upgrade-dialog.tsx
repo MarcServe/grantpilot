@@ -7,7 +7,7 @@ import { PLAN_CATALOG, getPublicStripePriceId } from "@/lib/plans";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
-export function ApplicationUpgradeDialog({ open, onOpenChange, returnTo = "/founder-pack" }: { open: boolean; onOpenChange: (open: boolean) => void; returnTo?: "/founder-pack" | "/question-assistant" }) {
+export function ApplicationUpgradeDialog({ open, onOpenChange, returnTo = "/founder-pack" }: { open: boolean; onOpenChange: (open: boolean) => void; returnTo?: "/founder-pack" | "/question-assistant" | "/grant-assistant" }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const growth = PLAN_CATALOG.find((plan) => plan.value === "GROWTH")!;

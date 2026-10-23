@@ -61,7 +61,6 @@ const REFRESH_ENQUEUE_CHUNK_SIZE = positiveIntFromEnv("ELIGIBILITY_REFRESH_ENQUE
 const REFRESH_WORKER_CONCURRENCY = positiveIntFromEnv("ELIGIBILITY_REFRESH_WORKER_CONCURRENCY", 2);
 const DEEP_SCORE_WORKER_CONCURRENCY = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE_WORKER_CONCURRENCY", 3);
 const DIGEST_STRONG_LIMIT = positiveIntFromEnv("ELIGIBILITY_DIGEST_STRONG_LIMIT", 20);
-const DIGEST_PREVIOUS_LIMIT = positiveIntFromEnv("ELIGIBILITY_DIGEST_PREVIOUS_LIMIT", 12);
 const DIGEST_OTHER_LIMIT = positiveIntFromEnv("ELIGIBILITY_DIGEST_OTHER_LIMIT", 4);
 const GRANT_REFRESH_SELECT_BASE =
   "id, name, funder, amount, deadline, applicationUrl, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, required_attachments, url_status, createdAt";
@@ -594,7 +593,6 @@ export async function runEligibilityRefreshJob(options?: {
 
         const appliedGrantIds = await getAppliedGrantIds(supabase, orgId, profileId);
         const hiddenGrantIds = await getDigestHiddenGrantIds(supabase, orgId, profileId, undefined, { includeViewed: true });
-        const reminderHiddenGrantIds = await getDigestHiddenGrantIds(supabase, orgId, profileId, undefined, { includeViewed: false });
         const actionableGrants = grantsList.filter(
           (g) => !appliedGrantIds.has(g.id) && !hiddenGrantIds.has(g.id)
         );
@@ -895,6 +893,7 @@ export async function runEligibilityRefreshJob(options?: {
             .select("grant_id, updated_at, score, decision, summary, notified_at, missing_criteria, improvement_plan, scoring_source")
             .eq("organisation_id", orgId)
             .eq("profile_id", profileId)
+            .is("notified_at", null)
             .eq("decision", "likely_eligible")
             .in("scoring_source", ["openai", "intelligence"])
             .gte("score", suggestedThreshold)
@@ -927,6 +926,7 @@ export async function runEligibilityRefreshJob(options?: {
             .select("grant_id, updated_at, score, decision, summary, notified_at, missing_criteria, improvement_plan, scoring_source")
             .eq("organisation_id", orgId)
             .eq("profile_id", profileId)
+            .is("notified_at", null)
             .in("scoring_source", ["openai", "intelligence"])
             .gte("score", 50)
             .lte("score", withinReachMax)
@@ -954,6 +954,7 @@ export async function runEligibilityRefreshJob(options?: {
             .select("grant_id, updated_at, score, decision, summary, notified_at, missing_criteria, improvement_plan, scoring_source")
             .eq("organisation_id", orgId)
             .eq("profile_id", profileId)
+            .is("notified_at", null)
             .in("scoring_source", ["openai", "intelligence"])
             .gte("score", 1)
             .lt("score", 50)
@@ -975,56 +976,9 @@ export async function runEligibilityRefreshJob(options?: {
             .sort((a, b) => sortDigestByFreshScore(grantsByIdForDigest, a, b))
             .slice(0, limit);
         };
-        const buildPreviousScanDigest = async (limit = DIGEST_PREVIOUS_LIMIT): Promise<DigestGrantItem[]> => {
-          const viewedReminderGrantIds = Array.from(hiddenGrantIds)
-            .filter((grantId) => !reminderHiddenGrantIds.has(grantId))
-            .slice(0, 80);
-          const recentQuery = supabase
-            .from("EligibilityAssessment")
-            .select("grant_id, updated_at, score, decision, summary, notified_at, missing_criteria, improvement_plan, scoring_source")
-            .eq("organisation_id", orgId)
-            .eq("profile_id", profileId)
-            .eq("decision", "likely_eligible")
-            .in("scoring_source", ["openai", "intelligence"])
-            .gte("score", suggestedThreshold)
-            .lte("score", maxScore)
-            .not("notified_at", "is", null)
-            .order("notified_at", { ascending: false })
-            .limit(60);
-          const viewedQuery = viewedReminderGrantIds.length > 0
-            ? supabase
-              .from("EligibilityAssessment")
-              .select("grant_id, updated_at, score, decision, summary, notified_at, missing_criteria, improvement_plan, scoring_source")
-              .eq("organisation_id", orgId)
-              .eq("profile_id", profileId)
-              .eq("decision", "likely_eligible")
-              .in("scoring_source", ["openai", "intelligence"])
-              .in("grant_id", viewedReminderGrantIds)
-              .gte("score", suggestedThreshold)
-              .lte("score", maxScore)
-            : Promise.resolve({ data: [], error: null });
-
-          const [recentResult, viewedResult] = await Promise.all([recentQuery, viewedQuery]);
-          const recentErr = recentResult.error ?? viewedResult.error;
-
-          if (recentErr) {
-            console.error("[eligibility-refresh] previous scan digest query", recentErr);
-            return [];
-          }
-
-          const items: DigestGrantItem[] = [];
-          for (const row of ([...(recentResult.data ?? []), ...(viewedResult.data ?? [])] as CachedEligibilityRow[])) {
-            const item = await buildDigestItem(row, { minScore: suggestedThreshold, maxScore }, {
-              includeRecentlyNotified: true,
-              hiddenGrantIds: reminderHiddenGrantIds,
-            });
-            if (item) items.push(item);
-          }
-
-          return items
-            .sort((a, b) => sortDigestByFreshScore(grantsByIdForDigest, a, b))
-            .slice(0, limit);
-        };
+        // Daily discovery digests contain unseen matches only. Deadline
+        // reminders have a separate scheduled delivery path.
+        const buildPreviousScanDigest = async (): Promise<DigestGrantItem[]> => [];
         let currentStrongDigestCache: DigestGrantItem[] | null = null;
         const getCurrentStrongDigest = async () => {
           if (!currentStrongDigestCache) currentStrongDigestCache = await buildCurrentStrongDigest();
@@ -1228,7 +1182,7 @@ export async function runEligibilityRefreshJob(options?: {
               scoring_source: "heuristic",
               updated_at: new Date().toISOString(),
             },
-            { onConflict: "organisation_id,profile_id,grant_id" }
+            { onConflict: "organisation_id,profile_id,grant_id", ignoreDuplicates: true }
           );
           if (batchErr) console.error("[eligibility-refresh] heuristic upsert", h.grantId, batchErr);
         }

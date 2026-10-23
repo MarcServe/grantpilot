@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import { shouldRecoverDeepScore } from '../lib/deep-score-recovery';
+const now = Date.parse('2026-09-23T12:00:00Z');
+const old = { updated_at: '2026-09-20T00:00:00Z' };
+assert.equal(shouldRecoverDeepScore({...old,status:'completed'},'heuristic',now),true);
+assert.equal(shouldRecoverDeepScore({...old,status:'completed'},'openai',now),false);
+for (const status of ['pending','running','failed']) assert.equal(shouldRecoverDeepScore({...old,status},'heuristic',now),false);
+assert.equal(shouldRecoverDeepScore({...old,status:'skipped',last_error:'Profile is incomplete or organisation trial is inactive for platform deep scoring.'},'heuristic',now),true);
+assert.equal(shouldRecoverDeepScore({...old,status:'skipped',last_error:'This grant deadline has passed.'},'heuristic',now),false);
+assert.equal(shouldRecoverDeepScore({status:'completed',updated_at:'2026-09-23T11:00:00Z'},'heuristic',now),false);
+console.log('Deep scoring recovery safeguards passed');

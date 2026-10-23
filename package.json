@@ -27,7 +27,9 @@
     "video:studio": "remotion studio",
     "video:render": "remotion render GrantsCopilotLaunch out/grantscopilot-launch.mp4 --concurrency=1",
     "video:poster": "remotion still GrantsCopilotPoster out/grantscopilot-poster.png",
-    "video:voiceover": "node scripts/generate-grantscopilot-voiceover.mjs"
+    "video:voiceover": "node scripts/generate-grantscopilot-voiceover.mjs",
+    "test:criteria": "tsx scripts/test-criteria.ts",
+    "test:criteria-portfolio": "tsx scripts/test-criteria-portfolio.ts"
   },
   "dependencies": {
     "@google/genai": "^1.43.0",

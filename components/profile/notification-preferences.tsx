@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2 } from "lucide-react";
 import { useTransition } from "react";
@@ -31,14 +31,19 @@ interface NotificationPreferencesProps {
   whatsappAlertsEnabled: boolean;
 }
 
-export function NotificationPreferences({ defaultValues, whatsappAlertsEnabled }: NotificationPreferencesProps) {
+export function NotificationPreferences({
+  defaultValues,
+  whatsappAlertsEnabled,
+}: NotificationPreferencesProps) {
   const [isPending, startTransition] = useTransition();
 
   const form = useForm<NotificationPreferencesData>({
     resolver: zodResolver(notificationPreferencesSchema),
     defaultValues: {
       phoneNumber: defaultValues.phoneNumber ?? "",
-      whatsappOptIn: whatsappAlertsEnabled ? (defaultValues.whatsappOptIn ?? false) : false,
+      whatsappOptIn: whatsappAlertsEnabled
+        ? (defaultValues.whatsappOptIn ?? false)
+        : false,
     },
   });
 
@@ -58,73 +63,83 @@ export function NotificationPreferences({ defaultValues, whatsappAlertsEnabled }
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Notification preferences</CardTitle>
-        <CardDescription>
-          Add your WhatsApp number to receive grant deadlines, review requests, and application
-          updates on your phone.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-            <FormField
-              control={form.control}
-              name="phoneNumber"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>WhatsApp number</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="+44 7123 456789"
-                      {...field}
-                      value={field.value ?? ""}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="whatsappOptIn"
-              render={({ field }) => (
-                <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-                  <FormControl>
-                    <Checkbox
-                      checked={field.value}
-                      onCheckedChange={field.onChange}
-                      disabled={!whatsappAlertsEnabled}
-                    />
-                  </FormControl>
-                  <div className="space-y-1 leading-none">
-                    <FormLabel className="font-normal cursor-pointer">
-                      Receive notifications via WhatsApp
-                    </FormLabel>
-                    <p className="text-muted-foreground text-sm">
-                      {whatsappAlertsEnabled
-                        ? "We'll send grant reminders and application updates to this number."
-                        : "WhatsApp opportunity alerts are available on Growth, Pro, and Business."}
-                    </p>
-                    {whatsappAlertsEnabled && (
-                      <p className="text-muted-foreground text-xs mt-1">
-                        Not receiving messages? If you use Twilio&apos;s WhatsApp Sandbox, send &quot;join
-                        &lt;your-code&gt;&quot; to the Sandbox number in WhatsApp first. Check Twilio Console →
-                        Messaging → Logs for delivery status.
+      <details className="group">
+        <summary className="flex cursor-pointer list-none items-center justify-between rounded-xl p-6 font-semibold transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 [&::-webkit-details-marker]:hidden">
+          Notification preferences
+          <span
+            aria-hidden="true"
+            className="transition-transform group-open:rotate-180"
+          >
+            ⌄
+          </span>
+        </summary>
+        <CardContent>
+          <p className="mb-5 text-sm text-muted-foreground">
+            Add your WhatsApp number to receive grant deadlines, review
+            requests, and application updates on your phone.
+          </p>
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+              <FormField
+                control={form.control}
+                name="phoneNumber"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>WhatsApp number</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="+44 7123 456789"
+                        {...field}
+                        value={field.value ?? ""}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="whatsappOptIn"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                    <FormControl>
+                      <Checkbox
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                        disabled={!whatsappAlertsEnabled}
+                      />
+                    </FormControl>
+                    <div className="space-y-1 leading-none">
+                      <FormLabel className="font-normal cursor-pointer">
+                        Receive notifications via WhatsApp
+                      </FormLabel>
+                      <p className="text-muted-foreground text-sm">
+                        {whatsappAlertsEnabled
+                          ? "We'll send grant reminders and application updates to this number."
+                          : "WhatsApp opportunity alerts are available on Growth, Pro, and Business."}
                       </p>
-                    )}
-                  </div>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <Button type="submit" disabled={isPending}>
-              {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Save preferences
-            </Button>
-          </form>
-        </Form>
-      </CardContent>
+                      {whatsappAlertsEnabled && (
+                        <p className="text-muted-foreground text-xs mt-1">
+                          Not receiving messages? If you use Twilio&apos;s
+                          WhatsApp Sandbox, send &quot;join
+                          &lt;your-code&gt;&quot; to the Sandbox number in
+                          WhatsApp first. Check Twilio Console → Messaging →
+                          Logs for delivery status.
+                        </p>
+                      )}
+                    </div>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <Button type="submit" disabled={isPending}>
+                {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Save preferences
+              </Button>
+            </form>
+          </Form>
+        </CardContent>
+      </details>
     </Card>
   );
 }

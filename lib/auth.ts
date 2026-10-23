@@ -1,3 +1,4 @@
+import { criteriaProfileCompletionScore } from "@/lib/profile-completion";
 import { cache } from "react";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
@@ -37,17 +38,27 @@ type NormalisedUser = Record<string, unknown> & {
 
 function normaliseUserMemberships(userRow: UserRow): NormalisedUser {
   const rawMemberships =
-    userRow.OrganisationMember ??
-    userRow.organisation_member ??
-    [];
+    userRow.OrganisationMember ?? userRow.organisation_member ?? [];
   const rawList = Array.isArray(rawMemberships) ? rawMemberships : [];
   const memberships = rawList.map((m: MembershipRow) => {
-    const org = (m.Organisation ?? m.organisation) as Record<string, unknown> | undefined;
-    const orgAny = org as { BusinessProfile?: unknown[]; business_profile?: unknown[] } | undefined;
-    const rawProfiles = orgAny?.BusinessProfile ?? orgAny?.business_profile ?? [];
-    const profiles = Array.isArray(rawProfiles) ? rawProfiles as NormalisedProfile[] : [];
+    const org = (m.Organisation ?? m.organisation) as
+      | Record<string, unknown>
+      | undefined;
+    const orgAny = org as
+      | { BusinessProfile?: unknown[]; business_profile?: unknown[] }
+      | undefined;
+    const rawProfiles =
+      orgAny?.BusinessProfile ?? orgAny?.business_profile ?? [];
+    const profiles = Array.isArray(rawProfiles)
+      ? (rawProfiles as NormalisedProfile[]).map((profile) => ({
+          ...profile,
+          completionScore: criteriaProfileCompletionScore(profile),
+        }))
+      : [];
     const createdAt = (m.createdAt ?? m.created_at) as string | undefined;
-    const orgId = (m.organisationId ?? m.organisation_id ?? org?.id) as string | undefined;
+    const orgId = (m.organisationId ?? m.organisation_id ?? org?.id) as
+      | string
+      | undefined;
     return {
       ...m,
       userId: (m.userId ?? m.user_id ?? m.user_id) as string,
@@ -65,7 +76,7 @@ function normaliseUserMemberships(userRow: UserRow): NormalisedUser {
     ...userRow,
     memberships: memberships.sort(
       (a, b) =>
-        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
     ),
   };
 }
@@ -79,10 +90,14 @@ function profileCreatedTime(profile: NormalisedProfile): number {
 
 function profilesWithActiveFirst(
   profiles: NormalisedProfile[] | undefined,
-  activeProfileId: string | null
+  activeProfileId: string | null,
 ): { profiles: NormalisedProfile[]; activeProfile: NormalisedProfile | null } {
-  const sorted = [...(profiles ?? [])].sort((a, b) => profileCreatedTime(a) - profileCreatedTime(b));
-  const activeIndex = activeProfileId ? sorted.findIndex((profile) => profile.id === activeProfileId) : -1;
+  const sorted = [...(profiles ?? [])].sort(
+    (a, b) => profileCreatedTime(a) - profileCreatedTime(b),
+  );
+  const activeIndex = activeProfileId
+    ? sorted.findIndex((profile) => profile.id === activeProfileId)
+    : -1;
   if (activeIndex > 0) {
     const [active] = sorted.splice(activeIndex, 1);
     sorted.unshift(active);
@@ -104,12 +119,13 @@ export async function setActiveProfileCookie(profileId: string): Promise<void> {
   });
 }
 
-async function fetchFullUserBySupabaseId(admin: ReturnType<typeof getSupabaseAdmin>, supabaseId: string) {
+async function fetchFullUserBySupabaseId(
+  admin: ReturnType<typeof getSupabaseAdmin>,
+  supabaseId: string,
+) {
   const { data, error } = await admin
     .from("User")
-    .select(
-      "*, OrganisationMember(*, Organisation(*, BusinessProfile(*)))"
-    )
+    .select("*, OrganisationMember(*, Organisation(*, BusinessProfile(*)))")
     .eq("supabaseId", supabaseId)
     .maybeSingle();
 
@@ -120,13 +136,17 @@ async function fetchFullUserBySupabaseId(admin: ReturnType<typeof getSupabaseAdm
   return data ? normaliseUserMemberships(data as UserRow) : null;
 }
 
-async function ensureProvisionedUser(admin: ReturnType<typeof getSupabaseAdmin>, supabaseId: string, email: string): Promise<NormalisedUser | null> {
+async function ensureProvisionedUser(
+  admin: ReturnType<typeof getSupabaseAdmin>,
+  supabaseId: string,
+  email: string,
+): Promise<NormalisedUser | null> {
   const deterministicUserId = `user-${supabaseId}`;
   const { data: newUser, error: userError } = await admin
     .from("User")
     .upsert(
       { id: deterministicUserId, supabaseId, email },
-      { onConflict: "supabaseId", ignoreDuplicates: false }
+      { onConflict: "supabaseId", ignoreDuplicates: false },
     )
     .select("id")
     .single();
@@ -151,7 +171,7 @@ async function ensureProvisionedUser(admin: ReturnType<typeof getSupabaseAdmin>,
         name: email.split("@")[0] || "My Organisation",
         type: "FOUNDER",
       },
-      { onConflict: "id", ignoreDuplicates: false }
+      { onConflict: "id", ignoreDuplicates: false },
     )
     .select("id")
     .single();
@@ -162,17 +182,15 @@ async function ensureProvisionedUser(admin: ReturnType<typeof getSupabaseAdmin>,
   }
 
   const orgId = (org as { id: string }).id;
-  const { error: memberError } = await admin
-    .from("OrganisationMember")
-    .upsert(
-      {
-        id: `member-${userId}-${orgId}`,
-        userId,
-        organisationId: orgId,
-        role: "OWNER",
-      },
-      { onConflict: "userId,organisationId", ignoreDuplicates: false }
-    );
+  const { error: memberError } = await admin.from("OrganisationMember").upsert(
+    {
+      id: `member-${userId}-${orgId}`,
+      userId,
+      organisationId: orgId,
+      role: "OWNER",
+    },
+    { onConflict: "userId,organisationId", ignoreDuplicates: false },
+  );
 
   if (memberError) {
     console.error("Create member failed:", memberError);
@@ -182,30 +200,34 @@ async function ensureProvisionedUser(admin: ReturnType<typeof getSupabaseAdmin>,
   return fetchFullUserBySupabaseId(admin, supabaseId);
 }
 
-export const getCurrentUser = cache(async function getCurrentUser(): Promise<NormalisedUser | null> {
-  const supabase = await createClient();
-  const {
-    data: { user: authUser },
-  } = await supabase.auth.getUser();
+export const getCurrentUser = cache(
+  async function getCurrentUser(): Promise<NormalisedUser | null> {
+    const supabase = await createClient();
+    const {
+      data: { user: authUser },
+    } = await supabase.auth.getUser();
 
-  if (!authUser) return null;
+    if (!authUser) return null;
 
-  const admin = getSupabaseAdmin();
-  const email = authUser.email ?? "";
+    const admin = getSupabaseAdmin();
+    const email = authUser.email ?? "";
 
-  const existingUser = await fetchFullUserBySupabaseId(admin, authUser.id);
-  if (existingUser?.memberships?.length) return existingUser;
+    const existingUser = await fetchFullUserBySupabaseId(admin, authUser.id);
+    if (existingUser?.memberships?.length) return existingUser;
 
-  return ensureProvisionedUser(admin, authUser.id, email);
-});
+    return ensureProvisionedUser(admin, authUser.id, email);
+  },
+);
 
-export const requireUser = cache(async function requireUser(): Promise<NormalisedUser> {
-  const user = await getCurrentUser();
-  if (!user) {
-    throw new Error("Unauthorized");
-  }
-  return user;
-});
+export const requireUser = cache(
+  async function requireUser(): Promise<NormalisedUser> {
+    const user = await getCurrentUser();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+    return user;
+  },
+);
 
 /**
  * Returns the user's active organisation (first membership for MVP).
@@ -221,19 +243,31 @@ export const getActiveOrg = cache(async function getActiveOrg(): Promise<{
 }> {
   const user = await requireUser();
   const membership =
-    user.memberships.find((m: { role: string }) => m.role === "OWNER" || m.role === "ADMIN") ??
-    user.memberships[0];
+    user.memberships.find(
+      (m: { role: string }) => m.role === "OWNER" || m.role === "ADMIN",
+    ) ?? user.memberships[0];
   if (!membership) {
     throw new Error("No organisation found");
   }
-  const m = membership as { organisationId?: string; organisation_id?: string; organisation?: { id?: string } };
-  const orgId = (m.organisationId?.trim() && m.organisationId) || (m.organisation_id?.trim() && m.organisation_id) || m.organisation?.id;
+  const m = membership as {
+    organisationId?: string;
+    organisation_id?: string;
+    organisation?: { id?: string };
+  };
+  const orgId =
+    (m.organisationId?.trim() && m.organisationId) ||
+    (m.organisation_id?.trim() && m.organisation_id) ||
+    m.organisation?.id;
   if (!orgId) {
     throw new Error("Organisation ID missing on membership");
   }
   const cookieStore = await cookies();
-  const requestedProfileId = cookieStore.get(ACTIVE_PROFILE_COOKIE)?.value ?? null;
-  const { profiles, activeProfile } = profilesWithActiveFirst(membership.organisation.profiles, requestedProfileId);
+  const requestedProfileId =
+    cookieStore.get(ACTIVE_PROFILE_COOKIE)?.value ?? null;
+  const { profiles, activeProfile } = profilesWithActiveFirst(
+    membership.organisation.profiles,
+    requestedProfileId,
+  );
   const org = {
     ...membership.organisation,
     profiles,

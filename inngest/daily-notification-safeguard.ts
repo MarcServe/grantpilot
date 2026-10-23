@@ -506,6 +506,7 @@ async function buildCurrentDigestForProfile(
     .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, scoring_source, updated_at, notified_at")
     .eq("organisation_id", orgId)
     .eq("profile_id", profileId)
+    .is("notified_at", null)
     .eq("decision", "likely_eligible")
     .in("scoring_source", ["openai", "intelligence"])
     .gte("score", minStrongScore)
@@ -520,6 +521,7 @@ async function buildCurrentDigestForProfile(
       .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, scoring_source, updated_at, notified_at")
       .eq("organisation_id", orgId)
       .eq("profile_id", profileId)
+    .is("notified_at", null)
       .in("scoring_source", ["openai", "intelligence"])
       .gte("score", 50)
       .lte("score", withinReachMax)
@@ -533,6 +535,7 @@ async function buildCurrentDigestForProfile(
     .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, scoring_source, updated_at, notified_at")
     .eq("organisation_id", orgId)
     .eq("profile_id", profileId)
+    .is("notified_at", null)
     .in("scoring_source", ["openai", "intelligence"])
     .gte("score", 1)
     .lt("score", 50)
@@ -540,27 +543,13 @@ async function buildCurrentDigestForProfile(
     .order("score", { ascending: false })
     .limit(60);
 
-  const previousQuery = supabase
-    .from("EligibilityAssessment")
-    .select("grant_id, score, decision, summary, missing_criteria, improvement_plan, scoring_source, updated_at, notified_at")
-    .eq("organisation_id", orgId)
-    .eq("profile_id", profileId)
-    .eq("decision", "likely_eligible")
-    .in("scoring_source", ["openai", "intelligence"])
-    .gte("score", minStrongScore)
-    .lte("score", maxScore)
-    .not("notified_at", "is", null)
-    .order("notified_at", { ascending: false })
-    .limit(100);
-
-  const [strongResult, withinReachResult, otherResult, previousResult] = await Promise.all([
+  const [strongResult, withinReachResult, otherResult] = await Promise.all([
     strongQuery,
     withinReachQuery,
     otherQuery,
-    previousQuery,
   ]);
 
-  const firstError = strongResult.error ?? withinReachResult.error ?? otherResult.error ?? previousResult.error;
+  const firstError = strongResult.error ?? withinReachResult.error ?? otherResult.error;
   if (firstError) {
     console.error("[daily-notification-safeguard] digest assessment query", firstError);
     return { strong: [], withinReach: [], other: [], previous: [] };
@@ -569,24 +558,19 @@ async function buildCurrentDigestForProfile(
   const strongRows = (strongResult.data ?? []) as AssessmentDigestRow[];
   const withinReachRows = (withinReachResult.data ?? []) as AssessmentDigestRow[];
   const otherRows = (otherResult.data ?? []) as AssessmentDigestRow[];
-  const previousRows = (previousResult.data ?? []) as AssessmentDigestRow[];
-  const assessments = [...strongRows, ...withinReachRows, ...otherRows, ...previousRows];
+  const assessments = [...strongRows, ...withinReachRows, ...otherRows];
   const grantIds = [...new Set(assessments.map((row) => row.grant_id).filter((id): id is string => Boolean(id)))];
   if (grantIds.length === 0) return { strong: [], withinReach: [], other: [], previous: [] };
 
-  const [appliedGrantIds, hiddenGrantIds, reminderHiddenGrantIds, outcomeAdvisory, grants] = await Promise.all([
+  const [appliedGrantIds, hiddenGrantIds, outcomeAdvisory, grants] = await Promise.all([
     getAppliedGrantIds(supabase, orgId, profileId),
     getDigestHiddenGrantIds(supabase, orgId, profileId, grantIds, { includeViewed: true }),
-    getDigestHiddenGrantIds(supabase, orgId, profileId, grantIds, { includeViewed: false }),
     getOutcomeAdvisoryForProfile(supabase, orgId, profileId),
     fetchDigestGrantRowsByIds(supabase, grantIds, "digest"),
   ]);
 
   const userFunderLocations = profileFunderLocations(profile);
   const grantById = new Map(grants.map((grant) => [grant.id, grant]));
-  const viewedReminderGrantIds = new Set(
-    Array.from(hiddenGrantIds).filter((grantId) => !reminderHiddenGrantIds.has(grantId))
-  );
   const buildItem = (row: AssessmentDigestRow, hiddenIds = hiddenGrantIds): DigestGrantItem | null => {
     const grantId = row.grant_id;
     if (!grantId || appliedGrantIds.has(grantId) || hiddenIds.has(grantId)) return null;
@@ -608,9 +592,6 @@ async function buildCurrentDigestForProfile(
     .filter((row) => !row.notified_at)
     .map((row) => buildItem(row))
     .filter((item): item is DigestGrantItem => Boolean(item));
-  const previousItems = [...previousRows, ...strongRows.filter((row) => row.grant_id && viewedReminderGrantIds.has(row.grant_id))]
-    .map((row) => buildItem(row, reminderHiddenGrantIds))
-    .filter((item): item is DigestGrantItem => Boolean(item));
 
   return {
     strong: dedupeDigestItems(currentStrongItems)
@@ -627,10 +608,7 @@ async function buildCurrentDigestForProfile(
       .filter((item) => item.score < 50)
       .sort(sortDigestByFreshScore)
       .slice(0, DIGEST_OTHER_LIMIT),
-    previous: dedupeDigestItems(previousItems)
-      .filter((item) => item.score >= minStrongScore)
-      .sort(sortDigestByFreshScore)
-      .slice(0, DIGEST_PREVIOUS_LIMIT),
+    previous: [],
   };
 }
 

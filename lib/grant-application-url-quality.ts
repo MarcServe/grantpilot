@@ -119,9 +119,13 @@ export function isGrantAggregatorUrl(rawUrl?: string | null): boolean {
   return GRANT_AGGREGATOR_HOST_PATTERNS.some((pattern) => pattern.test(host));
 }
 
-export function isGrantAggregatorClassificationReason(reason?: string | null): boolean {
+export function isGrantAggregatorClassificationReason(
+  reason?: string | null,
+): boolean {
   if (!reason) return false;
-  return /grant directory|funding finder|official funder application page/i.test(reason);
+  return /grant directory|funding finder|not an official funder application page|aggregator/i.test(
+    reason,
+  );
 }
 
 function safeUrl(raw: string): URL | null {
@@ -132,18 +136,41 @@ function safeUrl(raw: string): URL | null {
   }
 }
 
-function directFormClassification(reason: string, confidence = 95): ApplicationUrlClassification {
-  return { kind: "direct_form", quality: "verified_direct", confidence, reason };
+function directFormClassification(
+  reason: string,
+  confidence = 95,
+): ApplicationUrlClassification {
+  return {
+    kind: "direct_form",
+    quality: "verified_direct",
+    confidence,
+    reason,
+  };
 }
 
-function portalClassification(reason: string, confidence = 85): ApplicationUrlClassification {
-  return { kind: "portal_application", quality: "verified_portal", confidence, reason };
+function portalClassification(
+  reason: string,
+  confidence = 85,
+): ApplicationUrlClassification {
+  return {
+    kind: "portal_application",
+    quality: "verified_portal",
+    confidence,
+    reason,
+  };
 }
 
-export function classifyGrantApplicationUrl(rawUrl: string): ApplicationUrlClassification {
+export function classifyGrantApplicationUrl(
+  rawUrl: string,
+): ApplicationUrlClassification {
   const url = safeUrl(rawUrl);
   if (!url) {
-    return { kind: "dead_link", quality: "rejected", confidence: 100, reason: "Invalid URL" };
+    return {
+      kind: "dead_link",
+      quality: "rejected",
+      confidence: 100,
+      reason: "Invalid URL",
+    };
   }
 
   const host = url.hostname.toLowerCase();
@@ -151,7 +178,12 @@ export function classifyGrantApplicationUrl(rawUrl: string): ApplicationUrlClass
   const segments = path.split("/").filter(Boolean);
 
   if (isGrantAggregatorUrl(rawUrl)) {
-    return { kind: "generic_listing", quality: "rejected", confidence: 95, reason: AGGREGATOR_REASON };
+    return {
+      kind: "generic_listing",
+      quality: "rejected",
+      confidence: 95,
+      reason: AGGREGATOR_REASON,
+    };
   }
 
   if (FORM_HOST_PATTERNS.some((pattern) => pattern.test(host))) {
@@ -162,15 +194,27 @@ export function classifyGrantApplicationUrl(rawUrl: string): ApplicationUrlClass
     return portalClassification("Known application portal host");
   }
 
-  if (/\/(apply|application|applications|submit|start-application)(\/|$)/i.test(path)) {
+  if (
+    /\/(apply|application|applications|submit|start-application)(\/|$)/i.test(
+      path,
+    )
+  ) {
     return portalClassification("Apply/application URL path");
   }
 
   if (segments.length <= 1 && GENERIC_PATH_SEGMENTS.has(segments[0] ?? "")) {
-    return { kind: "generic_listing", quality: "rejected", confidence: 90, reason: "Generic funder/listing page" };
+    return {
+      kind: "generic_listing",
+      quality: "rejected",
+      confidence: 90,
+      reason: "Generic funder/listing page",
+    };
   }
 
-  if (segments.length <= 2 && segments.some((segment) => GENERIC_PATH_SEGMENTS.has(segment))) {
+  if (
+    segments.length <= 2 &&
+    segments.some((segment) => GENERIC_PATH_SEGMENTS.has(segment))
+  ) {
     return {
       kind: "generic_listing",
       quality: "manual_review",
@@ -193,11 +237,17 @@ export function classifyGrantPageText(input: {
   bodyText: string;
   now?: Date;
 }): ApplicationUrlClassification {
-  const text = `${input.title ?? ""} ${input.bodyText}`.replace(/\s+/g, " ").trim();
+  const text = `${input.title ?? ""} ${input.bodyText}`
+    .replace(/\s+/g, " ")
+    .trim();
   const lower = text.toLowerCase();
   const now = input.now ?? new Date();
 
-  if (/account has been successfully created|activate your account|confirmation email/i.test(text)) {
+  if (
+    /account has been successfully created|activate your account|confirmation email/i.test(
+      text,
+    )
+  ) {
     return {
       kind: "account_registration",
       quality: "manual_review",
@@ -208,7 +258,7 @@ export function classifyGrantPageText(input: {
 
   const dateMatches = [
     ...text.matchAll(
-      /\b(\d{1,2})(?:st|nd|rd|th)?\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(20\d{2})\b/gi
+      /\b(\d{1,2})(?:st|nd|rd|th)?\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(20\d{2})\b/gi,
     ),
   ];
   for (const match of dateMatches) {
@@ -220,7 +270,10 @@ export function classifyGrantPageText(input: {
     const date = new Date(year, month, day);
     const index = match.index ?? 0;
     const window = lower.slice(Math.max(0, index - 100), index + 140);
-    const deadlineSignal = /apply\b.*\bby|applications? close|deadline|submit\b.*\bby|closing date/.test(window);
+    const deadlineSignal =
+      /apply\b.*\bby|applications? close|deadline|submit\b.*\bby|closing date/.test(
+        window,
+      );
     if (deadlineSignal && date.getTime() < now.getTime()) {
       return {
         kind: "closed_or_expired",
@@ -231,7 +284,11 @@ export function classifyGrantPageText(input: {
     }
   }
 
-  if (/applications? (are|is|have|has) (now )?(closed|ended)|no longer accepting|deadline has passed/i.test(text)) {
+  if (
+    /applications? (are|is|have|has) (now )?(closed|ended)|no longer accepting|deadline has passed/i.test(
+      text,
+    )
+  ) {
     return {
       kind: "closed_or_expired",
       quality: "rejected",
@@ -243,6 +300,8 @@ export function classifyGrantPageText(input: {
   return classifyGrantApplicationUrl(input.url);
 }
 
-export function shouldExposeApplyCta(input: { quality?: string | null }): boolean {
+export function shouldExposeApplyCta(input: {
+  quality?: string | null;
+}): boolean {
   return isVerifiedApplicationQuality(input.quality);
 }

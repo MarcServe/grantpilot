@@ -104,3 +104,10 @@ cd grantpilot-worker && npm run dev            # Worker (polls cu_sessions)
 npx inngest-cli@latest dev                     # Inngest dev server (optional, for cron jobs)
 ```
 Worker needs its own `.env` with `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ANTHROPIC_API_KEY`.
+
+### Git and design baseline
+
+- Fetch the remote branches before starting project changes; compare the checkout with the latest design history before editing UI.
+- Work on and push changes to `versiontwo`; never push to `main` or deploy production automatically.
+- The updated design history from `grantscopilot-4` is merged into `versiontwo`. Preserve its standalone `/grant-assistant` and `/apply-by-link` workspaces, profile completion tabs, collapsible preferences, and criteria-based opportunity flow.
+- The user manually deploys production through Vercel.

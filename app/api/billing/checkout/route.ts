@@ -8,7 +8,7 @@ import type Stripe from "stripe";
 
 const checkoutSchema = z.object({
   priceId: z.string().min(1),
-  returnTo: z.enum(["/founder-pack", "/question-assistant"]).optional(),
+  returnTo: z.enum(["/founder-pack", "/question-assistant", "/grant-assistant"]).optional(),
 });
 
 const ACTIVE_GRANTSCOPILOT_SUBSCRIPTION_STATUSES = new Set(["active", "trialing"]);
