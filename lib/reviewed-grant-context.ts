@@ -1,3 +1,4 @@
+import { correctedGrantSourceUrl } from "@/lib/grant-source-links";
 import type { CriteriaDocument } from "@/lib/criteria";
 import { assessCriteria } from "@/lib/criteria";
 import type { EligibilityResult } from "@/lib/claude";
@@ -14,7 +15,12 @@ export async function loadReviewedGrantDocuments(db: DB, ids: string[]) {
   }
   for (const row of result.data ?? []) {
     const doc = row.document as CriteriaDocument;
-    if (doc?.sourceVersion && Array.isArray(doc.criteria) && Array.isArray(doc.workload)) documents.set(row.grant_id, doc);
+    if (doc?.sourceVersion && Array.isArray(doc.criteria) && Array.isArray(doc.workload)) {
+      const corrected = correctedGrantSourceUrl(row.grant_id);
+      // A review of the old directory cannot stand in for the funder guidance.
+      if (corrected && doc.sourceUrl.split("#")[0] !== corrected) continue;
+      documents.set(row.grant_id, doc);
+    }
   }
   return { documents, storageReady: true };
 }

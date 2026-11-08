@@ -1,3 +1,4 @@
+import { resolveGrantSourceLinks } from "@/lib/grant-source-links";
 /**
  * Enqueue a grant for Scout so the worker can resolve the direct application form URL.
  * Used when applicationUrl looks like a programme/list page or when Apply hit 404/list.
@@ -14,13 +15,14 @@ export async function enqueueGrantForScout(grantId: string): Promise<boolean> {
   const supabase = getSupabaseAdmin();
   const { data: grant, error: fetchError } = await supabase
     .from("Grant")
-    .select("id, name, funder, amount, deadline, applicationUrl")
+    .select("id, name, funder, amount, deadline, applicationUrl, detailUrl, directApplicationUrl, applicationUrlQuality")
     .eq("id", grantId)
     .maybeSingle();
 
   if (fetchError || !grant) return false;
 
-  const applicationUrl = (grant as { applicationUrl?: string }).applicationUrl?.trim();
+  const links = resolveGrantSourceLinks(grant);
+  const applicationUrl = links.sourceUrl ?? links.discoveryUrl;
   if (!applicationUrl) return false;
 
   const { error: upsertError } = await supabase.from("grant_links").upsert(
@@ -48,13 +50,14 @@ export async function enqueueGrantForScoutIfProgrammeUrl(grantId: string): Promi
   const supabase = getSupabaseAdmin();
   const { data: grant, error: fetchError } = await supabase
     .from("Grant")
-    .select("id, name, funder, amount, deadline, applicationUrl")
+    .select("id, name, funder, amount, deadline, applicationUrl, detailUrl, directApplicationUrl, applicationUrlQuality")
     .eq("id", grantId)
     .maybeSingle();
 
   if (fetchError || !grant) return false;
 
-  const applicationUrl = (grant as { applicationUrl?: string }).applicationUrl?.trim();
+  const links = resolveGrantSourceLinks(grant);
+  const applicationUrl = links.sourceUrl ?? links.discoveryUrl;
   if (!applicationUrl || !isLikelyProgrammeInfoUrl(applicationUrl)) return false;
 
   const { error: upsertError } = await supabase.from("grant_links").upsert(

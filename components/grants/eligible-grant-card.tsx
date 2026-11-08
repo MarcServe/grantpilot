@@ -1,4 +1,6 @@
 "use client";
+
+import { resolveGrantSourceLinks } from "@/lib/grant-source-links";
 import { grantBlockerAction } from "@/lib/grant-blocker-actions";
 import { preliminaryScoreStatus } from "@/lib/preliminary-score-status";
 import { grantDeadlineDisplay } from "@/lib/grant-deadline-display";
@@ -153,29 +155,12 @@ export function EligibleGrantCard({
   );
   const [feedbackSent, setFeedbackSent] = useState<string | null>(null);
   const state = stateLabel(currentState);
-  const verifiedApplicationStart = hasVerifiedApplicationStart(
-    grant.applicationUrlQuality,
-  );
-  const isAggregatorDirectoryLink = isGrantAggregatorClassificationReason(
-    grant.applicationUrlQualityReason,
-  );
-  const canOpenReviewLink =
-    !isAggregatorDirectoryLink && grant.applicationUrlQuality !== "rejected";
-  const linkLabel = applicationLinkLabel(
-    grant.applicationUrlQuality,
-    grant.applicationUrlQualityReason,
-  );
-  const externalActionHref = verifiedApplicationStart
-    ? (grant.directApplicationUrl ??
-      grant.applicationUrl ??
-      grant.detailUrl ??
-      null)
-    : canOpenReviewLink
-      ? (grant.detailUrl ??
-        grant.applicationUrl ??
-        grant.directApplicationUrl ??
-        null)
-      : null;
+  const sourceLinks = resolveGrantSourceLinks(grant);
+  const verifiedApplicationStart = !!sourceLinks.applicationUrl;
+  const isAggregatorDirectoryLink = sourceLinks.discoveryOnly;
+  const linkLabel = verifiedApplicationStart ? applicationLinkLabel(grant.applicationUrlQuality, grant.applicationUrlQualityReason)
+    : sourceLinks.isOfficial ? "Review official grant page" : "Review grant information";
+  const externalActionHref = sourceLinks.applicationUrl ?? sourceLinks.sourceUrl;
 
   const actions: string[] = [];
   if (grant.improvementPlan?.actions?.length)
@@ -344,7 +329,7 @@ export function EligibleGrantCard({
           verifiedApplicationStart
             ? "border-emerald-200 bg-emerald-50 text-emerald-700"
             : isAggregatorDirectoryLink ||
-                grant.applicationUrlQuality === "rejected"
+                (grant.applicationUrlQuality === "rejected" && !sourceLinks.isOfficial)
               ? "border-rose-200 bg-rose-50 text-rose-700"
               : "border-slate-200 bg-slate-50 text-slate-700"
         }`}
@@ -473,7 +458,7 @@ export function EligibleGrantCard({
             <div
               className={`flex items-start gap-2 rounded-md border px-3 py-2 text-xs ${
                 isAggregatorDirectoryLink ||
-                grant.applicationUrlQuality === "rejected"
+                (grant.applicationUrlQuality === "rejected" && !sourceLinks.isOfficial)
                   ? "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300"
                   : "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-950/30 dark:text-slate-300"
               }`}
@@ -482,7 +467,7 @@ export function EligibleGrantCard({
               <span>
                 {isAggregatorDirectoryLink
                   ? "This link opens another grant directory or funding finder, not the official funder page. Save the funder page or direct application form before applying."
-                  : grant.applicationUrlQuality === "rejected"
+                  : (grant.applicationUrlQuality === "rejected" && !sourceLinks.isOfficial)
                     ? "This link is not specific enough to use as an application route. Save the official funder page or direct form first."
                     : "This is a grant information page, not a verified direct form yet. Review the page to find the funder application route."}
               </span>

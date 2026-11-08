@@ -1,3 +1,4 @@
+import { resolveGrantSourceLinks } from "@/lib/grant-source-links";
 import { GrantSourceReview } from "@/components/grants/grant-source-review";
 import { loadReviewedGrantDocuments, guardPublishedAssessment } from "@/lib/reviewed-grant-context";
 import { reconcileEligibilityDisplay } from "@/lib/resolved-profile-blockers";
@@ -50,10 +51,6 @@ import {
   getGrantVerificationWarning,
   type GrantFreshnessStatus,
 } from "@/lib/grant-freshness";
-import {
-  isGrantAggregatorClassificationReason,
-  isVerifiedApplicationQuality,
-} from "@/lib/grant-application-url-quality";
 
 const BACK_LINKS = {
   matches: { href: "/grants/eligible", label: "Back to My Matches" },
@@ -130,18 +127,12 @@ export default async function GrantDetailPage({
     applicationUrlQuality?: string | null;
     applicationUrlQualityReason?: string | null;
   };
-  const detailUrl = grantUrlMeta.detailUrl ?? grant.applicationUrl ?? "";
-  const directApplicationUrl = grantUrlMeta.directApplicationUrl ?? null;
+  const sourceLinks = resolveGrantSourceLinks(grant);
+  const detailUrl = sourceLinks.sourceUrl ?? sourceLinks.discoveryUrl ?? "";
   const applicationUrlQuality = grantUrlMeta.applicationUrlQuality ?? null;
-  const canOpenApplication = isVerifiedApplicationQuality(
-    applicationUrlQuality,
-  );
-  const isAggregatorDirectoryLink = isGrantAggregatorClassificationReason(
-    grantUrlMeta.applicationUrlQualityReason,
-  );
-  const applicationStartUrl = canOpenApplication
-    ? (directApplicationUrl ?? grant.applicationUrl ?? "")
-    : null;
+  const canOpenApplication = !!sourceLinks.applicationUrl;
+  const isAggregatorDirectoryLink = sourceLinks.discoveryOnly;
+  const applicationStartUrl = sourceLinks.applicationUrl;
   const profile = org.profiles?.[0];
   const grantAutoImproveEnabled = planAllowsForOrg(org, "grant_auto_improve");
   const hasProfile = !!profile && (profile.completionScore ?? 0) >= 50;
@@ -382,7 +373,7 @@ export default async function GrantDetailPage({
       {freshness.usable && !canOpenApplication && (
         <EnsureFormLinkScout
           grantId={grant.id}
-          applicationUrl={(detailUrl || grant.applicationUrl) ?? ""}
+          applicationUrl={detailUrl}
           eligibilityScore={eligibilityScore}
         />
       )}
@@ -684,23 +675,25 @@ export default async function GrantDetailPage({
             <EditApplicationUrl
               grantId={grant.id}
               applicationUrl={
-                applicationStartUrl ?? (detailUrl || grant.applicationUrl) ?? ""
+                applicationStartUrl ?? detailUrl
               }
             />
             {freshness.usable && !canOpenApplication && (
               <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
                 {isAggregatorDirectoryLink
                   ? "This link opens another grant directory or funding finder, not the official funder page. Save the funder page or direct application form before preparing an application."
-                  : applicationUrlQuality === "rejected"
+                  : (applicationUrlQuality === "rejected" && !sourceLinks.isOfficial)
                     ? "This link is not specific enough to use as an application route. Save the official funder page or direct form before preparing an application."
                     : "Direct application form not verified yet. Use Find application form or save a verified direct form/portal URL before preparing an application."}
-                {grantUrlMeta.applicationUrlQualityReason
+                {!sourceLinks.isOfficial && grantUrlMeta.applicationUrlQualityReason
                   ? ` ${grantUrlMeta.applicationUrlQualityReason}`
                   : ""}
               </p>
             )}
           </div>
 
+          {sourceLinks.discoveryUrl && sourceLinks.discoveryUrl !== detailUrl && <details className="text-sm"><summary className="cursor-pointer">Discovery listing (third party)</summary><a className="break-all underline" href={sourceLinks.discoveryUrl} target="_blank" rel="noopener noreferrer">{sourceLinks.discoveryUrl}</a><p>The funder page above takes precedence over this listing.</p></details>}
+          {sourceLinks.discoveryOnly && <p className="text-sm text-amber-800">The official funder source has not been found. This is a third-party discovery listing.</p>}
           {grant.description && (
             <div className="min-w-0">
               <h3 className="mb-2 font-semibold">Description</h3>
@@ -788,16 +781,16 @@ export default async function GrantDetailPage({
               </div>
             )}
 
-            <a
-              href={(detailUrl || grant.applicationUrl) ?? ""}
+            {detailUrl ? <a
+              href={detailUrl}
               target="_blank"
               rel="noopener noreferrer"
             >
               <Button variant="ghost" className="gap-2">
                 <ExternalLink className="h-4 w-4" />
-                View Original
+                {sourceLinks.label}
               </Button>
-            </a>
+            </a> : <p className="text-sm text-amber-800">A valid source page is missing. Save the official grant web page above.</p>}
           </div>
           {hasProfile && profileId && (
             <div className="rounded-lg border bg-muted/30 p-3">

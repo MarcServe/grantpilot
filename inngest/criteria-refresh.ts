@@ -1,3 +1,4 @@
+import { resolveGrantSourceLinks } from "@/lib/grant-source-links";
 import { loadReviewedGrantDocuments, publishedRequirementsText, guardPublishedAssessment } from "@/lib/reviewed-grant-context";
 import { loadCriteria } from "@/lib/criteria-store";
 import { criteriaEnabled } from "@/lib/criteria-flags";
@@ -85,8 +86,10 @@ export const criteriaRefreshRequested = inngest.createFunction(
           if (g.error) throw new Error(g.error.message);
           if (!isGrantActionableNow(g.data)) return false;
           if (grantId === run.grant_id && run.reextract) {
+            const sourceUrl = resolveGrantSourceLinks(g.data).sourceUrl;
+            if (!sourceUrl) throw new Error("Find the funder guidance URL before reviewing requirements.");
             const document = await extractCriteriaDocument(
-              g.data.detailUrl || g.data.applicationUrl,
+              sourceUrl,
               g.data.name,
             );
             const saved = await db.from("grant_criteria_documents").upsert({

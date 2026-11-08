@@ -1,8 +1,10 @@
+import { classifyGrantApplicationUrl, isVerifiedApplicationQuality } from "@/lib/grant-application-url-quality";
+import { resolveGrantSourceLinks } from "@/lib/grant-source-links";
 import { NextResponse } from "next/server";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { isLikelyProgrammeInfoUrl } from "@/lib/grant-url-validation";
-import { isVerifiedApplicationQuality } from "@/lib/grant-application-url-quality";
+
 
 type GrantLinkRow = {
   status: string;
@@ -44,11 +46,10 @@ export async function POST(
       directApplicationUrl?: string | null;
       applicationUrlQuality?: string | null;
     };
-    if (isVerifiedApplicationQuality(grantUrls.applicationUrlQuality) && grantUrls.directApplicationUrl?.trim()) {
-      return NextResponse.json({ status: "found", formUrl: grantUrls.directApplicationUrl.trim() });
-    }
+    const links = resolveGrantSourceLinks({ ...grantUrls, id: grantId });
+    if (links.applicationUrl) return NextResponse.json({ status: "found", formUrl: links.applicationUrl });
 
-    const applicationUrl = (grantUrls.detailUrl ?? grantUrls.applicationUrl ?? "").trim();
+    const applicationUrl = links.sourceUrl ?? links.discoveryUrl ?? "";
     if (!applicationUrl) {
       return NextResponse.json({ error: "Grant has no application URL" }, { status: 400 });
     }
@@ -67,7 +68,7 @@ export async function POST(
       .maybeSingle();
 
     const row = existing as GrantLinkRow | null;
-    if (row?.status === "found" && row.application_form_url) {
+    if (row?.status === "found" && row.application_form_url && isVerifiedApplicationQuality(classifyGrantApplicationUrl(row.application_form_url).quality)) {
       return NextResponse.json({ status: "found", formUrl: row.application_form_url });
     }
     if (row?.status === "running") {
@@ -130,6 +131,9 @@ export async function GET(
       return NextResponse.json({ status: "none", message: "No Scout job for this grant." });
     }
 
+    if (r.status === "found" && (!r.application_form_url || !isVerifiedApplicationQuality(classifyGrantApplicationUrl(r.application_form_url).quality))) {
+      return NextResponse.json({ status: "failed", error: "The discovered URL is not a verified direct application route. Retry discovery from the official funder page." });
+    }
     return NextResponse.json({
       status: r.status,
       formUrl: r.application_form_url ?? undefined,

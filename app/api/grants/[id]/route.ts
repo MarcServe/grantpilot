@@ -1,3 +1,4 @@
+import { resolveGrantSourceLinks, grantWebPage } from "@/lib/grant-source-links";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getActiveOrg } from "@/lib/auth";
@@ -47,10 +48,11 @@ export async function PATCH(
     }
 
     const submittedUrl = parsed.data.applicationUrl.trim();
+    if (!grantWebPage(submittedUrl)) return NextResponse.json({ error: "Use an external grant web page or application URL, not an image, attachment or GrantsCopilot page." }, { status: 400 });
     const classification = classifyGrantApplicationUrl(submittedUrl);
     const directApplicationUrl = isVerifiedApplicationQuality(classification.quality) ? submittedUrl : null;
     const existingDetailUrl = (existing as { detailUrl?: string | null; applicationUrl?: string | null }).detailUrl;
-    const detailUrl = directApplicationUrl ? existingDetailUrl ?? (existing as { applicationUrl?: string | null }).applicationUrl ?? submittedUrl : submittedUrl;
+    const detailUrl = resolveGrantSourceLinks({ detailUrl: existingDetailUrl, applicationUrl: submittedUrl, directApplicationUrl, applicationUrlQuality: classification.quality }).sourceUrl ?? submittedUrl;
     const { data, error } = await supabase
       .from("Grant")
       .update({

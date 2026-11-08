@@ -1,3 +1,4 @@
+import { resolveGrantSourceLinks } from "@/lib/grant-source-links";
 import { NextResponse } from "next/server";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -15,7 +16,7 @@ async function reviewContext(id: string) {
   const db = getSupabaseAdmin();
   const [profile, grant, stored] = await Promise.all([
     db.from("BusinessProfile").select("*").eq("id", profileId).eq("organisationId", orgId).single(),
-    db.from("Grant").select("id,name,detailUrl,applicationUrl").eq("id", id).single(),
+    db.from("Grant").select("id,name,detailUrl,applicationUrl,directApplicationUrl,applicationUrlQuality").eq("id", id).single(),
     loadReviewedGrantDocuments(db, [id]),
   ]);
   if (profile.error || grant.error) throw new Error("Business profile or grant not found.");
@@ -38,8 +39,8 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     if (!context.storageReady) return NextResponse.json({ error: "Source review storage needs Supabase migration 065 before this review can be saved." }, { status: 503 });
     const limit = await checkUsageLimit(context.orgId, "match");
     if (!limit.allowed) return NextResponse.json({ error: "Your eligibility check allowance has been reached." }, { status: 402 });
-    const sourceUrl = context.grant.detailUrl || context.grant.applicationUrl;
-    if (!sourceUrl) return NextResponse.json({ error: "Add the funder's published guidance URL first." }, { status: 400 });
+    const sourceUrl = resolveGrantSourceLinks(context.grant).sourceUrl;
+    if (!sourceUrl) return NextResponse.json({ error: "Add the official funder guidance URL first. A third-party listing is not a reviewed funder source." }, { status: 400 });
     const document = await extractCriteriaDocument(sourceUrl, context.grant.name);
     const saved = await context.db.from("grant_criteria_documents").upsert({ grant_id: id, document, updated_at: new Date().toISOString() });
     if (saved.error) throw new Error("The published source was read but could not be saved. Please retry.");

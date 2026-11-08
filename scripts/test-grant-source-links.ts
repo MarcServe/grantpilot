@@ -1,0 +1,24 @@
+import assert from "node:assert/strict";
+import { resolveGrantSourceLinks, grantWebPage } from "../lib/grant-source-links";
+import { classifyGrantApplicationUrl, isGrantAggregatorUrl } from "../lib/grant-application-url-quality";
+import { loadReviewedGrantDocuments } from "../lib/reviewed-grant-context";
+const listing="https://www.startupnetworks.co.uk/links/link/31014-frontier-ai-sme-champions-phase-1/";
+const official="https://apply-for-innovation-funding.service.gov.uk/competition/2584/overview/4c7afb5d-4572-4ef2-9507-73ef2dec8ec8";
+assert.ok(isGrantAggregatorUrl(listing));
+assert.equal(classifyGrantApplicationUrl(listing).quality,"rejected");
+const corrected=resolveGrantSourceLinks({id:"c10e491028ac6ce7ca05b7331cd2ca943",detailUrl:listing,applicationUrl:listing,applicationUrlQuality:"verified_direct",directApplicationUrl:listing});
+assert.equal(corrected.sourceUrl,official);assert.equal(corrected.applicationUrl,null);assert.equal(corrected.discoveryUrl,listing);assert.equal(corrected.label,"View official grant page");
+const known=resolveGrantSourceLinks({detailUrl:listing,applicationUrl:official});
+assert.equal(known.sourceUrl,official);assert.equal(known.applicationUrl,null,"guidance page is not automatically a verified application form");
+assert.equal(resolveGrantSourceLinks({detailUrl:listing,applicationUrl:"https://forms.office.com/r/abc",directApplicationUrl:"https://forms.office.com/r/abc",applicationUrlQuality:"verified_direct"}).sourceUrl,"https://forms.office.com/r/abc");
+assert.equal(resolveGrantSourceLinks({detailUrl:"https://funder.example/programme",applicationUrl:listing}).sourceUrl,"https://funder.example/programme");
+assert.equal(resolveGrantSourceLinks({detailUrl:listing}).label,"View discovery listing");
+assert.equal(resolveGrantSourceLinks({detailUrl:listing}).sourceUrl,null);
+for(const url of ["javascript:alert(1)","https://example.org/screenshot.png","https://example.org/photo.webp?x=1","https://www.grantscopilot.com/grants/abc","https://user:secret@example.org/grant"])assert.equal(grantWebPage(url),null);
+assert.equal(resolveGrantSourceLinks({detailUrl:"https://apply-for-innovation-funding.service.gov.uk.evil.example/grant"}).isOfficial,false);
+async function main(){
+ const old={sourceVersion:"old",sourceUrl:listing,criteria:[],workload:[]};
+ const db={from(){return{select(){return this},async in(){return{error:null,data:[{grant_id:"c10e491028ac6ce7ca05b7331cd2ca943",document:old}]}}}}};
+ assert.equal((await loadReviewedGrantDocuments(db as never,["c10e491028ac6ce7ca05b7331cd2ca943"])).documents.size,0,"old directory review must not substitute for official source review");
+ console.log("Official source correction, source preference, directory labelling, unsafe/image URLs, host spoofing and old-review invalidation passed");
+}main().catch(e=>{console.error(e);process.exitCode=1});

@@ -1,3 +1,4 @@
+import { resolveGrantSourceLinks } from "@/lib/grant-source-links";
 /**
  * Grant ingestion for production: sync from JSON feeds, manual imports, and AI/search
  * discovery sources. Every source can add grants; trusted matching still flows through
@@ -242,7 +243,7 @@ export async function upsertGrant(input: GrantInput): Promise<{ id: string; crea
     throw new Error(freshness.message ?? `Grant appears closed: ${input.name}`);
   }
 
-  const detailUrl = input.detailUrl?.trim() || input.applicationUrl.trim();
+  const detailUrl = resolveGrantSourceLinks(input).sourceUrl ?? input.detailUrl?.trim() ?? input.applicationUrl.trim();
   const directCandidate = input.directApplicationUrl?.trim() || input.applicationUrl.trim();
   const directClassification = classifyGrantApplicationUrl(directCandidate);
   const detailClassification = classifyGrantApplicationUrl(detailUrl);

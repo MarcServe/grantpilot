@@ -1,3 +1,4 @@
+import { resolveGrantSourceLinks } from "@/lib/grant-source-links";
 import type { GrantInput } from "./grants-ingest";
 import type { FunderLocation } from "./constants";
 
@@ -106,7 +107,7 @@ export function toGrantInput(
     amount,
     deadline,
     applicationUrl,
-    detailUrl: detailUrl || legacyApplicationUrl || applicationUrl,
+    detailUrl: resolveGrantSourceLinks({ detailUrl, applicationUrl, directApplicationUrl }).sourceUrl ?? (detailUrl || legacyApplicationUrl || applicationUrl),
     directApplicationUrl: directApplicationUrl || null,
     eligibility,
     sectors,
