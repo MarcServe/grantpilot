@@ -23,7 +23,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
+import { FundingAmountSelect } from "./funding-amount-select";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
@@ -56,6 +56,7 @@ import { toast } from "sonner";
 interface Step4Props {
   defaultValues: Partial<Step4Data>;
   onSubmit: (data: Step4Data) => Promise<void>;
+  onFindMatches?: (data: Step4Data) => Promise<void>;
   onBack: () => void;
   isPending: boolean;
   profileContext?: {
@@ -116,6 +117,7 @@ interface AIRecommendation {
 export function Step4Funding({
   defaultValues,
   onSubmit,
+  onFindMatches,
   onBack,
   isPending,
   profileContext,
@@ -247,7 +249,7 @@ export function Step4Funding({
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="min-w-0 space-y-6">
+      <form onSubmit={form.handleSubmit(onFindMatches ?? onSubmit)} className="min-w-0 space-y-6">
 
         {profileContext?.businessName && (
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
@@ -315,7 +317,7 @@ export function Step4Funding({
         <div className="space-y-4">
           <FormLabel>Funding Range (GBP)</FormLabel>
           <p className="text-xs text-muted-foreground">
-            Most early-stage innovation grants fall between £25,000 – £250,000. Choose a range aligned with your development stage.
+            Choose the funding range you want to explore. Pick an amount below or choose Custom amount for an exact figure. This is a preference, not a commitment to apply.
           </p>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <FormField
@@ -325,7 +327,7 @@ export function Step4Funding({
                 <FormItem>
                   <FormLabel className="text-sm text-muted-foreground">Minimum</FormLabel>
                   <FormControl>
-                    <Input type="number" placeholder="10000" {...field} />
+                    <FundingAmountSelect bound="minimum" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -338,7 +340,7 @@ export function Step4Funding({
                 <FormItem>
                   <FormLabel className="text-sm text-muted-foreground">Maximum</FormLabel>
                   <FormControl>
-                    <Input type="number" placeholder="500000" {...field} />
+                    <FundingAmountSelect bound="maximum" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -429,7 +431,7 @@ export function Step4Funding({
                   </select>
                 </FormControl>
                 <p className="text-muted-foreground text-xs">
-                  Improves application readiness and effort estimates.
+                  Choose “No documents ready yet” if you are just exploring. You can find grants without uploading a pitch deck or any files.
                 </p>
                 <FormMessage />
               </FormItem>
@@ -689,10 +691,16 @@ export function Step4Funding({
           <Button type="button" variant="outline" onClick={onBack} disabled={isPending} className="w-full sm:w-auto">
             Back
           </Button>
-          <Button type="submit" disabled={isPending} className="w-full sm:w-auto">
-            {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Save &amp; Next
-          </Button>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            {onFindMatches && <Button type="button" variant="outline" disabled={isPending}
+              className="h-auto w-full whitespace-normal sm:w-auto" onClick={form.handleSubmit(onSubmit)}>
+              Save and continue profile
+            </Button>}
+            <Button type="submit" disabled={isPending} className="h-auto w-full whitespace-normal sm:w-auto">
+              {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {onFindMatches ? "Save & find grants" : "Save & Next"}
+            </Button>
+          </div>
         </div>
       </form>
     </Form>

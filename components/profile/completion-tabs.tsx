@@ -15,9 +15,11 @@ export function CompletionTabs({
 }) {
   const fields = profileCompletionFields(profile);
   const missing = fields.filter((f) => !f.complete);
+  const [expanded, setExpanded] = useState(false);
   const [tab, setTab] = useState(missing.length ? "incomplete" : "complete");
   useEffect(() => {
     const show = () => {
+      setExpanded(true);
       setTab("incomplete");
       document
         .getElementById("profile-completion")
@@ -34,36 +36,45 @@ export function CompletionTabs({
   return (
     <section
       id="profile-completion"
-      className="sticky top-36 z-20 scroll-mt-36 rounded-xl border bg-white p-4 shadow-sm"
+      className="scroll-mt-24 rounded-xl border bg-white p-3 shadow-sm sm:p-4"
     >
-      <h2 className="mb-1 text-lg font-semibold">Complete your profile</h2>
-      <p className="mb-4 text-sm text-muted-foreground">
-        {missing.length
-          ? `${missing.length} fields left. Select a field to fill it in.`
-          : "Core fields complete. Review your saved information below."}
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="text-sm font-semibold">Business DNA progress</h2>
+          <p className="text-xs text-muted-foreground" role="status">
+            {fields.length - missing.length} of {fields.length} details saved
+            {missing.length ? ` · ${missing.length} left` : " · Core profile complete"}
+          </p>
+        </div>
+        <Button type="button" size="sm" variant="outline" aria-expanded={expanded}
+          aria-controls="profile-completion-checklist" onClick={() => setExpanded((value) => !value)}>
+          {expanded ? "Hide checklist" : "Show checklist"}
+        </Button>
+      </div>
+      <p className="mt-2 text-xs text-muted-foreground">Save a step to update your progress. Documents are optional for finding grants.</p>
       <nav
         aria-label="Profile sections"
-        className="mb-3 flex gap-2 overflow-x-auto pb-2"
+        className="mt-3 flex gap-2 overflow-x-auto pb-2"
       >
         {sectionLabels.map((label, index) => {
           const sectionFields = fields.filter((f) => f.step === index + 1);
           const gaps = sectionFields.filter((f) => !f.complete);
           const complete = sectionFields.length > 0 && gaps.length === 0;
           const status = complete
-            ? "✓ Complete"
+            ? "✓ Saved"
             : gaps.length
               ? `${gaps.length} fields left`
-              : "Review section";
+              : index + 1 === 5 ? "Optional uploads" : "Additional details";
           return (
             <button
               type="button"
               key={label}
               aria-current={activeStep === index + 1 ? "step" : undefined}
-              onClick={() =>
-                onSelect(index + 1, gaps[0]?.key ?? sectionFields[0]?.key ?? "")
-              }
-              className={`min-w-32 flex-1 rounded-lg border p-3 text-left text-sm transition hover:shadow-md active:scale-[0.98] motion-reduce:transform-none focus-visible:outline-2 focus-visible:outline-blue-600 ${complete ? "border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100" : gaps.length ? "border-amber-200 bg-amber-50 text-amber-950 hover:bg-amber-100" : "border-slate-200 bg-slate-50 text-slate-700"} ${activeStep === index + 1 ? "ring-2 ring-blue-500 ring-offset-1" : "hover:brightness-95"}`}
+              onClick={() => {
+                setExpanded(false);
+                onSelect(index + 1, gaps[0]?.key ?? sectionFields[0]?.key ?? "");
+              }}
+              className={`min-w-28 flex-1 rounded-lg border px-3 py-2 text-left text-sm transition hover:shadow-md active:scale-[0.98] motion-reduce:transform-none focus-visible:outline-2 focus-visible:outline-blue-600 ${complete ? "border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100" : gaps.length ? "border-amber-200 bg-amber-50 text-amber-950 hover:bg-amber-100" : "border-slate-200 bg-slate-50 text-slate-700"} ${activeStep === index + 1 ? "ring-2 ring-blue-500 ring-offset-1" : "hover:brightness-95"}`}
             >
               <span className="block font-semibold">{label}</span>
               <span className="mt-1 block text-xs">{status}</span>
@@ -71,8 +82,9 @@ export function CompletionTabs({
           );
         })}
       </nav>
+      <div id="profile-completion-checklist" hidden={!expanded}>
       <div
-        className="flex gap-2"
+        className="mt-3 flex flex-wrap gap-2"
         role="tablist"
         aria-label="Business profile completion"
       >
@@ -101,7 +113,10 @@ export function CompletionTabs({
               type="button"
               className={`rounded-lg border px-3 py-2 text-left text-sm transition hover:shadow-md active:scale-[0.98] motion-reduce:transform-none focus-visible:outline-2 focus-visible:outline-blue-600 ${f.complete ? "border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100" : "border-amber-200 bg-amber-50 text-amber-950 hover:bg-amber-100"}`}
               key={f.key}
-              onClick={() => onSelect(f.step, f.key)}
+              onClick={() => {
+                setExpanded(false);
+                onSelect(f.step, f.key);
+              }}
             >
               {f.complete ? "✓ " : "○ "}
               {f.label} →
@@ -113,6 +128,7 @@ export function CompletionTabs({
             evidence.
           </p>
         )}
+      </div>
       </div>
     </section>
   );

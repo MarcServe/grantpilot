@@ -145,7 +145,7 @@ const STEP_LABELS = [
   "Description",
   "Financials",
   "Funding Goals",
-  "Documents",
+  "Documents (optional)",
   "Grant Readiness",
   "Eligibility Facts",
 ];
@@ -239,7 +239,7 @@ export function ProfileForm({
     });
   }
 
-  function handleStep4(data: Step4Data) {
+  function handleStep4(data: Step4Data, findMatches = false) {
     return new Promise<void>((resolve) => {
       setSavingStep(4);
       startTransition(async () => {
@@ -248,7 +248,8 @@ export function ProfileForm({
           toast.error(result.error);
         } else {
           toast.success("Funding goals saved");
-          setStep(5);
+          if (findMatches) router.push("/grants/eligible");
+          else setStep(5);
           router.refresh();
         }
         setSavingStep(null);
@@ -347,7 +348,7 @@ export function ProfileForm({
   }
 
   function handleComplete() {
-    toast.success("Profile complete! You can now browse and apply for grants.");
+    toast.success("Profile details saved. Explore grants and review each funder’s requirements.");
     router.push("/dashboard");
   }
 
@@ -486,7 +487,8 @@ export function ProfileForm({
                 coFundingAvailable: profile.coFundingAvailable ?? "",
                 matchFundingDetails: profile.matchFundingDetails ?? "",
               }}
-              onSubmit={handleStep4}
+              onSubmit={(data) => handleStep4(data)}
+              onFindMatches={(data) => handleStep4(data, true)}
               onBack={() => setStep(3)}
               isPending={isPending || savingStep === 4}
               profileContext={{

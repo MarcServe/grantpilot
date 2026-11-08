@@ -61,8 +61,8 @@ export default async function ProfilePage({
         {sp.grantId && <Link className="mb-3 inline-block text-sm font-medium text-primary underline" href={`/grants/${encodeURIComponent(sp.grantId)}?from=matches`}>Back to this grant after saving</Link>}
         <h1 className="text-2xl font-black text-[#071a3a]">Business Profile</h1>
         <p className="mt-2 text-sm leading-6 text-muted-foreground sm:text-base">
-          Complete your business profile to get matched with relevant grants.
-          Your information is saved at each step.
+          Tell us about your business to find relevant grants. Save your details at each step.
+          Uploads and a pitch deck are optional; prepare application documents after choosing a grant.
         </p>
       </div>
 

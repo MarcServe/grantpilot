@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -74,12 +75,21 @@ export function Step5Documents({
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-sm font-medium">Supporting Documents & Videos</h3>
+        <h3 className="text-sm font-medium">Supporting documents and videos are optional</h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          Upload pitch deck, business plan, financial accounts, or a pitch
-          video. Many grants require a short video (e.g. 5 min, 50MB). Tag
-          each file so we can match it to grant requirements.
+          You can find relevant grants and apply on the funder’s website without uploading a pitch deck.
+          Add existing files here when useful. Each funder sets its own application requirements, so you can prepare documents after choosing a grant.
         </p>
+      </div>
+
+      <div className="space-y-3 rounded-lg border border-blue-100 bg-blue-50 p-4">
+        <h4 className="text-sm font-semibold">Find grants first, prepare documents when needed</h4>
+        <p className="text-sm text-muted-foreground">Open a grant to review eligibility and follow its official application link.
+          If you want help preparing, Founder Pack can draft a pitch deck and other documents using your Business DNA and selected grant. Review generated drafts before use.</p>
+        <div className="flex flex-wrap gap-2">
+          <Button asChild className="h-auto max-w-full whitespace-normal text-center"><Link href="/grants/eligible">Find relevant grants</Link></Button>
+          <Button asChild variant="outline" className="h-auto max-w-full whitespace-normal text-center"><Link href="/founder-pack">Prepare documents with Founder Pack</Link></Button>
+        </div>
       </div>
 
       <div className="rounded-lg border border-dashed p-6">
@@ -183,7 +193,7 @@ export function Step5Documents({
           ) : (
             <CheckCircle className="mr-2 h-4 w-4" />
           )}
-          Next: Grant Readiness
+          {documents.length ? "Continue to application details" : "Skip uploads and continue"}
         </Button>
       </div>
     </div>
