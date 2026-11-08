@@ -1,0 +1,16 @@
+import assert from "node:assert/strict";
+import {editablePackContentSchema,newPackArrayItem,packEditFields} from "../lib/founder-pack-editing";
+import {normaliseContent} from "../lib/founder-pack";
+import {generateFounderPackExport} from "../lib/founder-pack-export";
+const original=normaliseContent({supportLetterTemplate:"External supporter statement.\n[Supporter name]\n[Supporter signature]",businessPlan:"Original business plan",pitchDeck:[{title:"Original slide",objective:"Goal",bullets:["Original bullet"],speakerNotes:"Notes",visualDirection:"Diagram"}],grantApplicationDraft:[{question:"Project scope",answer:"Original scope answer"}]});
+assert.ok(editablePackContentSchema.safeParse(original).success);
+const edited=structuredClone(original);edited.supportLetterTemplate="Edited support letter.\n[Supporter name]\n[Supporter signature]";edited.pitchDeck[0].title="Updated slide";edited.pitchDeck[0].bullets.push("New evidence");edited.grantApplicationDraft[0].answer="Updated scope answer";
+assert.ok(editablePackContentSchema.safeParse(edited).success);
+assert.deepEqual(packEditFields(["support_letter_template","pitch_deck"],original as unknown as Record<string,unknown>),["supportLetterTemplate","pitchDeck","disclaimer"]);
+assert.equal((newPackArrayItem(["pitchDeck"]) as {title:string}).title,"New slide");assert.equal(newPackArrayItem(["pitchDeck","1","bullets"]),"");
+assert.ok(!editablePackContentSchema.safeParse({...edited,pitchDeck:"wrong type"}).success);
+assert.ok(!editablePackContentSchema.safeParse({...edited,supportLetterTemplate:"x".repeat(100001)}).success);
+const pack={id:"edit",profile:{businessName:"Biz fixture"},inputs:{founderName:"Michael Orji",founderRole:"Founder",documentTypes:["support_letter_template" as const,"pitch_deck" as const,"grant_application_draft" as const]},content:edited};
+const md=generateFounderPackExport(pack,"md").toString();assert.match(md,/Edited support letter/);assert.match(md,/Updated slide/);assert.match(md,/Updated scope answer/);assert.match(md,/\[Supporter name\]/);assert.doesNotMatch(md,/Original scope answer/);
+assert.equal(generateFounderPackExport(pack,"pdf").subarray(0,4).toString(),"%PDF");assert.equal(generateFounderPackExport(pack,"docx").subarray(0,2).toString(),"PK");
+console.log("Pack content validation, text/slides/answers editing, array templates, export content and separate supporter identity passed");

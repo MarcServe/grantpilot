@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { parseQuestionBlocks, questionAssistantRequestSchema, QUESTION_BATCH_SIZE, type QuestionLayout, type QuestionAssistantRequest } from "@/lib/validations/question-assistant";
+import { PackEditor } from "@/components/founder-pack/pack-editor";
 import { QuestionReview } from "@/components/founder-pack/question-review";
 import { runQuestionAnswerBatches, QuestionBatchError, type QuestionProgress } from "@/lib/question-assistant-batches";
 import { ApplicationUpgradeDialog } from "@/components/billing/application-upgrade-dialog";
@@ -315,7 +316,12 @@ function CanvasBlock({ title, items }: { title: string; items: string[] }) {
   );
 }
 
-function PackDocument({ pack }: { pack: PackSummary }) {
+function PackDocument({ pack, onSaved, onDirtyChange }: { pack: PackSummary; onSaved: (content: FounderPackContent) => void; onDirtyChange: (dirty: boolean) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [editingField, setEditingField] = useState<string | undefined>();
+  const [dirty, setDirty] = useState(false);
+  function dirtyChanged(value: boolean) { setDirty(value); onDirtyChange(value); }
+  function openEditor(field?: string) { setEditingField(field); setEditing(true); setTimeout(() => document.getElementById("pack-editor")?.scrollIntoView({ block: "start" }), 0); }
   const [exporting, setExporting] = useState<string | null>(null);
   const [activeSlideIndex, setActiveSlideIndex] = useState(0);
   const [includePitchDeckNotes, setIncludePitchDeckNotes] = useState(false);
@@ -347,6 +353,7 @@ function PackDocument({ pack }: { pack: PackSummary }) {
   async function downloadExport(
     format: "pdf" | "docx" | "pptx" | "md" | "json",
   ) {
+    if (dirty) { toast.error("Save or cancel your edits before exporting."); return; }
     setExporting(format);
     try {
       const params = new URLSearchParams({
@@ -393,6 +400,7 @@ function PackDocument({ pack }: { pack: PackSummary }) {
   }
 
   async function sendToCanva() {
+    if (dirty) { toast.error("Save or cancel your edits before exporting."); return; }
     setExporting("canva");
     try {
       const res = await fetch(`/api/founder-pack/${pack.id}/canva`, {
@@ -460,6 +468,7 @@ function PackDocument({ pack }: { pack: PackSummary }) {
           </div>
         </div>
         <div className="flex flex-col items-start gap-2 print:hidden sm:items-end">
+          <Button type="button" variant="outline" disabled={editing} onClick={() => openEditor()}>Edit pack</Button>
           <div className="flex flex-wrap gap-2 sm:justify-end">
             {(["pptx", "docx", "pdf", "md", "json"] as const).map((format) => (
               <Button
@@ -513,6 +522,7 @@ function PackDocument({ pack }: { pack: PackSummary }) {
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
+        {editing && <PackEditor key={pack.id} packId={pack.id} documentTypes={documentTypes} initialField={editingField} onDirtyChange={dirtyChanged} onCancel={() => { setEditing(false); dirtyChanged(false); }} onSaved={content => { onSaved(content); setEditing(false); dirtyChanged(false); toast.success("Pack changes saved. Downloads and Data Vault now use the edited version."); }} />}
         {isLegacyPack && (
           <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 print:hidden">
             This is an older generated pack. It is shown without generic risk,
@@ -768,6 +778,8 @@ function PackDocument({ pack }: { pack: PackSummary }) {
         {includes("support_letter_template") &&
           content.supportLetterTemplate && (
             <Section title="Support Letter Template">
+              <p className="text-xs text-muted-foreground print:hidden">This template is for an external supporter. Their identity, endorsement and signature stay separate from the founder’s details.</p>
+              <Button type="button" size="sm" variant="outline" className="print:hidden" onClick={() => openEditor("supportLetterTemplate")}>Edit support letter</Button>
               <ParagraphBlock text={content.supportLetterTemplate} />
             </Section>
           )}
@@ -864,6 +876,7 @@ export function FounderPackClient({
     firstDirectorName(initialProfile?.directorNames),
   );
   const [history, setHistory] = useState(packs);
+  const [packHasUnsavedChanges, setPackHasUnsavedChanges] = useState(false);
   const [selectedPackId, setSelectedPackId] = useState(packs[0]?.id ?? "");
   const [loading, setLoading] = useState(false);
   const [generationStatus, setGenerationStatus] = useState("");
@@ -872,7 +885,7 @@ export function FounderPackClient({
     founderName: inferredFounderName,
     founderRole: firstText(
       initialProfile?.primaryContactRole,
-      "Technical founder / CEO",
+      "Founder",
     ),
     founderBackground: profiles[0]?.founderBackground ?? "",
     technicalContribution: profiles[0]?.teamExpertise ?? "",
@@ -1013,14 +1026,12 @@ export function FounderPackClient({
       profileId,
       selectedApplicationIds: [],
       selectedEligibleGrantIds: [],
-      founderName: prev.founderName || nextFounderName,
-      founderRole:
-        prev.founderRole ||
-        firstText(profile?.primaryContactRole, "Technical founder / CEO"),
+      founderName: nextFounderName,
+      founderRole: firstText(profile?.primaryContactRole, "Founder"),
       founderBackground:
-        prev.founderBackground || profile?.founderBackground || "",
+        profile?.founderBackground || "",
       technicalContribution:
-        prev.technicalContribution || profile?.teamExpertise || "",
+        profile?.teamExpertise || "",
       pricingAssumptions:
         prev.pricingAssumptions || profile?.financialProjections || "",
     }));
@@ -1051,6 +1062,7 @@ export function FounderPackClient({
   }
 
   async function generate() {
+    if (packHasUnsavedChanges) { toast.error("Save or cancel the current pack edits before generating another pack."); return; }
     if (!allowed) {
       offerUpgrade();
       return;
@@ -1965,7 +1977,7 @@ export function FounderPackClient({
               <Button
                 type="button"
                 className="w-full gap-2"
-                disabled={loading || !form.documentTypes?.length}
+                disabled={loading || packHasUnsavedChanges || !form.documentTypes?.length}
                 onClick={generate}
               >
                 {loading ? (
@@ -2003,6 +2015,7 @@ export function FounderPackClient({
                   <button
                     key={pack.id}
                     type="button"
+                    disabled={packHasUnsavedChanges && pack.id !== selectedPack?.id}
                     onClick={() => setSelectedPackId(pack.id)}
                     className={`w-full rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${
                       pack.id === selectedPack?.id
@@ -2051,7 +2064,7 @@ export function FounderPackClient({
               </CardContent>
             </Card>
           ) : selectedPack && contentIsReady(selectedPack.content) ? (
-            <PackDocument pack={selectedPack} />
+            <PackDocument key={selectedPack.id} pack={selectedPack} onDirtyChange={setPackHasUnsavedChanges} onSaved={content => setHistory(current => current.map(pack => pack.id === selectedPack.id ? { ...pack, content } : pack))} />
           ) : (
             <Card>
               <CardContent className="flex min-h-[420px] flex-col items-center justify-center gap-3 text-center">
