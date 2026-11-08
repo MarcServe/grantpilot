@@ -1,3 +1,4 @@
+import { DeleteSavedPack } from "@/components/founder-pack/delete-saved-pack";
 import { loadFounderPackLabels } from "@/lib/founder-pack-labels";
 import { getActiveOrg } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -65,12 +66,13 @@ export default async function DataVaultPage() {
           <div className="mt-4 space-y-3">{packs.map(pack => <details key={pack.id} className="rounded-xl border p-4">
             <summary className="cursor-pointer font-medium">{packLabels.get(pack.id)}<span className="mt-1 block text-xs font-normal text-muted-foreground">{new Date(pack.createdAt).toLocaleString("en-GB", { timeZone: "Europe/London", dateStyle: "medium", timeStyle: "short" })} · AI draft</span></summary>
             <ul className="mt-3 space-y-3">{savedPackDocumentTypes(pack.inputs).map(type => <li key={type.value} className="flex flex-wrap items-center justify-between gap-3">
-              <span>{type.label}</span>
+              <span>{type.label}</span><DeleteSavedPack packId={pack.id} packName={packLabels.get(pack.id)??"Generated pack"} documentType={type.value} documentLabel={type.label} lastDocument={savedPackDocumentTypes(pack.inputs).length===1}/>
               <span className="flex gap-4">{["pdf", "docx"].map(format => <a key={format} className="text-sm text-blue-700 underline" href={`/api/founder-pack/${encodeURIComponent(pack.id)}/export?format=${format}&documentType=${type.value}`} aria-label={`Download ${type.label} as ${format.toUpperCase()}`}>{format.toUpperCase()}</a>)}</span>
             </li>)}</ul>
             <div className="mt-3 flex flex-wrap gap-4 text-sm">
               <a className="underline" href={`/api/founder-pack/${encodeURIComponent(pack.id)}/export?format=pdf`}>Download complete pack PDF</a>
               <Link className="underline" href="/founder-pack">Open Founder Pack workspace</Link>
+              <DeleteSavedPack packId={pack.id} packName={packLabels.get(pack.id)??"Generated pack"}/>
             </div>
           </details>)}</div>}
         <p className="mt-3 text-xs text-muted-foreground">Showing the latest 20 packs. Full-pack history remains in Founder Pack. Downloads follow your application-pack access.</p>

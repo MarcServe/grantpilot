@@ -1,3 +1,4 @@
+import { deleteSavedPack } from "@/lib/founder-pack-deletion";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getActiveOrg } from "@/lib/auth";
@@ -31,4 +32,13 @@ export async function PATCH(request:Request,{params}:Context){
   if(saved.error)return NextResponse.json({error:"Could not save your changes. Your edits are still available; please retry."},{status:502});if(!saved.data)return NextResponse.json({error:"This document changed while saving. Keep your edits and reopen the latest version."},{status:409});
   revalidatePath("/founder-pack");revalidatePath("/data-vault");return NextResponse.json(saved.data,{headers:{"Cache-Control":"no-store"}});
  }catch{return NextResponse.json({error:"Could not save the document. Your edits have been kept; please retry."},{status:500});}
+}
+
+export async function DELETE(request:Request,{params}:Context){
+ try{
+  const {orgId}=await getActiveOrg();const {id}=await params;
+  const result=await deleteSavedPack(getSupabaseAdmin(),orgId,id,new URL(request.url).searchParams.get("documentType"));
+  if(result.status===200){revalidatePath("/founder-pack");revalidatePath("/data-vault");}
+  return NextResponse.json(result.body,{status:result.status,headers:{"Cache-Control":"no-store"}});
+ }catch{return NextResponse.json({error:"Could not remove the saved document. Please retry."},{status:500});}
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { parseQuestionBlocks, questionAssistantRequestSchema, QUESTION_BATCH_SIZE, type QuestionLayout, type QuestionAssistantRequest } from "@/lib/validations/question-assistant";
+import { DeleteSavedPack, type PackDeletionResult } from "@/components/founder-pack/delete-saved-pack";
 import { PackEditor } from "@/components/founder-pack/pack-editor";
 import { QuestionReview } from "@/components/founder-pack/question-review";
 import { runQuestionAnswerBatches, QuestionBatchError, type QuestionProgress } from "@/lib/question-assistant-batches";
@@ -316,7 +317,7 @@ function CanvasBlock({ title, items }: { title: string; items: string[] }) {
   );
 }
 
-function PackDocument({ pack, onSaved, onDirtyChange }: { pack: PackSummary; onSaved: (content: FounderPackContent) => void; onDirtyChange: (dirty: boolean) => void }) {
+function PackDocument({ pack, onSaved, onDirtyChange, onDeleted }: { pack: PackSummary; onSaved: (content: FounderPackContent) => void; onDirtyChange: (dirty: boolean) => void; onDeleted: (result: PackDeletionResult) => void }) {
   const [editing, setEditing] = useState(false);
   const [editingField, setEditingField] = useState<string | undefined>();
   const [dirty, setDirty] = useState(false);
@@ -468,7 +469,7 @@ function PackDocument({ pack, onSaved, onDirtyChange }: { pack: PackSummary; onS
           </div>
         </div>
         <div className="flex flex-col items-start gap-2 print:hidden sm:items-end">
-          <Button type="button" variant="outline" disabled={editing} onClick={() => openEditor()}>Edit pack</Button>
+          <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={editing} onClick={() => openEditor()}>Edit pack</Button><DeleteSavedPack packId={pack.id} packName={pack.name??title} disabled={dirty} onDeleted={onDeleted}/></div>
           <div className="flex flex-wrap gap-2 sm:justify-end">
             {(["pptx", "docx", "pdf", "md", "json"] as const).map((format) => (
               <Button
@@ -523,6 +524,7 @@ function PackDocument({ pack, onSaved, onDirtyChange }: { pack: PackSummary; onS
       </CardHeader>
       <CardContent className="space-y-6">
         {editing && <PackEditor key={pack.id} packId={pack.id} documentTypes={documentTypes} initialField={editingField} onDirtyChange={dirtyChanged} onCancel={() => { setEditing(false); dirtyChanged(false); }} onSaved={content => { onSaved(content); setEditing(false); dirtyChanged(false); toast.success("Pack changes saved. Downloads and Data Vault now use the edited version."); }} />}
+        {!editing && <details className="rounded-md border p-3 print:hidden"><summary className="cursor-pointer text-sm font-medium">Manage saved documents</summary><ul className="mt-3 space-y-2">{documentTypes.map(type => <li key={type} className="flex flex-wrap items-center justify-between gap-2 text-sm"><span>{FOUNDER_PACK_DOCUMENT_TYPES.find(item=>item.value===type)?.label??type}</span><DeleteSavedPack packId={pack.id} packName={pack.name??title} documentType={type} documentLabel={FOUNDER_PACK_DOCUMENT_TYPES.find(item=>item.value===type)?.label??type} lastDocument={documentTypes.length===1} onDeleted={onDeleted}/></li>)}</ul></details>}
         {isLegacyPack && (
           <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 print:hidden">
             This is an older generated pack. It is shown without generic risk,
@@ -877,6 +879,7 @@ export function FounderPackClient({
   );
   const [history, setHistory] = useState(packs);
   const [packHasUnsavedChanges, setPackHasUnsavedChanges] = useState(false);
+  function handlePackDeleted(id: string, result: PackDeletionResult) { setHistory(current => result.deletedPack ? current.filter(pack=>pack.id!==id) : current.map(pack=>pack.id===id ? {...pack,content:result.content!,documentTypes:result.documentTypes} : pack)); setPackHasUnsavedChanges(false); }
   const [selectedPackId, setSelectedPackId] = useState(packs[0]?.id ?? "");
   const [loading, setLoading] = useState(false);
   const [generationStatus, setGenerationStatus] = useState("");
@@ -2012,12 +2015,11 @@ export function FounderPackClient({
               </CardHeader>
               <CardContent className="space-y-2">
                 {history.map((pack) => (
-                  <button
-                    key={pack.id}
+                  <div key={pack.id} className="flex items-start gap-2"><button
                     type="button"
                     disabled={packHasUnsavedChanges && pack.id !== selectedPack?.id}
                     onClick={() => setSelectedPackId(pack.id)}
-                    className={`w-full rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${
+                    className={`min-w-0 flex-1 rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${
                       pack.id === selectedPack?.id
                         ? "border-blue-300 bg-blue-50"
                         : ""
@@ -2038,7 +2040,7 @@ export function FounderPackClient({
                     <span className="mt-1 block text-xs text-muted-foreground">
                       {pack.createdAtLabel}
                     </span>
-                  </button>
+                  </button><DeleteSavedPack packId={pack.id} packName={pack.name??pack.profileBusinessName??"Generated pack"} disabled={packHasUnsavedChanges} onDeleted={result => handlePackDeleted(pack.id,result)}/></div>
                 ))}
               </CardContent>
             </Card>
@@ -2064,7 +2066,7 @@ export function FounderPackClient({
               </CardContent>
             </Card>
           ) : selectedPack && contentIsReady(selectedPack.content) ? (
-            <PackDocument key={selectedPack.id} pack={selectedPack} onDirtyChange={setPackHasUnsavedChanges} onSaved={content => setHistory(current => current.map(pack => pack.id === selectedPack.id ? { ...pack, content } : pack))} />
+            <PackDocument key={selectedPack.id} pack={selectedPack} onDirtyChange={setPackHasUnsavedChanges} onDeleted={result => handlePackDeleted(selectedPack.id,result)} onSaved={content => setHistory(current => current.map(pack => pack.id === selectedPack.id ? { ...pack, content } : pack))} />
           ) : (
             <Card>
               <CardContent className="flex min-h-[420px] flex-col items-center justify-center gap-3 text-center">

@@ -1,0 +1,14 @@
+"use client";
+import {useState} from "react";
+import {useRouter} from "next/navigation";
+import {Trash2} from "lucide-react";
+import {Button} from "@/components/ui/button";
+import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription,DialogFooter} from "@/components/ui/dialog";
+import type {FounderPackContent,FounderPackDocumentType} from "@/lib/founder-pack";
+export type PackDeletionResult={deletedPack:boolean;content?:FounderPackContent;documentTypes?:FounderPackDocumentType[]};
+export function DeleteSavedPack({packId,packName,documentType,documentLabel,lastDocument=false,disabled=false,onDeleted}:{packId:string;packName:string;documentType?:FounderPackDocumentType;documentLabel?:string;lastDocument?:boolean;disabled?:boolean;onDeleted?:(result:PackDeletionResult)=>void}){
+ const router=useRouter();const [open,setOpen]=useState(false);const [busy,setBusy]=useState(false);const [error,setError]=useState("");
+ async function remove(){setBusy(true);setError("");try{const query=documentType?`?documentType=${encodeURIComponent(documentType)}`:"";const response=await fetch(`/api/founder-pack/${encodeURIComponent(packId)}${query}`,{method:"DELETE"});const body=await response.json();if(!response.ok)throw new Error(body.error||"Could not remove the saved document.");setOpen(false);onDeleted?.(body);router.refresh();}catch(error){setError(error instanceof Error?error.message:"Could not remove the saved document.");}finally{setBusy(false);}}
+ const label=documentType?`Delete ${documentLabel??"document"}`:`Delete pack ${packName}`;
+ return <><Button type="button" size="sm" variant="outline" className="gap-1 border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800" disabled={disabled} aria-label={label} onClick={()=>{setError("");setOpen(true);}}><Trash2 className="size-3.5"/>Delete{!documentType?" pack":""}</Button><Dialog open={open} onOpenChange={value=>{if(!busy)setOpen(value);}}><DialogContent><DialogHeader><DialogTitle>{documentType?"Delete generated document?":"Delete generated pack?"}</DialogTitle><DialogDescription>{documentType?`Remove “${documentLabel}” from “${packName}”, Data Vault and future pack downloads?${lastDocument?" If it is the last document, the empty pack will also be removed.":""}`:`Remove “${packName}” and all its generated documents from Founder Pack and Data Vault?`} This cannot be undone. Your business profile and grant applications are kept.</DialogDescription></DialogHeader>{error&&<p role="alert" className="text-sm text-red-800">{error}</p>}<DialogFooter><Button type="button" variant="outline" disabled={busy} onClick={()=>setOpen(false)}>Cancel</Button><Button type="button" variant="destructive" disabled={busy} onClick={remove}>{busy?"Deleting…":documentType?"Delete document":"Delete pack permanently"}</Button></DialogFooter></DialogContent></Dialog></>;
+}

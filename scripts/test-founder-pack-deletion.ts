@@ -1,0 +1,18 @@
+import assert from "node:assert/strict";
+import {removePackDocument,deleteSavedPack} from "../lib/founder-pack-deletion";
+import {normaliseContent} from "../lib/founder-pack";
+const content=normaliseContent({businessPlan:"Keep this plan",supportLetterTemplate:"Remove this letter"});
+const inputs={packName:"Application pack",selectedEligibleGrantIds:["grant"],documentTypes:["business_plan","support_letter_template"]};
+const removal=removePackDocument(content,inputs,"support_letter_template")!;assert.equal(removal.content.supportLetterTemplate,"");assert.equal(removal.content.businessPlan,"Keep this plan");assert.deepEqual(removal.documentTypes,["business_plan"]);assert.deepEqual(removal.inputs.selectedEligibleGrantIds,["grant"]);assert.equal(removal.deletedPack,false);
+assert.equal(removePackDocument(content,inputs,"pitch_deck"),null);
+assert.equal(removePackDocument({supportLetterTemplate:"Only document"},{documentTypes:[]},"support_letter_template")?.deletedPack,true);
+type Row={id:string;organisationId:string;updatedAt:string;content:unknown;inputs:unknown};
+function fakeDb(race=false){let rows:Row[]=[{id:"owned",organisationId:"org1",updatedAt:"old",content,inputs},{id:"foreign",organisationId:"org2",updatedAt:"old",content,inputs}];let mutations=0;const db={from(table:string){assert.equal(table,"FounderFundingPack");const filters:[string,unknown][]=[];let action="read",updates:Record<string,unknown>={};return{select(){return this;},eq(key:string,value:unknown){filters.push([key,value]);return this;},delete(){action="delete";return this;},update(value:Record<string,unknown>){action="update";updates=value;return this;},async maybeSingle(){if(race&&action!=="read")rows=rows.map(row=>({...row,updatedAt:"changed"}));const row=rows.find(row=>filters.every(([key,value])=>(row as unknown as Record<string,unknown>)[key]===value));if(!row)return{data:null,error:null};if(action!=="read"){mutations++;assert.ok(filters.some(([key,value])=>key==="organisationId"&&value==="org1"));assert.ok(filters.some(([key])=>key==="updatedAt"));if(action==="delete")rows=rows.filter(item=>item!==row);else Object.assign(row,updates);}return{data:structuredClone(row),error:null};}}}};return{db:db as never,rows:()=>rows,mutations:()=>mutations};}
+async function main(){const foreign=fakeDb();assert.equal((await deleteSavedPack(foreign.db,"org1","foreign")).status,404);assert.equal(foreign.mutations(),0);assert.equal(foreign.rows().length,2);
+ const partial=fakeDb();const result=await deleteSavedPack(partial.db,"org1","owned","support_letter_template");assert.equal(result.status,200);assert.equal(result.body.deletedPack,false);assert.equal((partial.rows()[0].content as typeof content).businessPlan,"Keep this plan");
+ const whole=fakeDb();assert.equal((await deleteSavedPack(whole.db,"org1","owned")).body.deletedPack,true);assert.deepEqual(whole.rows().map(row=>row.id),["foreign"]);
+ const last=fakeDb();await deleteSavedPack(last.db,"org1","owned","support_letter_template");assert.equal((await deleteSavedPack(last.db,"org1","owned","business_plan")).body.deletedPack,true);assert.equal(last.rows().length,1);
+ const race=fakeDb(true);assert.equal((await deleteSavedPack(race.db,"org1","owned")).status,409);assert.equal(race.mutations(),0);
+ const invalid=fakeDb();assert.equal((await deleteSavedPack(invalid.db,"org1","owned","unknown")).status,400);assert.equal(invalid.mutations(),0);
+ console.log("Individual/whole/last-document deletion, metadata preservation, legacy content, foreign ownership and concurrent edit guards passed");}
+main().catch(e=>{console.error(e);process.exitCode=1});
