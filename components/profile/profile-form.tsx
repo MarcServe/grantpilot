@@ -402,6 +402,7 @@ export function ProfileForm({
         <CardContent key={`${formRevision}:${JSON.stringify(profile)}`} className="min-w-0 px-4 sm:px-6">
           {step === 1 && (
             <Step1Basics
+              profileId={profile.id}
               defaultValues={{
                 businessName: profile.businessName,
                 tradingName: profile.tradingName ?? "",

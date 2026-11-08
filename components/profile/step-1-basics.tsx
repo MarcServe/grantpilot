@@ -1,5 +1,6 @@
 "use client";
 
+import { WebsiteRefresh } from "@/components/profile/website-refresh";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -55,6 +56,7 @@ const EXTRA_BASICS_FIELDS: { name: keyof Step1Data; label: string; placeholder: 
 ];
 
 interface Step1Props {
+  profileId?: string;
   defaultValues: Partial<z.input<typeof step1Schema>>;
   onSubmit: (data: Step1Data) => Promise<void>;
   isPending: boolean;
@@ -106,7 +108,7 @@ function SelectField({
   );
 }
 
-export function Step1Basics({ defaultValues, onSubmit, isPending }: Step1Props) {
+export function Step1Basics({ profileId, defaultValues, onSubmit, isPending }: Step1Props) {
   const form = useForm<z.input<typeof step1Schema>, unknown, Step1Data>({
     resolver: zodResolver(step1Schema),
     defaultValues: {
@@ -294,9 +296,10 @@ export function Step1Basics({ defaultValues, onSubmit, isPending }: Step1Props) 
                 <Input placeholder="https://www.yourcompany.com" type="url" {...field} />
               </FormControl>
               <p className="text-muted-foreground text-xs">
-                Our AI will analyse your website to better understand your business for grant matching and preparation.
+                Our AI can read your website for grant matching and preparation. Re-scrape it whenever your business information changes.
               </p>
               <FormMessage />
+              <WebsiteRefresh profileId={profileId} websiteUrl={field.value ?? ""} savedWebsiteUrl={defaultValues.websiteUrl ?? ""} disabled={isPending} />
             </FormItem>
           )}
         />

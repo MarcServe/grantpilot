@@ -26,10 +26,10 @@ function publicAddress(address: string): boolean {
     (a === 198 && (b === 18 || b === 19))
   );
 }
-export async function fetchCriteriaSource(
+export async function fetchPublicSourceHtml(
   input: string,
   redirects = 0,
-): Promise<{ url: string; text: string; unreviewedLinks: string[] }> {
+): Promise<{ url: string; html: string }> {
   const url = new URL(input);
   if (
     url.protocol !== "https:" ||
@@ -54,6 +54,8 @@ export async function fetchCriteriaSource(
         headers: {
           "User-Agent": "GrantsCopilot/1.0 eligibility source review",
           Accept: "text/html,text/plain",
+          "Cache-Control": "no-cache, no-store",
+          Pragma: "no-cache",
         },
         lookup: (_host, options, callback) => {
           // Newer Node versions request an address array for family selection.
@@ -91,7 +93,7 @@ export async function fetchCriteriaSource(
     req.end();
   });
   if (response.status >= 300 && response.status < 400 && response.location)
-    return fetchCriteriaSource(
+    return fetchPublicSourceHtml(
       new URL(response.location, url).href,
       redirects + 1,
     );
@@ -99,7 +101,12 @@ export async function fetchCriteriaSource(
     throw new Error(
       "Funder source could not be reviewed. PDF or login-only requirements need a supported public text page.",
     );
-  const text = response.body
+  return { url: url.href, html: response.body };
+}
+export async function fetchCriteriaSource(input: string): Promise<{ url: string; text: string; unreviewedLinks: string[] }> {
+  const page = await fetchPublicSourceHtml(input);
+  const url = new URL(page.url);
+  const text = page.html
     .replace(/<(script|style|nav|footer)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
     .replace(/<[^>]+>/g, " ")
     .replace(/&nbsp;|&#160;/g, " ")
@@ -112,7 +119,7 @@ export async function fetchCriteriaSource(
     throw new Error(
       "Source review incomplete: source text is unavailable or requires multiple pages.",
     );
-  const unreviewedLinks = [...response.body.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)]
+  const unreviewedLinks = [...page.html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)]
     .flatMap((match) => {
       if (!/\.pdf(?:[?#]|$)|\/download\//i.test(match[1]) && !/\.pdf\b/i.test(match[2])) return [];
       try {

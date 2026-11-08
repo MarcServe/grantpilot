@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Brain, CheckCircle, Loader2, Sparkles } from "lucide-react";
@@ -45,6 +45,19 @@ export function CompanyDnaAutofill({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editedValues, setEditedValues] = useState<Record<string, string>>({});
   const [draftRestored, setDraftRestored] = useState(false);
+
+  const websiteRevision = useRef(0);
+  const [websiteRefreshed, setWebsiteRefreshed] = useState(false);
+  useEffect(() => {
+    const refreshed = (event: Event) => {
+      if ((event as CustomEvent<{profileId: string}>).detail?.profileId !== profileId) return;
+      websiteRevision.current += 1;
+      setSuggestions([]); setSelected(new Set()); setEditedValues({}); setDraftRestored(false); setWebsiteRefreshed(true);
+      try { window.localStorage.removeItem(draftStorageKey); } catch { /* Browser storage is optional. */ }
+    };
+    window.addEventListener("profile:website-refreshed", refreshed);
+    return () => window.removeEventListener("profile:website-refreshed", refreshed);
+  }, [profileId, draftStorageKey]);
 
   const selectedCount = selected.size;
   const selectedUpdates = useMemo(() => {
@@ -125,11 +138,13 @@ export function CompanyDnaAutofill({
   }
 
   async function generate() {
+    const revision = websiteRevision.current;
     setError(null);
     setLoading(true);
     try {
       const res = await fetch("/api/profile/company-dna", { method: "POST" });
       const data = await res.json().catch(() => ({}));
+      if (revision !== websiteRevision.current) return;
       if (!res.ok) {
         setError(data.error ?? "Generation failed. Please try again.");
         if (res.status === 402) {
@@ -252,6 +267,7 @@ export function CompanyDnaAutofill({
           </Button>
         </div>
 
+        {websiteRefreshed && <p role="status" className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm">Website context refreshed. Generate new suggestions below, then review and apply the fields you want to update.</p>}
         {error && <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
 
         {!hasWebsiteUrl && !hasProfileEvidence && (
