@@ -1,4 +1,6 @@
 import { cleanJsonResponse, completeJson } from "@/lib/openai-client";
+import { orderQuestionAnswerRows } from "@/lib/question-answer-contract";
+import { QUESTION_BATCH_SIZE } from "@/lib/validations/question-assistant";
 import { eligibilityFactsToText } from "@/lib/eligibility-facts";
 
 export interface FounderPackInputs {
@@ -27,6 +29,7 @@ export type FounderPackQuestionAssistantMode =
   | "improve_existing_answer";
 
 export interface FounderPackQuestionInput {
+  questionId?: string;
   question: string;
   wordLimit?: number;
   guidance?: string;
@@ -43,6 +46,7 @@ export type FounderPackAnswerConfidence = "high" | "medium" | "low";
 export type FounderPackEvidenceStrength = "strong" | "medium" | "weak";
 
 export interface FounderPackQuestionAnswer {
+  questionId: string;
   question: string;
   draftAnswer: string;
   rationale: string;
@@ -535,22 +539,19 @@ function normaliseQuestionAssistantAnswers(
   questions: FounderPackQuestionInput[],
   context: FounderPackSanitiseContext
 ): FounderPackQuestionAnswer[] {
-  const data = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
-  const rows = Array.isArray(data.answers) ? data.answers : [];
-  const fallbackQuestions = questions.map((item) => item.question.trim()).filter(Boolean);
+  const identities = questions.map((question, index) => ({ questionId: question.questionId ?? `q${index + 1}`, question: question.question }));
+  const rows = orderQuestionAnswerRows(raw, identities);
 
   return rows
     .map((item, index) => {
       if (!item || typeof item !== "object") return null;
       const row = item as Record<string, unknown>;
-      const question = sanitiseText(
-        String(row.question ?? fallbackQuestions[index] ?? "").trim(),
-        context
-      );
+      const question = identities[index].question;
       const draftAnswer = sanitiseText(String(row.draftAnswer ?? row.answer ?? "").trim(), context);
       const rationale = sanitiseText(String(row.rationale ?? "").trim(), context);
       if (!question || !draftAnswer) return null;
       return {
+        questionId: identities[index].questionId,
         question,
         draftAnswer,
         rationale,
@@ -580,7 +581,8 @@ function formatQuestionList(questions: FounderPackQuestionInput[]): string {
   return questions
     .map((item, index) => {
       const details = [
-        `Question ${index + 1}: ${item.question.trim()}`,
+        `Question ID: ${item.questionId ?? `q${index + 1}`}`,
+        `Original question (copy exactly): ${item.question.trim()}`,
         item.wordLimit ? `Word limit: ${item.wordLimit}` : "",
         item.guidance?.trim() ? `User guidance: ${item.guidance.trim()}` : "",
       ].filter(Boolean);
@@ -592,10 +594,12 @@ function formatQuestionList(questions: FounderPackQuestionInput[]): string {
 export async function generateFounderPackQuestionAnswers(
   profile: BusinessProfileLike,
   inputs: FounderPackQuestionAssistantInputs,
-  grantContextBlock?: string
+  grantContextBlock?: string,
+  complete: typeof completeJson = completeJson,
 ): Promise<{ answers: FounderPackQuestionAnswer[] }> {
   const questions = inputs.questions
-    .map((item) => ({
+    .map((item, index) => ({
+      questionId: item.questionId ?? `q${index + 1}`,
       question: item.question.trim(),
       wordLimit: item.wordLimit,
       guidance: item.guidance?.trim() || undefined,
@@ -606,6 +610,17 @@ export async function generateFounderPackQuestionAnswers(
     throw new Error("Add at least one grant form question.");
   }
 
+  if (questions.length > QUESTION_BATCH_SIZE) {
+    const answers: FounderPackQuestionAnswer[] = [];
+    for (let offset = 0; offset < questions.length; offset += QUESTION_BATCH_SIZE) {
+      const batch = await generateFounderPackQuestionAnswers(profile, {
+        ...inputs, questions: questions.slice(offset, offset + QUESTION_BATCH_SIZE),
+      }, grantContextBlock, complete);
+      answers.push(...batch.answers);
+    }
+    return { answers };
+  }
+
   const mode = inputs.outputMode ?? "draft_answer";
   const businessName = text(profile.businessName);
   const context = { businessName };
@@ -614,7 +629,7 @@ export async function generateFounderPackQuestionAnswers(
       ? "Focus on evidence strength, missing proof, and what the founder should add before answering. Still provide a short draft answer when possible."
       : mode === "improve_existing_answer"
         ? "Improve the existing answer while preserving truthful claims. Explain what changed and what evidence is still weak."
-        : "Draft a funder-ready answer that is specific, concise, and usable in a grant form.";
+        : "Draft a comprehensive funder-ready answer that is specific, structured, and usable in a grant form within any stated limit.";
 
   const prompt = `You are GrantsCopilot's AI Grant Question Assistant. You help founders answer real grant application questions using their Business DNA and selected grant context.
 
@@ -636,11 +651,15 @@ ${formatQuestionList(questions)}
 
 Rules:
 - Return exactly one separate answers entry for each of the ${questions.length} questions, in the original order. Never combine questions into a single answer.
+- Copy questionId and the full original question exactly into the matching answers entry. Never rename or abbreviate the question.
+- Give every question its own comprehensive answer. Address all parts using useful paragraphs and short subheadings or lists where appropriate. Do not provide a generic company overview for every section. Aim for 350–500 words for narrative sections when no limit is given and the evidence supports it; short factual fields and declarations should remain proportionate.
+- A heading such as "Risks" or "Team and resources" is a separate funder prompt. Answer that specific topic. If only the heading is provided, identify missing funder guidance in warnings and avoid inventing detailed criteria.
+- Regulatory declarations, subsidy basis, animal testing, permits, IP ownership, export licences and financial commitments require explicit evidence. Never claim compliance, exemptions, ownership, availability of funding or a percentage contribution without supplied confirmation. Put facts needing confirmation in missingEvidence and use clear placeholders in the draft.
 - Each draftAnswer must answer only its corresponding question. Keep each question as its own heading in the structured output, not embedded in a combined essay.
 - Never invent project costs, requested grant amounts, matching-fund sources or project start dates. If not supported by the profile or supplied guidance, state "To be confirmed" and list the information needed.
 - Write in polished UK business English.
 - Never invent customers, awards, revenue, partnerships, accreditations, patents, or funding history.
-- If evidence is missing, use cautious language and list the missing proof.
+- If evidence is missing, use cautious language and list the missing proof. If critical facts or declarations cannot be confirmed, mark confidence low and evidenceStrength weak rather than claiming certainty.
 - Respect each word limit if provided.
 - Tie the answer to the selected grant criteria, funder objectives, region, applicant type, impact goals, and eligibility gaps when available.
 - Do not claim funding is guaranteed or give a probability of success.
@@ -650,7 +669,8 @@ Return ONLY valid JSON with this exact shape:
 {
   "answers": [
     {
-      "question": "original question",
+      "questionId": "exact question ID",
+      "question": "full original question copied exactly",
       "draftAnswer": "editable funder-ready answer",
       "rationale": "why the answer is positioned this way",
       "confidence": "high | medium | low",
@@ -662,10 +682,11 @@ Return ONLY valid JSON with this exact shape:
   ]
 }`;
 
-  const maxTokens = Math.min(7000, 1800 + questions.length * 850);
+  const maxTokens = Math.min(14_000, 1800 + questions.reduce((total, question) =>
+    total + Math.ceil((question.wordLimit ?? 500) * 2.5) + 900 + Math.ceil(question.question.length / 2), 0));
 
   try {
-    const raw = await completeJson(prompt, maxTokens);
+    const raw = await complete(prompt, maxTokens, { timeout: 70_000, maxRetries: 0 });
     const answers = normaliseQuestionAssistantAnswers(
       JSON.parse(cleanJsonResponse(raw)) as unknown,
       questions,
@@ -678,9 +699,8 @@ Return ONLY valid JSON with this exact shape:
 
   const retryPrompt = `${prompt}
 
-The previous response was invalid or empty. Regenerate concise valid JSON only.
-Keep each draft answer under the requested word limit, or under 220 words where no limit is supplied.`;
-  const raw = await completeJson(retryPrompt, Math.min(5000, maxTokens));
+The previous response was invalid or did not match every question. Regenerate valid JSON only with every exact questionId and original question. Keep the same answer depth and respect each requested word limit.`;
+  const raw = await complete(retryPrompt, maxTokens, { timeout: 70_000, maxRetries: 0 });
   const answers = normaliseQuestionAssistantAnswers(
     JSON.parse(cleanJsonResponse(raw)) as unknown,
     questions,

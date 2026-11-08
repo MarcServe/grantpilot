@@ -29,7 +29,8 @@
     "video:poster": "remotion still GrantsCopilotPoster out/grantscopilot-poster.png",
     "video:voiceover": "node scripts/generate-grantscopilot-voiceover.mjs",
     "test:criteria": "tsx scripts/test-criteria.ts",
-    "test:criteria-portfolio": "tsx scripts/test-criteria-portfolio.ts"
+    "test:criteria-portfolio": "tsx scripts/test-criteria-portfolio.ts",
+    "test:question-assistant": "tsx scripts/test-question-assistant-inputs.ts && tsx scripts/test-question-assistant-batches.ts"
   },
   "dependencies": {
     "@google/genai": "^1.43.0",

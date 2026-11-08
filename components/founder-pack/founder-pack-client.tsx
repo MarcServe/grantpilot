@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { parseQuestionBlocks, questionAssistantRequestSchema } from "@/lib/validations/question-assistant";
+import { parseQuestionBlocks, questionAssistantRequestSchema, QUESTION_BATCH_SIZE, type QuestionLayout, type QuestionAssistantRequest } from "@/lib/validations/question-assistant";
+import { QuestionReview } from "@/components/founder-pack/question-review";
+import { runQuestionAnswerBatches, QuestionBatchError, type QuestionProgress } from "@/lib/question-assistant-batches";
 import { ApplicationUpgradeDialog } from "@/components/billing/application-upgrade-dialog";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -83,6 +85,7 @@ interface EligibleGrantOption {
 }
 
 interface QuestionAssistantAnswer {
+  questionId: string;
   question: string;
   draftAnswer: string;
   rationale: string;
@@ -883,7 +886,7 @@ export function FounderPackClient({
   const [questionAssistantMode, setQuestionAssistantMode] = useState<
     "draft_answer" | "evidence_check" | "improve_existing_answer"
   >("draft_answer");
-  const [questionLayout, setQuestionLayout] = useState<"lines" | "paragraphs">("lines");
+  const [questionLayout, setQuestionLayout] = useState<QuestionLayout>("auto");
   const [questionAssistantText, setQuestionAssistantText] = useState("");
   const [questionAssistantGuidance, setQuestionAssistantGuidance] =
     useState("");
@@ -896,6 +899,9 @@ export function FounderPackClient({
   const [questionAssistantAnswers, setQuestionAssistantAnswers] = useState<
     QuestionAssistantAnswer[]
   >([]);
+  const [questionProgress, setQuestionProgress] = useState<Record<string, QuestionProgress>>({});
+  const [lastQuestionInput, setLastQuestionInput] = useState<QuestionAssistantRequest | null>(null);
+  const reviewedQuestions = useMemo(() => parseQuestionBlocks(questionAssistantText, questionLayout), [questionAssistantText, questionLayout]);
   const [freeQuestionPreviewAvailable, setFreeQuestionPreviewAvailable] =
     useState(questionPreviewAvailable);
 
@@ -907,7 +913,7 @@ export function FounderPackClient({
         const draft = JSON.parse(raw);
         if (draft.form?.profileId && profiles.some((profile) => profile.id === draft.form.profileId)) {
           setForm(draft.form);
-          if (draft.questionLayout === "lines" || draft.questionLayout === "paragraphs") setQuestionLayout(draft.questionLayout);
+          if (draft.questionParsingVersion === 2 && ["auto", "lines", "paragraphs"].includes(draft.questionLayout)) setQuestionLayout(draft.questionLayout);
           if (typeof draft.question === "string") setQuestionAssistantText(draft.question);
           if (typeof draft.guidance === "string") setQuestionAssistantGuidance(draft.guidance);
           if (typeof draft.wordLimit === "string") setQuestionAssistantWordLimit(draft.wordLimit);
@@ -932,7 +938,7 @@ export function FounderPackClient({
 
   function offerUpgrade() {
     try {
-      window.sessionStorage.setItem(draftKey, JSON.stringify({ form, questionLayout, question: questionAssistantText, answers: questionAssistantAnswers,
+      window.sessionStorage.setItem(draftKey, JSON.stringify({ form, questionParsingVersion: 2, questionLayout, question: questionAssistantText, answers: questionAssistantAnswers,
         guidance: questionAssistantGuidance, wordLimit: questionAssistantWordLimit, existingAnswer: questionAssistantExistingAnswer, mode: questionAssistantMode }));
     } catch { toast.error("Your browser could not preserve this draft for checkout. Copy your answers before continuing."); return; }
     setUpgradeOpen(true);
@@ -957,7 +963,7 @@ export function FounderPackClient({
   const selectedEligibleCount = form.selectedEligibleGrantIds?.length ?? 0;
   const canUseQuestionAssistant = allowed || freeQuestionPreviewAvailable;
   const questionAssistantCta = allowed
-    ? "Generate answer"
+    ? `Generate ${reviewedQuestions.length || ""} ${reviewedQuestions.length === 1 ? "answer" : "answers"}`
     : freeQuestionPreviewAvailable
       ? "Generate free preview answer"
       : "Upgrade to continue";
@@ -1105,66 +1111,64 @@ export function FounderPackClient({
     }
   }
 
+  async function processQuestionAnswers(input: QuestionAssistantRequest, retry = false) {
+    const pendingQuestions = input.questions.filter((question) => !retry || questionProgress[question.questionId ?? ""]?.status === "error")
+      .map((question) => ({ ...question, questionId: question.questionId! }));
+    if (!pendingQuestions.length) return;
+    setQuestionAssistantLoading(true);
+    if (!retry) setQuestionAssistantAnswers([]);
+    setQuestionProgress((current) => ({ ...(retry ? current : {}), ...Object.fromEntries(pendingQuestions.map((question) => [question.questionId, { status: "waiting" as const }])) }));
+    try {
+      const result = await runQuestionAnswerBatches(pendingQuestions, async (batch) => {
+        const res = await fetch("/api/founder-pack/question-assistant", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...input, questions: batch }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new QuestionBatchError(data.error ?? "Could not generate these answers.", [401, 402, 403, 429].includes(res.status));
+        if (data.progressiveAccess?.previewUsed) setFreeQuestionPreviewAvailable(false);
+        return data;
+      }, (id, progress) => setQuestionProgress((current) => ({ ...current, [id]: progress })),
+      (rows) => setQuestionAssistantAnswers((current) => {
+        const byId = new Map(current.map((answer) => [answer.questionId, answer]));
+        for (const row of rows) byId.set(String(row.questionId), row as unknown as QuestionAssistantAnswer);
+        return input.questions.flatMap((question) => byId.has(question.questionId!) ? [byId.get(question.questionId!)!] : []);
+      }));
+      if (result.failed) toast.error(`${result.completed} answers completed; ${result.failed} need retrying. Completed answers are kept below.`);
+      else toast.success(`${result.completed} separate answers generated.`);
+    } finally { setQuestionAssistantLoading(false); }
+  }
+
   async function generateQuestionAnswers() {
-    if (!canUseQuestionAssistant) {
-      toast.error("Upgrade to Growth, Pro, or Business to continue using the AI Grant Question Assistant.");
-      return;
+    if (!canUseQuestionAssistant) { offerUpgrade(); return; }
+    if (!reviewedQuestions.length) { toast.error("Paste at least one grant form question."); return; }
+    if (reviewedQuestions.length > 80) { toast.error("Generate at most 80 questions per run. Split this list into smaller sets."); return; }
+    if (!allowed && reviewedQuestions.length > 1) {
+      toast.error("The free preview supports one reviewed question. Keep one question for your preview, or upgrade for the full list."); return;
     }
-    const questions = parseQuestionBlocks(questionAssistantText, questionLayout);
-    if (questions.length === 0) {
-      toast.error("Paste at least one grant form question.");
-      return;
-    }
-    if (!allowed && questions.length > 1) {
-      toast.error("The free preview supports one grant question. Upgrade to draft the full application.");
-      return;
-    }
-    const input = {
+    const input: QuestionAssistantRequest = {
       profileId: form.profileId,
       selectedApplicationIds: form.selectedApplicationIds?.length ? form.selectedApplicationIds : undefined,
       selectedEligibleGrantIds: form.selectedEligibleGrantIds?.length ? form.selectedEligibleGrantIds : undefined,
       pastedGrantContext: form.grantRequirementsNotes?.trim() || undefined,
-      questions: questions.map((question) => ({ question,
+      questions: reviewedQuestions.map((question, index) => ({ questionId: `q${index + 1}`, question,
         wordLimit: questionAssistantWordLimit.trim() ? Number(questionAssistantWordLimit) : undefined,
         guidance: questionAssistantGuidance.trim() || undefined })),
       outputMode: questionAssistantMode,
       existingAnswer: questionAssistantExistingAnswer.trim() || undefined,
     };
-    const validation = questionAssistantRequestSchema.safeParse(input);
-    if (!validation.success) { toast.error(validation.error.issues.map((issue) => issue.message).join(" ")); return; }
-
-    setQuestionAssistantLoading(true);
-    try {
-      const res = await fetch("/api/founder-pack/question-assistant", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(validation.data),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        toast.error(data.error ?? "Could not generate answers");
-        return;
-      }
-      const previewWasUsed = data.progressiveAccess?.previewUsed === true;
-      if (previewWasUsed) {
-        setFreeQuestionPreviewAvailable(false);
-      }
-      const answers = Array.isArray(data.answers) ? (data.answers as QuestionAssistantAnswer[]) : [];
-      setQuestionAssistantAnswers(answers);
-      if (answers.length) {
-        if (previewWasUsed) {
-          toast.success("Preview answer generated. Upgrade when you are ready to complete the full pack.");
-        } else {
-          toast.success("Grant answers generated");
-        }
-      } else {
-        toast.error("No answers returned. Add more grant context and try again.");
-      }
-    } catch {
-      toast.error("Could not generate answers");
-    } finally {
-      setQuestionAssistantLoading(false);
+    // Validate every batch before spending any generation requests.
+    for (let offset = 0; offset < input.questions.length; offset += QUESTION_BATCH_SIZE) {
+      const validation = questionAssistantRequestSchema.safeParse({ ...input, questions: input.questions.slice(offset, offset + QUESTION_BATCH_SIZE) });
+      if (!validation.success) { toast.error(validation.error.issues.map((issue) => issue.message).join(" ")); return; }
     }
+    setLastQuestionInput(input);
+    await processQuestionAnswers(input);
+  }
+
+  function answerNumber(answer: QuestionAssistantAnswer, fallbackIndex: number): number {
+    const originalIndex = lastQuestionInput?.questions.findIndex((question) => question.questionId === answer.questionId) ?? -1;
+    return (originalIndex >= 0 ? originalIndex : fallbackIndex) + 1;
   }
 
   async function copyQuestionAnswer(answer: QuestionAssistantAnswer) {
@@ -1374,6 +1378,7 @@ export function FounderPackClient({
           <Label htmlFor="questionAssistantMode">Assistant mode</Label>
           <select
             id="questionAssistantMode"
+            disabled={questionAssistantLoading}
             value={questionAssistantMode}
             onChange={(event) =>
               setQuestionAssistantMode(
@@ -1398,6 +1403,7 @@ export function FounderPackClient({
           </Label>
           <Input
             id="questionAssistantWordLimit"
+            disabled={questionAssistantLoading}
             inputMode="numeric"
             placeholder="e.g. 500"
             value={questionAssistantWordLimit}
@@ -1408,30 +1414,15 @@ export function FounderPackClient({
         </div>
       </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="questionAssistantText">Grant form question(s)</Label>
-        <Label htmlFor="questionLayout" className="text-xs">Question layout</Label>
-        <select id="questionLayout" value={questionLayout} onChange={(event) => setQuestionLayout(event.target.value as "lines" | "paragraphs")} className="h-10 w-full rounded-md border bg-white px-3 text-sm">
-          <option value="lines">One question per line</option>
-          <option value="paragraphs">Questions include paragraphs or answer options</option>
-        </select>
-        <p className="text-xs text-muted-foreground">{questionLayout === "lines" ? "Each non-empty line gets its own answer, in the same order." : "Keep each question’s paragraphs together. Separate different questions with a line containing --- ."} Up to 8 questions, 12,000 characters each.</p>
-        <Textarea
-          id="questionAssistantText"
-          rows={5}
-          placeholder="Paste your questions, one per line."
-          value={questionAssistantText}
-          onChange={(event) => setQuestionAssistantText(event.target.value)}
-          className="bg-white text-sm"
-        />
-        {questionAssistantText.trim() && <p role="status" className="text-xs font-medium text-blue-800">{parseQuestionBlocks(questionAssistantText, questionLayout).length} question(s) detected · one separate answer per question</p>}
-      </div>
+      <QuestionReview text={questionAssistantText} layout={questionLayout} disabled={questionAssistantLoading}
+        onTextChange={setQuestionAssistantText} onLayoutChange={setQuestionLayout} />
       <div className="space-y-2">
         <Label htmlFor="questionAssistantGuidance">
           Extra answer guidance (optional)
         </Label>
         <Textarea
           id="questionAssistantGuidance"
+            disabled={questionAssistantLoading}
           aria-describedby="questionAssistantGuidanceCount"
           rows={3}
           placeholder="Add tone, funder priorities, scoring guidance, or points you want included."
@@ -1450,6 +1441,7 @@ export function FounderPackClient({
           </Label>
           <Textarea
             id="questionAssistantExistingAnswer"
+            disabled={questionAssistantLoading}
             rows={4}
             placeholder="Paste the draft you already wrote."
             value={questionAssistantExistingAnswer}
@@ -1489,19 +1481,39 @@ export function FounderPackClient({
         </Button>
       )}
 
+      {lastQuestionInput && Object.keys(questionProgress).length > 0 && (
+        <div className="space-y-2 rounded-lg border bg-white p-3" aria-live="polite">
+          <p className="text-sm font-semibold">{Object.values(questionProgress).filter((item) => item.status === "complete").length} of {lastQuestionInput.questions.length} answers complete</p>
+          {questionAssistantLoading && <p className="text-xs">Generating in small batches. Completed answers appear below as they are ready.</p>}
+          <ol className="max-h-60 space-y-1 overflow-y-auto text-xs" aria-label="Answer progress">
+            {lastQuestionInput.questions.map((question, index) => <li key={question.questionId} className="break-words">
+              <strong>{index + 1}. {question.question.split("\n")[0]}</strong> — {questionProgress[question.questionId!]?.status ?? "waiting"}
+              {questionProgress[question.questionId!]?.error && <p className="text-red-700">{questionProgress[question.questionId!].error}</p>}
+            </li>)}
+          </ol>
+          {!questionAssistantLoading && Object.values(questionProgress).some((item) => item.status === "error") &&
+            <Button type="button" variant="outline" onClick={() => processQuestionAnswers(lastQuestionInput, true)}>Retry unfinished answers</Button>}
+        </div>
+      )}
       {questionAssistantAnswers.length > 0 && (
-        <div className="space-y-3">
+        <div className="min-w-0 space-y-3">
+          <Button type="button" variant="outline" className="w-full" onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(questionAssistantAnswers.map((answer, index) => `Question ${answerNumber(answer, index)}: ${answer.question}\n\n${answer.draftAnswer}`).join("\n\n---\n\n"));
+              toast.success("All labelled answers copied");
+            } catch { toast.error("Could not copy answers"); }
+          }}>Copy completed questions and answers ({questionAssistantAnswers.length})</Button>
           {questionAssistantAnswers.map((answer, index) => (
             <div
-              key={`${answer.question}-${index}`}
+              key={answer.questionId ?? `${answer.question}-${index}`}
               className="rounded-md border bg-white p-3"
             >
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-[#071a3a]">
-                    Question {index + 1}
+                    Question {answerNumber(answer, index)}
                   </p>
-                  <p className="mt-1 whitespace-pre-wrap text-sm font-medium">{answer.question}</p>
+                  <p className="mt-1 whitespace-pre-wrap break-words text-sm font-medium">{answer.question}</p>
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     <Badge variant="secondary">
                       Confidence: {answer.confidence}
@@ -1535,9 +1547,9 @@ export function FounderPackClient({
                 </div>
               </div>
               <Textarea
-                aria-label={`Draft answer ${index + 1}`}
-                className="mt-3"
-                rows={8}
+                aria-label={`Draft answer ${answerNumber(answer, index)}`}
+                className="mt-3 min-w-0"
+                rows={12}
                 value={answer.draftAnswer}
                 onChange={(event) =>
                   setQuestionAssistantAnswers((current) =>
@@ -1549,6 +1561,7 @@ export function FounderPackClient({
                   )
                 }
               />
+              <p className="mt-1 text-xs text-muted-foreground">{answer.draftAnswer.trim().split(/\s+/).filter(Boolean).length} words · Review facts and declarations before submitting.</p>
               {answer.rationale && (
                 <p className="mt-3 rounded-md bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-950">
                   <span className="font-semibold">Why this positioning: </span>
@@ -1593,13 +1606,14 @@ export function FounderPackClient({
   );
   if (assistantOnly && profiles.length)
     return (
-      <div className="mx-auto max-w-5xl space-y-6">
+      <div className="mx-auto min-w-0 max-w-5xl space-y-6">
         <ApplicationUpgradeDialog open={upgradeOpen} onOpenChange={setUpgradeOpen} returnTo="/grant-assistant" />
         <Card>
           <CardContent className="space-y-4 pt-6">{grantContext}</CardContent>
         </Card>
         {assistant}
         <Button
+          className="h-auto w-full whitespace-normal text-left"
           onClick={() => {
             sessionStorage.setItem(
               `grant-assistant-handoff:${form.profileId}`,

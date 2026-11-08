@@ -11,6 +11,9 @@ import { recordUsage } from "@/lib/plan-check";
 import { planAllowsForOrg } from "@/lib/plan-features";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
+// Two questions per client batch, including one bounded model retry.
+export const maxDuration = 180;
+
 function uniqueIds(...groups: Array<string[] | undefined>): string[] {
   return [...new Set(groups.flatMap((group) => group ?? []).map((id) => id.trim()).filter(Boolean))];
 }
