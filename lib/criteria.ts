@@ -15,6 +15,8 @@ export const factFields = [
   "coFundingAvailable",
   "fundingDetails",
   "previousGrantExperience",
+  "projectStartDate",
+  "projectEndDate",
 ] as const;
 export const criterionSchema = z.object({
   id: z.string(),

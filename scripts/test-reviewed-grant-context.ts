@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { appendPublishedRequirements, guardPublishedAssessment } from "../lib/reviewed-grant-context";
 import { extractCriteriaDocument } from "../lib/criteria-source";
 import { grantContentHashForEligibility, profileHashForEligibility } from "../lib/eligibility-ai-cache";
+import { sourceReviewErrorMessage } from "../lib/source-review-errors";
+import { assessCriteria } from "../lib/criteria";
 import { profileProjectEvidence } from "../lib/profile-project-evidence";
 import { profileToMatching } from "../lib/profile-for-matching";
 import type { CriteriaDocument } from "../lib/criteria";
@@ -13,6 +15,25 @@ async function main() {
   const fetchSource = async () => ({ url: "https://example.org/guidance", text, unreviewedLinks: ["https://example.org/assessor.pdf"] });
   const doc = await extractCriteriaDocument("https://example.org/guidance", "Test", { fetchSource, complete: async () => JSON.stringify(model) });
   assert.equal(doc.coverage, "partial", "unread PDF prevents complete coverage");
+  // Reproduce the production response: the model invents fields outside the schema.
+  const unsupported = ["projectDurationMonths", "projectCost", "technicalReadinessLevel", "subcontractorsAllowed"];
+  const flexible = await extractCriteriaDocument("https://example.org/guidance", "Test", {
+    fetchSource,
+    complete: async (prompt) => {
+      assert.match(prompt, /Never invent field names/);
+      return JSON.stringify({ ...model, criteria: unsupported.map(field => ({ ...model.criteria[0], field, operator: "lte", expected: 3 })) });
+    },
+  });
+  assert.equal(flexible.criteria.length, unsupported.length, "do not drop unsupported requirements");
+  for (const criterion of flexible.criteria) { assert.equal(criterion.field, null); assert.equal(criterion.operator, "confirm"); assert.equal(criterion.expected, null); assert.equal(criterion.excerpt, "fewer than 10 employees"); }
+  assert.equal(assessCriteria(flexible, { employeeCount: 3 }).counts.needs_information, unsupported.length, "unknown facts never become automatic passes");
+  const dates = await extractCriteriaDocument("https://example.org/guidance", "Test", { fetchSource, complete: async () => JSON.stringify({ ...model, criteria: [{ ...model.criteria[0], field: "projectStartDate", operator: "date_before", expected: "2027-04-02" }, { ...model.criteria[0], field: "projectEndDate", operator: "date_before", expected: "2027-07-01" }] }) });
+  assert.equal(assessCriteria(dates, { projectStartDate: "2027-04-01", projectEndDate: "2027-06-30" }).counts.met, 2);
+  await assert.rejects(() => extractCriteriaDocument("https://example.org/guidance", "Test", { fetchSource, complete: async () => JSON.stringify({ ...model, criteria: [{ ...model.criteria[0], category: "unsupported-category" }] }) }), error => error instanceof Error && error.message.includes("Please retry") && !error.message.includes("invalid_enum"));
+  const publicError = sourceReviewErrorMessage(new Error('[{"code":"invalid_enum_value","received":"projectDurationMonths"}]'));
+  assert.ok(publicError.length < 250); assert.doesNotMatch(publicError, /invalid_enum|projectDurationMonths/);
+  assert.equal(sourceReviewErrorMessage(publicError), publicError, "client keeps the safe server explanation");
+
   assert.equal(doc.workload[0].wordLimit, 800);
   assert.equal(doc.sourceText, text);
   assert.ok(appendPublishedRequirements("Summary", new Map([["g", doc]])).includes("Routine integration is excluded."));

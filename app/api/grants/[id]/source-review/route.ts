@@ -1,3 +1,4 @@
+import { sourceReviewErrorMessage } from "@/lib/source-review-errors";
 import { resolveGrantSourceLinks } from "@/lib/grant-source-links";
 import { NextResponse } from "next/server";
 import { getActiveOrg } from "@/lib/auth";
@@ -29,7 +30,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     const document = context.documents.get(id) ?? null;
     return NextResponse.json({ document, storageReady: context.storageReady, assessment: document ? assessCriteria(document, context.profile) : null }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Could not load the source review." }, { status: 400 });
+    return NextResponse.json({ error: sourceReviewErrorMessage(error) }, { status: 400 });
   }
 }
 export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -48,6 +49,6 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     clearEligibleMatchCaches();
     return NextResponse.json({ document, storageReady: true, assessment: assessCriteria(document, context.profile) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "The source could not be reviewed. No complete-review claim has been made." }, { status: 502 });
+    return NextResponse.json({ error: sourceReviewErrorMessage(error) }, { status: 502 });
   }
 }

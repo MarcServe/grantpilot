@@ -1,4 +1,5 @@
 "use client";
+import { sourceReviewErrorMessage } from "@/lib/source-review-errors";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { CriteriaAssessment, CriteriaDocument } from "@/lib/criteria";
@@ -15,7 +16,7 @@ export function GrantSourceReview({ grantId }: { grantId: string }) {
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "Source review unavailable");
       setData(body);
-    }).catch((error) => { if (!controller.signal.aborted) setError(error.message); });
+    }).catch((error) => { if (!controller.signal.aborted) setError(sourceReviewErrorMessage(error)); });
     return () => controller.abort();
   }, [grantId]);
   async function review() {
@@ -26,7 +27,7 @@ export function GrantSourceReview({ grantId }: { grantId: string }) {
       if (!response.ok) throw new Error(body.error || "Source review failed");
       setData(body);
       window.dispatchEvent(new CustomEvent("grant:source-reviewed", { detail: { grantId } }));
-    } catch (error) { setError(error instanceof Error ? error.message : "Source review failed. Please retry."); }
+    } catch (error) { setError(sourceReviewErrorMessage(error)); }
     finally { setBusy(false); }
   }
   const doc = data?.document;
