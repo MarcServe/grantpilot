@@ -1,4 +1,5 @@
 "use client";
+import type { CriteriaAssessment } from "@/lib/criteria";
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
@@ -279,7 +280,18 @@ export function EligibilityCard({
 
   useEffect(() => {
     const reviewed = (event: Event) => {
-      if ((event as CustomEvent<{ grantId: string }>).detail?.grantId === grantId) void handleCheck(true);
+      const detail = (event as CustomEvent<{ grantId: string; assessment?: CriteriaAssessment }>).detail;
+      if (detail?.grantId !== grantId) return;
+      if (detail.assessment && !detail.assessment.strongEligible) {
+        const failed = detail.assessment.criteria.some(item => item.mandatory && item.status === "not_met");
+        setResult(previous => {
+          if (!previous) return previous;
+          const score = Math.min(previous.score ?? previous.confidence, failed ? 39 : 69);
+          const summary = failed ? "A published mandatory requirement is not met." : "Published guidance needs further verification. The prior fit estimate does not confirm eligibility.";
+          return { ...previous, score, confidence: score, confidenceBand: score >= 60 ? "medium" : "low", decision: failed ? "unlikely" : "review", reason: summary, summary, evidenceStrength: "weak", winProbability: undefined };
+        });
+      }
+      void handleCheck(true);
     };
     window.addEventListener("grant:source-reviewed", reviewed);
     return () => window.removeEventListener("grant:source-reviewed", reviewed);

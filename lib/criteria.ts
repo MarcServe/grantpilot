@@ -55,6 +55,9 @@ export type CriteriaDocument = {
   extractedAt: string;
   coverage: "complete" | "partial" | "unavailable";
   sourceText?: string;
+  sourceSections?: { heading: string; text: string }[];
+  extractionWarnings?: string[];
+  organisationStatus?: "structured" | "partial" | "source_only";
   unreviewedLinks?: string[];
   criteria: Criterion[];
   objectives: string[];
