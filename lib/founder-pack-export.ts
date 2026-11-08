@@ -8,6 +8,7 @@ export interface FounderPackExportInput {
   createdAt?: string;
   type?: string;
   inputs?: {
+    customDocumentTitle?: string;
     founderName?: string;
     founderRole?: string;
     documentTypes?: FounderPackDocumentType[];
@@ -194,7 +195,7 @@ export function buildFounderPackTextSections(pack: FounderPackExportInput): Text
 
   if (includes(pack, "grant_application_draft") && content.grantApplicationDraft?.length) {
     sections.push({
-      title: "Grant Application Draft",
+      title: pack.inputs?.customDocumentTitle || "Grant Application Draft",
       lines: content.grantApplicationDraft.flatMap((item) => [item.question, item.answer, ""]).filter(Boolean),
     });
   }

@@ -100,6 +100,7 @@ function normaliseInputs(value: unknown): FounderPackExportInput["inputs"] {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const input = value as Record<string, unknown>;
   return {
+    customDocumentTitle: typeof input.customDocumentTitle === "string" ? input.customDocumentTitle.slice(0, 200) : undefined,
     founderName: String(input.founderName ?? ""),
     founderRole: String(input.founderRole ?? ""),
     documentTypes: Array.isArray(input.documentTypes)

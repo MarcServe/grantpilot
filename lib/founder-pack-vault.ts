@@ -5,7 +5,8 @@ import { buildFounderPackTextSections } from "@/lib/founder-pack-export";
 export function savedPackDocumentTypes(inputs: unknown) {
   const raw = inputs && typeof inputs === "object" ? (inputs as { documentTypes?: unknown }).documentTypes : null;
   if (!Array.isArray(raw)) return [];
-  return FOUNDER_PACK_DOCUMENT_TYPES.filter(type => raw.includes(type.value));
+  const title = typeof (inputs as { customDocumentTitle?: unknown }).customDocumentTitle === "string" ? String((inputs as { customDocumentTitle: string }).customDocumentTitle).slice(0, 200) : "";
+  return FOUNDER_PACK_DOCUMENT_TYPES.filter(type => raw.includes(type.value)).map(type => title && type.value === "grant_application_draft" ? { ...type, label: title } : type);
 }
 
 /** Saved generated writing is reference material, never verified business evidence. */

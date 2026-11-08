@@ -888,8 +888,12 @@ export function FounderPackClient({
     grantRequirementsNotes: initialRequirements,
   });
   const [questionAssistantMode, setQuestionAssistantMode] = useState<
-    "draft_answer" | "evidence_check" | "improve_existing_answer"
+    "draft_answer" | "evidence_check" | "improve_existing_answer" | "document_draft"
   >("draft_answer");
+  const [draftTitle, setDraftTitle] = useState("Application documents");
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [savedDraftId, setSavedDraftId] = useState<string | null>(null);
+  const [saveDraftError, setSaveDraftError] = useState("");
   const [questionLayout, setQuestionLayout] = useState<QuestionLayout>(initialQuestions.length ? "paragraphs" : "auto");
   const [questionAssistantText, setQuestionAssistantText] = useState(initialQuestions.map((item) => item.question).join("\n\n---\n\n"));
   const [questionAssistantGuidance, setQuestionAssistantGuidance] =
@@ -919,10 +923,11 @@ export function FounderPackClient({
           setForm(draft.form);
           if (draft.questionParsingVersion === 2 && ["auto", "lines", "paragraphs"].includes(draft.questionLayout)) setQuestionLayout(draft.questionLayout);
           if (typeof draft.question === "string") setQuestionAssistantText(draft.question);
+          if (typeof draft.title === "string") setDraftTitle(draft.title);
           if (typeof draft.guidance === "string") setQuestionAssistantGuidance(draft.guidance);
           if (typeof draft.wordLimit === "string") setQuestionAssistantWordLimit(draft.wordLimit);
           if (typeof draft.existingAnswer === "string") setQuestionAssistantExistingAnswer(draft.existingAnswer);
-          if (["draft_answer", "evidence_check", "improve_existing_answer"].includes(draft.mode)) setQuestionAssistantMode(draft.mode);
+          if (["draft_answer", "evidence_check", "improve_existing_answer", "document_draft"].includes(draft.mode)) setQuestionAssistantMode(draft.mode);
           if (Array.isArray(draft.answers)) setQuestionAssistantAnswers(draft.answers);
         }
         window.sessionStorage.removeItem(draftKey);
@@ -943,7 +948,7 @@ export function FounderPackClient({
   function offerUpgrade() {
     try {
       window.sessionStorage.setItem(draftKey, JSON.stringify({ form, questionParsingVersion: 2, questionLayout, question: questionAssistantText, answers: questionAssistantAnswers,
-        guidance: questionAssistantGuidance, wordLimit: questionAssistantWordLimit, existingAnswer: questionAssistantExistingAnswer, mode: questionAssistantMode }));
+        title: draftTitle, guidance: questionAssistantGuidance, wordLimit: questionAssistantWordLimit, existingAnswer: questionAssistantExistingAnswer, mode: questionAssistantMode }));
     } catch { toast.error("Your browser could not preserve this draft for checkout. Copy your answers before continuing."); return; }
     setUpgradeOpen(true);
   }
@@ -1141,6 +1146,22 @@ export function FounderPackClient({
       if (result.failed) toast.error(`${result.completed} answers completed; ${result.failed} need retrying. Completed answers are kept below.`);
       else toast.success(`${result.completed} separate answers generated.`);
     } finally { setQuestionAssistantLoading(false); }
+  }
+
+  async function saveCompletedDrafts() {
+    if (!allowed) { offerUpgrade(); return; }
+    setSavingDraft(true); setSaveDraftError(""); setSavedDraftId(null);
+    try {
+      const response = await fetch("/api/founder-pack/save-drafts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+        profileId: form.profileId, title: draftTitle, selectedApplicationIds: form.selectedApplicationIds,
+        selectedEligibleGrantIds: form.selectedEligibleGrantIds, answers: questionAssistantAnswers,
+      }) });
+      const result = await response.json();
+      if (response.status === 402) { offerUpgrade(); return; }
+      if (!response.ok) throw new Error(result.error || "Could not save the draft.");
+      setSavedDraftId(result.id); toast.success("Draft saved to Data Vault");
+    } catch (error) { setSaveDraftError(error instanceof Error ? error.message : "Could not save the draft. Please retry."); }
+    finally { setSavingDraft(false); }
   }
 
   async function generateQuestionAnswers() {
@@ -1389,12 +1410,14 @@ export function FounderPackClient({
                 event.target.value as
                   | "draft_answer"
                   | "evidence_check"
-                  | "improve_existing_answer",
+                  | "improve_existing_answer"
+                  | "document_draft",
               )
             }
             className="h-10 w-full rounded-md border bg-background px-3 text-sm"
           >
             <option value="draft_answer">Draft answer</option>
+            <option value="document_draft">Custom document draft</option>
             <option value="evidence_check">Evidence check</option>
             <option value="improve_existing_answer">
               Improve existing answer
@@ -1418,6 +1441,7 @@ export function FounderPackClient({
         </div>
       </div>
 
+      {questionAssistantMode === "document_draft" && <div className="rounded-md border bg-white p-3 text-sm">Name each document and paste its requirements below, or import a screenshot. Examples: technical whitepaper, validation plan, benchmark matrix, architecture appendix, IP plan or CV draft. Put --- between documents. Include word/page limits and your evidence in the guidance. Drafts cannot replace measured results, signatures, certifications or a working prototype. Check final PDF page count and file size against the funder’s limits.</div>}
       {initialQuestions.length > 0 && <p className="rounded-md border border-blue-200 bg-white p-3 text-sm">Published prompts loaded from the reviewed grant source. Each stated word limit is applied to its question. Review scope and evidence before using drafts.</p>}
       <QuestionReview text={questionAssistantText} layout={questionLayout} disabled={questionAssistantLoading}
         onTextChange={setQuestionAssistantText} onLayoutChange={setQuestionLayout} />
@@ -1502,6 +1526,13 @@ export function FounderPackClient({
       )}
       {questionAssistantAnswers.length > 0 && (
         <div className="min-w-0 space-y-3">
+          <div className="space-y-2 rounded-lg border bg-white p-3">
+            <Label htmlFor="completedDraftTitle">Document or application pack name</Label>
+            <Input id="completedDraftTitle" value={draftTitle} maxLength={200} onChange={event => setDraftTitle(event.target.value)} placeholder="e.g. Frontier AI — validation plan" />
+            <Button type="button" disabled={savingDraft || questionAssistantLoading || draftTitle.trim().length < 2} onClick={saveCompletedDrafts}>{savingDraft ? "Saving draft…" : "Save completed drafts to Data Vault"}</Button>
+            {saveDraftError && <p role="alert" className="text-sm text-red-800">{saveDraftError}</p>}
+            {savedDraftId && <div className="space-y-2 text-sm"><p>Saved snapshot of your edited drafts. Save again after further edits.</p><div className="flex flex-wrap gap-3"><a className="underline" href={`/api/founder-pack/${savedDraftId}/export?format=pdf`}>Download saved PDF</a><a className="underline" href={`/api/founder-pack/${savedDraftId}/export?format=docx`}>Download saved Word document</a><a className="underline" href="/data-vault">Open Data Vault</a></div></div>}
+          </div>
           <Button type="button" variant="outline" className="w-full" onClick={async () => {
             try {
               await navigator.clipboard.writeText(questionAssistantAnswers.map((answer, index) => `Question ${answerNumber(answer, index)}: ${answer.question}\n\n${answer.draftAnswer}`).join("\n\n---\n\n"));

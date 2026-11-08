@@ -16,7 +16,7 @@ export const questionAssistantRequestSchema = z.object({
     wordLimit: z.number().int("Word limit must be a whole number.").min(30, "Word limit must be at least 30.").max(1500, "Word limit must be 1,500 or fewer.").optional(),
     guidance: z.string().max(10_000, "Extra guidance must be 10,000 characters or fewer.").optional(),
   })).min(1, "Paste at least one question.").max(8, "Generate at most 8 questions at a time."),
-  outputMode: z.enum(["draft_answer", "evidence_check", "improve_existing_answer"]).optional(),
+  outputMode: z.enum(["draft_answer", "evidence_check", "improve_existing_answer", "document_draft"]).optional(),
   existingAnswer: z.string().max(12_000, "Your existing answer must be 12,000 characters or fewer.").optional(),
 }).superRefine((data, ctx) => {
   const ids = data.questions.flatMap((question) => question.questionId ? [question.questionId] : []);

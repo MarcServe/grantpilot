@@ -26,7 +26,8 @@ export interface FounderPackInputs {
 export type FounderPackQuestionAssistantMode =
   | "draft_answer"
   | "evidence_check"
-  | "improve_existing_answer";
+  | "improve_existing_answer"
+  | "document_draft";
 
 export interface FounderPackQuestionInput {
   questionId?: string;
@@ -243,7 +244,7 @@ export function buildFounderPackProfileContext(profile: BusinessProfileLike): st
   ].filter(Boolean).join("\n");
 }
 
-function normaliseContent(raw: unknown): FounderPackContent {
+export function normaliseContent(raw: unknown): FounderPackContent {
   const data = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const projection = data.financialProjections && typeof data.financialProjections === "object"
     ? (data.financialProjections as Record<string, unknown>)
@@ -625,7 +626,9 @@ export async function generateFounderPackQuestionAnswers(
   const businessName = text(profile.businessName);
   const context = { businessName };
   const modeInstruction =
-    mode === "evidence_check"
+    mode === "document_draft"
+      ? "Create a comprehensive editable document for each requested item, using its exact title and stated limits. Use descriptive section headings, short paragraphs and tables or lists where helpful. Include a document-specific evidence checklist and explicit [TO CONFIRM] placeholders. Suitable outputs include technical whitepaper drafts, architecture descriptions, benchmark/validation plans and matrices, risk registers, IP/defensibility plans and CV drafts. Distinguish a proposed plan from completed technical work. Never invent experiments, measurements, prototypes, qualifications, IP rights or signed/certified documents. Follow page/file constraints as drafting guidance but warn that exported layout and file size require checking; do not certify compliance. If no limit is supplied, aim for 900–1200 words when supported, rather than a short generic summary."
+      : mode === "evidence_check"
       ? "Focus on evidence strength, missing proof, and what the founder should add before answering. Still provide a short draft answer when possible."
       : mode === "improve_existing_answer"
         ? "Improve the existing answer while preserving truthful claims. Explain what changed and what evidence is still weak."
@@ -652,7 +655,7 @@ ${formatQuestionList(questions)}
 Rules:
 - Return exactly one separate answers entry for each of the ${questions.length} questions, in the original order. Never combine questions into a single answer.
 - Copy questionId and the full original question exactly into the matching answers entry. Never rename or abbreviate the question.
-- Give every question its own comprehensive answer. Address all parts using useful paragraphs and short subheadings or lists where appropriate. Do not provide a generic company overview for every section. Aim for 350–500 words for narrative sections when no limit is given and the evidence supports it; short factual fields and declarations should remain proportionate.
+- Give every question its own comprehensive answer. Address all parts using useful paragraphs and short subheadings or lists where appropriate. Do not provide a generic company overview for every section. In document_draft mode follow the document drafting instruction above; otherwise aim for 350–500 words for narrative sections when no limit is given and the evidence supports it; short factual fields and declarations should remain proportionate.
 - A heading such as "Risks" or "Team and resources" is a separate funder prompt. Answer that specific topic. If only the heading is provided, identify missing funder guidance in warnings and avoid inventing detailed criteria.
 - Regulatory declarations, subsidy basis, animal testing, permits, IP ownership, export licences and financial commitments require explicit evidence. Never claim compliance, exemptions, ownership, availability of funding or a percentage contribution without supplied confirmation. Put facts needing confirmation in missingEvidence and use clear placeholders in the draft.
 - Each draftAnswer must answer only its corresponding question. Keep each question as its own heading in the structured output, not embedded in a combined essay.
@@ -683,7 +686,7 @@ Return ONLY valid JSON with this exact shape:
 }`;
 
   const maxTokens = Math.min(14_000, 1800 + questions.reduce((total, question) =>
-    total + Math.ceil((question.wordLimit ?? 500) * 2.5) + 900 + Math.ceil(question.question.length / 2), 0));
+    total + Math.ceil((question.wordLimit ?? (mode === "document_draft" ? 1200 : 500)) * 2.5) + 900 + Math.ceil(question.question.length / 2), 0));
 
   try {
     const raw = await complete(prompt, maxTokens, { timeout: 70_000, maxRetries: 0 });

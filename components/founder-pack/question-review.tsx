@@ -1,6 +1,7 @@
 "use client";
 
 import { parseQuestionBlocks, type QuestionLayout } from "@/lib/validations/question-assistant";
+import { ImageRequirementImport } from "@/components/founder-pack/image-requirement-import";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -19,6 +20,7 @@ export function QuestionReview({ text, layout, disabled, onTextChange, onLayoutC
     onLayoutChange("paragraphs");
   }
   return <div className="min-w-0 space-y-3">
+    <ImageRequirementImport disabled={disabled} onImport={incoming => { onTextChange([text.trim(), incoming].filter(Boolean).join("\n\n---\n\n")); onLayoutChange("paragraphs"); }} />
     <Label htmlFor="questionLayout">Question detection</Label>
     <select id="questionLayout" disabled={disabled} value={layout}
       onChange={(event) => onLayoutChange(event.target.value as QuestionLayout)}
