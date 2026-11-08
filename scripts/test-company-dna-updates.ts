@@ -1,0 +1,11 @@
+import assert from "node:assert/strict";
+import { DNA_MERGE_INSTRUCTION, websiteContextVersion, dnaSnapshotConflict } from "../lib/company-dna-update-policy";
+const profile={id:"biz",websiteIntelligence:"New website products",description:"Confirmed existing products",missionStatement:null};
+const snapshot={profileId:"biz",websiteVersion:websiteContextVersion(profile.websiteIntelligence),expectedValues:{description:profile.description}};
+assert.match(DNA_MERGE_INSTRUCTION,/FULL proposed merged field/);assert.match(DNA_MERGE_INSTRUCTION,/complete or well-written existing field must not hide/);assert.match(DNA_MERGE_INSTRUCTION,/retain the confirmed facts/);
+assert.equal(dnaSnapshotConflict(profile,profile,{description:"Confirmed existing products and new service"},snapshot),null);
+assert.match(dnaSnapshotConflict({...profile,id:"other"},profile,{description:"new"},snapshot)!,/active business changed/);
+assert.match(dnaSnapshotConflict({...profile,websiteIntelligence:"Even newer website"},profile,{description:"new"},snapshot)!,/Website context changed/);
+assert.match(dnaSnapshotConflict(profile,{...profile,description:"User edited profile"},{description:"new"},snapshot)!,/Profile details changed/);
+assert.equal(dnaSnapshotConflict(profile,profile,{missionStatement:"Evidence-based mission"},{...snapshot,expectedValues:{missionStatement:""}}),null);
+console.log("DNA merge policy, new field updates, profile identity, changed website and stale field conflicts passed");

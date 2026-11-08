@@ -28,6 +28,7 @@
     "video:render": "remotion render GrantsCopilotLaunch out/grantscopilot-launch.mp4 --concurrency=1",
     "video:poster": "remotion still GrantsCopilotPoster out/grantscopilot-poster.png",
     "video:voiceover": "node scripts/generate-grantscopilot-voiceover.mjs",
+    "test:company-dna-updates": "tsx scripts/test-company-dna-updates.ts",
     "test:website-refresh": "tsx scripts/test-website-refresh.ts",
     "test:grant-source-links": "tsx scripts/test-grant-source-links.ts",
     "test:image-document-drafts": "tsx scripts/test-image-document-drafts.ts",

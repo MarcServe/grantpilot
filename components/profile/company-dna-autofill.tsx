@@ -19,6 +19,7 @@ interface DnaSuggestion {
   value: string;
   confidence?: number;
   reason?: string;
+  currentValue?: string;
 }
 
 export function CompanyDnaAutofill({
@@ -30,7 +31,7 @@ export function CompanyDnaAutofill({
   companyDnaAutofillEnabled,
 }: {
   profileId: string;
-  onApplied: () => void;
+  onApplied: (updates: Record<string, string>) => void;
   hasWebsiteUrl: boolean;
   hasProfileEvidence: boolean;
   hasWebsiteIntelligence: boolean;
@@ -47,13 +48,17 @@ export function CompanyDnaAutofill({
   const [draftRestored, setDraftRestored] = useState(false);
 
   const websiteRevision = useRef(0);
+  const generateRef = useRef<(() => Promise<void>) | null>(null);
+  const [websiteVersion, setWebsiteVersion] = useState<string | null>(null);
+  useEffect(() => { generateRef.current = generate; });
   const [websiteRefreshed, setWebsiteRefreshed] = useState(false);
   useEffect(() => {
     const refreshed = (event: Event) => {
       if ((event as CustomEvent<{profileId: string}>).detail?.profileId !== profileId) return;
       websiteRevision.current += 1;
-      setSuggestions([]); setSelected(new Set()); setEditedValues({}); setDraftRestored(false); setWebsiteRefreshed(true);
+      setSuggestions([]); setSelected(new Set()); setEditedValues({}); setDraftRestored(false); setWebsiteRefreshed(true); setWebsiteVersion(null);
       try { window.localStorage.removeItem(draftStorageKey); } catch { /* Browser storage is optional. */ }
+      void generateRef.current?.();
     };
     window.addEventListener("profile:website-refreshed", refreshed);
     return () => window.removeEventListener("profile:website-refreshed", refreshed);
@@ -77,7 +82,9 @@ export function CompanyDnaAutofill({
         suggestions?: DnaSuggestion[];
         selected?: string[];
         editedValues?: Record<string, string>;
+        websiteVersion?: string;
       };
+      setWebsiteVersion(typeof parsed.websiteVersion === "string" ? parsed.websiteVersion : null);
       if (!Array.isArray(parsed.suggestions) || parsed.suggestions.length === 0) return;
       const restoredSuggestions = parsed.suggestions.filter(
         (item) =>
@@ -91,9 +98,7 @@ export function CompanyDnaAutofill({
       setSelected(new Set(Array.isArray(parsed.selected) ? parsed.selected : []));
       setEditedValues(parsed.editedValues && typeof parsed.editedValues === "object" ? parsed.editedValues : {});
       setDraftRestored(true);
-    } catch {
-      window.localStorage.removeItem(draftStorageKey);
-    }
+    } catch { /* Browser draft storage is optional. */ }
   }, [draftStorageKey]);
 
   if (!companyDnaAutofillEnabled) {
@@ -120,8 +125,10 @@ export function CompanyDnaAutofill({
   function persistDraft(
     nextSuggestions: DnaSuggestion[],
     nextSelected: Set<string>,
-    nextEditedValues: Record<string, string>
+    nextEditedValues: Record<string, string>,
+    version: string | null = websiteVersion
   ) {
+    try {
     if (nextSuggestions.length === 0) {
       window.localStorage.removeItem(draftStorageKey);
       return;
@@ -133,8 +140,10 @@ export function CompanyDnaAutofill({
         selected: [...nextSelected],
         editedValues: nextEditedValues,
         savedAt: new Date().toISOString(),
+        websiteVersion: version,
       })
     );
+    } catch { /* Saving a browser draft is optional. */ }
   }
 
   async function generate() {
@@ -142,7 +151,7 @@ export function CompanyDnaAutofill({
     setError(null);
     setLoading(true);
     try {
-      const res = await fetch("/api/profile/company-dna", { method: "POST" });
+      const res = await fetch("/api/profile/company-dna", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ profileId }) });
       const data = await res.json().catch(() => ({}));
       if (revision !== websiteRevision.current) return;
       if (!res.ok) {
@@ -161,21 +170,23 @@ export function CompanyDnaAutofill({
         next.map((item: DnaSuggestion) => [item.field, item.value])
       );
       const nextSelected = new Set<string>(next.map((item: DnaSuggestion) => item.field));
+      setWebsiteVersion(data.websiteVersion ?? null);
       setSuggestions(next);
       setEditedValues(nextEditedValues);
       setSelected(nextSelected);
       setDraftRestored(false);
-      persistDraft(next, nextSelected, nextEditedValues);
+      persistDraft(next, nextSelected, nextEditedValues, data.websiteVersion ?? null);
       if (next.length === 0) {
         toast.info("No strong profile suggestions found from the current company DNA.");
       } else {
         toast.success(`Found ${next.length} profile suggestions`);
       }
     } catch {
+      if (revision !== websiteRevision.current) return;
       setError("Could not connect to the generator. Please try again.");
       toast.error("Could not generate Company DNA suggestions");
     } finally {
-      setLoading(false);
+      if (revision === websiteRevision.current) setLoading(false);
     }
   }
 
@@ -185,14 +196,16 @@ export function CompanyDnaAutofill({
       return;
     }
     setApplying(true);
+    setError(null);
     try {
       const res = await fetch("/api/profile/company-dna", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ updates: selectedUpdates }),
+        body: JSON.stringify({ profileId, websiteVersion, updates: selectedUpdates, expectedValues: Object.fromEntries(suggestions.filter(item => selected.has(item.field)).map(item => [item.field, item.currentValue ?? ""])) }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        setError(data.error ?? "Could not apply profile updates. Please retry.");
         if (res.status === 402) {
           toast.error(data.error ?? "Upgrade required", {
             action: { label: "Billing", onClick: () => router.push("/billing") },
@@ -203,14 +216,16 @@ export function CompanyDnaAutofill({
         return;
       }
       toast.success(`Applied ${data.applied?.length ?? selectedCount} profile updates`);
+      if (data.refreshPending) toast.info("Profile saved. Grant matches are waiting for eligibility reassessment.");
       setSuggestions([]);
       setEditedValues({});
       setSelected(new Set());
       setDraftRestored(false);
       persistDraft([], new Set(), {});
-      onApplied();
+      onApplied(data.updates ?? selectedUpdates);
       router.refresh();
     } catch {
+      setError("Could not apply profile updates. Your suggestions have been kept; please retry.");
       toast.error("Could not apply profile updates");
     } finally {
       setApplying(false);
@@ -267,7 +282,7 @@ export function CompanyDnaAutofill({
           </Button>
         </div>
 
-        {websiteRefreshed && <p role="status" className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm">Website context refreshed. Generate new suggestions below, then review and apply the fields you want to update.</p>}
+        {websiteRefreshed && <p role="status" className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm">Website context refreshed. Updated suggestions are generated automatically. Review the current and proposed values, then apply the fields you want to update.</p>}
         {error && <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
 
         {!hasWebsiteUrl && !hasProfileEvidence && (
@@ -276,6 +291,7 @@ export function CompanyDnaAutofill({
           </p>
         )}
 
+        {suggestions.length > 0 && !websiteVersion && <p className="text-sm text-amber-900">This saved draft predates the latest website checks. Generate fresh suggestions before applying; you can copy any edits you want to retain first.</p>}
         {draftRestored && suggestions.length > 0 && (
           <p className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
             Restored your unsaved Company DNA draft from this browser.
@@ -310,6 +326,7 @@ export function CompanyDnaAutofill({
                       {suggestion.reason && (
                         <p className="mt-1 text-xs text-muted-foreground">{suggestion.reason}</p>
                       )}
+                      {suggestion.currentValue && <details className="mt-2 text-xs"><summary className="cursor-pointer font-medium">Current saved {suggestion.label.toLowerCase()}</summary><p className="mt-1 whitespace-pre-wrap break-words">{suggestion.currentValue}</p></details>}
                       <Textarea
                         value={editedValue}
                         onChange={(event) => updateSuggestion(suggestion.field, event.target.value)}
@@ -344,7 +361,7 @@ export function CompanyDnaAutofill({
 
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-xs text-muted-foreground">{selectedCount} selected</p>
-              <Button type="button" onClick={applySelected} disabled={applying || selectedCount === 0} className="w-full gap-2 sm:w-auto">
+              <Button type="button" onClick={applySelected} disabled={applying || loading || !websiteVersion || selectedCount === 0} className="w-full gap-2 sm:w-auto">
                 {applying && <Loader2 className="h-4 w-4 animate-spin" />}
                 Apply selected
               </Button>

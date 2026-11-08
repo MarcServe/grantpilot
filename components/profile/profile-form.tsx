@@ -151,7 +151,7 @@ const STEP_LABELS = [
 ];
 
 export function ProfileForm({
-  profile,
+  profile: serverProfile,
   initialStep = 1,
   companyDnaAutofillEnabled,
 }: {
@@ -160,6 +160,8 @@ export function ProfileForm({
   companyDnaAutofillEnabled: boolean;
 }) {
   const router = useRouter();
+  const [profile, setProfile] = useState(serverProfile);
+  useEffect(() => { setProfile(serverProfile); }, [serverProfile]);
   const [formRevision, setFormRevision] = useState(0);
   const [step, setStep] = useState(initialStep);
   const [focusField, setFocusField] = useState<string | null>(null);
@@ -388,7 +390,7 @@ export function ProfileForm({
       <CompanyDnaAutofill
         key={profile.id}
         profileId={profile.id}
-        onApplied={() => setFormRevision((value) => value + 1)}
+        onApplied={(updates) => { setProfile(current => ({ ...current, ...updates })); setFormRevision((value) => value + 1); }}
         hasProfileEvidence={Boolean(profile.description?.trim() || profile.missionStatement?.trim())}
         hasWebsiteUrl={Boolean(profile.websiteUrl?.trim())}
         hasWebsiteIntelligence={Boolean(profile.websiteIntelligence?.trim())}

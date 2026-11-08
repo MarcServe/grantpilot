@@ -1,3 +1,5 @@
+import { DNA_MERGE_INSTRUCTION, websiteContextVersion, dnaSnapshotConflict } from "@/lib/company-dna-update-policy";
+import { revalidatePath } from "next/cache";
 import { preserveReadinessMetadata, restoreReadinessMetadata } from "@/lib/profile-readiness-compat";
 import { criteriaProfileCompletionScore } from "@/lib/profile-completion";
 import { NextResponse } from "next/server";
@@ -10,6 +12,8 @@ import { syncGrantMemoryFromProfile } from "@/lib/grant-memory";
 import { requestEligibilityRefresh, requestProfileEligibilityBackfill } from "@/lib/eligibility-refresh-trigger";
 import { generateAndStoreProfileEmbedding } from "@/lib/embeddings";
 import { planAllowsForOrg, PLAN_CAPABILITY_MESSAGES } from "@/lib/plan-features";
+
+export const maxDuration = 180;
 
 const PROFILE_DNA_FIELDS = {
   sector: "Sector",
@@ -38,6 +42,9 @@ type ProfileDnaField = keyof typeof PROFILE_DNA_FIELDS;
 
 const applySchema = z.object({
   updates: z.record(z.string(), z.string().min(1)).default({}),
+  profileId: z.string().optional(),
+  websiteVersion: z.string().optional(),
+  expectedValues: z.record(z.string(), z.string()).optional(),
 });
 
 
@@ -81,7 +88,7 @@ function profileText(profile: Record<string, unknown>): string {
     "boardMembers",
     "founderBackground",
   ];
-  return keys
+  return [...new Set([...keys, ...Object.keys(PROFILE_DNA_FIELDS)])]
     .map((key) => `${key}: ${Array.isArray(profile[key]) ? (profile[key] as unknown[]).join(", ") : String(profile[key] ?? "")}`)
     .join("\n");
 }
@@ -106,7 +113,7 @@ function parseSuggestions(raw: string): {
       const row = item as Record<string, unknown>;
       const field = row.field;
       const value = typeof row.value === "string" ? row.value.trim() : "";
-      if (typeof field !== "string" || !(field in PROFILE_DNA_FIELDS) || value.length === 0) return null;
+      if (typeof field !== "string" || !Object.prototype.hasOwnProperty.call(PROFILE_DNA_FIELDS, field) || value.length === 0) return null;
       return {
         field: field as ProfileDnaField,
         label: PROFILE_DNA_FIELDS[field as ProfileDnaField],
@@ -134,7 +141,7 @@ async function getProfileForOrg(orgId: string, profileId: string): Promise<Recor
   return (data as Record<string, unknown> | null) ?? null;
 }
 
-export async function POST(): Promise<NextResponse> {
+export async function POST(req: Request): Promise<NextResponse> {
   try {
     const { orgId, org, profile: activeProfile } = await getActiveOrg();
     if (!planAllowsForOrg(org, "website_intelligence_refresh")) {
@@ -147,6 +154,8 @@ export async function POST(): Promise<NextResponse> {
       return NextResponse.json({ error: "Profile not found" }, { status: 404 });
     }
 
+    const requestBody = await req.json().catch(() => ({}));
+    if (requestBody.profileId && requestBody.profileId !== activeProfile.id) return NextResponse.json({ error: "The active business changed. Reload before generating suggestions." }, { status: 409 });
     const supabase = getSupabaseAdmin();
     const profile = await getProfileForOrg(orgId, activeProfile.id);
     if (!profile?.id) {
@@ -180,7 +189,7 @@ The website could not be extracted reliably. Use the current business profile be
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       temperature: 0.2,
-      max_tokens: 2600,
+      max_tokens: 6500,
       response_format: { type: "json_object" },
       messages: [
         {
@@ -210,13 +219,14 @@ Return JSON only:
   ]
 }
 
-Return 5-12 high-value suggestions. Avoid fields where the current profile already has strong, specific content unless the suggested value is materially better.`,
+${DNA_MERGE_INSTRUCTION}`,
         },
       ],
-    });
+    }, { timeout: 80_000, maxRetries: 0 });
 
     const raw = response.choices[0]?.message?.content ?? "{\"suggestions\":[]}";
-    return NextResponse.json({ suggestions: parseSuggestions(raw) });
+    const restored = restoreReadinessMetadata(profile);
+    return NextResponse.json({ profileId: profile.id, websiteVersion: websiteContextVersion(websiteIntelligence), suggestions: parseSuggestions(raw).map(suggestion => ({ ...suggestion, currentValue: String(restored[suggestion.field] ?? "") })) }, { headers: { "Cache-Control": "no-store" } });
   } catch (e) {
     console.error("[PROFILE_COMPANY_DNA]", e);
     const message = e instanceof Error ? e.message : "Internal server error";
@@ -245,7 +255,7 @@ export async function PATCH(req: Request): Promise<NextResponse> {
 
     const updates: Record<string, string> = {};
     for (const [key, value] of Object.entries(parsed.data.updates)) {
-      if (key in PROFILE_DNA_FIELDS && value.trim().length > 0) {
+      if (Object.prototype.hasOwnProperty.call(PROFILE_DNA_FIELDS, key) && value.trim().length > 0) {
         updates[key] = value.trim();
       }
     }
@@ -260,6 +270,9 @@ export async function PATCH(req: Request): Promise<NextResponse> {
     }
 
     const restoredProfile = restoreReadinessMetadata(profile);
+    const conflict = dnaSnapshotConflict(profile, restoredProfile, updates, parsed.data);
+    if (conflict) return NextResponse.json({ error: conflict }, { status: 409 });
+    const visibleUpdates = { ...updates };
     if (updates.fundingDetails && restoredProfile.fundingDetails !== profile.fundingDetails) {
       updates.fundingDetails = preserveReadinessMetadata(updates.fundingDetails, restoredProfile);
     }
@@ -267,7 +280,8 @@ export async function PATCH(req: Request): Promise<NextResponse> {
     const { error } = await supabase
       .from("BusinessProfile")
       .update(updates)
-      .eq("id", profile.id as string);
+      .eq("id", profile.id as string)
+      .eq("organisationId", orgId);
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 502 });
     }
@@ -275,10 +289,13 @@ export async function PATCH(req: Request): Promise<NextResponse> {
     await recalcCompletionScore(profile.id as string);
     await syncGrantMemoryFromProfile(profile.id as string, orgId).catch(() => {});
     generateAndStoreProfileEmbedding(profile.id as string).catch(() => {});
-    await requestEligibilityRefresh(orgId, "profile.company_dna.applied");
-    await requestProfileEligibilityBackfill(orgId, profile.id as string, "profile.company_dna.applied");
+    const refresh = await Promise.allSettled([
+      requestEligibilityRefresh(orgId, "profile.company_dna.applied"),
+      requestProfileEligibilityBackfill(orgId, profile.id as string, "profile.company_dna.applied"),
+    ]);
+    revalidatePath("/profile"); revalidatePath("/dashboard"); revalidatePath("/grants/eligible");
 
-    return NextResponse.json({ ok: true, applied: Object.keys(updates) });
+    return NextResponse.json({ ok: true, applied: Object.keys(updates), updates: visibleUpdates, refreshPending: refresh.some(result => result.status === "rejected") });
   } catch (e) {
     console.error("[PROFILE_COMPANY_DNA_APPLY]", e);
     const message = e instanceof Error ? e.message : "Internal server error";
