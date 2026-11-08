@@ -1,8 +1,10 @@
+import { profileProjectEvidence } from "@/lib/profile-project-evidence";
 export function profileToMatching(profile: Record<string, unknown>) {
   const get = (key: string) =>
     profile[key] ?? profile[key.replace(/([A-Z])/g, "_$1").toLowerCase()];
   return {
     businessName: String(get("businessName") ?? ""),
+    projectEvidence: profileProjectEvidence(profile),
     sector: String(get("sector") ?? ""),
     missionStatement: String(get("missionStatement") ?? ""),
     description: String(get("description") ?? ""),

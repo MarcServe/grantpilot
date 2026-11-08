@@ -15,6 +15,7 @@ function uniqueStrings(values: string[]): string[] {
 }
 
 interface ProfileForMatching {
+  projectEvidence?: string;
   businessName: string;
   sector: string;
   missionStatement: string;
@@ -133,9 +134,10 @@ export async function getEligibilityDecision(
 Business: ${profile.businessName} (${profile.sector}). Location: ${profile.location}. Local authority/areas served: ${[profile.localAuthority, profile.areasServed].filter(Boolean).join(" / ") || "N/A"}. Employees: ${profile.employeeCount ?? "N/A"}. Expected employee growth: ${profile.expectedEmployeeGrowth || "N/A"}. Revenue: ${profile.annualRevenue != null ? `£${profile.annualRevenue.toLocaleString("en-GB")}` : "N/A"}. Year established: ${profile.yearEstablished ?? "N/A"}. Incorporation/trading start: ${[profile.incorporationDate, profile.tradingStartDate].filter(Boolean).join(" / ") || "N/A"}. Company age: ${companyAge != null ? `${companyAge} years` : "N/A"}. Funding sought: £${profile.fundingMin.toLocaleString("en-GB")}–£${profile.fundingMax.toLocaleString("en-GB")}. Purposes: ${profile.fundingPurposes.join(", ")}. Preferred opportunity types: ${(profile.preferredOpportunityTypes ?? []).join(", ") || "N/A"}. Funding urgency/position/readiness: ${[profile.fundingUrgency, profile.fundingPosition, profile.documentReadiness].filter(Boolean).join(" | ") || "N/A"}. ${profile.missionStatement ? `Mission: ${profile.missionStatement}.` : ""} ${profile.description ? `Description: ${profile.description}` : ""}
 Business type: ${profile.businessType || "N/A"}. Legal structure: ${profile.legalStructure || "N/A"}. Stage/size: ${[profile.businessStage, profile.businessSizeBand].filter(Boolean).join(" / ") || "N/A"}. Founder/employment status: ${profile.founderEmploymentStatus || "N/A"}.
 Co-funding/cash-flow readiness: ${[profile.coFundingCapacity, profile.reimbursementReadiness, profile.coFundingAvailable, profile.matchFundingDetails].filter(Boolean).join(" | ") || "N/A"}. Previous grant experience: ${profile.previousGrantExperience || "N/A"}. Previous grant history/outcomes: ${profile.previousGrantHistory || "N/A"}.
+Project-specific evidence from Business DNA (unknown facts must not be invented): ${profile.projectEvidence || "No project-specific evidence supplied. Do not assume technical novelty, theme, TRL, milestones, IP or validation from a company description."}
 Business eligibility facts (status included; suggested or needs-evidence facts must be treated cautiously): ${eligibilityFacts || "None provided"}.
 
-Grant: ${grant.name} (${grant.funder}). Amount: ${grant.amount != null ? `£${grant.amount.toLocaleString("en-GB")}` : "Varies"}. Eligibility: ${grant.eligibility}.${grant.description ? ` Description: ${grant.description.slice(0, 800)}.` : ""}${grant.objectives ? ` Objectives: ${grant.objectives.slice(0, 400)}.` : ""}${grant.applicantTypes?.length ? ` Applicant types: ${grant.applicantTypes.join(", ")}.` : ""} Sectors: ${(grant.sectors ?? []).join(", ")}. Regions: ${(grant.regions ?? []).join(", ")}.
+Grant: ${grant.name} (${grant.funder}). Amount: ${grant.amount != null ? `£${grant.amount.toLocaleString("en-GB")}` : "Varies"}. Eligibility: ${grant.eligibility}.${grant.description ? ` Description: ${grant.description}.` : ""}${grant.objectives ? ` Objectives: ${grant.objectives}.` : ""}${grant.applicantTypes?.length ? ` Applicant types: ${grant.applicantTypes.join(", ")}.` : ""} Sectors: ${(grant.sectors ?? []).join(", ")}. Regions: ${(grant.regions ?? []).join(", ")}.
 
 Return ONLY valid JSON. No markdown. Use this exact shape:
 {
@@ -163,6 +165,7 @@ Rules:
 - When an incorporation date is supplied, use it to check company age; do not report year established as missing merely because the legacy year field is empty. Incorporation and trading start dates are separate facts.
 - If revenue, employee count, or year established is missing and the grant explicitly depends on it, do not recommend as high fit; mark it review and call out the missing profile data.
 - Do not penalise missing revenue, employee count, or company age when the grant text does not state a measurable threshold or clearly depend on that fact.
+- Compare the proposed project against ALL supplied scope, exclusions, themes, TRL, cost, contribution, duration, subcontracting and deliverable requirements. Using existing third-party AI is not evidence of novel AI development. If critical project evidence is missing, return review and list it rather than inferring compliance from UK SME status or AI sector alone.
 - Do not invent revenue, employee-count, company-age, traction, or investment-readiness criteria that are not stated in the current grant. Missing profile data can be an advisory note only when useful, not a scoring blocker.
 - reasons: 3-5 short bullets. For high score explain why they're eligible; for low/medium explain what doesn't match or is missing.
 - alignment: only when score >= 70, 2-4 bullets on how this grant fits their business.

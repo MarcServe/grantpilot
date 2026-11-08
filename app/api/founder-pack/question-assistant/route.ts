@@ -1,3 +1,4 @@
+import { loadReviewedGrantDocuments, appendPublishedRequirements } from "@/lib/reviewed-grant-context";
 import { loadFounderPackDraftContext } from "@/lib/founder-pack-vault";
 import { NextResponse } from "next/server";
 import { questionAssistantRequestSchema } from "@/lib/validations/question-assistant";
@@ -155,6 +156,9 @@ export async function POST(req: Request): Promise<NextResponse> {
       ? grantContext.trim().slice(0, MAX_FOUNDER_PACK_GRANT_CONTEXT_CHARS)
       : undefined;
 
+    const reviewed = await loadReviewedGrantDocuments(supabase, [...eligibleGrantIds, ...applicationRows.map((row) => String(row.grantId ?? row.grant_id ?? ""))].filter(Boolean));
+    const groundedContext = appendPublishedRequirements(trimmedGrantContext, reviewed.documents);
+
     const vaultDraftContext = await loadFounderPackDraftContext(supabase, orgId, profileId);
     const result = await generateFounderPackQuestionAnswers(
       profile as Record<string, unknown>,
@@ -164,7 +168,7 @@ export async function POST(req: Request): Promise<NextResponse> {
         existingAnswer: parsed.data.existingAnswer?.trim() || undefined,
         pastedGrantContext: parsed.data.pastedGrantContext?.trim() || undefined,
       },
-      `${trimmedGrantContext ?? ""}${vaultDraftContext}`
+      `${groundedContext}${vaultDraftContext}`
     );
 
     if (usingFreeQuestionPreview) {

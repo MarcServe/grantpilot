@@ -1,3 +1,4 @@
+import { profileProjectEvidence } from "@/lib/profile-project-evidence";
 import { createHash } from "crypto";
 import type { EligibilityResult } from "@/lib/claude";
 import { eligibilityFactsToText, normalizeEligibilityFacts } from "@/lib/eligibility-facts";
@@ -69,6 +70,7 @@ function profileField(profile: ProfileLike, camelKey: string, snakeKey?: string)
 
 function normalizedProfile(profile: ProfileLike) {
   return {
+    projectEvidenceHash: sha256(profile.projectEvidence ?? profileProjectEvidence(profile)),
     businessName: compactText(profileField(profile, "businessName", "business_name"), 240).toLowerCase(),
     sector: compactText(profileField(profile, "sector"), 240).toLowerCase(),
     missionStatement: compactText(profileField(profile, "missionStatement", "mission_statement"), 1200),
@@ -112,6 +114,7 @@ function normalizedGrant(grant: GrantLike) {
     funder: compactText(grant.funder, 240).toLowerCase(),
     amount: numberOrNull(grant.amount),
     eligibility: compactText(grant.eligibility, 2600),
+    fullContentHash: sha256([grant.eligibility ?? "", grant.description ?? "", grant.objectives ?? ""]),
     description: compactText(grant.description, 2600),
     objectives: compactText(grant.objectives, 1200),
     applicantTypes: stringArray(grant.applicantTypes),

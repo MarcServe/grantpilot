@@ -277,6 +277,13 @@ export function EligibilityCard({
     }
   }, [grantId, router]);
 
+  useEffect(() => {
+    const reviewed = (event: Event) => {
+      if ((event as CustomEvent<{ grantId: string }>).detail?.grantId === grantId) void handleCheck(true);
+    };
+    window.addEventListener("grant:source-reviewed", reviewed);
+    return () => window.removeEventListener("grant:source-reviewed", reviewed);
+  }, [grantId, handleCheck]);
   const autoChecked = useRef(false);
   useEffect(() => {
     if (initialResult?.assessmentRefreshPending && !autoChecked.current) {
@@ -292,7 +299,7 @@ export function EligibilityCard({
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-sm font-medium">
           <Scale className="h-4 w-4" />
-          Eligibility confidence
+          AI fit estimate
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -316,7 +323,7 @@ export function EligibilityCard({
           <>
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-base font-semibold">
-                Eligibility confidence: {score}%
+                AI fit estimate: {score}%
               </span>
               <Badge variant={result.scoringSource === "heuristic" ? "outline" : "secondary"}>
                 {result.scoringSource === "heuristic" ? "Preliminary fit" : "Company-DNA AI scored"}
@@ -343,6 +350,7 @@ export function EligibilityCard({
                 {result.decision.replace(/_/g, " ")}
               </Badge>
             </div>
+            <p className="rounded-md border border-blue-100 bg-blue-50 p-3 text-xs text-blue-950">This estimate is not confirmed eligibility or an award probability. Review the published requirements above, especially project scope, exclusions and missing evidence.</p>
             {result.assessmentRefreshPending && <p role="status" className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">Your saved profile information is connected. {loading ? "Rechecking this grant against your updated Business DNA…" : "The previous score is shown until reassessment completes. Use Re-check eligibility to retry."}</p>}
             <p className="text-sm leading-relaxed">{result.summary ?? result.reason}</p>
             {(result.met?.length || result.missing?.length) ? (

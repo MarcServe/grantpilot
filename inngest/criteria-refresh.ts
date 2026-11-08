@@ -1,3 +1,4 @@
+import { loadReviewedGrantDocuments, publishedRequirementsText, guardPublishedAssessment } from "@/lib/reviewed-grant-context";
 import { loadCriteria } from "@/lib/criteria-store";
 import { criteriaEnabled } from "@/lib/criteria-flags";
 import { recordUsage } from "@/lib/plan-check";
@@ -95,15 +96,18 @@ export const criteriaRefreshRequested = inngest.createFunction(
             });
             if (saved.error) throw new Error(saved.error.message);
           }
-          const result = await getEligibilityDecision(
+          const reviewed = await loadReviewedGrantDocuments(db, [grantId]);
+          const source = reviewed.documents.get(grantId);
+          const scored = await getEligibilityDecision(
             profileToMatching(profile),
             {
               ...g.data,
               sectors: g.data.sectors ?? [],
               regions: g.data.regions ?? [],
-              eligibility: g.data.eligibility ?? "",
+              eligibility: [g.data.eligibility, source ? publishedRequirementsText(source) : ""].filter(Boolean).join("\n\n"),
             },
           );
+          const result = source ? guardPublishedAssessment(scored, source, profile) : scored;
           const saved = await db.from("EligibilityAssessment").upsert(
             {
               organisation_id: run.organisation_id,

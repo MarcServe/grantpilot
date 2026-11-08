@@ -1,3 +1,4 @@
+import { loadReviewedGrantDocuments, publishedRequirementsText, guardPublishedAssessment } from "@/lib/reviewed-grant-context";
 import { reconcileEligibilityDisplay } from "@/lib/resolved-profile-blockers";
 import { criteriaEnabled } from "@/lib/criteria-flags";
 import { getProfileMatches } from "@/lib/profile-matches";
@@ -79,6 +80,8 @@ export async function GET(
       return NextResponse.json({ error: "Grant not found" }, { status: 404 });
     }
 
+    const reviewed = await loadReviewedGrantDocuments(supabase, [grantId]);
+    const reviewedDocument = reviewed.documents.get(grantId);
     const g = grant as {
       id: string;
       name: string;
@@ -229,9 +232,10 @@ export async function GET(
           }),
           deriveOutcomeLearningAdvisory(outcomeRows ?? []),
         ));
-        const cachedScore = cachedResult.score ?? cachedResult.confidence;
+        const sourceGuarded = reviewedDocument ? guardPublishedAssessment(cachedResult, reviewedDocument, profile as Record<string, unknown>) : cachedResult;
+        const cachedScore = sourceGuarded.score ?? sourceGuarded.confidence;
         return NextResponse.json({
-          ...cachedResult,
+          ...sourceGuarded,
           confidenceBand: getConfidenceBand(cachedScore),
           scoringSource,
         });
@@ -257,7 +261,7 @@ export async function GET(
         name: g.name,
         funder: g.funder,
         amount: g.amount,
-        eligibility: g.eligibility,
+        eligibility: reviewedDocument ? `${g.eligibility}\n\n${publishedRequirementsText(reviewedDocument)}` : g.eligibility,
         description: g.description ?? null,
         objectives: g.objectives ?? null,
         applicantTypes: g.applicantTypes ?? [],
@@ -266,10 +270,8 @@ export async function GET(
       },
       { bypassCache: !useCache },
     );
-    const adjustedResult = applyOutcomeScoreAdjustment(
-      result,
-      deriveOutcomeLearningAdvisory(outcomeRows ?? []),
-    );
+    const outcomeResult = applyOutcomeScoreAdjustment(result, deriveOutcomeLearningAdvisory(outcomeRows ?? []));
+    const adjustedResult = reviewedDocument ? guardPublishedAssessment(outcomeResult, reviewedDocument, profile as Record<string, unknown>) : outcomeResult;
 
     const score = adjustedResult.score ?? adjustedResult.confidence;
     await supabase.from("EligibilityAssessment").upsert(

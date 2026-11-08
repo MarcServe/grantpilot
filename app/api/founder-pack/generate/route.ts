@@ -1,3 +1,4 @@
+import { loadReviewedGrantDocuments, appendPublishedRequirements } from "@/lib/reviewed-grant-context";
 import { loadFounderPackLabels } from "@/lib/founder-pack-labels";
 import { loadFounderPackDraftContext } from "@/lib/founder-pack-vault";
 import { NextResponse } from "next/server";
@@ -164,8 +165,11 @@ export async function POST(req: Request): Promise<NextResponse> {
       ? grantContext.trim().slice(0, MAX_FOUNDER_PACK_GRANT_CONTEXT_CHARS)
       : undefined;
 
+    const reviewed = await loadReviewedGrantDocuments(supabase, [...uniqueEligGrantIds, ...applicationRows.map((row) => String(row.grantId ?? row.grant_id ?? ""))].filter(Boolean));
+    const groundedContext = appendPublishedRequirements(trimmedCtx, reviewed.documents);
+
     const vaultDraftContext = await loadFounderPackDraftContext(supabase, orgId, inputs.profileId);
-    const content = await generateFounderPack(profile as Record<string, unknown>, inputs, `${trimmedCtx ?? ""}${vaultDraftContext}`);
+    const content = await generateFounderPack(profile as Record<string, unknown>, inputs, `${groundedContext}${vaultDraftContext}`);
     const { data: pack, error: insertError } = await supabase
       .from("FounderFundingPack")
       .insert({

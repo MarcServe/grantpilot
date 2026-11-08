@@ -1,3 +1,5 @@
+import { GrantSourceReview } from "@/components/grants/grant-source-review";
+import { loadReviewedGrantDocuments, guardPublishedAssessment } from "@/lib/reviewed-grant-context";
 import { reconcileEligibilityDisplay } from "@/lib/resolved-profile-blockers";
 import { profileHashForEligibility } from "@/lib/eligibility-ai-cache";
 import { profileForEligibilityGuards } from "@/lib/eligibility-final-score";
@@ -303,6 +305,15 @@ export default async function GrantDetailPage({
     }
   }
 
+  if (!criteriaEnabled() && initialEligibilityResult && profile) {
+    const reviewed = await loadReviewedGrantDocuments(supabase, [grant.id]);
+    const doc = reviewed.documents.get(grant.id);
+    if (doc) {
+      const guarded = guardPublishedAssessment(initialEligibilityResult, doc, profile as Record<string, unknown>);
+      eligibilityScore = guarded.score ?? guarded.confidence;
+      initialEligibilityResult = { ...initialEligibilityResult, ...guarded, score: eligibilityScore, confidenceBand: getConfidenceBand(eligibilityScore) };
+    }
+  }
   const urgency = computeUrgency(grant.deadline ?? null);
   if (!freshness.usable) {
     eligibilityScore = 0;
@@ -733,12 +744,15 @@ export default async function GrantDetailPage({
                   <PreparationChecklist grantId={grant.id} />
                 </>
               ) : (
+                <>
+                <GrantSourceReview grantId={grant.id} />
                 <EligibilityCard key={`${grant.id}:${profileId}:${profileHashForEligibility(profile as Record<string, unknown>)}`}
                   grantId={grant.id}
                   applicationId={existingApplication?.id}
                   grantAutoImproveEnabled={grantAutoImproveEnabled}
                   initialResult={initialEligibilityResult}
                 />
+                </>
               )}
             </>
           )}

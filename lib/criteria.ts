@@ -52,6 +52,8 @@ export type CriteriaDocument = {
   sourceUrl: string;
   extractedAt: string;
   coverage: "complete" | "partial" | "unavailable";
+  sourceText?: string;
+  unreviewedLinks?: string[];
   criteria: Criterion[];
   objectives: string[];
   workload: {
@@ -59,6 +61,7 @@ export type CriteriaDocument = {
     label: string;
     kind: "question" | "document" | "budget";
     excerpt: string;
+    wordLimit?: number;
   }[];
   terms: { label: string; value: string; excerpt: string }[];
   error?: string;

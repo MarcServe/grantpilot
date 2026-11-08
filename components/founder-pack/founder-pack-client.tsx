@@ -834,6 +834,8 @@ export function FounderPackClient({
   questionPreviewAvailable,
   initialGrantId,
   initialRequirements = "",
+  initialQuestions = [],
+  initialRequirementId,
   initialApplicationId,
   assistantOnly = false,
 }: {
@@ -846,6 +848,8 @@ export function FounderPackClient({
   questionPreviewAvailable: boolean;
   initialGrantId?: string;
   initialRequirements?: string;
+  initialRequirementId?: string;
+  initialQuestions?: { question: string; wordLimit?: number }[];
   initialApplicationId?: string;
 }) {
   const router = useRouter();
@@ -886,8 +890,8 @@ export function FounderPackClient({
   const [questionAssistantMode, setQuestionAssistantMode] = useState<
     "draft_answer" | "evidence_check" | "improve_existing_answer"
   >("draft_answer");
-  const [questionLayout, setQuestionLayout] = useState<QuestionLayout>("auto");
-  const [questionAssistantText, setQuestionAssistantText] = useState("");
+  const [questionLayout, setQuestionLayout] = useState<QuestionLayout>(initialQuestions.length ? "paragraphs" : "auto");
+  const [questionAssistantText, setQuestionAssistantText] = useState(initialQuestions.map((item) => item.question).join("\n\n---\n\n"));
   const [questionAssistantGuidance, setQuestionAssistantGuidance] =
     useState("");
   const [questionAssistantWordLimit, setQuestionAssistantWordLimit] =
@@ -905,7 +909,7 @@ export function FounderPackClient({
   const [freeQuestionPreviewAvailable, setFreeQuestionPreviewAvailable] =
     useState(questionPreviewAvailable);
 
-  const draftKey = `grantpilot.application-pack-draft.v1:${initialProfile?.id ?? "none"}`;
+  const draftKey = `grantpilot.application-pack-draft.v1:${initialProfile?.id ?? "none"}:${initialGrantId ?? initialApplicationId ?? "generic"}:${initialRequirementId ?? "all"}`;
   useEffect(() => {
     try {
       const raw = window.sessionStorage.getItem(draftKey);
@@ -1152,7 +1156,7 @@ export function FounderPackClient({
       selectedEligibleGrantIds: form.selectedEligibleGrantIds?.length ? form.selectedEligibleGrantIds : undefined,
       pastedGrantContext: form.grantRequirementsNotes?.trim() || undefined,
       questions: reviewedQuestions.map((question, index) => ({ questionId: `q${index + 1}`, question,
-        wordLimit: questionAssistantWordLimit.trim() ? Number(questionAssistantWordLimit) : undefined,
+        wordLimit: initialQuestions.find((item) => item.question === question)?.wordLimit ?? (questionAssistantWordLimit.trim() ? Number(questionAssistantWordLimit) : undefined),
         guidance: questionAssistantGuidance.trim() || undefined })),
       outputMode: questionAssistantMode,
       existingAnswer: questionAssistantExistingAnswer.trim() || undefined,
@@ -1414,6 +1418,7 @@ export function FounderPackClient({
         </div>
       </div>
 
+      {initialQuestions.length > 0 && <p className="rounded-md border border-blue-200 bg-white p-3 text-sm">Published prompts loaded from the reviewed grant source. Each stated word limit is applied to its question. Review scope and evidence before using drafts.</p>}
       <QuestionReview text={questionAssistantText} layout={questionLayout} disabled={questionAssistantLoading}
         onTextChange={setQuestionAssistantText} onLayoutChange={setQuestionLayout} />
       <div className="space-y-2">

@@ -1,5 +1,5 @@
+import { loadReviewedGrantDocuments } from "@/lib/reviewed-grant-context";
 import { loadFounderPackLabels } from "@/lib/founder-pack-labels";
-import { loadCriteria } from "@/lib/criteria-store";
 import { criteriaEnabled } from "@/lib/criteria-flags";
 import { PreparationChecklist } from "@/components/grants/preparation-checklist";
 import { getActiveOrg } from "@/lib/auth";
@@ -113,6 +113,7 @@ export default async function FounderPackPage({
     grantId?: string;
     applicationId?: string;
     workspace?: string;
+    requirementId?: string;
   }>;
 }) {
   const params = await searchParams;
@@ -280,11 +281,11 @@ export default async function FounderPackPage({
     };
   });
 
-  const criteriaContext =
-    criteriaEnabled() && initialGrantId && activeProfileId
-      ? await loadCriteria(orgId, activeProfileId, [initialGrantId])
-      : null;
-  const criterionDoc = criteriaContext?.documents.get(initialGrantId);
+  const reviewed = initialGrantId ? await loadReviewedGrantDocuments(supabase, [initialGrantId]) : null;
+  const criterionDoc = reviewed?.documents.get(initialGrantId);
+  const chosenRequirement = params?.requirementId ? criterionDoc?.workload.find((item) => item.id === params.requirementId) : null;
+  const initialQuestions = (chosenRequirement ? [chosenRequirement] : criterionDoc?.workload.filter((item) => item.kind === "question") ?? [])
+    .map((item) => ({ question: `${item.label}\n${item.excerpt}${item.kind !== "question" ? "\nDraft a document outline and an evidence collection plan for this requirement. Clearly mark facts, technical work and results that the applicant must supply; do not invent completed work or evidence." : ""}`, wordLimit: item.wordLimit }));
   const initialRequirements = criterionDoc
     ? [
         `Published source: ${criterionDoc.sourceUrl}`,
@@ -313,6 +314,7 @@ export default async function FounderPackPage({
         <PreparationChecklist grantId={initialGrantId} />
       )}
       <FounderPackClient
+        key={`${activeProfileId}:${initialGrantId}:${params?.requirementId ?? "all"}`}
         assistantOnly={assistantOnly}
         profiles={profileRows}
         applications={applicationRows}
@@ -321,6 +323,8 @@ export default async function FounderPackPage({
         allowed={allowed}
         questionPreviewAvailable={questionPreviewAvailable}
         initialRequirements={initialRequirements}
+        initialRequirementId={params?.requirementId}
+        initialQuestions={assistantOnly ? initialQuestions : []}
         initialGrantId={initialGrantId || undefined}
         initialApplicationId={initialApplicationId || undefined}
       />

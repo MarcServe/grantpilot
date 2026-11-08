@@ -28,6 +28,7 @@
     "video:render": "remotion render GrantsCopilotLaunch out/grantscopilot-launch.mp4 --concurrency=1",
     "video:poster": "remotion still GrantsCopilotPoster out/grantscopilot-poster.png",
     "video:voiceover": "node scripts/generate-grantscopilot-voiceover.mjs",
+    "test:reviewed-grant": "tsx scripts/test-reviewed-grant-context.ts",
     "test:criteria": "tsx scripts/test-criteria.ts",
     "test:criteria-portfolio": "tsx scripts/test-criteria-portfolio.ts",
     "test:question-assistant": "tsx scripts/test-question-assistant-inputs.ts && tsx scripts/test-question-assistant-batches.ts"
