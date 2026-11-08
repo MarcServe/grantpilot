@@ -836,6 +836,8 @@ export function FounderPackClient({
   initialRequirements = "",
   initialQuestions = [],
   initialRequirementId,
+  initialDraftMode = "draft_answer",
+  initialDraftTitle = "Application documents",
   initialApplicationId,
   assistantOnly = false,
 }: {
@@ -849,6 +851,8 @@ export function FounderPackClient({
   initialGrantId?: string;
   initialRequirements?: string;
   initialRequirementId?: string;
+  initialDraftMode?: "draft_answer" | "document_draft";
+  initialDraftTitle?: string;
   initialQuestions?: { question: string; wordLimit?: number }[];
   initialApplicationId?: string;
 }) {
@@ -889,8 +893,8 @@ export function FounderPackClient({
   });
   const [questionAssistantMode, setQuestionAssistantMode] = useState<
     "draft_answer" | "evidence_check" | "improve_existing_answer" | "document_draft"
-  >("draft_answer");
-  const [draftTitle, setDraftTitle] = useState("Application documents");
+  >(initialDraftMode);
+  const [draftTitle, setDraftTitle] = useState(initialDraftTitle);
   const [savingDraft, setSavingDraft] = useState(false);
   const [savedDraftId, setSavedDraftId] = useState<string | null>(null);
   const [saveDraftError, setSaveDraftError] = useState("");
@@ -1442,7 +1446,7 @@ export function FounderPackClient({
       </div>
 
       {questionAssistantMode === "document_draft" && <div className="rounded-md border bg-white p-3 text-sm">Name each document and paste its requirements below, or import a screenshot. Examples: technical whitepaper, validation plan, benchmark matrix, architecture appendix, IP plan or CV draft. Put --- between documents. Include word/page limits and your evidence in the guidance. Drafts cannot replace measured results, signatures, certifications or a working prototype. Check final PDF page count and file size against the funder’s limits.</div>}
-      {initialQuestions.length > 0 && <p className="rounded-md border border-blue-200 bg-white p-3 text-sm">Published prompts loaded from the reviewed grant source. Each stated word limit is applied to its question. Review scope and evidence before using drafts.</p>}
+      {initialQuestions.length > 0 && <p className="rounded-md border border-blue-200 bg-white p-3 text-sm">Published questions and requirement-based drafting prompts are loaded for this grant. Each stated word limit is applied to its question. Requirement responses are preparation prompts; confirm them against the funder form. Drafts use the selected business profile and the full reviewed guidance.</p>}
       <QuestionReview text={questionAssistantText} layout={questionLayout} disabled={questionAssistantLoading}
         onTextChange={setQuestionAssistantText} onLayoutChange={setQuestionLayout} />
       <div className="space-y-2">

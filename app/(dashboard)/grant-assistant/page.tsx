@@ -2,7 +2,7 @@ import FounderPackPage from "../founder-pack/page";
 export default async function GrantAssistantPage({
   searchParams,
 }: {
-  searchParams: Promise<{ grantId?: string; applicationId?: string; requirementId?: string }>;
+  searchParams: Promise<{ grantId?: string; applicationId?: string; requirementId?: string; criterionId?: string; prepare?: string; draftKind?: string }>;
 }) {
   return FounderPackPage({
     searchParams: Promise.resolve({

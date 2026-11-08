@@ -1,0 +1,18 @@
+import assert from "node:assert/strict";
+import { grantPreparationPrompts } from "../lib/grant-preparation-prompts";
+import { generateFounderPackQuestionAnswers } from "../lib/founder-pack";
+import { appendPublishedRequirements } from "../lib/reviewed-grant-context";
+import type { CriteriaDocument } from "../lib/criteria";
+const doc:CriteriaDocument={version:1,sourceVersion:"s1",sourceUrl:"https://example.org/grant",extractedAt:new Date().toISOString(),coverage:"partial",sourceText:"Published rule: novel AI with measured validation. Full end-of-page requirements.",criteria:[{id:"scope",label:"Demonstrate technical novelty",category:"project",mandatory:true,field:null,operator:"confirm",expected:null,alternativeGroup:null,excerpt:"Novel AI with measured validation.",question:"What actual evidence supports novelty?"}],workload:[{id:"q9",label:"Question 9",kind:"question",excerpt:"Describe technical development and benchmarks.",wordLimit:800},{id:"whitepaper",label:"Technical whitepaper",kind:"document",excerpt:"Provide a technical whitepaper with actual validation results."}],terms:[],objectives:[]};
+async function main(){
+ const answer=grantPreparationPrompts(doc,{criterionId:"scope"});assert.equal(answer.questions.length,1);assert.match(answer.questions[0].question,/Novel AI with measured validation/);assert.match(answer.questions[0].question,/unverified condition/);assert.equal(answer.mode,"draft_answer");
+ const document=grantPreparationPrompts(doc,{criterionId:"scope",draftKind:"document"});assert.equal(document.mode,"document_draft");assert.match(document.questions[0].question,/supporting document or evidence plan/);assert.match(document.questions[0].question,/Do not invent/);
+ const workload=grantPreparationPrompts(doc,{requirementId:"whitepaper"});assert.equal(workload.mode,"document_draft");assert.equal(workload.title,"Technical whitepaper");
+ const all=grantPreparationPrompts(doc,{prepare:"documents"});assert.equal(all.questions.length,1);assert.match(all.questions[0].question,/technical whitepaper/);
+ const questions=grantPreparationPrompts(doc,{});assert.equal(questions.questions[0].wordLimit,800);
+ assert.equal(grantPreparationPrompts(doc,{criterionId:"expired"}).questions.length,0);assert.ok(grantPreparationPrompts(doc,{criterionId:"expired"}).error);
+ assert.ok(grantPreparationPrompts(undefined,{criterionId:"scope"}).error);
+ assert.equal(grantPreparationPrompts({...doc,workload:[]},{prepare:"documents"}).questions.length,1,"criteria become evidence plans when no document list was extracted");
+ await generateFounderPackQuestionAnswers({businessName:"Biz fixture",description:"Confirmed analytics product",teamExpertise:"Confirmed engineering team"},{outputMode:document.mode,questions:document.questions},appendPublishedRequirements("Selected grant context",new Map([["g1",doc]])),async(prompt)=>{assert.match(prompt,/Confirmed analytics product/);assert.match(prompt,/Confirmed engineering team/);assert.match(prompt,/Full end-of-page requirements/);assert.match(prompt,/What actual evidence supports novelty/);assert.match(prompt,/Never invent experiments/);return JSON.stringify({answers:[{questionId:"q1",question:document.questions[0].question,draftAnswer:"Validation plan for the confirmed analytics product. Results: [TO CONFIRM].",confidence:"low",evidenceStrength:"weak",missingEvidence:["Measured results"],suggestedProfileUpdates:[],warnings:[],rationale:"Uses confirmed business context"}]});});
+ console.log("Requirement answers, custom document mode, per-question limits, stale links, fallback evidence plans and profile/source-grounded generation passed");
+}main().catch(e=>{console.error(e);process.exitCode=1});

@@ -1,3 +1,4 @@
+import { grantPreparationPrompts } from "@/lib/grant-preparation-prompts";
 import { loadReviewedGrantDocuments } from "@/lib/reviewed-grant-context";
 import { loadFounderPackLabels } from "@/lib/founder-pack-labels";
 import { criteriaEnabled } from "@/lib/criteria-flags";
@@ -114,6 +115,9 @@ export default async function FounderPackPage({
     applicationId?: string;
     workspace?: string;
     requirementId?: string;
+    criterionId?: string;
+    prepare?: string;
+    draftKind?: string;
   }>;
 }) {
   const params = await searchParams;
@@ -283,16 +287,12 @@ export default async function FounderPackPage({
 
   const reviewed = initialGrantId ? await loadReviewedGrantDocuments(supabase, [initialGrantId]) : null;
   const criterionDoc = reviewed?.documents.get(initialGrantId);
-  const chosenRequirement = params?.requirementId ? criterionDoc?.workload.find((item) => item.id === params.requirementId) : null;
-  const initialQuestions = (chosenRequirement ? [chosenRequirement] : criterionDoc?.workload.filter((item) => item.kind === "question") ?? [])
-    .map((item) => ({ question: `${item.label}\n${item.excerpt}${item.kind !== "question" ? "\nDraft a document outline and an evidence collection plan for this requirement. Clearly mark facts, technical work and results that the applicant must supply; do not invent completed work or evidence." : ""}`, wordLimit: item.wordLimit }));
-  const initialRequirements = criterionDoc
-    ? [
-        `Published source: ${criterionDoc.sourceUrl}`,
-        ...criterionDoc.criteria.map((c) => `Eligibility: ${c.label}`),
-        ...criterionDoc.workload.map((w) => `${w.kind}: ${w.label}`),
-      ].join("\n")
-    : "";
+  const preparation = grantPreparationPrompts(criterionDoc, params ?? {});
+  const initialQuestions = preparation.questions;
+  const initialRequirements = criterionDoc ? `Published source: ${criterionDoc.sourceUrl}
+Review coverage: ${criterionDoc.coverage}. Use the full reviewed guidance supplied by the server together with the selected business profile. Requirements needing evidence are not confirmed facts.` : "";
+  const preparationKey = params?.criterionId ? `criterion:${params.criterionId}:${preparation.mode}` : params?.requirementId ?? (params?.prepare ? `${params.prepare}:${preparation.mode}` : "all");
+
   return (
     <div className="mx-auto w-full max-w-7xl space-y-6 px-0 sm:px-2">
       <div className="rounded-2xl bg-white p-5 shadow-[0_18px_45px_rgba(7,26,58,0.07)] sm:p-6">
@@ -313,8 +313,9 @@ export default async function FounderPackPage({
       {initialGrantId && criteriaEnabled() && (
         <PreparationChecklist grantId={initialGrantId} />
       )}
+      {preparation.error && <p role="alert" className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm">{preparation.error}</p>}
       <FounderPackClient
-        key={`${activeProfileId}:${initialGrantId}:${params?.requirementId ?? "all"}`}
+        key={`${activeProfileId}:${initialGrantId}:${preparationKey}`}
         assistantOnly={assistantOnly}
         profiles={profileRows}
         applications={applicationRows}
@@ -323,7 +324,9 @@ export default async function FounderPackPage({
         allowed={allowed}
         questionPreviewAvailable={questionPreviewAvailable}
         initialRequirements={initialRequirements}
-        initialRequirementId={params?.requirementId}
+        initialRequirementId={preparationKey}
+        initialDraftMode={assistantOnly ? preparation.mode : "draft_answer"}
+        initialDraftTitle={preparation.title}
         initialQuestions={assistantOnly ? initialQuestions : []}
         initialGrantId={initialGrantId || undefined}
         initialApplicationId={initialApplicationId || undefined}

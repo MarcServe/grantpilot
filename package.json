@@ -32,6 +32,7 @@
     "test:website-refresh": "tsx scripts/test-website-refresh.ts",
     "test:grant-source-links": "tsx scripts/test-grant-source-links.ts",
     "test:image-document-drafts": "tsx scripts/test-image-document-drafts.ts",
+    "test:grant-preparation": "tsx scripts/test-grant-preparation-prompts.ts",
     "test:criteria-extraction-recovery": "tsx scripts/test-criteria-extraction-recovery.ts",
     "test:reviewed-grant": "tsx scripts/test-reviewed-grant-context.ts",
     "test:criteria": "tsx scripts/test-criteria.ts",

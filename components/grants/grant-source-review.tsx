@@ -55,17 +55,19 @@ export function GrantSourceReview({ grantId }: { grantId: string }) {
         <ul className="mt-2 space-y-2">{doc.criteria.map((criterion) => <li key={criterion.id} className="rounded-md border bg-white p-3 text-sm">
           <strong>{criterion.label}</strong> · {data.assessment?.criteria.find((item) => item.id === criterion.id)?.status.replace(/_/g, " ") ?? "Needs review"}
           <blockquote className="mt-1 border-l-2 border-blue-200 pl-2 text-xs text-slate-700">{criterion.excerpt}</blockquote>
+          <div className="mt-2 flex flex-wrap gap-2"><Button asChild size="sm" variant="outline" className="h-auto whitespace-normal"><Link href={`/grant-assistant?grantId=${encodeURIComponent(grantId)}&criterionId=${encodeURIComponent(criterion.id)}`}>Draft response for this requirement</Link></Button><Button asChild size="sm" variant="outline" className="h-auto whitespace-normal"><Link href={`/grant-assistant?grantId=${encodeURIComponent(grantId)}&criterionId=${encodeURIComponent(criterion.id)}&draftKind=document`}>Create supporting draft or evidence plan</Link></Button></div>
         </li>)}</ul>
       </details>}
       <details><summary className="cursor-pointer font-semibold">Application questions and deliverables ({doc.workload.length})</summary>
         <ul className="mt-2 space-y-2">{doc.workload.map((item) => <li key={item.id} className="space-y-2 rounded-md border bg-white p-3 text-sm">
           <p className="font-semibold">{item.label}{item.wordLimit ? ` · ${item.wordLimit} words maximum` : ""}</p>
           <p className="whitespace-pre-wrap text-xs">{item.excerpt}</p>
-          <Button asChild size="sm" variant="outline" className="h-auto whitespace-normal"><Link href={`/grant-assistant?grantId=${encodeURIComponent(grantId)}&requirementId=${encodeURIComponent(item.id)}`}>{item.kind === "question" ? "Draft this answer" : "Draft an outline and evidence plan"}</Link></Button>
+          <Button asChild size="sm" variant="outline" className="h-auto whitespace-normal"><Link href={`/grant-assistant?grantId=${encodeURIComponent(grantId)}&requirementId=${encodeURIComponent(item.id)}`}>{item.kind === "question" ? "Draft this answer" : "Create this document draft"}</Link></Button>
         </li>)}</ul>
       </details>
       <p className="text-xs text-slate-700">The assistant can draft answers, plans and document outlines. Prototypes, benchmark results, CV facts, IP rights and confirmed funding need actual evidence; generated text does not satisfy them by itself.</p>
       <div className="flex flex-wrap gap-2"><Button asChild className="h-auto whitespace-normal"><Link href={`/grant-assistant?grantId=${encodeURIComponent(grantId)}`}>{doc.workload.some(item => item.kind === "question") ? "Draft the published application questions" : "Open assistant with this source context"}</Link></Button>
+        <Button asChild variant="outline" className="h-auto whitespace-normal"><Link href={`/grant-assistant?grantId=${encodeURIComponent(grantId)}&prepare=documents`}>Draft supporting documents</Link></Button>
         <Button asChild variant="outline"><Link href={`/founder-pack?grantId=${encodeURIComponent(grantId)}`}>Prepare a grant-specific pack</Link></Button></div>
     </>}
   </section>;
