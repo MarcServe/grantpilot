@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart3,
   BriefcaseBusiness,
+  Landmark,
   Database,
   FileText,
   LayoutDashboard,
@@ -30,6 +31,7 @@ import { cn } from "@/lib/utils";
 const primaryNavItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/grants/eligible", label: "Opportunities", icon: BriefcaseBusiness },
+  { href: "/loans/start-up-loans", label: "Start Up Loans", icon: Landmark },
   { href: "/apply-by-link", label: "Apply by link", icon: LinkIcon },
   { href: "/applications", label: "Applications", icon: FileText },
   {

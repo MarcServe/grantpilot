@@ -1,3 +1,4 @@
+import { loadLoanIntakeContext } from "@/lib/start-up-loan-store";
 import { loadExpertAdviceContext } from "@/lib/expert-review-context";
 import { loadReviewedGrantDocuments, appendPublishedRequirements } from "@/lib/reviewed-grant-context";
 import { loadFounderPackDraftContext } from "@/lib/founder-pack-vault";
@@ -22,7 +23,7 @@ function uniqueIds(...groups: Array<string[] | undefined>): string[] {
 
 export async function POST(req: Request): Promise<NextResponse> {
   try {
-    const { org, orgId } = await getActiveOrg();
+    const { org, orgId, user } = await getActiveOrg();
     const body = await req.json().catch(() => ({}));
     const parsed = questionAssistantRequestSchema.safeParse(body);
     if (!parsed.success) {
@@ -159,7 +160,8 @@ export async function POST(req: Request): Promise<NextResponse> {
 
     const reviewed = await loadReviewedGrantDocuments(supabase, [...eligibleGrantIds, ...applicationRows.map((row) => String(row.grantId ?? row.grant_id ?? ""))].filter(Boolean));
     const expertAdvice = await loadExpertAdviceContext(supabase, orgId, profileId, [...eligibleGrantIds, ...applicationRows.map(row => String(row.grantId ?? row.grant_id ?? ""))].filter(Boolean));
-    const groundedContext = appendPublishedRequirements([trimmedGrantContext, expertAdvice].filter(Boolean).join("\n\n"), reviewed.documents);
+    const loanIntake = parsed.data.scheme === "start-up-loans" ? await loadLoanIntakeContext(supabase, orgId, profileId, user.id) : "";
+    const groundedContext = appendPublishedRequirements([trimmedGrantContext, expertAdvice, loanIntake].filter(Boolean).join("\n\n"), reviewed.documents);
 
     const vaultDraftContext = await loadFounderPackDraftContext(supabase, orgId, profileId);
     const result = await generateFounderPackQuestionAnswers(

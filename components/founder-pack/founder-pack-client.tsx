@@ -848,6 +848,7 @@ export function FounderPackClient({
   questionPreviewAvailable,
   initialGrantId,
   initialRequirements = "",
+  initialScheme,
   initialQuestions = [],
   initialRequirementId,
   initialDraftMode = "draft_answer",
@@ -864,6 +865,7 @@ export function FounderPackClient({
   questionPreviewAvailable: boolean;
   initialGrantId?: string;
   initialRequirements?: string;
+  initialScheme?: "start-up-loans";
   initialRequirementId?: string;
   initialDraftMode?: "draft_answer" | "document_draft";
   initialDraftTitle?: string;
@@ -1191,6 +1193,7 @@ export function FounderPackClient({
       toast.error("The free preview supports one reviewed question. Keep one question for your preview, or upgrade for the full list."); return;
     }
     const input: QuestionAssistantRequest = {
+      scheme: initialScheme,
       profileId: form.profileId,
       selectedApplicationIds: form.selectedApplicationIds?.length ? form.selectedApplicationIds : undefined,
       selectedEligibleGrantIds: form.selectedEligibleGrantIds?.length ? form.selectedEligibleGrantIds : undefined,

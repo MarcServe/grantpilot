@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 const protectedPaths = [
   "/dashboard",
+  "/loans",
   "/profile",
   "/grants",
   "/applications",
@@ -20,7 +21,7 @@ const protectedPaths = [
 
 export async function middleware(request: NextRequest) {
   // Public marketing content does not need a network authentication check.
-  if (["/", "/privacy", "/terms", "/refund"].includes(request.nextUrl.pathname)) {
+  if (["/", "/privacy", "/terms", "/refund", "/start-up-loans"].includes(request.nextUrl.pathname)) {
     return NextResponse.next({ request });
   }
   let supabaseResponse = NextResponse.next({ request });

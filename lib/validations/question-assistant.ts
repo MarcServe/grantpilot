@@ -4,6 +4,7 @@ export const QUESTION_MAX_CHARS = 12_000;
 export const QUESTION_BATCH_SIZE = 2;
 export type QuestionLayout = "auto" | "paragraphs" | "lines";
 export const questionAssistantRequestSchema = z.object({
+  scheme: z.literal("start-up-loans").optional(),
   profileId: z.string().min(1, "Choose a business profile first."),
   applicationId: z.string().min(1).optional(),
   eligibleGrantId: z.string().min(1).optional(),
@@ -19,6 +20,7 @@ export const questionAssistantRequestSchema = z.object({
   outputMode: z.enum(["draft_answer", "evidence_check", "improve_existing_answer", "document_draft"]).optional(),
   existingAnswer: z.string().max(12_000, "Your existing answer must be 12,000 characters or fewer.").optional(),
 }).superRefine((data, ctx) => {
+  if (data.scheme && (data.applicationId || data.eligibleGrantId || data.selectedApplicationIds?.length || data.selectedEligibleGrantIds?.length)) ctx.addIssue({ code: "custom", path: ["scheme"], message: "For Start Up Loans preparation, deselect grant and application context to keep the loan requirements separate." });
   const ids = data.questions.flatMap((question) => question.questionId ? [question.questionId] : []);
   if (new Set(ids).size !== ids.length) {
     ctx.addIssue({ code: "custom", path: ["questions"], message: "Each question must have a unique identifier." });

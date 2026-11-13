@@ -42,7 +42,8 @@
     "test:question-assistant": "tsx scripts/test-question-assistant-inputs.ts && tsx scripts/test-question-assistant-batches.ts",
     "test:rejection-review": "tsx scripts/test-rejection-review.ts",
     "test:start-up-loans-preparation": "tsx scripts/test-start-up-loans-preparation.ts",
-    "test:expert-grant-review": "tsx scripts/test-expert-grant-review.ts"
+    "test:expert-grant-review": "tsx scripts/test-expert-grant-review.ts",
+    "test:start-up-loan-readiness": "tsx scripts/test-start-up-loan-readiness.ts"
   },
   "dependencies": {
     "@google/genai": "^1.43.0",

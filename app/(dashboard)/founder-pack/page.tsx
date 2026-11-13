@@ -294,7 +294,7 @@ export default async function FounderPackPage({
   const criterionDoc = reviewed?.documents.get(initialGrantId);
   const preparation = loanPreparation ?? grantPreparationPrompts(criterionDoc, params ?? {});
   const initialQuestions = preparation.questions;
-  const initialRequirements = loanPreparation?.context ?? (criterionDoc ? `Published source: ${criterionDoc.sourceUrl}
+  const initialRequirements = loanPreparation ? loanPreparation.context : (criterionDoc ? `Published source: ${criterionDoc.sourceUrl}
 Review coverage: ${criterionDoc.coverage}. Use the full reviewed guidance supplied by the server together with the selected business profile. Requirements needing evidence are not confirmed facts.` : "");
   const preparationKey = loanPreparation ? `loan:start-up-loans:${loanPreparation.key}` : params?.criterionId ? `criterion:${params.criterionId}:${preparation.mode}` : params?.requirementId ?? (params?.prepare ? `${params.prepare}:${preparation.mode}` : "all");
 
@@ -324,6 +324,7 @@ Review coverage: ${criterionDoc.coverage}. Use the full reviewed guidance suppli
       <FounderPackClient
         key={`${activeProfileId}:${initialGrantId}:${preparationKey}`}
         assistantOnly={assistantOnly}
+        initialScheme={loanPreparation ? "start-up-loans" : undefined}
         profiles={profileRows}
         applications={applicationRows}
         eligibleGrants={eligibleGrantRows}

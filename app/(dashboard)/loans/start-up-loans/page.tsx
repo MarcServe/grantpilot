@@ -1,3 +1,5 @@
+import { LoanPlanningResources } from "@/components/loans/loan-planning-resources";
+import { StartUpLoanIntake } from "@/components/loans/start-up-loan-intake";
 import Link from "next/link";
 import { START_UP_LOANS, LOAN_DOCUMENTS } from "@/lib/start-up-loans-preparation";
 
@@ -11,6 +13,8 @@ export default function StartUpLoansPage() {
         <a href={START_UP_LOANS.apply} target="_blank" rel="noopener noreferrer" className="inline-flex rounded-md bg-primary px-4 py-2 font-semibold text-primary-foreground">Open official application form ↗</a>
         <p className="text-sm text-muted-foreground">The official application and lender support are free. GrantsCopilot provides independent preparation tools. Complete and submit the actual form on the lender’s portal.</p>
       </header>
+      <StartUpLoanIntake />
+      <LoanPlanningResources />
       <section className="space-y-3 rounded-xl border bg-card p-5">
         <h2 className="text-lg font-semibold">Who can apply?</h2>
         <ul className="list-disc space-y-2 pl-5">
