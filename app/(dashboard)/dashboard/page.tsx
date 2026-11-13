@@ -1,3 +1,4 @@
+import { compareApplicationPriority, type ApplicationPriority } from "@/lib/application-priority";
 import { criteriaEnabled } from "@/lib/criteria-flags";
 import { getProfileMatchWindow } from "@/lib/profile-matches";
 import type { CriteriaAssessment } from "@/lib/criteria";
@@ -44,6 +45,7 @@ const DASHBOARD_MATCH_HEALTH_LIMIT = 80;
 
 type SupabaseAdmin = ReturnType<typeof getSupabaseAdmin>;
 type DashboardMatchGrant = {
+  applicationPriority?: ApplicationPriority;
   criteriaAssessment?: CriteriaAssessment;
   grantId: string;
   grantName: string;
@@ -708,7 +710,7 @@ async function DashboardMyMatchesStart({
   if (result.error) return <MatchLoadError message={result.error} />;
   const { suggestedGrants, withinReachGrants } = result;
   const allMatches = [...suggestedGrants, ...withinReachGrants];
-  const topGrant = suggestedGrants[0] ?? withinReachGrants[0] ?? null;
+  const topGrant = [...suggestedGrants, ...withinReachGrants].sort(compareApplicationPriority)[0] ?? null;
   const totalValue = summarizeGrantValues(allMatches);
 
   return (
@@ -767,7 +769,7 @@ async function DashboardMyMatchesStart({
           >
             <span className="min-w-0">
               <span className="block text-xs font-black uppercase tracking-[0.08em] text-[#087f59]">
-                Best next grant
+                {topGrant.applicationPriority?.label ?? "Next grant to review"}
               </span>
               <span className="mt-1 block truncate text-base font-black text-[#071a3a]">
                 {topGrant.grantName}

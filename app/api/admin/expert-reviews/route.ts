@@ -1,3 +1,5 @@
+import { revalidatePath } from "next/cache";
+import { clearEligibleMatchCaches } from "@/lib/eligible-match-cache";
 import { NextResponse } from "next/server";
 import { isAdmin } from "@/lib/admin-auth";
 import { getCurrentUser } from "@/lib/auth";
@@ -27,5 +29,9 @@ export async function PATCH(req: Request) {
   const result = await getSupabaseAdmin().from("ExpertGrantReview").update({ ...values, trackRecordVerifiedById: user.id, publishedById: values.status === "completed" ? user.id : null, reviewedAt: values.status === "completed" ? new Date().toISOString() : null, updatedAt: new Date().toISOString() }).eq("id", body.id).eq("updatedAt", expectedUpdatedAt).select(EXPERT_REVIEW_COLUMNS).maybeSingle();
   if (result.error) return NextResponse.json({ error: "Could not save expert review." }, { status: 502, headers });
   if (!result.data) return NextResponse.json({ error: "This request changed. Reload before saving." }, { status: 409, headers });
+  clearEligibleMatchCaches();
+  revalidatePath("/grants/eligible");
+  revalidatePath("/dashboard");
+  revalidatePath(`/applications/${result.data.applicationId}`);
   return NextResponse.json({ review: result.data }, { headers });
 }

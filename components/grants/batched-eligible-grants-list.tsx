@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { compareApplicationPriority } from "@/lib/application-priority";
 import {
   useCallback,
   useEffect,
@@ -424,6 +425,7 @@ export function BatchedEligibleGrantsList({
         if (seen.has(grant.grantId)) return false;
         seen.add(grant.grantId);
         return (
+          grant.applicationPriority?.category === "prioritise_now" &&
           (!grant.criteriaAssessment ||
             (grant.criteriaAssessment.strongEligible && grant.score >= 85)) &&
           grant.scoringSource !== "heuristic" &&
@@ -431,6 +433,8 @@ export function BatchedEligibleGrantsList({
         );
       })
       .sort((a, b) => {
+        const priorityDiff = compareApplicationPriority(a, b);
+        if (priorityDiff !== 0) return priorityDiff;
         const scoreDiff = bestFirstScore(b) - bestFirstScore(a);
         if (scoreDiff !== 0) return scoreDiff;
         const dateA = a.addedAt ? new Date(a.addedAt).getTime() : 0;
@@ -510,6 +514,7 @@ export function BatchedEligibleGrantsList({
 
   return (
     <div className="space-y-4">
+      <p className="text-xs text-muted-foreground">Loaded cards are ordered by application priority, then relevant recorded positive outcomes, with the existing order used for ties. Eligibility scores and tiers are unchanged. Advice is not a funding-success prediction.</p>
       {snapshotChanged && (
         <div role="alert" className="rounded border border-amber-300 p-3">
           Your matches changed while this page was open.{" "}
@@ -659,7 +664,7 @@ function BestFirstSection({
           Best Next Opportunities
         </CardTitle>
         <p className="text-sm font-normal text-muted-foreground">
-          Compare fit, award, effort and deadline at a glance.
+          Compare application priority, fit, award, effort and deadline among loaded opportunities. Priority is advisory; eligibility scores stay separate.
         </p>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -691,7 +696,7 @@ function MatchTierSection({
   onGrantStateChanged: (grant: EligibleGrant, status: GrantUserState) => void;
 }) {
   const meta = TIER_META[tier];
-  const grants = state.grants.filter((grant) => matchesQuery(grant, query));
+  const grants = state.grants.filter((grant) => matchesQuery(grant, query)).sort((a,b) => compareApplicationPriority(a,b));
 
   if (
     state.status === "idle" ||

@@ -1,3 +1,8 @@
+import { correctedGrantSourceUrl } from "@/lib/grant-source-links";
+import { deriveApplicationPriority, APPLICATION_PRIORITY_VERSION } from "@/lib/application-priority";
+import { loadPriorityLearning } from "@/lib/application-priority-store";
+import { loadReviewedGrantDocuments } from "@/lib/reviewed-grant-context";
+import { assessCriteria } from "@/lib/criteria";
 import { grantBlockerAction } from "@/lib/grant-blocker-actions";
 import { reconcileProfileBlockers } from "@/lib/resolved-profile-blockers";
 import { after } from "next/server";
@@ -68,18 +73,17 @@ export async function loadProfileMatches(
     }
     return rows;
   })();
-  const [profileResult, assessments, saved, applied, outcomes] = await Promise.all([
+  const [profileResult, assessments, saved, applied, learning] = await Promise.all([
     profilePromise,
     assessmentsPromise,
     db.from("SavedGrant").select("grant_id,status").eq("organisation_id", orgId).eq("profile_id", profileId),
     getAppliedGrantIds(db, orgId, profileId),
-    db.from("ApplicationOutcome").select("outcome,awardedAmount,funderFeedback,learningNotes,Grant(name,funder)")
-      .eq("organisationId", orgId).eq("profileId", profileId).order("reportedAt", { ascending: false }).limit(8),
+    loadPriorityLearning(db, orgId, profileId),
   ]);
   if (profileResult.error || !profileResult.data) throw new Error("Profile not found");
   const profile = profileResult.data as Record<string, unknown>;
-  if (saved.error || outcomes.error)
-    throw new Error(saved.error?.message ?? outcomes.error?.message);
+  if (saved.error || learning.outcomeError)
+    throw new Error(saved.error?.message ?? learning.outcomeError?.message);
   const states = new Map<string, GrantUserState>(
     (saved.data ?? []).map((r) => [r.grant_id, r.status]),
   );
@@ -94,7 +98,13 @@ export async function loadProfileMatches(
     needs_review: [],
     reviewed: [],
   };
-  const advisory = deriveOutcomeLearningAdvisory(outcomes.data ?? []);
+  const reviewedForPriority = criteria
+    ? { documents: new Map([...criteria.documents.entries()].filter(([id, doc]) => {
+        const corrected = correctedGrantSourceUrl(id);
+        return doc?.sourceVersion && Array.isArray(doc.criteria) && Array.isArray(doc.workload) && typeof doc.sourceUrl === "string" && (!corrected || doc.sourceUrl.split("#")[0] === corrected);
+      })), storageReady: true }
+    : await loadReviewedGrantDocuments(db, ids).catch(() => ({ documents: new Map<string, import("@/lib/criteria").CriteriaDocument>(), storageReady: false }));
+  const advisory = deriveOutcomeLearningAdvisory(learning.outcomes);
   const assessmentById = new Map(assessments.map((a) => [a.grant_id, a]));
   const locations = inferFunderLocationsFromProfile(profile);
   const versions: string[] = [];
@@ -191,7 +201,18 @@ export async function loadProfileMatches(
         userState,
       });
       const doc = criteria?.documents.get(grant.id);
+      const priorityDoc = reviewedForPriority.documents.get(grant.id);
+      const applicationPriority = deriveApplicationPriority({
+        grant: { id: grant.id, name: grant.name, funder: grant.funder }, score,
+        decision: failed ? "unlikely" : checked && !checked.strongEligible ? "review" : guarded.decision,
+        scoringSource: source, refreshPending: reconciled.resolved,
+        document: priorityDoc,
+        assessment: priorityDoc ? assessCriteria(priorityDoc, profile, criteria?.answers.get(grant.id) ?? {}) : undefined,
+        outcomes: learning.outcomes, experts: learning.experts,
+        learningAvailable: learning.learningAvailable, expertAvailable: learning.expertAvailable,
+      });
       sections[section].push({
+        applicationPriority,
         grantId: grant.id,
         grantName: grant.name,
         funder: grant.funder,
@@ -240,6 +261,7 @@ export async function loadProfileMatches(
           checked ?? "legacy",
           score,
           userState,
+          applicationPriority,
         ]),
       );
     }
@@ -278,7 +300,7 @@ export async function loadProfileMatches(
 export const getProfileMatches = cache(async (orgId: string, profileId: string) => {
   const revision = await currentProfileRevision(orgId, profileId);
   return getServerCache(
-    `profile-portfolio:${criteriaEnabled()}:${orgId}:${profileId}:${revision}`,
+    `profile-portfolio:priority${APPLICATION_PRIORITY_VERSION}:${criteriaEnabled()}:${orgId}:${profileId}:${revision}`,
     { ttlMs: 30_000, staleWhileRevalidateMs: 120_000, maxEntries: 30, keepAlive: (work) => after(() => work) },
     () => loadProfileMatches(orgId, profileId),
   );
@@ -303,14 +325,18 @@ export function pageProfileMatches(
 /** Evaluate a bounded assessment window. Remaining windows are loaded on demand. */
 export async function getProfileMatchWindow(orgId: string, profileId: string, offset: number) {
   const revision = await currentProfileRevision(orgId, profileId);
-  return getServerCache(`profile-portfolio:window:${criteriaEnabled()}:${orgId}:${profileId}:${revision}:${offset}`,
+  return getServerCache(`profile-portfolio:window:priority${APPLICATION_PRIORITY_VERSION}:${criteriaEnabled()}:${orgId}:${profileId}:${revision}:${offset}`,
     { ttlMs: 30_000, maxEntries: 120 },
     () => loadProfileMatches(orgId, profileId, getSupabaseAdmin({ timeoutMs: 10_000 }), { offset, limit: 80 }));
 }
 
 async function currentProfileRevision(orgId: string, profileId: string): Promise<string> {
   const db = getSupabaseAdmin({ timeoutMs: 10_000 });
-  const current = await db.from("BusinessProfile").select("*").eq("id", profileId).eq("organisationId", orgId).single();
+  const [current, outcomeRevision, expertRevision] = await Promise.all([
+    db.from("BusinessProfile").select("*").eq("id", profileId).eq("organisationId", orgId).single(),
+    db.from("ApplicationOutcome").select("updatedAt").eq("organisationId", orgId).eq("profileId", profileId).order("updatedAt", { ascending: false }).limit(1),
+    db.from("ExpertGrantReview").select("updatedAt,Application!inner(profileId)").eq("organisationId", orgId).eq("status", "completed").eq("Application.profileId", profileId).order("updatedAt", { ascending: false }).limit(1),
+  ]);
   if (current.error || !current.data) throw new Error("Unable to load current business profile");
-  return createHash("sha256").update(JSON.stringify(current.data)).digest("hex");
+  return createHash("sha256").update(JSON.stringify([current.data, outcomeRevision.data ?? [], expertRevision.data ?? [], Boolean(outcomeRevision.error), Boolean(expertRevision.error)])).digest("hex");
 }

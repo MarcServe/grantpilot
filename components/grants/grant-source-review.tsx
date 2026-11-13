@@ -1,4 +1,5 @@
 "use client";
+import { useRouter } from "next/navigation";
 import { sourceReviewErrorMessage } from "@/lib/source-review-errors";
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -7,6 +8,7 @@ import { Button } from "@/components/ui/button";
 
 type Review = { document: CriteriaDocument | null; assessment: CriteriaAssessment | null; storageReady: boolean };
 export function GrantSourceReview({ grantId }: { grantId: string }) {
+  const router = useRouter();
   const [data, setData] = useState<Review | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -27,6 +29,7 @@ export function GrantSourceReview({ grantId }: { grantId: string }) {
       if (!response.ok) throw new Error(body.error || "Source review failed");
       setData(body);
       window.dispatchEvent(new CustomEvent("grant:source-reviewed", { detail: { grantId, assessment: body.assessment } }));
+      router.refresh();
     } catch (error) { setError(sourceReviewErrorMessage(error)); }
     finally { setBusy(false); }
   }

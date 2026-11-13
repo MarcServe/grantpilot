@@ -1,3 +1,4 @@
+import { clearEligibleMatchCaches } from "@/lib/eligible-match-cache";
 import { loadExpertAdviceContext } from "@/lib/expert-review-context";
 import { loadReviewedGrantDocuments, appendPublishedRequirements } from "@/lib/reviewed-grant-context";
 import { revalidatePath } from "next/cache";
@@ -175,6 +176,9 @@ export async function POST(
     });
     revalidatePath(`/applications/${id}`);
     revalidatePath("/applications/outcomes");
+    clearEligibleMatchCaches();
+    revalidatePath("/grants/eligible");
+    revalidatePath("/dashboard");
     return NextResponse.json({ outcome: saved, insight });
   } catch (e) {
     console.error("[APPLICATION_OUTCOME]", e);

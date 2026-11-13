@@ -271,6 +271,7 @@ export function EligibilityCard({
         return;
       }
       setResult(data);
+      router.refresh();
     } catch {
       setError("Something went wrong");
     } finally {

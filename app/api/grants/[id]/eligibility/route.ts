@@ -1,3 +1,4 @@
+import { clearEligibleMatchCaches } from "@/lib/eligible-match-cache";
 import { loadReviewedGrantDocuments, publishedRequirementsText, guardPublishedAssessment } from "@/lib/reviewed-grant-context";
 import { reconcileEligibilityDisplay } from "@/lib/resolved-profile-blockers";
 import { criteriaEnabled } from "@/lib/criteria-flags";
@@ -274,7 +275,7 @@ export async function GET(
     const adjustedResult = reviewedDocument ? guardPublishedAssessment(outcomeResult, reviewedDocument, profile as Record<string, unknown>) : outcomeResult;
 
     const score = adjustedResult.score ?? adjustedResult.confidence;
-    await supabase.from("EligibilityAssessment").upsert(
+    const { error: saveError } = await supabase.from("EligibilityAssessment").upsert(
       {
         organisation_id: orgId,
         profile_id: profile.id,
@@ -293,6 +294,8 @@ export async function GET(
       { onConflict: "organisation_id,profile_id,grant_id" },
     );
 
+    if (saveError) return NextResponse.json({ error: "The eligibility result could not be saved. Please retry." }, { status: 502 });
+    clearEligibleMatchCaches();
     await recordUsage(orgId, "match");
 
     return NextResponse.json({

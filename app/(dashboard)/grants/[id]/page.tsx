@@ -1,3 +1,5 @@
+import { loadGrantApplicationPriority } from "@/lib/application-priority-store";
+import { ApplicationPriorityPanel } from "@/components/grants/application-priority-panel";
 import { resolveGrantSourceLinks } from "@/lib/grant-source-links";
 import { GrantSourceReview } from "@/components/grants/grant-source-review";
 import { loadReviewedGrantDocuments, guardPublishedAssessment } from "@/lib/reviewed-grant-context";
@@ -172,6 +174,7 @@ export default async function GrantDetailPage({
     .select("id")
     .eq("organisationId", orgId)
     .eq("grantId", grant.id)
+    .eq("profileId", profileId ?? "")
     .maybeSingle();
 
   let eligibilityScore: number | null = null;
@@ -313,6 +316,7 @@ export default async function GrantDetailPage({
     }
   }
 
+  const applicationPriority = profileId && profile ? await loadGrantApplicationPriority(supabase,orgId,profileId,profile as Record<string,unknown>,{id:grant.id,name:grant.name,funder:grant.funder},{score:eligibilityScore??0,decision:initialEligibilityResult?.decision,scoringSource:initialEligibilityResult?.scoringSource,refreshPending:initialEligibilityResult?.assessmentRefreshPending,applicationId:existingApplication?.id}) : null;
   let missingDocLabels: string[] = [];
   if (profileId) {
     const rawRequired = (grant as { required_attachments?: unknown })
@@ -731,6 +735,7 @@ export default async function GrantDetailPage({
           {profileId && (hasProfile || criteriaEnabled()) && (
             <>
               <Separator />
+              {applicationPriority && <ApplicationPriorityPanel priority={applicationPriority} />}
               {criteriaEnabled() ? (
                 <>
                   <CriteriaPanel grantId={grant.id} />

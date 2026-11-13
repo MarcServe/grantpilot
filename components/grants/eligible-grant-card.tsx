@@ -1,5 +1,7 @@
 "use client";
 
+import type { ApplicationPriority } from "@/lib/application-priority";
+import { ApplicationPriorityPanel } from "@/components/grants/application-priority-panel";
 import { resolveGrantSourceLinks } from "@/lib/grant-source-links";
 import { grantBlockerAction } from "@/lib/grant-blocker-actions";
 import { preliminaryScoreStatus } from "@/lib/preliminary-score-status";
@@ -41,6 +43,7 @@ import { isGrantAggregatorClassificationReason } from "@/lib/grant-application-u
 type GrantUserState = "saved" | "viewed" | "deferred" | "applied" | "dismissed";
 
 export interface EligibleGrant {
+  applicationPriority?: ApplicationPriority;
   criteriaAssessment?: CriteriaAssessment;
   opportunityType?: string | null;
   currency?: string | null;
@@ -364,6 +367,7 @@ export function EligibleGrantCard({
           <p className="mt-1 text-xs">{deadline.urgency}</p>
         </div>
       </div>
+      {grant.applicationPriority && <ApplicationPriorityPanel priority={grant.applicationPriority} />}
       {grant.assessmentRefreshPending && (
         <p role="status" className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
           Profile updated. Completed missing-field blockers have been cleared; the previous score remains until eligibility is reassessed.
