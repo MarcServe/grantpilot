@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { ExpertReviewPanel } from "@/components/applications/expert-review-panel";
 import { REJECTION_REASONS, readRejectionReview, rejectionActions, type RejectionReview } from "@/lib/rejection-review";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -348,10 +349,11 @@ export function OutcomeLearningForm({
           {saving && <Loader2 className="h-4 w-4 animate-spin" />}
           {outcome === "rejected" ? "Save feedback and progress" : "Save outcome signal"}
         </Button>
+        {outcome === "rejected" && <ExpertReviewPanel applicationId={applicationId} />}
         {savedInsight?.summary && (
           <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm font-semibold text-foreground">Learning signal saved</p>
+              <p className="text-sm font-semibold text-foreground">AI advisory — generated guidance</p>
               {typeof savedInsight.scoringAdjustment === "number" && (
                 <span className="rounded-full bg-background px-2 py-1 text-xs font-medium text-muted-foreground">
                   {savedInsight.scoringAdjustment >= 0 ? "+" : ""}{savedInsight.scoringAdjustment} advisory signal
@@ -359,6 +361,7 @@ export function OutcomeLearningForm({
               )}
             </div>
             <p className="mt-2 break-words text-sm leading-6 text-muted-foreground">{savedInsight.summary}</p>
+            <p className="mt-2 text-xs text-muted-foreground">AI-generated analysis of saved evidence. This AI output has not been signed off by a human. Any expert report is shown separately above and attributed to its adviser. No funding success record or approval guarantee is attributed to AI.</p>
             <LearningInsightList title="Strengths to repeat" items={savedInsight.strengths} />
             <LearningInsightList title="Gaps to improve" items={savedInsight.weaknesses} />
             <LearningInsightList title="Next actions" items={savedInsight.nextActions} />

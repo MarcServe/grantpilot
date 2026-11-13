@@ -42,6 +42,7 @@ export async function generateOutcomeLearningInsight(input: {
   grantName: string;
   funder: string;
   profileSummary: string;
+  advisoryContext?: string;
   funderFeedback?: string | null;
   learningNotes?: string | null;
 }): Promise<OutcomeLearningInsight> {
@@ -60,6 +61,9 @@ ${input.funderFeedback ?? "None provided"}
 Founder notes:
 ${input.learningNotes ?? "None provided"}
 
+Published requirements and separately attributed expert reports:
+${input.advisoryContext ?? "Not supplied; do not claim a source or expert review occurred."}
+
 Return ONLY valid JSON:
 {
   "summary": "one paragraph on what this outcome teaches the system",
@@ -74,6 +78,8 @@ Rules:
 - Separate funder-provided reasons from applicant interpretations. A screenshot filename is not readable feedback.
 - Checklist completion is self-reported; do not invent supporting evidence or change confirmed business facts.
 - When no rejection reason is provided, say it is unknown and suggest requesting assessor feedback.
+- Label your output as AI advisory. Do not claim you are a human expert, have won grants, or that this output is expert-reviewed.
+- Give prioritised actions tied to quoted feedback or supplied requirements, expected improvement, evidence needed and a concrete next step. Separate confirmed causes from hypotheses; do not assume the submitted answers were read unless supplied.
 - Do not overfit to one outcome.
 - Awarded and shortlisted outcomes should identify repeatable strengths.
 - Rejected outcomes should identify likely gaps without assuming facts not provided.

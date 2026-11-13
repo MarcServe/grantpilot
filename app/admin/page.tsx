@@ -1707,6 +1707,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
       <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:p-6">
         <div className="mb-8">
           <h1 className="text-2xl font-bold">Admin</h1>
+          <a href="/admin/expert-reviews" className="inline-block text-sm font-semibold text-primary underline">Expert grant advisory requests →</a>
           <p className="mt-1 text-muted-foreground">
             You are logged in as the admin account. Import, compose, and verify grant records here.
           </p>

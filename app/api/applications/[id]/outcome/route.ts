@@ -1,3 +1,5 @@
+import { loadExpertAdviceContext } from "@/lib/expert-review-context";
+import { loadReviewedGrantDocuments, appendPublishedRequirements } from "@/lib/reviewed-grant-context";
 import { revalidatePath } from "next/cache";
 import { rejectionReviewSchema, rejectionReviewContext, EMPTY_REJECTION_REVIEW } from "@/lib/rejection-review";
 import { NextResponse } from "next/server";
@@ -74,7 +76,13 @@ export async function POST(
 
     let insight: OutcomeLearningInsight;
     if (planAllowsForOrg(org, "outcome_learning_ai")) {
+      // Missing setup is supported; unavailable source data is reported as a coverage limit.
+      const context = await Promise.all([
+        loadReviewedGrantDocuments(supabase, [application.grantId]),
+        loadExpertAdviceContext(supabase, orgId, application.profileId, [application.grantId]),
+      ]).then(([reviewed, expert]) => appendPublishedRequirements(expert, reviewed.documents) || "No published source review or completed expert report is available.").catch(() => "Source or expert reports could not be loaded. Do not infer their contents.");
       insight = await generateOutcomeLearningInsight({
+        advisoryContext: context,
         outcome,
         grantName: String((grant as { name?: string } | null)?.name ?? "Grant"),
         funder: String((grant as { funder?: string } | null)?.funder ?? "Funder"),

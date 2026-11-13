@@ -1,0 +1,32 @@
+import assert from "node:assert/strict";
+import { expertAdviceSchema, applicantReviewView, type ExpertGrantReview } from "../lib/expert-grant-review";
+import { expertAdviceContext, loadExpertAdviceContext } from "../lib/expert-review-context";
+const payload = { status: "completed", reviewerName: "Example Adviser", reviewerExpertise: "Relevant grant application and assessment experience.", trackRecordReferences: ["https://example.com/consented-case-study"], verifiedTrackRecord: true, advice: "Check the assessor's evidence request, distinguish planned validation from achieved results, and gather documented benchmarks before revising the application.", expectedUpdatedAt: "2026-11-13T12:00:00+00:00" };
+assert.ok(expertAdviceSchema.safeParse(payload).success);
+assert.equal(expertAdviceSchema.safeParse({ ...payload, verifiedTrackRecord: false }).success, false);
+assert.equal(expertAdviceSchema.safeParse({ ...payload, trackRecordReferences: [] }).success, false);
+assert.equal(expertAdviceSchema.safeParse({ ...payload, trackRecordReferences: ["javascript:alert(1)"] }).success, false);
+assert.equal(expertAdviceSchema.safeParse({ ...payload, advice: "AI says improve." }).success, false);
+assert.ok(expertAdviceSchema.safeParse({ ...payload, status: "in_review", advice: "" }).success);
+const row: ExpertGrantReview = { id: "r1", applicationId: "a1", status: "in_review", reviewerName: payload.reviewerName, reviewerExpertise: payload.reviewerExpertise, trackRecordReferences: payload.trackRecordReferences, advice: payload.advice, requestedAt: payload.expectedUpdatedAt, updatedAt: payload.expectedUpdatedAt, reviewedAt: null };
+assert.equal(applicantReviewView(row).advice, null);
+assert.equal(expertAdviceContext([row]), "");
+const published = { ...row, status: "completed" as const, reviewedAt: payload.expectedUpdatedAt };
+assert.equal(applicantReviewView(published).advice, payload.advice);
+assert.match(expertAdviceContext([published]), /Example Adviser/);
+assert.match(expertAdviceContext([published]), /not a funding guarantee/);
+const calls: unknown[][] = [];
+const chain = { select: (...args: unknown[]) => { calls.push(["select", ...args]); return chain; }, eq: (...args: unknown[]) => { calls.push(["eq", ...args]); return chain; }, in: (...args: unknown[]) => { calls.push(["in", ...args]); return chain; }, order: () => chain, limit: async () => ({ data: [published], error: null }) };
+const db = { from: (table: string) => { calls.push(["from", table]); return chain; } };
+async function main() {
+  type DB = Parameters<typeof loadExpertAdviceContext>[0];
+  assert.equal(await loadExpertAdviceContext(db as unknown as DB, "org-a", "profile-a", []), "");
+  assert.equal(calls.length, 0);
+  assert.match(await loadExpertAdviceContext(db as unknown as DB, "org-a", "profile-a", ["grant-a"]), /Example Adviser/);
+  assert.ok(calls.some(x => x[0] === "eq" && x[1] === "organisationId" && x[2] === "org-a"));
+  assert.ok(calls.some(x => x[0] === "eq" && x[1] === "Application.profileId" && x[2] === "profile-a"));
+  assert.ok(calls.some(x => x[0] === "eq" && x[1] === "status" && x[2] === "completed"));
+  assert.ok(calls.some(x => x[0] === "in" && x[1] === "Application.grantId" && JSON.stringify(x[2]) === '["grant-a"]'));
+  console.log("Expert review verification, draft privacy, source attribution and business/grant scoping checks passed.");
+}
+main().catch(error => { console.error(error); process.exitCode = 1; });

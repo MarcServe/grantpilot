@@ -1,3 +1,4 @@
+import { loadExpertAdviceContext } from "@/lib/expert-review-context";
 import { loadReviewedGrantDocuments, appendPublishedRequirements } from "@/lib/reviewed-grant-context";
 import { loadFounderPackDraftContext } from "@/lib/founder-pack-vault";
 import { NextResponse } from "next/server";
@@ -157,7 +158,8 @@ export async function POST(req: Request): Promise<NextResponse> {
       : undefined;
 
     const reviewed = await loadReviewedGrantDocuments(supabase, [...eligibleGrantIds, ...applicationRows.map((row) => String(row.grantId ?? row.grant_id ?? ""))].filter(Boolean));
-    const groundedContext = appendPublishedRequirements(trimmedGrantContext, reviewed.documents);
+    const expertAdvice = await loadExpertAdviceContext(supabase, orgId, profileId, [...eligibleGrantIds, ...applicationRows.map(row => String(row.grantId ?? row.grant_id ?? ""))].filter(Boolean));
+    const groundedContext = appendPublishedRequirements([trimmedGrantContext, expertAdvice].filter(Boolean).join("\n\n"), reviewed.documents);
 
     const vaultDraftContext = await loadFounderPackDraftContext(supabase, orgId, profileId);
     const result = await generateFounderPackQuestionAnswers(
