@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { REJECTION_REASONS, readRejectionReview, rejectionActions, type RejectionReview } from "@/lib/rejection-review";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { BarChart3, Loader2 } from "lucide-react";
@@ -81,6 +83,7 @@ export function OutcomeLearningForm({
   existingOutcome?: ExistingOutcome | null;
 }) {
   const router = useRouter();
+  const [rejectionReview, setRejectionReview] = useState(() => readRejectionReview(existingOutcome?.learningNotes));
   const [saving, setSaving] = useState(false);
   const [outcome, setOutcome] = useState<OutcomeValue | "">(existingOutcome?.outcome ?? "");
   const [awardedAmount, setAwardedAmount] = useState(
@@ -131,6 +134,10 @@ export function OutcomeLearningForm({
         actualMinutes ||
         learningNotes.trim()
     );
+    if (outcome === "rejected" && rejectionReview.reason !== "unknown" && rejectionReview.source === "unknown") {
+      toast.error("Choose where the rejection reason came from.");
+      return;
+    }
     if (!outcome) {
       toast.error(
         hasEvidence
@@ -158,6 +165,7 @@ export function OutcomeLearningForm({
           responseScreenshotDataUrl,
           actualApplicationMinutes: actualMinutes,
           learningNotes,
+          ...(outcome === "rejected" ? { rejectionReview } : {}),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -180,7 +188,7 @@ export function OutcomeLearningForm({
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-sm font-medium">
           <BarChart3 className="h-4 w-4" />
-          Outcome Learning
+          Outcome feedback and next steps
         </CardTitle>
         <p className="text-xs text-muted-foreground">
           Record the result so GrantPilot can learn which funders, sectors, answers, and evidence patterns work.
@@ -216,6 +224,42 @@ export function OutcomeLearningForm({
             />
           </div>
         </div>
+        {outcome === "rejected" && (
+          <section className="space-y-4 rounded-lg border border-primary/20 bg-primary/5 p-4" aria-label="Rejection review">
+            <div>
+              <h3 className="font-semibold">Improve your next application</h3>
+              <p className="mt-1 text-sm text-muted-foreground">An unsuccessful application does not automatically mean your business is ineligible. Record what is known, then work through the next steps. Save again to keep your progress.</p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="rejectionReason">Main reason</Label>
+              <select id="rejectionReason" className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={rejectionReview.reason} disabled={saving} onChange={e => setRejectionReview(r => ({ ...r, reason: e.target.value as RejectionReview["reason"], completedActions: [] }))}>
+                {Object.entries(REJECTION_REASONS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="rejectionSource">Where did this reason come from?</Label>
+              <select id="rejectionSource" className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={rejectionReview.source} disabled={saving} onChange={e => setRejectionReview(r => ({ ...r, source: e.target.value as RejectionReview["source"] }))}>
+                <option value="unknown">Not known yet</option>
+                <option value="funder">Funder feedback</option>
+                <option value="applicant">My own interpretation</option>
+              </select>
+              {rejectionReview.reason !== "unknown" && rejectionReview.source === "unknown" && <p className="text-sm text-amber-800">Choose the source of this reason before saving.</p>}
+            </div>
+            <fieldset className="space-y-3">
+              <legend className="mb-2 text-sm font-semibold">Improvement checklist</legend>
+              {rejectionActions(rejectionReview).map(action => (
+                <div key={action.id} className="space-y-1 rounded-md border bg-background p-3">
+                  <label className="flex items-start gap-2 text-sm">
+                    <input type="checkbox" className="mt-1 accent-blue-600" disabled={saving} checked={rejectionReview.completedActions.includes(action.id as RejectionReview["completedActions"][number])} onChange={e => setRejectionReview(r => ({ ...r, completedActions: e.target.checked ? [...r.completedActions, action.id as RejectionReview["completedActions"][number]] : r.completedActions.filter(id => id !== action.id) }))} />
+                    {action.label}
+                  </label>
+                  <Link href={action.href} className="ml-5 inline-block text-sm font-medium text-primary underline underline-offset-4">Open next step →</Link>
+                </div>
+              ))}
+            </fieldset>
+            <p className="text-xs text-muted-foreground">Your checklist is self-reported progress. It does not verify evidence, change confirmed profile facts or apply an eligibility score penalty. Paste feedback text below; a screenshot alone is stored as evidence and is not read by this analysis.</p>
+          </section>
+        )}
         <div className="space-y-2">
           <Label htmlFor="funderFeedback">Funder feedback</Label>
           <Textarea
@@ -300,9 +344,9 @@ export function OutcomeLearningForm({
             placeholder="What seemed to work? What evidence was missing? What should the AI improve next time?"
           />
         </div>
-        <Button type="button" onClick={save} disabled={saving} className="gap-2">
+        <Button type="button" onClick={save} disabled={saving || (outcome === "rejected" && rejectionReview.reason !== "unknown" && rejectionReview.source === "unknown")} className="gap-2">
           {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-          Save outcome signal
+          {outcome === "rejected" ? "Save feedback and progress" : "Save outcome signal"}
         </Button>
         {savedInsight?.summary && (
           <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">

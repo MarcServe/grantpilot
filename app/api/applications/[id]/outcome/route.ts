@@ -1,3 +1,5 @@
+import { revalidatePath } from "next/cache";
+import { rejectionReviewSchema, rejectionReviewContext, EMPTY_REJECTION_REVIEW } from "@/lib/rejection-review";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getActiveOrg } from "@/lib/auth";
@@ -22,6 +24,7 @@ const outcomeSchema = z.object({
   responseScreenshotDataUrl: z.string().max(2_000_000).optional(),
   actualApplicationMinutes: z.number().int().positive().max(24 * 60).nullable().optional(),
   learningNotes: z.string().max(5000).optional(),
+  rejectionReview: rejectionReviewSchema.optional(),
 });
 
 export async function POST(
@@ -53,6 +56,7 @@ export async function POST(
       ? application.BusinessProfile[0]
       : application.BusinessProfile;
     const outcome = parsed.data.outcome as FundingOutcome;
+    const rejectionReview = outcome === "rejected" ? parsed.data.rejectionReview ?? EMPTY_REJECTION_REVIEW : null;
     const combinedFunderFeedback = [
       parsed.data.funderFeedback?.trim(),
       parsed.data.responseText?.trim() ? `Funder response text:\n${parsed.data.responseText.trim()}` : "",
@@ -65,6 +69,7 @@ export async function POST(
     const learningNotesForInsight = [
       parsed.data.learningNotes?.trim(),
       actualApplicationTimeNote,
+      rejectionReview ? rejectionReviewContext(rejectionReview) : "",
     ].filter(Boolean).join("\n\n");
 
     let insight: OutcomeLearningInsight;
@@ -116,6 +121,7 @@ export async function POST(
               hasScreenshot: Boolean(parsed.data.responseScreenshotDataUrl),
               screenshotName: parsed.data.responseScreenshotName?.trim() || null,
             },
+            rejectionReview,
             actualApplicationMinutes,
             insight,
           }),
@@ -155,7 +161,12 @@ export async function POST(
         .eq("grant_id", application.grantId);
     }
 
-    await requestEligibilityRefresh(orgId, "application.outcome.recorded");
+    // A refresh failure must not turn a successful evidence save into an error.
+    await requestEligibilityRefresh(orgId, "application.outcome.recorded").catch((error) => {
+      console.error("[OUTCOME_REFRESH]", error);
+    });
+    revalidatePath(`/applications/${id}`);
+    revalidatePath("/applications/outcomes");
     return NextResponse.json({ outcome: saved, insight });
   } catch (e) {
     console.error("[APPLICATION_OUTCOME]", e);

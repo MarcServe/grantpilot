@@ -149,6 +149,9 @@ function OutcomeInsightCard({ item }: { item: RecordedOutcomeInsight }) {
           </div>
         </div>
 
+        <Link href={`/applications/${encodeURIComponent(item.applicationId)}#outcome-learning`} className="inline-block text-sm font-semibold text-primary underline underline-offset-4">
+          {item.outcome === "rejected" ? "Review feedback and improvement checklist →" : "Update outcome feedback →"}
+        </Link>
         <p className="break-words text-sm leading-6 text-muted-foreground">{item.summary}</p>
 
         <InsightList title="Strengths to repeat" items={item.strengths} />

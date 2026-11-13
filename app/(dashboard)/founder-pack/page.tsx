@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { startUpLoanPreparation } from "@/lib/start-up-loans-preparation";
 import { grantPreparationPrompts } from "@/lib/grant-preparation-prompts";
 import { loadReviewedGrantDocuments } from "@/lib/reviewed-grant-context";
 import { loadFounderPackLabels } from "@/lib/founder-pack-labels";
@@ -114,6 +116,8 @@ export default async function FounderPackPage({
     grantId?: string;
     applicationId?: string;
     workspace?: string;
+    scheme?: string;
+    loanDocument?: string;
     requirementId?: string;
     criterionId?: string;
     prepare?: string;
@@ -122,8 +126,9 @@ export default async function FounderPackPage({
 }) {
   const params = await searchParams;
   const assistantOnly = params?.workspace === "questions";
-  const initialGrantId = params?.grantId?.trim() || "";
-  const initialApplicationId = params?.applicationId?.trim() || "";
+  const loanPreparation = assistantOnly && params?.scheme === "start-up-loans" ? startUpLoanPreparation(params?.loanDocument) : null;
+  const initialGrantId = loanPreparation ? "" : params?.grantId?.trim() || "";
+  const initialApplicationId = loanPreparation ? "" : params?.applicationId?.trim() || "";
   const { org, orgId, activeProfileId } = await getActiveOrg();
   const supabase = getSupabaseAdmin();
   const allowed = planAllowsForOrg(org, "founder_pack");
@@ -287,11 +292,11 @@ export default async function FounderPackPage({
 
   const reviewed = initialGrantId ? await loadReviewedGrantDocuments(supabase, [initialGrantId]) : null;
   const criterionDoc = reviewed?.documents.get(initialGrantId);
-  const preparation = grantPreparationPrompts(criterionDoc, params ?? {});
+  const preparation = loanPreparation ?? grantPreparationPrompts(criterionDoc, params ?? {});
   const initialQuestions = preparation.questions;
-  const initialRequirements = criterionDoc ? `Published source: ${criterionDoc.sourceUrl}
-Review coverage: ${criterionDoc.coverage}. Use the full reviewed guidance supplied by the server together with the selected business profile. Requirements needing evidence are not confirmed facts.` : "";
-  const preparationKey = params?.criterionId ? `criterion:${params.criterionId}:${preparation.mode}` : params?.requirementId ?? (params?.prepare ? `${params.prepare}:${preparation.mode}` : "all");
+  const initialRequirements = loanPreparation?.context ?? (criterionDoc ? `Published source: ${criterionDoc.sourceUrl}
+Review coverage: ${criterionDoc.coverage}. Use the full reviewed guidance supplied by the server together with the selected business profile. Requirements needing evidence are not confirmed facts.` : "");
+  const preparationKey = loanPreparation ? `loan:start-up-loans:${loanPreparation.key}` : params?.criterionId ? `criterion:${params.criterionId}:${preparation.mode}` : params?.requirementId ?? (params?.prepare ? `${params.prepare}:${preparation.mode}` : "all");
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-6 px-0 sm:px-2">
@@ -310,6 +315,8 @@ Review coverage: ${criterionDoc.coverage}. Use the full reviewed guidance suppli
         </p>
       </div>
 
+      <Link href="/loans/start-up-loans" className="inline-block text-sm font-semibold text-primary underline underline-offset-4">British Business Bank Start Up Loans: requirements and preparation →</Link>
+      {loanPreparation && <p className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm">Start Up Loans preparation is loaded. Confirm your business profile, keep unrelated grants unselected, and provide real figures in the guidance field. These are editable preparation drafts based on public guidance, not private lender form questions. Approval, affordability and credit checks remain with the lender.</p>}
       {initialGrantId && criteriaEnabled() && (
         <PreparationChecklist grantId={initialGrantId} />
       )}

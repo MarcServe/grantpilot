@@ -39,7 +39,9 @@
     "test:reviewed-grant": "tsx scripts/test-reviewed-grant-context.ts",
     "test:criteria": "tsx scripts/test-criteria.ts",
     "test:criteria-portfolio": "tsx scripts/test-criteria-portfolio.ts",
-    "test:question-assistant": "tsx scripts/test-question-assistant-inputs.ts && tsx scripts/test-question-assistant-batches.ts"
+    "test:question-assistant": "tsx scripts/test-question-assistant-inputs.ts && tsx scripts/test-question-assistant-batches.ts",
+    "test:rejection-review": "tsx scripts/test-rejection-review.ts",
+    "test:start-up-loans-preparation": "tsx scripts/test-start-up-loans-preparation.ts"
   },
   "dependencies": {
     "@google/genai": "^1.43.0",
