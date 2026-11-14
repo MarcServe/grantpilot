@@ -1,7 +1,9 @@
 "use client";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { LOAN_TASKS, TASK_STATUS, taskSchema, type LoanWorkspace } from "@/lib/start-up-loan-workspace";
 import { Button } from "@/components/ui/button";
+const draftDocuments: Record<string,string> = { business_plan: "business-plan", cash_flow: "cash-flow", personal_budget: "personal-budget", request: "application-answers" };
 interface Props { intakeId?: string; revision?: string | null; onSaved?: (updatedAt: string) => void; }
 export function LoanPreparationWorkspace({ intakeId, revision, onSaved }: Props) {
   const [workspace,setWorkspace]=useState<LoanWorkspace>({});
@@ -33,6 +35,7 @@ export function LoanPreparationWorkspace({ intakeId, revision, onSaved }: Props)
         {admin?<><label className="block space-y-1 text-sm"><span>Assigned adviser / partner (responsibility only)</span><input maxLength={160} className="min-h-10 w-full rounded-md border bg-background p-2" value={task.assignee} onChange={e=>update(item.id,"assignee",e.target.value)} /></label><label className="block space-y-1 text-sm"><span>Due date</span><input type="date" className="min-h-10 w-full rounded-md border bg-background p-2" value={task.dueDate} onChange={e=>update(item.id,"dueDate",e.target.value)} /></label></>:task.dueDate?<p className="text-sm">Due: {task.dueDate}</p>:null}
         <label className="block space-y-1 text-sm"><span>Preparation note (shared when adviser consent is on)</span><textarea maxLength={2000} rows={3} className="w-full rounded-md border bg-background p-2" value={task.note} onChange={e=>update(item.id,"note",e.target.value)} /></label>
         {task.updatedAt&&<p className="text-xs text-muted-foreground">Last saved by {task.updatedBy} · {new Date(task.updatedAt).toLocaleString("en-GB",{timeZone:"Europe/London"})}</p>}
+        {!admin && draftDocuments[item.id] && <Link href={`/grant-assistant?scheme=start-up-loans&loanDocument=${draftDocuments[item.id]}`} className="flex min-h-12 items-center justify-center rounded-lg bg-blue-600 px-4 py-3 text-center text-sm font-bold text-white shadow-sm hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">Create draft in GrantsCopilot →</Link>}
         <div className="flex flex-wrap gap-2"><Button type="button" onClick={()=>save(item.id)}>Save task</Button>{!admin&&<a className="inline-flex items-center rounded-md border px-3 py-2 text-sm font-medium text-primary" href={`#loan-${item.field}`} onClick={()=>{const el=document.getElementById(`loan-${item.field}`);const details=el?.closest("details");if(details)details.open=true;requestAnimationFrame(()=>el?.focus());}}>Complete inputs →</a>}</div>
       </article>;})}
     </fieldset>
