@@ -1,0 +1,17 @@
+import assert from "node:assert/strict";
+import { LOAN_TASKS, taskPatchSchema, taskSchema, updateLoanTask, workspaceSchema } from "../lib/start-up-loan-workspace";
+const now="2026-11-14T12:00:00.000Z";
+const patch=taskPatchSchema.parse({taskId:"business_plan",expectedUpdatedAt:now,task:{status:"draft"}});
+const original=workspaceSchema.parse({});
+const saved=updateLoanTask(original,patch,false,now);
+assert.equal(saved.business_plan?.status,"draft");assert.deepEqual(original,{});
+assert.equal(LOAN_TASKS.length,6);
+assert.throws(()=>updateLoanTask(saved,{...patch,task:{...patch.task,assignee:"Partner"}},false,now),/administrators/);
+const assigned=updateLoanTask(saved,{...patch,task:{...patch.task,assignee:"Financial adviser",dueDate:"2026-11-30"}},true,now);
+assert.equal(assigned.business_plan?.updatedBy,"admin");
+assert.throws(()=>updateLoanTask(saved,{...patch,task:{...patch.task,status:"applicant_approved"}},true,now),/applicant/);
+assert.equal(updateLoanTask(assigned,{...patch,task:{...assigned.business_plan!,status:"applicant_approved"}},false,now).business_plan?.status,"applicant_approved");
+assert.equal(taskSchema.safeParse({dueDate:"2026-02-30"}).success,false);
+assert.equal(taskSchema.safeParse({note:"x".repeat(2001)}).success,false);
+assert.equal(taskPatchSchema.safeParse({...patch,taskId:"grant_eligibility"}).success,false);
+console.log("Six isolated loan tasks, immutable updates, admin-only assignment, applicant-only approval and input validation passed.");

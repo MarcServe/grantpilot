@@ -1,4 +1,5 @@
 "use client";
+import { LoanPreparationWorkspace } from "@/components/loans/loan-preparation-workspace";
 import { estimateLoanRepayment } from "@/lib/start-up-loan-terms";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -13,6 +14,7 @@ const IMPORT_KEY = "grantpilot.loan-core-handoff.v1";
 export function StartUpLoanIntake({ signedIn = true }: { signedIn?: boolean }) {
   const [answers, setAnswers] = useState<LoanIntake>(() => ({ ...EMPTY_LOAN_INTAKE }));
   const [profileId, setProfileId] = useState("");
+  const [workspaceRevision, setWorkspaceRevision] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(signedIn);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -42,7 +44,7 @@ export function StartUpLoanIntake({ signedIn = true }: { signedIn?: boolean }) {
   async function save() {
     const values = assess(); if (!values) return;
     setSaving(true); setError("");
-    try { const res = await fetch("/api/loans/start-up-loans", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ profileId, expectedUpdatedAt: updatedAt, answers: values }) }); const data = await res.json(); if (!res.ok) throw new Error(data.error); setUpdatedAt(data.updatedAt); setReport(data.report); setUnsaved(false); setNotice("Intake saved for this applicant and business. Document preparation will use these answers."); }
+    try { const res = await fetch("/api/loans/start-up-loans", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ profileId, expectedUpdatedAt: updatedAt, answers: values }) }); const data = await res.json(); if (!res.ok) throw new Error(data.error); setUpdatedAt(data.updatedAt); setWorkspaceRevision(data.updatedAt); setReport(data.report); setUnsaved(false); setNotice("Intake saved for this applicant and business. Document preparation will use these answers."); }
     catch(e) { setError(e instanceof Error ? e.message : "Could not save intake."); } finally { setSaving(false); }
   }
   const repayment = estimateLoanRepayment(Number(answers.loanAmount), Number(answers.loanTermMonths));
@@ -75,6 +77,7 @@ export function StartUpLoanIntake({ signedIn = true }: { signedIn?: boolean }) {
       </>}
       <div className="flex flex-wrap gap-3"><Button type="button" onClick={assess}>Show my readiness report</Button>{signedIn && <Button type="button" variant="outline" onClick={save} disabled={!profileId || saving}>{saving ? "Saving…" : "Save intake and report"}</Button>}</div>
     </fieldset>
+    {signedIn && !loading && !loadFailed && <LoanPreparationWorkspace revision={workspaceRevision} onSaved={setUpdatedAt} />}
     {report && <section className="space-y-4" aria-label="Readiness report"><h3 className="text-lg font-semibold">{report.headline}</h3>{dirty && <p className="text-sm text-amber-800">Answers changed. Run the check again to update this report; save before preparing documents.</p>}<p className="text-xs text-muted-foreground">Assessment date: {report.asOf}. Source checked: {report.sourceCheckedAt}. <a href={report.source} target="_blank" rel="noopener noreferrer" className="underline">Official eligibility requirements ↗</a>. No approval probability is calculated.</p>
       <div className="space-y-3">{report.checks.map(check=><article key={check.id} className={`space-y-2 break-words rounded-lg border p-3 text-sm ${COLOURS[check.status]}`}><div className="flex flex-wrap justify-between gap-2"><h4 className="font-semibold">{check.label}</h4><span>{LABELS[check.status]}</span></div><p><strong>Your answer:</strong> {check.answer}</p><p><strong>Condition:</strong> {check.requirement}</p><p><strong>Next action:</strong> {check.next}</p>{(check.id.startsWith("visa") || check.id === "term") && <a href={check.id === "term" ? "https://www.startuploans.co.uk/about-the-loan/loan-repayment-calculator" : "https://www.startuploans.co.uk/support-and-guidance/frequently-asked-questions/eligibility"} target="_blank" rel="noopener noreferrer" className="block text-primary underline">Official term / visa guidance ↗</a>}{check.id === "creditlock" && <a href="https://www.experian.co.uk/consumer/identity/guides/how-to-lock-or-freeze-credit.html" target="_blank" rel="noopener noreferrer" className="block text-primary underline">Experian UK CreditLock guidance ↗</a>}{check.field && <a className="inline-block font-medium text-primary underline" href={`#loan-${check.field}`} onClick={()=>{const el=document.getElementById(`loan-${check.field}`); const section=el?.closest('details'); if(section)section.open=true; requestAnimationFrame(()=>el?.focus());}}>Review this answer →</a>}</article>)}</div>
       <div className="rounded-md border p-3 text-sm"><p className="font-semibold">Document readiness (self-reported, not evidence verification)</p><p>{report.docs.filter(d=>d.status==='ready').length} of {report.docs.length} core documents marked ready.</p></div>

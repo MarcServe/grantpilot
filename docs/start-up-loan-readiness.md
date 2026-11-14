@@ -33,3 +33,15 @@ Official planning resources link to the business plan, cash-flow and personal-bu
 ## Verification
 
 `npm run test:start-up-loan-readiness` covers date boundaries, acquisition exceptions, partnership limits, exclusions, benefit treatment, visa deadlines, calendar-month rounding, repayment arithmetic and applicant/profile/org scoping. Browser checks use mocked storage APIs for conflicts, consent and saved state. Live Supabase persistence and AI generation require validation after applying migration 071 and manually deploying.
+
+## Six-task preparation workspace
+
+Apply migration 072 after 071. The workspace lives only in StartUpLoanIntake.workspace; it does not write BusinessProfile, grant assessments, Founder Pack or Data Vault records. Existing intake saves preserve this column. No external partner account or access is created by typing an assignee name.
+
+Applicants track six tasks with statuses and shared preparation notes. Administrators can record partner responsibility and due dates on currently consented cases. Only the applicant can set applicant-approved status; administrators can request changes. Progress and dates are administrative declarations, not verified document reviews or lender approval. Notes should not contain identity numbers or bank details.
+
+Every write checks the current intake timestamp. Conflicting changes require reload; intake and workspace saves share a revision to prevent lost concurrent edits. Administrator reads and writes require current shareWithAdviser consent; applicant reads and writes are scoped to organisation, active business and applicant user. Browser database access remains blocked by the existing RLS policy. Admin task workspaces load only when opened.
+
+This phase records preparation progress and responsibility. Partner invitations, restricted partner logins, document-version review, formula-driven forecast exports and referral discounts are not implemented by this workspace. Official submission remains in the lender portal. No automatic notifications or external sharing occur.
+
+Verification: scripts/test-start-up-loan-workspace.ts tests immutable changes, assignment and approval actor boundaries, date/note validation and the six-task scope. Authenticated live Supabase persistence requires migration 072 and deployment validation.
