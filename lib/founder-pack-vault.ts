@@ -16,6 +16,7 @@ export async function loadFounderPackDraftContext(
   const result = await db.from("FounderFundingPack")
     .select("id, createdAt, inputs, content")
     .eq("organisationId", organisationId).eq("profileId", profileId)
+    .or("inputs->>scheme.is.null,inputs->>scheme.neq.start-up-loans")
     .order("createdAt", { ascending: false }).limit(3);
   if (result.error) {
     console.warn("[founder-pack-vault] Saved drafts unavailable", result.error.code);

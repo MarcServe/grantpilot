@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 
 import { useEffect, useMemo, useState } from "react";
 import { parseQuestionBlocks, questionAssistantRequestSchema, QUESTION_BATCH_SIZE, type QuestionLayout, type QuestionAssistantRequest } from "@/lib/validations/question-assistant";
@@ -213,7 +214,9 @@ const documentPresets: {
   label: string;
   description: string;
   types: FounderPackDocumentType[];
+  scheme?: "start-up-loans";
 }[] = [
+  { label: "Start Up Loans pack", description: "Loan business plan, 12-month cash-flow draft, personal survival budget, application answers and evidence checklist. Uses your saved loan intake.", scheme: "start-up-loans", types: ["business_plan", "grant_application_draft", "evidence_checklist", "next_steps"] },
   {
     label: "Full grant pack",
     description:
@@ -1016,8 +1019,8 @@ export function FounderPackClient({
     });
   }
 
-  function applyDocumentPreset(types: FounderPackDocumentType[]) {
-    setForm((prev) => ({ ...prev, documentTypes: types }));
+  function applyDocumentPreset(types: FounderPackDocumentType[], scheme?: "start-up-loans") {
+    setForm((prev) => ({ ...prev, documentTypes: types, scheme, ...(scheme ? { targetUse: "funding_readiness" as const, selectedApplicationIds: [], selectedEligibleGrantIds: [], grantRequirementsNotes: "" } : {}) }));
   }
 
   function selectProfile(profileId: string) {
@@ -1775,8 +1778,9 @@ export function FounderPackClient({
               <button
                 key={preset.label}
                 type="button"
-                onClick={() => applyDocumentPreset(preset.types)}
-                className="rounded-md border bg-background p-3 text-left transition-colors hover:border-blue-200 hover:bg-blue-50"
+                onClick={() => applyDocumentPreset(preset.types, preset.scheme)}
+                aria-pressed={preset.scheme ? form.scheme === preset.scheme : !form.scheme && JSON.stringify(form.documentTypes) === JSON.stringify(preset.types)}
+                className={`rounded-md border p-3 text-left transition-colors hover:border-blue-300 hover:bg-blue-50 ${preset.scheme ? "border-blue-300 bg-blue-50 ring-1 ring-blue-100" : "bg-background"}`}
               >
                 <span className="block text-sm font-semibold text-[#071a3a]">
                   {preset.label}
@@ -1800,6 +1804,7 @@ export function FounderPackClient({
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              {form.scheme === "start-up-loans" && <div className="space-y-2 rounded-lg border border-blue-300 bg-blue-50 p-3 text-sm"><strong>Start Up Loans pack selected</strong><p>Save your loan intake first. Your plan is a separate document; cash flow, personal budget and preparation answers appear as separately titled sections in the application draft. These are text drafts, not completed lender spreadsheets. Saved packs are available in this business workspace, so review any personal figures before generating.</p><Link href="/loans/start-up-loans" className="font-bold text-primary underline">Review and save loan intake →</Link></div>}
               {!allowed && (
                 <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
                   <div className="flex items-center gap-2 font-medium">

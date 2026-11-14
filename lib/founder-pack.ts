@@ -4,6 +4,7 @@ import { QUESTION_BATCH_SIZE } from "@/lib/validations/question-assistant";
 import { eligibilityFactsToText } from "@/lib/eligibility-facts";
 
 export interface FounderPackInputs {
+  scheme?: "start-up-loans";
   founderName: string;
   founderRole: string;
   founderBackground: string;
@@ -740,6 +741,8 @@ Official framing to address:
 
 Business profile:
 ${buildFounderPackProfileContext(profile)}
+
+${inputs.scheme === "start-up-loans" ? "START UP LOANS PACK: This is a repayable personal business loan, not a grant or visa pack. Write businessPlan as the full loan business plan. Use grantApplicationDraft for three separately titled complete deliverables: 12-month cash-flow working draft (all 12 months and opening/closing cash reconciliation), personal survival budget (actual individual income, expenses, debt and proposed repayments; never company turnover), and application preparation answers. Missing numbers remain [TO CONFIRM]. Do not invent balanced forecasts, bank statements or declarations. These are editable text drafts, not formula-validated lender spreadsheets. Only the lender assesses affordability and approval. Current saved applicant intake is the authoritative source for personal figures. Ignore unrelated historic grant writing. Include the genuine evidence still needed in evidenceChecklist and practical preparation steps in nextSteps." : ""}
 
 Founder and pack inputs:
 - Founder name: ${inputs.founderName}

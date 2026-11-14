@@ -1,3 +1,5 @@
+import { loadLoanIntakeContext } from "@/lib/start-up-loan-store";
+import { startUpLoanPreparation } from "@/lib/start-up-loans-preparation";
 import { loadExpertAdviceContext } from "@/lib/expert-review-context";
 import { loadReviewedGrantDocuments, appendPublishedRequirements } from "@/lib/reviewed-grant-context";
 import { loadFounderPackLabels } from "@/lib/founder-pack-labels";
@@ -20,6 +22,7 @@ const documentTypeValues = FOUNDER_PACK_DOCUMENT_TYPES.map((item) => item.value)
 ];
 
 const requestSchema = z.object({
+  scheme: z.literal("start-up-loans").optional(),
   profileId: z.string().min(1),
   founderName: z.string().max(120).optional().default(""),
   founderRole: z.string().max(160).optional().default(""),
@@ -52,6 +55,8 @@ export async function POST(req: Request): Promise<NextResponse> {
     if (!parsed.success) {
       return NextResponse.json({ error: "Invalid pack inputs", details: parsed.error.flatten() }, { status: 400 });
     }
+
+    if (parsed.data.scheme && ((parsed.data.selectedApplicationIds?.length ?? 0) > 0 || (parsed.data.selectedEligibleGrantIds?.length ?? 0) > 0)) return NextResponse.json({ error: "Deselect unrelated grants and applications before generating a Start Up Loans pack." }, { status: 400 });
 
     const supabase = getSupabaseAdmin();
     const { data: profile, error: profileError } = await supabase
@@ -88,7 +93,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     };
 
     const packLabels = await loadFounderPackLabels(supabase, orgId, [{ id: "new", inputs }]);
-    const packName = packLabels.get("new") ?? "Generic funding pack";
+    const packName = inputs.scheme === "start-up-loans" ? "Start Up Loans — Application preparation pack" : packLabels.get("new") ?? "Generic funding pack";
     const profileId = inputs.profileId;
     const uniqueAppIds = [...new Set(inputs.selectedApplicationIds ?? [])];
     const uniqueEligGrantIds = [...new Set(inputs.selectedEligibleGrantIds ?? [])];
@@ -170,8 +175,11 @@ export async function POST(req: Request): Promise<NextResponse> {
     const expertAdvice = await loadExpertAdviceContext(supabase, orgId, profileId, [...uniqueEligGrantIds, ...applicationRows.map(row => String(row.grantId ?? row.grant_id ?? ""))].filter(Boolean));
     const groundedContext = appendPublishedRequirements([trimmedCtx, expertAdvice].filter(Boolean).join("\n\n"), reviewed.documents);
 
-    const vaultDraftContext = await loadFounderPackDraftContext(supabase, orgId, inputs.profileId);
-    const content = await generateFounderPack(profile as Record<string, unknown>, inputs, `${groundedContext}${vaultDraftContext}`);
+    const loanIntake = inputs.scheme === "start-up-loans" ? await loadLoanIntakeContext(supabase, orgId, inputs.profileId, user.id) : "";
+    if (inputs.scheme && !loanIntake) return NextResponse.json({ error: "Save your Start Up Loans intake for this applicant and business before generating the pack." }, { status: 400 });
+    const loanContext = inputs.scheme ? `${startUpLoanPreparation().context}\n${loanIntake}` : "";
+    const vaultDraftContext = inputs.scheme ? "" : await loadFounderPackDraftContext(supabase, orgId, inputs.profileId);
+    const content = await generateFounderPack(profile as Record<string, unknown>, inputs, `${groundedContext}${vaultDraftContext}\n${loanContext}`);
     const { data: pack, error: insertError } = await supabase
       .from("FounderFundingPack")
       .insert({
