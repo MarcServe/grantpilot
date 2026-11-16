@@ -64,7 +64,7 @@ export async function discoverAssessorFramework(base:string,name:string,deps={fe
       }catch{result.warnings.push(`Guidance could not be fully read or organised: ${candidate.url}`);}
     }
     result.status=result.sources.length?"guidance_found":result.warnings.length?"incomplete":"not_found";
-    if(!result.criteria.length)result.warnings.push("No structured assessor criteria verified. Do not substitute general advice or predict an assessor score.");
+    if(!result.criteria.length)result.warnings.push("No structured assessor criteria verified. Use the clearly labelled GrantsCopilot default preparation checklist; do not present it as an official rubric or predict an assessor score.");
   }catch{result.status="incomplete";result.warnings.push("Assessor guidance lookup could not complete. Retry or review the funder source manually.");}
   result.warnings=[...new Set(result.warnings)];return result;
 }

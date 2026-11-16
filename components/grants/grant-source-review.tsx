@@ -1,4 +1,5 @@
 "use client";
+import { DEFAULT_GRANT_FRAMEWORK } from "@/lib/default-grant-framework";
 import { useRouter } from "next/navigation";
 import { sourceReviewErrorMessage } from "@/lib/source-review-errors";
 import { useEffect, useState } from "react";
@@ -43,6 +44,11 @@ export function GrantSourceReview({ grantId }: { grantId: string }) {
     <Button type="button" variant="outline" disabled={busy || data?.storageReady === false} onClick={review} className="h-auto max-w-full whitespace-normal">
       {busy ? "Reading requirements and looking for assessor guidance…" : doc ? "Read published guidance again" : "Read published guidance and requirements"}
     </Button>
+    {!doc?.assessorFramework?.criteria.length && <details className="rounded-lg border border-amber-200 bg-amber-50 p-3" open>
+      <summary className="cursor-pointer text-sm font-semibold">Default preparation framework — GrantsCopilot guidance</summary>
+      <p className="mt-2 text-xs">Used until applicable published assessment criteria are verified. This is an advisory checklist, not the funder’s official rubric or extra eligibility rules. Published competition requirements take precedence. No score or funding probability is assigned.</p>
+      <ul className="mt-3 space-y-2 text-sm">{DEFAULT_GRANT_FRAMEWORK.map(row=><li key={row.area}><strong>{row.area}</strong><p className="text-xs">{row.guidance}</p></li>)}</ul>
+    </details>}
     {doc && <>
       <p className="text-sm"><a href={doc.sourceUrl} target="_blank" rel="noreferrer" className="break-all text-blue-800 underline">Reviewed source</a> · {new Date(doc.extractedAt).toLocaleString("en-GB")} · {doc.sourceText?.length.toLocaleString("en-GB") ?? "Unknown"} characters read</p>
       <div className="space-y-2 rounded-lg border border-blue-200 bg-white p-3 text-sm">

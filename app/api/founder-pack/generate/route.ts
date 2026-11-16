@@ -173,7 +173,7 @@ export async function POST(req: Request): Promise<NextResponse> {
 
     const reviewed = await loadReviewedGrantDocuments(supabase, [...uniqueEligGrantIds, ...applicationRows.map((row) => String(row.grantId ?? row.grant_id ?? ""))].filter(Boolean));
     const expertAdvice = await loadExpertAdviceContext(supabase, orgId, profileId, [...uniqueEligGrantIds, ...applicationRows.map(row => String(row.grantId ?? row.grant_id ?? ""))].filter(Boolean));
-    const groundedContext = appendPublishedRequirements([trimmedCtx, expertAdvice].filter(Boolean).join("\n\n"), reviewed.documents);
+    const groundedContext = appendPublishedRequirements([trimmedCtx, expertAdvice].filter(Boolean).join("\n\n"), reviewed.documents, !inputs.scheme);
 
     const loanIntake = inputs.scheme === "start-up-loans" ? await loadLoanIntakeContext(supabase, orgId, inputs.profileId, user.id) : "";
     if (inputs.scheme && !loanIntake) return NextResponse.json({ error: "Save your Start Up Loans intake for this applicant and business before generating the pack." }, { status: 400 });

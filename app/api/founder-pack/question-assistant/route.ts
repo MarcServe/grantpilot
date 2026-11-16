@@ -161,7 +161,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     const reviewed = await loadReviewedGrantDocuments(supabase, [...eligibleGrantIds, ...applicationRows.map((row) => String(row.grantId ?? row.grant_id ?? ""))].filter(Boolean));
     const expertAdvice = await loadExpertAdviceContext(supabase, orgId, profileId, [...eligibleGrantIds, ...applicationRows.map(row => String(row.grantId ?? row.grant_id ?? ""))].filter(Boolean));
     const loanIntake = parsed.data.scheme === "start-up-loans" ? await loadLoanIntakeContext(supabase, orgId, profileId, user.id) : "";
-    const groundedContext = appendPublishedRequirements([trimmedGrantContext, expertAdvice, loanIntake].filter(Boolean).join("\n\n"), reviewed.documents);
+    const groundedContext = appendPublishedRequirements([trimmedGrantContext, expertAdvice, loanIntake].filter(Boolean).join("\n\n"), reviewed.documents, !parsed.data.scheme);
 
     const vaultDraftContext = await loadFounderPackDraftContext(supabase, orgId, profileId);
     const result = await generateFounderPackQuestionAnswers(
