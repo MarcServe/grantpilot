@@ -28,7 +28,8 @@ function publicAddress(address: string): boolean {
 export async function fetchPublicSourceHtml(
   input: string,
   redirects = 0,
-): Promise<{ url: string; html: string }> {
+  allowPdf = false,
+): Promise<{ url: string; html: string; pdfText?: string }> {
   const url = new URL(input);
   if (
     url.protocol !== "https:" ||
@@ -46,6 +47,7 @@ export async function fetchPublicSourceHtml(
     location?: string;
     body: string;
     type: string;
+    buffer: Buffer;
   }>((resolve, reject) => {
     const req = request(
       url,
@@ -65,21 +67,21 @@ export async function fetchPublicSourceHtml(
         },
       },
       (res) => {
-        let body = "";
+        const chunks: Buffer[] = [];
         let bytes = 0;
-        res.setEncoding("utf8");
-        res.on("data", (chunk: string) => {
+        res.on("data", (chunk: Buffer) => {
           bytes += Buffer.byteLength(chunk);
-          if (bytes > 2_000_000) {
+          if (bytes > (allowPdf ? 5_000_000 : 2_000_000)) {
             res.destroy(new Error("Source is too large to review safely."));
-          } else body += chunk;
+          } else chunks.push(chunk);
         });
         res.on("error", reject);
         res.on("end", () =>
           resolve({
             status: res.statusCode ?? 500,
             location: res.headers.location,
-            body,
+            body: Buffer.concat(chunks).toString("utf8"),
+            buffer: Buffer.concat(chunks),
             type: String(res.headers["content-type"] ?? ""),
           }),
         );
@@ -95,7 +97,14 @@ export async function fetchPublicSourceHtml(
     return fetchPublicSourceHtml(
       new URL(response.location, url).href,
       redirects + 1,
+      allowPdf,
     );
+  if (response.status === 200 && allowPdf && /application\/pdf/i.test(response.type)) {
+    const pdf = (await import("pdf-parse/lib/pdf-parse.js")).default;
+    const parsed = await pdf(response.buffer, { max: 80 });
+    if (parsed.numpages > 80 || parsed.text.length < 100 || parsed.text.length > 120_000) throw new Error("Assessor PDF needs manual review: scanned, too long or unreadable.");
+    return { url: url.href, html: "", pdfText: parsed.text };
+  }
   if (response.status !== 200 || !/text\/(html|plain)/i.test(response.type))
     throw new Error(
       "Funder source could not be reviewed. PDF or login-only requirements need a supported public text page.",

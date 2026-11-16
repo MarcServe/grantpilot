@@ -51,6 +51,7 @@ export type Criterion = z.infer<typeof criterionSchema>;
 export type CriteriaDocument = {
   version: number;
   sourceVersion: string;
+  assessorFramework?: import("@/lib/assessor-framework").AssessorFramework;
   sourceUrl: string;
   extractedAt: string;
   coverage: "complete" | "partial" | "unavailable";

@@ -3,6 +3,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   // Production: ensure strict mode and no dev-only behavior
   reactStrictMode: true,
+  serverExternalPackages: ["pdf-parse"],
   async redirects() {
     return [
       { source: "/get-started", destination: "/sign-up", permanent: false },

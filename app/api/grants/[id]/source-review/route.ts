@@ -1,3 +1,4 @@
+import { discoverAssessorFramework } from "@/lib/assessor-framework";
 import { sourceReviewErrorMessage } from "@/lib/source-review-errors";
 import { resolveGrantSourceLinks } from "@/lib/grant-source-links";
 import { NextResponse } from "next/server";
@@ -8,7 +9,7 @@ import { extractCriteriaDocument } from "@/lib/criteria-source";
 import { assessCriteria } from "@/lib/criteria";
 import { checkUsageLimit, recordUsage } from "@/lib/plan-check";
 import { clearEligibleMatchCaches } from "@/lib/eligible-match-cache";
-export const maxDuration = 180;
+export const maxDuration = 300;
 
 async function reviewContext(id: string) {
   const { orgId, activeProfileId, org } = await getActiveOrg();
@@ -42,7 +43,8 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     if (!limit.allowed) return NextResponse.json({ error: "Your eligibility check allowance has been reached." }, { status: 402 });
     const sourceUrl = resolveGrantSourceLinks(context.grant).sourceUrl;
     if (!sourceUrl) return NextResponse.json({ error: "Add the official funder guidance URL first. A third-party listing is not a reviewed funder source." }, { status: 400 });
-    const document = await extractCriteriaDocument(sourceUrl, context.grant.name);
+    const [document, assessorFramework] = await Promise.all([extractCriteriaDocument(sourceUrl, context.grant.name), discoverAssessorFramework(sourceUrl, context.grant.name)]);
+    document.assessorFramework = assessorFramework;
     const saved = await context.db.from("grant_criteria_documents").upsert({ grant_id: id, document, updated_at: new Date().toISOString() });
     if (saved.error) throw new Error("The published source was read but could not be saved. Please retry.");
     await recordUsage(context.orgId, "match");
