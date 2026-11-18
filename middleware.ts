@@ -21,7 +21,7 @@ const protectedPaths = [
 
 export async function middleware(request: NextRequest) {
   // Public marketing content does not need a network authentication check.
-  if (["/", "/privacy", "/terms", "/refund", "/start-up-loans"].includes(request.nextUrl.pathname)) {
+  if (["/", "/privacy", "/terms", "/refund", "/start-up-loans", "/how-it-works"].includes(request.nextUrl.pathname)) {
     return NextResponse.next({ request });
   }
   let supabaseResponse = NextResponse.next({ request });
@@ -80,6 +80,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|mp4|vtt)$).*)",
   ],
 };

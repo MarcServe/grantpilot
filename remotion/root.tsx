@@ -1,10 +1,28 @@
+import {
+  GrantsCopilotExplainer,
+  EXPLAINER_FPS,
+  EXPLAINER_SECONDS,
+} from "./grantscopilot-explainer";
 import { Composition, Folder } from "remotion";
-import { GrantsCopilotLaunchVideo, VIDEO_FPS, VIDEO_HEIGHT, VIDEO_WIDTH } from "./grantscopilot-launch-video";
+import {
+  GrantsCopilotLaunchVideo,
+  VIDEO_FPS,
+  VIDEO_HEIGHT,
+  VIDEO_WIDTH,
+} from "./grantscopilot-launch-video";
 import { GrantsCopilotPoster } from "./grantscopilot-poster";
 
 export const RemotionRoot = () => {
   return (
     <Folder name="GrantsCopilot">
+      <Composition
+        id="GrantsCopilotExplainer"
+        component={GrantsCopilotExplainer}
+        durationInFrames={EXPLAINER_SECONDS * EXPLAINER_FPS}
+        fps={EXPLAINER_FPS}
+        width={1280}
+        height={720}
+      />
       <Composition
         id="GrantsCopilotLaunch"
         component={GrantsCopilotLaunchVideo}

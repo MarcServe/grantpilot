@@ -1,3 +1,4 @@
+import { ProductExplainerVideo } from "@/components/marketing/product-explainer-video";
 import { SourcingInfrastructure } from "@/components/marketing/sourcing-infrastructure";
 import Image from "next/image";
 import Link from "next/link";
@@ -256,7 +257,7 @@ export default async function LandingPage() {
                 )}
               </Link>
               <a
-                href="#how-it-works"
+                href="/how-it-works"
                 className="inline-flex h-[52px] min-h-[52px] items-center justify-center gap-3 rounded-lg border border-[#d8e2f2] bg-white px-5 text-[16px] font-extrabold text-[#071a3a] shadow-[0_10px_22px_rgba(9,34,74,0.08)] sm:h-14 sm:px-7 sm:text-[17px]"
               >
                 <span className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-[#071a3a]">
@@ -411,6 +412,10 @@ export default async function LandingPage() {
                 How GrantsCopilot Works
               </h2>
               <span className="hidden h-px w-20 bg-white/25 sm:block" />
+            </div>
+
+            <div className="mx-auto mb-8 max-w-4xl">
+              <ProductExplainerVideo />
             </div>
 
             <div className="grid items-center gap-6 lg:grid-cols-[1fr_0.36fr_1fr_0.36fr_1fr_0.36fr_1.5fr]">

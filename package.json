@@ -44,7 +44,8 @@
     "test:start-up-loans-preparation": "tsx scripts/test-start-up-loans-preparation.ts",
     "test:expert-grant-review": "tsx scripts/test-expert-grant-review.ts",
     "test:start-up-loan-readiness": "tsx scripts/test-start-up-loan-readiness.ts",
-    "test:application-priority": "tsx scripts/test-application-priority.ts"
+    "test:application-priority": "tsx scripts/test-application-priority.ts",
+    "video:explainer": "remotion render GrantsCopilotExplainer public/videos/grantscopilot-explainer.mp4 --concurrency=2 --crf=26 --codec=h264 --audio-codec=aac --props=docs/video/explainer-props.json"
   },
   "dependencies": {
     "@google/genai": "^1.43.0",
