@@ -1,3 +1,4 @@
+import { sourceEnqueueLimit } from "@/lib/source-crawler-config";
 import { NextResponse } from "next/server";
 import { enqueueDueGrantSourceRuns, runDueGrantSources } from "@/lib/grant-sources";
 import { runWithCronLog } from "@/lib/cron-run-log";
@@ -6,8 +7,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 function cronLimit(): number {
-  const raw = Number(process.env.GRANT_SOURCE_CRON_LIMIT ?? 20);
-  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 20;
+  return sourceEnqueueLimit(process.env.GRANT_SOURCE_CRON_LIMIT);
 }
 
 function cronInlineWorkerLimit(): number {

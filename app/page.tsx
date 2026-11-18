@@ -1,3 +1,4 @@
+import { SourcingInfrastructure } from "@/components/marketing/sourcing-infrastructure";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -224,22 +225,22 @@ export default async function LandingPage() {
             <div className="inline-flex max-w-full items-start gap-2 rounded-xl bg-[#e8f0ff] px-3 py-2 text-[13px] font-bold leading-snug text-[#105fdf] sm:px-4 sm:text-[14px]">
               <Sparkles className="mt-0.5 h-4 w-4 shrink-0" />
               <span className="flex min-w-0 flex-col">
-                <span>Stop searching for grants. Let grants find you.</span>
+                <span>Multi-source discovery. Matched to your business.</span>
               </span>
             </div>
 
             <h1 className="mt-7 text-[clamp(2.55rem,11vw,4.4rem)] font-black leading-[1.06] tracking-normal text-[#071a3a] sm:mt-8 lg:text-[72px]">
-              Find Grants.
+              Discover funding.
               <br />
-              <span className="text-[#2167e8]">Prove Eligibility.</span>
+              <span className="text-[#2167e8]">Beyond the obvious.</span>
               <br />
-              <span className="text-[#35c386]">Get Funded.</span>
+              <span className="text-[#35c386]">Prepare your next step.</span>
             </h1>
 
             <p className="mt-5 max-w-[560px] text-[18px] font-medium leading-[1.55] text-[#09224a] sm:mt-6 sm:text-[20px]">
-              Create your Business DNA once. GrantsCopilot AI finds relevant
-              grants, scores your fit, flags missing evidence, and helps you
-              prepare stronger applications.
+              GrantsCopilot combines a broad funding-source registry with AI-assisted
+              discovery. Create your Business DNA once to find relevant opportunities,
+              understand published requirements and prepare stronger applications.
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:mt-9 sm:flex-row sm:gap-4">
@@ -324,6 +325,7 @@ export default async function LandingPage() {
           </div>
         </section>
 
+        <SourcingInfrastructure />
         <section
           className="mx-auto max-w-[1480px] px-4 pb-12 pt-2 sm:px-6 lg:px-10 lg:pb-16"
           aria-label="Workspace preview"

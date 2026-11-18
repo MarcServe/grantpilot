@@ -339,6 +339,7 @@ export async function runSourceAndUpsert(source: GrantSourceRow): Promise<{
   synced: number;
   created: number;
   updated: number;
+  skipped: number;
 }> {
   await waitForDomainThrottle(source.endpoint);
 
@@ -362,12 +363,14 @@ export async function runSourceAndUpsert(source: GrantSourceRow): Promise<{
 
   let created = 0;
   let updated = 0;
+  let skipped = 0;
   for (const g of grants) {
     try {
       const { created: c } = await upsertGrant(g);
       if (c) created++;
       else updated++;
     } catch (e) {
+      skipped++;
       console.warn(`[grant-sources] Skip grant from ${source.source_name}:`, e);
     }
   }
@@ -375,8 +378,9 @@ export async function runSourceAndUpsert(source: GrantSourceRow): Promise<{
     synced: grants.length,
     created,
     updated,
+    skipped,
   });
-  return { synced: grants.length, created, updated };
+  return { synced: grants.length, created, updated, skipped };
 }
 
 export async function claimDueGrantSources(options?: ClaimDueGrantSourcesOptions): Promise<GrantSourceRow[]> {
@@ -423,6 +427,7 @@ export async function enqueueDueGrantSourceRuns(options?: {
       sourceId: source.id,
       claimToken: source.claim_token ?? null,
       sourceName: source.source_name,
+      sourceDomain: (() => { try { return new URL(source.endpoint).hostname.toLowerCase(); } catch { return "unknown"; } })(),
       requestedBy: options?.source ?? "unknown",
     },
   }));

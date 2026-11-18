@@ -1,3 +1,4 @@
+import { SourceCoverageAudit } from "@/components/admin/source-coverage-audit";
 import { DeadlineSocialBulk } from "@/components/admin/deadline-social-bulk";
 import { DeadlineSocialPost } from "@/components/admin/deadline-social-post";
 import { AIProviderSettings } from "@/components/admin/ai-provider-settings";
@@ -1709,6 +1710,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
           <h1 className="text-2xl font-bold">Admin</h1>
           <a href="/admin/expert-reviews" className="inline-block text-sm font-semibold text-primary underline">Expert grant advisory requests →</a>
           <a href="/admin/loan-readiness" className="ml-4 inline-block text-sm font-semibold text-primary underline">Shared Start Up Loan intakes →</a>
+          <a href="#source-coverage" className="ml-4 inline-block text-sm font-semibold text-primary underline">Sourcing coverage evidence →</a>
           <p className="mt-1 text-muted-foreground">
             You are logged in as the admin account. Import, compose, and verify grant records here.
           </p>
@@ -2812,6 +2814,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
             </CardContent>
           </Card>
         </section>
+        <SourceCoverageAudit />
         <GrantSourceManager />
         <GrantComposer />
         <GrantImportUploader />
