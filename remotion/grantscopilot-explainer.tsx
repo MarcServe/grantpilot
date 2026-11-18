@@ -1,3 +1,4 @@
+import { RealProductScenes } from "./grantscopilot-real-product-scenes";
 import {
   AbsoluteFill,
   Audio,
@@ -434,6 +435,7 @@ export function GrantsCopilotExplainer({
           </Panel>
         </Scene>
       </Sequence>
+      <RealProductScenes />
       <div
         style={{
           position: "absolute",

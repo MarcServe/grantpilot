@@ -56,7 +56,8 @@ export default function HowItWorksPage() {
         </div>
         <ProductExplainerVideo />
         <p className="mt-3 text-sm text-slate-600">
-          A narrated illustration of the workflow. Enable English captions using
+          Real dashboard, business profile, Founder Pack and notification
+          screens, alongside animated transitions. Enable English captions using
           the player controls.
         </p>
         <div className="mt-10 grid gap-5 sm:grid-cols-2">
