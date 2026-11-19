@@ -167,17 +167,19 @@ export function EditApplicationUrl({ grantId, applicationUrl }: EditApplicationU
   return (
     <div className="space-y-2 min-w-0">
       <div className="flex flex-wrap items-center gap-2 min-w-0">
-        <div className="min-w-0 min-h-0 flex-1 overflow-hidden">
-          <a
-            href={applicationUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-start gap-1 text-sm text-primary underline hover:no-underline break-all"
-          >
-            <ExternalLink className="mt-0.5 h-3 w-3 shrink-0" />
-            <span className="min-w-0 break-all hyphens-auto">{applicationUrl}</span>
-          </a>
-        </div>
+        {applicationUrl && (
+          <div className="min-w-0 min-h-0 flex-1 overflow-hidden">
+            <a
+              href={applicationUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-start gap-1 text-sm text-primary underline hover:no-underline break-all"
+            >
+              <ExternalLink className="mt-0.5 h-3 w-3 shrink-0" />
+              <span className="min-w-0 break-all hyphens-auto">{applicationUrl}</span>
+            </a>
+          </div>
+        )}
         <Button
           type="button"
           variant="ghost"

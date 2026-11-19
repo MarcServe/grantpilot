@@ -1,3 +1,4 @@
+import { closedGrantProgramme } from "@/lib/closed-grant-programmes";
 import { isGrantAggregatorUrl, isVerifiedApplicationQuality } from "@/lib/grant-application-url-quality";
 
 // Exact-record correction, verified against the funder's published competition.
@@ -20,14 +21,15 @@ export function isRecognisedFunderUrl(raw?: string | null): boolean {
   return /(^|\.)(gov\.uk|ukri\.org|europa\.eu|grants\.gov|nsf\.gov|nih\.gov)$/i.test(new URL(page).hostname);
 }
 export function resolveGrantSourceLinks(grant: {
-  id?: string | null; grantId?: string | null; detailUrl?: string | null;
+  id?: string | null; grantId?: string | null; name?: string | null; detailUrl?: string | null;
   applicationUrl?: string | null; directApplicationUrl?: string | null; applicationUrlQuality?: string | null;
 }) {
-  const corrected = correctedGrantSourceUrl(grant.id ?? grant.grantId);
+  const closedProgramme = closedGrantProgramme(grant.name);
+  const corrected = closedProgramme?.guidanceUrl ?? correctedGrantSourceUrl(grant.id ?? grant.grantId);
   const detail = grantWebPage(grant.detailUrl); const legacy = grantWebPage(grant.applicationUrl);
   const direct = grantWebPage(grant.directApplicationUrl);
   const candidates = [...new Set([detail, legacy, direct].filter((url): url is string => !!url))];
-  const applicationUrl = isVerifiedApplicationQuality(grant.applicationUrlQuality)
+  const applicationUrl = !closedProgramme && isVerifiedApplicationQuality(grant.applicationUrlQuality)
     ? [direct, legacy].find((url): url is string => !!url && !isGrantAggregatorUrl(url)) ?? null : null;
   const sourceUrl = corrected ?? candidates.find(isRecognisedFunderUrl)
     ?? candidates.find(url => !isGrantAggregatorUrl(url)) ?? null;
@@ -35,6 +37,6 @@ export function resolveGrantSourceLinks(grant: {
   return { sourceUrl, applicationUrl, discoveryUrl,
     isOfficial: !!sourceUrl && (sourceUrl === corrected || isRecognisedFunderUrl(sourceUrl)),
     discoveryOnly: !sourceUrl && !!discoveryUrl,
-    label: sourceUrl ? (sourceUrl === corrected || isRecognisedFunderUrl(sourceUrl) ? "View official grant page" : "View grant information") : "View discovery listing",
+    label: closedProgramme ? "View official programme guidance" : sourceUrl ? (sourceUrl === corrected || isRecognisedFunderUrl(sourceUrl) ? "View official grant page" : "View grant information") : "View discovery listing",
   };
 }

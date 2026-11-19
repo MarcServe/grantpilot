@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { getGrantActionabilityStatus } from "../lib/grant-actionability";
 import { resolveGrantSourceLinks, grantWebPage } from "../lib/grant-source-links";
 import { classifyGrantApplicationUrl, isGrantAggregatorUrl } from "../lib/grant-application-url-quality";
 import { loadReviewedGrantDocuments } from "../lib/reviewed-grant-context";
@@ -16,6 +17,23 @@ assert.equal(resolveGrantSourceLinks({detailUrl:listing}).label,"View discovery 
 assert.equal(resolveGrantSourceLinks({detailUrl:listing}).sourceUrl,null);
 for(const url of ["javascript:alert(1)","https://example.org/screenshot.png","https://example.org/photo.webp?x=1","https://www.grantscopilot.com/grants/abc","https://user:secret@example.org/grant"])assert.equal(grantWebPage(url),null);
 assert.equal(resolveGrantSourceLinks({detailUrl:"https://apply-for-innovation-funding.service.gov.uk.evil.example/grant"}).isOfficial,false);
+const reportedSmartGrant = {
+  name: "Innovate UK Smart Grant",
+  deadline: "2026-12-18",
+  url_status: "live",
+  applicationUrl: "https://www.grantgator.org/",
+  applicationUrlQuality: "verified_direct",
+};
+const reportedDate = new Date("2026-11-19T12:00:00Z");
+assert.equal(getGrantActionabilityStatus(reportedSmartGrant, reportedDate).reason, "explicitly_closed");
+assert.equal(getGrantActionabilityStatus({ ...reportedSmartGrant, name: "Innovate UK Smart Grants: Named competition" }, reportedDate).usable, true);
+assert.equal(classifyGrantApplicationUrl(reportedSmartGrant.applicationUrl).quality, "rejected");
+const smartLinks = resolveGrantSourceLinks(reportedSmartGrant);
+assert.equal(smartLinks.sourceUrl, "https://www.ukri.org/councils/innovate-uk/guidance-for-applicants/guidance-for-specific-funds/");
+assert.equal(smartLinks.applicationUrl, null);
+assert.equal(smartLinks.discoveryUrl, reportedSmartGrant.applicationUrl);
+assert.equal(smartLinks.label, "View official programme guidance");
+
 async function main(){
  const old={sourceVersion:"old",sourceUrl:listing,criteria:[],workload:[]};
  const db={from(){return{select(){return this},async in(){return{error:null,data:[{grant_id:"c10e491028ac6ce7ca05b7331cd2ca943",document:old}]}}}}};

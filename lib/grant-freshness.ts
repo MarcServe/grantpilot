@@ -1,3 +1,5 @@
+import { closedGrantProgramme } from "@/lib/closed-grant-programmes";
+
 export type GrantFreshnessReason =
   | "url_dead"
   | "url_expired"
@@ -266,6 +268,16 @@ export function isPastGrantDeadline(deadline?: string | Date | null, now = new D
 }
 
 export function getGrantFreshnessStatus(grant: GrantFreshnessInput, now = new Date()): GrantFreshnessStatus {
+  const closedProgramme = closedGrantProgramme(grant.name);
+  if (closedProgramme) {
+    return {
+      usable: false,
+      reason: "explicitly_closed",
+      message: closedProgramme.message,
+      staleDate: null,
+    };
+  }
+
   const status = grant.url_status ?? grant.urlStatus ?? "unknown";
   if (status === "dead") {
     return {

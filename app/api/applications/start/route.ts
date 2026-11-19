@@ -9,7 +9,7 @@ import { createDefaultTasksForApplication } from "@/lib/application-tasks";
 import { requestEligibilityRefresh } from "@/lib/eligibility-refresh-trigger";
 import { buildSessionItems, matchPortalRecipe } from "@/lib/session-items";
 import { isGrantActionableNow } from "@/lib/grant-actionability";
-import { isVerifiedApplicationQuality } from "@/lib/grant-application-url-quality";
+import { resolveGrantSourceLinks } from "@/lib/grant-source-links";
 
 const startSchema = z.object({
   grantId: z.string().min(1),
@@ -58,10 +58,8 @@ export async function POST(req: Request): Promise<NextResponse> {
       );
     }
 
-    const quality = (grant as { applicationUrlQuality?: string | null }).applicationUrlQuality;
-    const directUrl = (grant as { directApplicationUrl?: string | null }).directApplicationUrl;
-    const applicationStartUrl = directUrl ?? grant.applicationUrl;
-    if (!isVerifiedApplicationQuality(quality) || !applicationStartUrl) {
+    const applicationStartUrl = resolveGrantSourceLinks(grant).applicationUrl;
+    if (!applicationStartUrl) {
       return NextResponse.json(
         { error: "This grant does not have a verified direct application form yet. Use Find application form or review the original grant page first." },
         { status: 409 }

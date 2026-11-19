@@ -46,6 +46,7 @@ const PORTAL_HOST_PATTERNS = [
 ];
 
 const GRANT_AGGREGATOR_HOST_PATTERNS = [
+  /(^|\.)grantgator\.org$/i,
   /(^|\.)startupnetworks\.co\.uk$/i,
   /(^|\.)grantsonline\.org\.uk$/i,
   /(^|\.)fundingcentral\.org\.uk$/i,
