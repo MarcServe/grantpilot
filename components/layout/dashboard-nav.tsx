@@ -163,7 +163,8 @@ export function DashboardNav({
               Grants<span className="text-[#2468e8]">Copilot</span>
             </SheetTitle>
           </SheetHeader>
-          <nav className="mt-6">
+          {/* The sheet is full height, so the link list must scroll on short screens. */}
+          <nav className="mt-6 min-h-0 flex-1 overflow-y-auto overscroll-contain pb-6 [-webkit-overflow-scrolling:touch]">
             <NavLinks compact onLinkClick={() => setOpen(false)} />
           </nav>
         </SheetContent>

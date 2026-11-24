@@ -137,3 +137,12 @@
     transform: translateX(220%);
   }
 }
+/*
+ * The TalkWeb launcher (injected by talkweb.io/widget.js) sits at z-index 999999,
+ * above our sheets and dialogs. Hide the floating launcher while one is open so it
+ * cannot cover menu items or dialog buttons; an open TalkWeb chat is left alone.
+ */
+body:has([data-slot="sheet-content"][data-state="open"], [data-slot="dialog-content"][data-state="open"])
+  :is(#talkweb-widget-container, #talkweb-launcher-handle, #talkweb-minimized-bar) {
+  display: none !important;
+}
