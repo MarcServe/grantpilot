@@ -69,7 +69,8 @@ async function fetchFullUserBySupabaseId(admin: ReturnType<typeof getSupabaseAdm
   const { data, error } = await admin
     .from("User")
     .select(
-      "*, OrganisationMember(*, Organisation(*, BusinessProfile(*)))"
+      // Name the FK: Organisation↔BusinessProfile also link via grant_criteria_* join tables, which makes a bare embed ambiguous (PGRST201).
+      "*, OrganisationMember(*, Organisation(*, BusinessProfile!BusinessProfile_organisationId_fkey(*)))"
     )
     .eq("supabaseId", supabaseId)
     .maybeSingle();
