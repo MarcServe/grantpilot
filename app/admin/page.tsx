@@ -867,7 +867,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: Admin
         suppressedProfileIds.length > 0
           ? supabase
               .from("BusinessProfile")
-              .select("id, businessName, business_name")
+              .select("id, businessName")
               .in("id", suppressedProfileIds)
           : Promise.resolve({ data: [], error: null }),
         suppressedOrganisationIds.length > 0
