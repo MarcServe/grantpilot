@@ -17,6 +17,7 @@ import {
 import { classifyGrantApplicationUrl, isGrantAggregatorUrl } from "../lib/grant-application-url-quality";
 import { isIdentifyingGrantUrl } from "../lib/grants-ingest";
 import { isGrantActionableNow } from "../lib/grant-actionability";
+import { buildGrantCleanupPlan, type CleanupGrantRow } from "../lib/grant-cleanup-plan";
 
 const now = new Date("2026-11-27T12:00:00Z");
 const IFS = "https://apply-for-innovation-funding.service.gov.uk";
@@ -124,4 +125,28 @@ assert.equal(isGrantActionableNow({ name: "Techstars London Accelerator Fall 202
 assert.equal(isGrantActionableNow({ name: "UK business grants calendar", applicationUrl: "https://swoopfunding.com/uk/business-grants/calendar/", deadline: "2026-12-31" }, now), false);
 assert.equal(isGrantActionableNow({ name: "BridgeAI Deployment Catalyst: AI for Operational Systems", applicationUrl: comps[0].url, deadline: "2026-12-08" }, now), true);
 
-console.log("IFS competition reconciliation, duplicate identity, listing-page, stale-year, aggregator and unverified-source rules passed");
+// --- Cleanup planner: only single-row link/status updates, never deletes ---
+const row = (o: Partial<CleanupGrantRow> & { id: string; name: string }): CleanupGrantRow => ({
+  funder: "Innovate UK", deadline: null, applicationUrl: "", detailUrl: null, directApplicationUrl: null,
+  applicationUrlQuality: null, source: "openai", url_status: "unknown", createdAt: "2026-01-01", ...o,
+});
+const plan = buildGrantCleanupPlan([
+  row({ id: "fix", name: "BridgeAI Deployment Catalyst: AI for Assurance and Compliance", deadline: "2026-12-08", applicationUrl: `${IFS}/competition/2585/overview/9fdb47a5-011c-4c47-ac5e-c426e295fe89` }),
+  row({ id: "keep", name: "Powering Local Businesses Business Resilience Grant", funder: "EDF Energy", deadline: "2026-11-29", applicationUrl: "https://www.edfenergy.com/energywise/small-business-resilience", source: "perplexity", createdAt: "2026-10-01" }),
+  row({ id: "dup", name: "Powering Local Businesses: Business Resilience Grant", funder: "Enterprise Nation and EDF", deadline: "2026-11-29", applicationUrl: "https://acvo.org.uk/funds/the-powering-local-businesses-business-resilience-grant", source: "perplexity", createdAt: "2026-11-11" }),
+  row({ id: "smart", name: "Innovate UK Smart Grants", applicationUrl: "https://www.gov.uk/government/collections/innovate-uk-smart-grants" }),
+  row({ id: "stale", name: "Techstars London Accelerator Fall 2023", funder: "Techstars", applicationUrl: "https://apply.techstars.com/" }),
+  row({ id: "gone", name: "Old", funder: "X", applicationUrl: "https://x.example/a", url_status: "expired" }),
+], index, now);
+const byId = new Map(plan.actions.map((a) => [a.id, a]));
+assert.equal(byId.get("fix")?.action, "fix_ifs_links");
+assert.equal(byId.get("fix")?.after.applicationUrl, comps[2].url);
+assert.equal(byId.get("fix")?.before.applicationUrl, `${IFS}/competition/2585/overview/9fdb47a5-011c-4c47-ac5e-c426e295fe89`, "before snapshot kept for rollback");
+assert.equal(byId.get("keep"), undefined, "strongest duplicate is untouched");
+assert.equal(byId.get("dup")?.reason, "duplicate");
+assert.deepEqual(byId.get("dup")?.after, { url_status: "expired" });
+assert.equal(byId.get("smart")?.reason, "ifs_not_listed");
+assert.equal(byId.get("stale")?.reason, "title_year_passed");
+assert.equal(byId.get("gone"), undefined, "already-hidden rows are out of scope");
+
+console.log("IFS competition reconciliation, duplicate identity, listing-page, stale-year, aggregator, unverified-source rules and cleanup planner passed");
