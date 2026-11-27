@@ -100,7 +100,7 @@ const FRESH_PROFILE_BACKFILL_PROFILE_LIMIT = positiveIntFromEnv("ELIGIBILITY_FRE
 const FRESH_PROFILE_BACKFILL_GRANT_LIMIT = positiveIntFromEnv("ELIGIBILITY_FRESH_BACKFILL_GRANT_LIMIT", 150);
 const FRESH_PROFILE_BACKFILL_CANDIDATE_LIMIT = positiveIntFromEnv("ELIGIBILITY_FRESH_BACKFILL_CANDIDATE_LIMIT", 30);
 const GRANT_BACKFILL_SELECT =
-  "id, name, funder, amount, deadline, applicationUrl, createdAt, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, url_status";
+  "id, name, funder, amount, deadline, applicationUrl, createdAt, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, url_status, source, detailUrl";
 const GRANT_INTELLIGENCE_SELECT =
   "grant_id, content_hash, status, model, confidence, reusable_summary, extracted_criteria, eligibility_criteria, hard_gates, applicant_types, sectors, regions, funding_purposes, semantic_tags, measurable_requirements, exclusions, freshness, scoring_hints, reusable_prompt, extraction_error";
 
@@ -1196,7 +1196,7 @@ export async function enqueueExistingHeuristicAssessments(options?: {
 
     const grantsResult = await supabase
       .from("Grant")
-      .select("id, name, funder, amount, deadline, applicationUrl, createdAt, eligibility, description, objectives, applicantTypes, sectors, regions, url_status")
+      .select("id, name, funder, amount, deadline, applicationUrl, createdAt, eligibility, description, objectives, applicantTypes, sectors, regions, url_status, source, detailUrl")
       .in("id", grantIds);
     if (grantsResult.error) throw grantsResult.error;
 
@@ -1492,7 +1492,7 @@ export async function processEligibilityDeepScoreQueue(options?: {
     supabase.from("BusinessProfile").select("*").in("id", profileIds),
     supabase
       .from("Grant")
-      .select("id, name, funder, amount, deadline, applicationUrl, createdAt, eligibility, description, objectives, applicantTypes, sectors, regions, url_status")
+      .select("id, name, funder, amount, deadline, applicationUrl, createdAt, eligibility, description, objectives, applicantTypes, sectors, regions, url_status, source, detailUrl")
       .in("id", grantIds),
   ]);
   if (selectedProfilesResult.error) throw selectedProfilesResult.error;

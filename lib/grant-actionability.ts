@@ -7,6 +7,7 @@ import {
   type GrantFreshnessStatus,
 } from "@/lib/grant-freshness";
 import { checkUrlHealth, type HealthCheckResult } from "@/lib/url-health-check";
+import { getGrantDataQualityIssue } from "@/lib/grant-data-quality";
 
 export type GrantActionabilityInput = {
   id?: string | null;
@@ -16,6 +17,9 @@ export type GrantActionabilityInput = {
   funder?: string | null;
   deadline?: string | Date | null;
   applicationUrl?: string | null;
+  detailUrl?: string | null;
+  directApplicationUrl?: string | null;
+  source?: string | null;
   url_status?: string | null;
   urlStatus?: string | null;
   eligibility?: string | null;
@@ -150,7 +154,9 @@ export function isGrantActionableNow(
   now = new Date(),
 ): boolean {
   return (
-    !isResearchResource(grant) && getGrantActionabilityStatus(grant, now).usable
+    !isResearchResource(grant) &&
+    !getGrantDataQualityIssue(grant, now) &&
+    getGrantActionabilityStatus(grant, now).usable
   );
 }
 

@@ -61,6 +61,27 @@ const GRANT_AGGREGATOR_HOST_PATTERNS = [
   /(^|\.)grantforward\.com$/i,
   /(^|\.)grantstation\.com$/i,
   /(^|\.)fundsforngos\.org$/i,
+  // Third-party grant listings, blogs and finders seen as the only source of
+  // AI-discovered "grants" (duplicated Smart Grant / resilience grant records).
+  /(^|\.)grantgator\.org$/i,
+  /(^|\.)grantgunner\.org$/i,
+  /(^|\.)grantup\.co\.uk$/i,
+  /(^|\.)grantmatch\.co\.uk$/i,
+  /(^|\.)grantchain\.eu$/i,
+  /(^|\.)grantedai\.com$/i,
+  /(^|\.)findmygrant\.co\.uk$/i,
+  /(^|\.)zengrants\.co$/i,
+  /(^|\.)govowed\.uk$/i,
+  /(^|\.)startupmag\.co\.uk$/i,
+  /(^|\.)qubit\.capital$/i,
+  /(^|\.)swoopfunding\.com$/i,
+  /(^|\.)urbanodx\.com$/i,
+  /(^|\.)foundersailab\.com$/i,
+  /(^|\.)ardanventures\.co\.uk$/i,
+  /(^|\.)theaiconsultancy\.ai$/i,
+  /(^|\.)ascendpartners\.co\.uk$/i,
+  /(^|\.)fundingoptions\.com$/i,
+  /(^|\.)businessfinanceguide\.co\.uk$/i,
 ];
 
 const GENERIC_PATH_SEGMENTS = new Set([
@@ -189,6 +210,23 @@ export function classifyGrantApplicationUrl(
 
   if (FORM_HOST_PATTERNS.some((pattern) => pattern.test(host))) {
     return directFormClassification("Known hosted form provider");
+  }
+
+  if (host === "apply-for-innovation-funding.service.gov.uk") {
+    // Only a specific competition is an application route; search/home pages are
+    // listings. Competition ids themselves are checked against IFS at ingestion.
+    if (/^\/competition\/\d+\/overview\/[0-9a-f-]{36}$/.test(path)) {
+      return portalClassification("Innovate UK IFS competition page");
+    }
+    if (/^\/competition\/\d+/.test(path) || /^\/application\//.test(path)) {
+      return portalClassification("Innovate UK IFS application path", 70);
+    }
+    return {
+      kind: "generic_listing",
+      quality: "manual_review",
+      confidence: 85,
+      reason: "Innovate UK competition search/listing page, not a specific competition",
+    };
   }
 
   if (PORTAL_HOST_PATTERNS.some((pattern) => pattern.test(host))) {
