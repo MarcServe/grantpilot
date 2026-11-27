@@ -63,7 +63,7 @@ const DEEP_SCORE_WORKER_CONCURRENCY = positiveIntFromEnv("ELIGIBILITY_DEEP_SCORE
 const DIGEST_STRONG_LIMIT = positiveIntFromEnv("ELIGIBILITY_DIGEST_STRONG_LIMIT", 20);
 const DIGEST_OTHER_LIMIT = positiveIntFromEnv("ELIGIBILITY_DIGEST_OTHER_LIMIT", 4);
 const GRANT_REFRESH_SELECT_BASE =
-  "id, name, funder, amount, deadline, applicationUrl, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, required_attachments, url_status, createdAt";
+  "id, name, funder, amount, deadline, applicationUrl, eligibility, description, objectives, applicantTypes, sectors, regions, funderLocations, required_attachments, url_status, createdAt, source, detailUrl";
 const GRANT_REFRESH_SELECT_WITH_URL_QUALITY =
   `${GRANT_REFRESH_SELECT_BASE}, directApplicationUrl, applicationUrlQuality, applicationUrlKind`;
 

@@ -22,6 +22,19 @@ import {
   grantCandidateTextKey,
   grantCandidateUrlCandidates,
 } from "@/lib/grant-candidate-quality";
+import {
+  getGrantDataQualityIssue,
+  grantRecordStrength,
+  identitySearchToken,
+  isSameGrantIdentity,
+  nameSimilarity,
+} from "@/lib/grant-data-quality";
+import {
+  isIfsUrl,
+  isUnlistedInnovateUkCompetition,
+  loadIfsCompetitionIndex,
+  reconcileIfsCompetitionUrls,
+} from "@/lib/ifs-competitions";
 
 type SupabaseAdmin = ReturnType<typeof getSupabaseAdmin>;
 
@@ -84,25 +97,85 @@ function parseDeadline(v: unknown): Date | null {
   return null;
 }
 
-async function findExistingByUrl(supabase: SupabaseAdmin, url: string): Promise<{ id: string } | null> {
+type ExistingGrantRow = {
+  id: string;
+  name?: string | null;
+  funder?: string | null;
+  deadline?: string | null;
+  applicationUrl?: string | null;
+  detailUrl?: string | null;
+  directApplicationUrl?: string | null;
+  applicationUrlQuality?: string | null;
+  source?: string | null;
+  url_status?: string | null;
+  createdAt?: string | null;
+};
+
+const EXISTING_GRANT_COLUMNS =
+  "id, name, funder, deadline, applicationUrl, detailUrl, directApplicationUrl, applicationUrlQuality, source, url_status, createdAt";
+
+/** Minimum name overlap for a URL or derived-id hit to count as the same grant. */
+const SAME_GRANT_NAME_SIMILARITY = 0.5;
+
+/**
+ * URLs shared by many unrelated grants (funder homepages, search/listing pages,
+ * aggregators) must never be used to identify a grant: matching on them made new
+ * discoveries overwrite the name and links of whichever grant held that URL first.
+ */
+export function isIdentifyingGrantUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    if (segments.length === 0) return false;
+    // Funder hub pages such as /apply-for-funding or /business-grants.
+    if (segments.length === 1 && /apply|funding|grants?|opportunit|competition|support|finance/i.test(segments[0])) return false;
+  } catch {
+    return false;
+  }
+  if (looksLikeGenericOrListUrl(url)) return false;
+  return classifyGrantApplicationUrl(url).kind !== "generic_listing";
+}
+
+function looksLikeSameGrant(input: GrantInput, row: ExistingGrantRow): boolean {
+  if (!row.name) return true;
+  return isSameGrantIdentity(input, row) || nameSimilarity(input, row) >= SAME_GRANT_NAME_SIMILARITY;
+}
+
+async function findExistingByUrl(supabase: SupabaseAdmin, url: string, input: GrantInput): Promise<ExistingGrantRow | null> {
   for (const column of ["applicationUrl", "detailUrl", "directApplicationUrl"] as const) {
     const { data, error } = await supabase
       .from("Grant")
-      .select("id")
+      .select(EXISTING_GRANT_COLUMNS)
       .eq(column, url)
-      .limit(1);
+      .limit(10);
     if (error) continue;
-    const row = Array.isArray(data) ? data[0] : null;
-    if (row?.id) return row as { id: string };
+    const row = ((data ?? []) as ExistingGrantRow[]).find((candidate) => looksLikeSameGrant(input, candidate));
+    if (row?.id) return row;
   }
   return null;
+}
+
+/** Same grant re-listed under a different source/URL/wording (e.g. 14 "Smart Grants" rows). */
+async function findExistingByIdentity(supabase: SupabaseAdmin, input: GrantInput): Promise<ExistingGrantRow | null> {
+  const token = identitySearchToken(input);
+  if (!token) return null;
+  const { data, error } = await supabase
+    .from("Grant")
+    .select(EXISTING_GRANT_COLUMNS)
+    .ilike("name", `%${token}%`)
+    .limit(200);
+  if (error) return null;
+  const matches = ((data ?? []) as ExistingGrantRow[]).filter((row) => isSameGrantIdentity(input, row));
+  if (matches.length === 0) return null;
+  return matches.sort((a, b) => grantRecordStrength(b) - grantRecordStrength(a)
+    || String(a.createdAt ?? "").localeCompare(String(b.createdAt ?? "")))[0];
 }
 
 export async function findExistingGrantCandidate(
   supabase: SupabaseAdmin,
   input: GrantInput,
   options?: { externalId?: string | null; deadline?: Date | null }
-): Promise<{ id: string } | null> {
+): Promise<ExistingGrantRow | null> {
   const fallbackExternalId = computeGrantHash(input.name, input.funder, input.deadline);
   const externalIds = Array.from(new Set([
     options?.externalId?.trim(),
@@ -113,10 +186,15 @@ export async function findExistingGrantCandidate(
   for (const externalId of externalIds) {
     const { data, error } = await supabase
       .from("Grant")
-      .select("id")
+      .select(EXISTING_GRANT_COLUMNS)
       .eq("externalId", externalId)
       .maybeSingle();
-    if (!error && data?.id) return data as { id: string };
+    if (error || !data?.id) continue;
+    const row = data as ExistingGrantRow;
+    // Discovery ids are derived from the name at first sight; a row that has since
+    // been renamed is no longer that grant, so don't let the id pull it back.
+    if (externalId.startsWith("discovery-") && !looksLikeSameGrant(input, row)) continue;
+    return row;
   }
 
   const rawUrls = [
@@ -130,10 +208,10 @@ export async function findExistingGrantCandidate(
     ...grantCandidateUrlCandidates(input),
     ...rawUrls,
     ...rawUrls.map(canonicalizeGrantUrl).filter((url): url is string => Boolean(url)),
-  ]));
+  ])).filter(isIdentifyingGrantUrl);
 
   for (const url of urlCandidates) {
-    const existing = await findExistingByUrl(supabase, url);
+    const existing = await findExistingByUrl(supabase, url, input);
     if (existing) return existing;
   }
 
@@ -144,16 +222,34 @@ export async function findExistingGrantCandidate(
   });
   const { data: textMatches } = await supabase
     .from("Grant")
-    .select("id, name, funder, deadline")
+    .select(EXISTING_GRANT_COLUMNS)
     .eq("name", input.name)
     .eq("funder", input.funder)
     .limit(10);
 
-  for (const row of (textMatches ?? []) as Array<{ id: string; name?: string | null; funder?: string | null; deadline?: string | null }>) {
-    if (grantCandidateTextKey(row) === candidateTextKey) return { id: row.id };
+  for (const row of (textMatches ?? []) as ExistingGrantRow[]) {
+    if (grantCandidateTextKey(row) === candidateTextKey) return row;
   }
 
-  return null;
+  return findExistingByIdentity(supabase, input);
+}
+
+/**
+ * Correct Innovate UK IFS links against the live competition index. Fails open
+ * (returns the input) when IFS cannot be reached.
+ */
+export async function reconcileGrantInputWithIfs(input: GrantInput): Promise<GrantInput> {
+  const touchesIfs = [input.applicationUrl, input.detailUrl, input.directApplicationUrl].some(isIfsUrl)
+    || /innovate uk|ukri|uk research and innovation/i.test(`${input.funder} ${input.name}`);
+  if (!touchesIfs) return input;
+  const index = await loadIfsCompetitionIndex();
+  if (!index) return input;
+  const { grant, changes } = reconcileIfsCompetitionUrls(input, index);
+  if (changes.length > 0) console.log(`[grants-ingest] IFS reconcile "${input.name}": ${changes.join("; ")}`);
+  if (isUnlistedInnovateUkCompetition(grant, index)) {
+    throw new Error(`Grant record is not actionable (ifs_not_listed): ${input.name} is not an open Innovate UK competition on IFS and has no deadline`);
+  }
+  return grant;
 }
 
 /**
@@ -232,8 +328,16 @@ export function parseGrantRow(row: unknown): GrantInput | null {
 /**
  * Upsert one grant. Uses externalId when present; otherwise creates a new record.
  */
-export async function upsertGrant(input: GrantInput): Promise<{ id: string; created: boolean }> {
+export async function upsertGrant(rawInput: GrantInput): Promise<{ id: string; created: boolean }> {
   const supabase = getSupabaseAdmin();
+  const input = await reconcileGrantInputWithIfs(rawInput);
+  if (!input.applicationUrl?.trim()) {
+    throw new Error(`Grant URL is not actionable: no verifiable link left for ${input.name}`);
+  }
+  const qualityIssue = getGrantDataQualityIssue(input);
+  if (qualityIssue) {
+    throw new Error(`Grant record is not actionable (${qualityIssue.code}): ${qualityIssue.message}`);
+  }
   const deadline = parseDeadline(input.deadline);
   if (isPastGrantDeadline(deadline)) {
     throw new Error(`Grant deadline has passed: ${input.name}`);
@@ -294,7 +398,17 @@ export async function upsertGrant(input: GrantInput): Promise<{ id: string; crea
 
   const existing = await findExistingGrantCandidate(supabase, verificationInput, { externalId, deadline });
   if (existing) {
-    await supabase.from("Grant").update(data).eq("id", existing.id);
+    // Never let a weaker listing (aggregator, generic page, no deadline) overwrite
+    // the identity or links of a stronger record it was matched to.
+    const incomingStrength = grantRecordStrength({ ...data, url_status: null });
+    const keepExisting = existing.name != null && grantRecordStrength(existing) > incomingStrength;
+    const update: Record<string, unknown> = keepExisting
+      ? (existing.deadline || !data.deadline ? {} : { deadline: data.deadline })
+      : data;
+    if (Object.keys(update).length > 0) {
+      await supabase.from("Grant").update(update).eq("id", existing.id);
+    }
+    if (keepExisting) return { id: existing.id, created: false };
     if (!directApplicationUrl && detailClassification.quality === "needs_scout") {
       await enqueueGrantForScoutIfProgrammeUrl(existing.id).catch(() => {});
     }

@@ -25,7 +25,7 @@ const DIGEST_STRONG_LIMIT = positiveIntFromEnv("ELIGIBILITY_DIGEST_STRONG_LIMIT"
 const DIGEST_PREVIOUS_LIMIT = positiveIntFromEnv("ELIGIBILITY_DIGEST_PREVIOUS_LIMIT", 12);
 const DIGEST_OTHER_LIMIT = positiveIntFromEnv("ELIGIBILITY_DIGEST_OTHER_LIMIT", 4);
 const GRANT_DIGEST_SELECT_BASE =
-  "id, name, funder, url_status, deadline, createdAt, eligibility, description, objectives, funderLocations, applicantTypes, sectors, regions, applicationUrl";
+  "id, name, funder, url_status, deadline, createdAt, eligibility, description, objectives, funderLocations, applicantTypes, sectors, regions, applicationUrl, source, detailUrl";
 const GRANT_DIGEST_SELECT_WITH_URL_QUALITY =
   `${GRANT_DIGEST_SELECT_BASE}, directApplicationUrl, applicationUrlQuality, applicationUrlKind`;
 const DAILY_ELIGIBILITY_NOTIFICATION_TYPES: NotificationType[] = [
